@@ -98,22 +98,29 @@ make up             # docker-compose up --build -d
 make down
 make logs
 make deploy         # git pull + docker clean rebuild/up
-make deploy-check   # remote commit өөрчлөгдсөн үед deploy хийх
 ```
 
 ## Auto Deploy
 
-Deploy server дээр repo-г `deploy` хэрэглэгчийн `/home/deploy/government`
-хавтаст clone хийсэн гэж үзнэ. GitHub/Git remote дээр `main` branch-д шинэ commit
-орж ирэхэд systemd timer 30 секунд тутам шалгаад pull хийж Docker-ийг шинээр
-build/recreate хийнэ.
+GitHub Actions нь `main` branch руу push/merge ороход deploy server рүү SSH
+ороод `make deploy` ажиллуулна. Deploy server дээр repo
+`/home/deploy/government` хавтаст clone хийгдсэн, `.env` файл байгаа, `deploy`
+user Docker ажиллуулах эрхтэй байх ёстой.
 
-```bash
-sudo cp deployments/systemd/government-auto-deploy.service /etc/systemd/system/
-sudo cp deployments/systemd/government-auto-deploy.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now government-auto-deploy.timer
-```
+GitHub repo дээр `Settings -> Secrets and variables -> Actions` дотор:
+
+| Secret | Утга |
+|--------|------|
+| `DEPLOY_HOST` | Server IP/domain |
+| `DEPLOY_USER` | `deploy` |
+| `DEPLOY_PORT` | `22` |
+| `DEPLOY_SSH_KEY` | Server рүү SSH орох private key |
+
+`DEPLOY_SSH_KEY`-ийн public key нь server дээр
+`/home/deploy/.ssh/authorized_keys` дотор байх ёстой. Харин server дээр
+`make deploy` ажиллах үед `git pull` хийгдэх тул `deploy` user GitHub repo-г
+унших эрхтэй байх хэрэгтэй. Үүнийг GitHub `Deploy keys` эсвэл deploy user-ийн
+SSH key-р тохируулна.
 
 Manual deploy:
 
