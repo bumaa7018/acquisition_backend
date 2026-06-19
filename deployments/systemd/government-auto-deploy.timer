@@ -1,0 +1,12 @@
+[Unit]
+Description=Run government backend auto deploy check
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Persistent=true
+Unit=government-auto-deploy.service
+
+[Install]
+WantedBy=timers.target

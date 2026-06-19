@@ -1,0 +1,12 @@
+.git
+.gitignore
+.air_tmp
+.env
+.env.*
+coverage.out
+coverage.html
+server
+api
+*.test
+vendor
+tmp

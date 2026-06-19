@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed swag fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed swag deploy deploy-check docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
@@ -75,6 +75,15 @@ logs:
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
+
+deploy:
+	./scripts/deploy.sh
+
+deploy-check:
+	./scripts/deploy-on-change.sh
+
+docker-rebuild:
+	SKIP_GIT_PULL=1 ./scripts/deploy.sh
 
 # ─── Frontend ──────────────────────────────────────────────────────────────────
 FE_DIR ?= ../government-frontend

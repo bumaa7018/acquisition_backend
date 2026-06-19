@@ -8,10 +8,10 @@ Production-ready Go REST API with Clean Architecture — Gin, PostgreSQL, JWT, R
 git clone <repo>
 cd go-api-template
 cp .env.example .env
-make docker-up
+make up
 ```
 
-`make docker-up` дуусмагц:
+`make up` дуусмагц:
 - PostgreSQL асна (healthcheck дамжуулсны дараа)
 - Migration автоматаар хийгдэнэ
 - Admin хэрэглэгч болон permission-ууд seed хийгдэнэ
@@ -94,10 +94,36 @@ make test-cover     # coverage тайлантай
 make lint           # golangci-lint
 make migrate-up     # migration
 make migrate-down
-make docker-up      # docker-compose up --build -d
-make docker-down
-make docker-logs
+make up             # docker-compose up --build -d
+make down
+make logs
+make deploy         # git pull + docker clean rebuild/up
+make deploy-check   # remote commit өөрчлөгдсөн үед deploy хийх
 ```
+
+## Auto Deploy
+
+Deploy server дээр repo-г `deploy` хэрэглэгчийн `/home/deploy/government`
+хавтаст clone хийсэн гэж үзнэ. GitHub/Git remote дээр `main` branch-д шинэ commit
+орж ирэхэд systemd timer 30 секунд тутам шалгаад pull хийж Docker-ийг шинээр
+build/recreate хийнэ.
+
+```bash
+sudo cp deployments/systemd/government-auto-deploy.service /etc/systemd/system/
+sudo cp deployments/systemd/government-auto-deploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now government-auto-deploy.timer
+```
+
+Manual deploy:
+
+```bash
+make deploy
+```
+
+Deploy үед `postgres_data` volume устахгүй. Compose project-ийн бусад volume,
+хуучин local image, unused image болон build cache цэвэрлэгдээд image дахин
+build хийгдэнэ.
 
 ## curl Examples
 

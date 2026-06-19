@@ -5,9 +5,3 @@ coverage.html
 *.test
 vendor/
 .air_tmp/
-
-# Frontend build artifacts
-frontend/node_modules/
-frontend/.next/
-frontend/.env.local
-frontend/.env*.local
