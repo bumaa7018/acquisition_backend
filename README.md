@@ -94,10 +94,10 @@ make test-cover     # coverage тайлантай
 make lint           # golangci-lint
 make migrate-up     # migration
 make migrate-down
-make up             # docker-compose up --build -d
+make up             # docker compose build/up + dangling cleanup
 make down
 make logs
-make deploy         # git pull + docker clean rebuild/up
+make deploy         # git pull + docker build/up + dangling cleanup
 ```
 
 ## Auto Deploy
@@ -129,9 +129,9 @@ Manual deploy:
 make deploy
 ```
 
-Deploy үед `postgres_data` volume устахгүй. Compose project-ийн бусад volume,
-хуучин local image, unused image болон build cache цэвэрлэгдээд image дахин
-build хийгдэнэ.
+Deploy үед volume устгахгүй, бүх image устгахгүй. Docker build cache ашиглаж
+image build хийгээд service-үүдийг асаана. Disk дүүрэхээс сэргийлж зөвхөн
+dangling image болон ашиглагдахгүй build cache цэвэрлэнэ.
 
 ## curl Examples
 

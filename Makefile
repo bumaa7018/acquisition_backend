@@ -65,7 +65,7 @@ migrate-auth-down:
 	migrate -path ./migrations/auth -database "$(AUTH_DSN)" down 1
 
 up:
-	docker compose -f deployments/docker-compose.yml --env-file .env up --build -d
+	SKIP_GIT_PULL=1 ./scripts/deploy.sh
 
 down:
 	docker compose -f deployments/docker-compose.yml down
