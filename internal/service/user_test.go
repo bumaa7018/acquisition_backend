@@ -1,0 +1,101 @@
+package service_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/service"
+	"github.com/your-org/go-api-template/internal/service/mocks"
+)
+
+func TestUserService_GetByID_Success(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	id := uuid.New()
+	user := &domain.User{ID: id, Email: "u@example.com", Password: "hashed"}
+	repo.On("GetByID", context.Background(), id).Return(user, nil)
+
+	svc := service.NewUserService(repo)
+	got, err := svc.GetByID(context.Background(), id)
+
+	require.NoError(t, err)
+	assert.Equal(t, id, got.ID)
+	assert.Empty(t, got.Password)
+	repo.AssertExpectations(t)
+}
+
+func TestUserService_GetByID_NotFound(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	id := uuid.New()
+	repo.On("GetByID", context.Background(), id).Return(nil, domain.ErrNotFound)
+
+	svc := service.NewUserService(repo)
+	_, err := svc.GetByID(context.Background(), id)
+
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+}
+
+func TestUserService_Create_Success(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	repo.On("GetByEmail", context.Background(), "new@example.com").Return(nil, domain.ErrNotFound)
+	repo.On("Create", context.Background(), mock_any_user()).Return(nil)
+
+	svc := service.NewUserService(repo)
+	user, err := svc.Create(context.Background(), service.CreateUserRequest{
+		Email:     "new@example.com",
+		Password:  "Password123!",
+		FirstName: "New",
+		LastName:  "User",
+		IsActive:  true,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "new@example.com", user.Email)
+	assert.Empty(t, user.Password)
+	repo.AssertExpectations(t)
+}
+
+func TestUserService_Create_DuplicateEmail(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	existing := &domain.User{ID: uuid.New(), Email: "dup@example.com"}
+	repo.On("GetByEmail", context.Background(), "dup@example.com").Return(existing, nil)
+
+	svc := service.NewUserService(repo)
+	_, err := svc.Create(context.Background(), service.CreateUserRequest{
+		Email:    "dup@example.com",
+		Password: "Password123!",
+	})
+
+	assert.ErrorIs(t, err, domain.ErrAlreadyExists)
+}
+
+func TestUserService_Delete_Success(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	id := uuid.New()
+	repo.On("Delete", context.Background(), id).Return(nil)
+
+	svc := service.NewUserService(repo)
+	err := svc.Delete(context.Background(), id)
+
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+func TestUserService_List_DefaultPagination(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	users := []*domain.User{{ID: uuid.New(), Email: "a@a.com", Password: "h"}}
+	// Expect page=1, pageSize=20 defaults
+	repo.On("List", context.Background(), domain.UserFilter{Page: 1, PageSize: 20}).
+		Return(users, int64(1), nil)
+
+	svc := service.NewUserService(repo)
+	got, total, err := svc.List(context.Background(), domain.UserFilter{})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, got, 1)
+	assert.Empty(t, got[0].Password)
+}

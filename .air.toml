@@ -1,0 +1,55 @@
+root = "."
+testdata_dir = "testdata"
+tmp_dir = ".air_tmp"
+
+[build]
+  args_bin = []
+  entrypoint = ".air_tmp/server"
+  cmd = "go build -o .air_tmp/server ./cmd/api"
+  delay = 300
+  exclude_dir = [
+    ".air_tmp", "vendor", "deployments", "docs",
+    "migrations", "frontend", "testdata", ".git",
+  ]
+  exclude_file = []
+  exclude_regex = ["_test\\.go$"]
+  exclude_unchanged = true
+  follow_symlinks = false
+  full_bin = ""
+  include_dir = ["cmd", "internal"]
+  include_ext = ["go"]
+  include_file = []
+  kill_delay = "0s"
+  log = ".air_tmp/build.log"
+  poll = false
+  poll_interval = 0
+  post_cmd = []
+  pre_cmd = []
+  rerun = false
+  rerun_delay = 500
+  send_interrupt = true
+  stop_on_root_change_enabled = false
+
+[color]
+  app = "white"
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  silent = false
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[proxy]
+  app_port = 0
+  enabled = false
+  proxy_port = 0
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true

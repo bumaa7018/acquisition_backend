@@ -1,0 +1,73 @@
+package repository
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"github.com/your-org/go-api-template/internal/domain"
+)
+
+type UserRepository interface {
+	Create(ctx context.Context, user *domain.User) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	Update(ctx context.Context, user *domain.User) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
+	GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error)
+}
+
+type RoleRepository interface {
+	Create(ctx context.Context, role *domain.Role) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error)
+	GetByName(ctx context.Context, name string) (*domain.Role, error)
+	Update(ctx context.Context, role *domain.Role) error
+	Delete(ctx context.Context, id uuid.UUID) error
+	List(ctx context.Context) ([]*domain.Role, error)
+	AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error
+	RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error
+	AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error
+	RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error
+}
+
+type PermissionRepository interface {
+	Create(ctx context.Context, p *domain.Permission) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error)
+	GetByName(ctx context.Context, name string) (*domain.Permission, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	List(ctx context.Context) ([]*domain.Permission, error)
+}
+
+type PasswordResetRepository interface {
+	Create(ctx context.Context, token *domain.PasswordResetToken) error
+	GetByToken(ctx context.Context, token string) (*domain.PasswordResetToken, error)
+	MarkUsed(ctx context.Context, id uuid.UUID) error
+	DeleteExpired(ctx context.Context) error
+}
+
+// PlanRepository — auth DB-аас төлөвлөгөө, эх нэгж талбар уншина
+type PlanRepository interface {
+	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)
+	GetSourceParcels(ctx context.Context, planCode string) ([]*domain.SourceParcel, error)
+	GetSourceParcelByID(ctx context.Context, parcelID string) (*domain.SourceParcel, error)
+}
+
+// LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ
+type LandAcquisitionRepository interface {
+	Create(ctx context.Context, acq *domain.LandAcquisition) error
+	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
+	ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error)
+	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
+	CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error
+	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error
+	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
+	GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.Parcel, error)
+	GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error)
+	UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error
+	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
+	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
+	Update(ctx context.Context, acq *domain.LandAcquisition) error
+	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
+	Delete(ctx context.Context, id uuid.UUID) error
+}
