@@ -104,7 +104,7 @@ make deploy         # git pull + docker clean rebuild/up
 
 GitHub Actions нь `main` branch руу push/merge ороход deploy server рүү SSH
 ороод `make deploy` ажиллуулна. Deploy server дээр repo
-`/home/deploy/government` хавтаст clone хийгдсэн, `.env` файл байгаа, `deploy`
+`/home/deploy/acquisition_backend` хавтаст clone хийгдсэн, `.env` файл байгаа, `deploy`
 user Docker ажиллуулах эрхтэй байх ёстой.
 
 GitHub repo дээр `Settings -> Secrets and variables -> Actions` дотор:
@@ -114,6 +114,7 @@ GitHub repo дээр `Settings -> Secrets and variables -> Actions` дотор:
 | `DEPLOY_HOST` | Server IP/domain |
 | `DEPLOY_USER` | `deploy` |
 | `DEPLOY_PORT` | `22` |
+| `DEPLOY_PATH` | `/home/deploy/acquisition_backend` |
 | `DEPLOY_SSH_KEY` | Server рүү SSH орох private key |
 
 `DEPLOY_SSH_KEY`-ийн public key нь server дээр
