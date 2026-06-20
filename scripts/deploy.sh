@@ -60,7 +60,7 @@ echo "Docker image build хийж байна..."
 compose build --pull
 
 echo "Docker service-үүдийг шинээр асааж байна..."
-compose up -d --remove-orphans
+compose up -d --remove-orphans --wait
 
 echo "Dangling image болон ашиглагдахгүй build cache цэвэрлэж байна..."
 docker image prune -f
