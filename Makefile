@@ -68,7 +68,11 @@ up:
 	SKIP_GIT_PULL=1 ./scripts/deploy.sh
 
 down:
-	docker compose -f deployments/docker-compose.yml down
+	docker compose -f deployments/docker-compose.yml --env-file .env down
+
+reset:
+	docker compose -f deployments/docker-compose.yml --env-file .env down -v
+	SKIP_GIT_PULL=1 ./scripts/deploy.sh
 
 logs:
 	docker compose -f deployments/docker-compose.yml logs -f
