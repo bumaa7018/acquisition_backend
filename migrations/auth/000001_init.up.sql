@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- Хэрэглэгч
 CREATE TABLE IF NOT EXISTS users (
@@ -66,20 +67,22 @@ CREATE TABLE IF NOT EXISTS plan (
     id           UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     plan_code    VARCHAR(100) NOT NULL UNIQUE,
     name         VARCHAR(255) NOT NULL,
-    boundary_wkt TEXT         NOT NULL,
+    boundary_wkt geometry(Polygon, 4326) NOT NULL,
     area_m2      NUMERIC(18, 4),
     status       SMALLINT     NOT NULL DEFAULT 2,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 COMMENT ON COLUMN plan.status IS '1=DRAFT, 2=ACTIVE, 3=ARCHIVED';
+COMMENT ON COLUMN plan.boundary_wkt IS 'PostGIS geometry(Polygon, 4326)';
+CREATE INDEX IF NOT EXISTS idx_plan_boundary_wkt ON plan USING GIST (boundary_wkt);
 
 -- Эх нэгж талбар (чөлөөлөлтын өмнөх бүртгэл)
 CREATE TABLE IF NOT EXISTS source_parcel (
     id                 UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     parcel_id          VARCHAR(12)  NOT NULL UNIQUE,
     plan_code          VARCHAR(100) NOT NULL REFERENCES plan(plan_code),
-    geometry_wkt       TEXT         NOT NULL,
+    geometry_wkt       geometry(Polygon, 4326) NOT NULL,
     au1_code           VARCHAR(10),
     au2_code           VARCHAR(10),
     au3_code           VARCHAR(10),
@@ -103,3 +106,4 @@ CREATE TABLE IF NOT EXISTS source_parcel (
     created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_source_parcel_plan_code ON source_parcel (plan_code);
+CREATE INDEX IF NOT EXISTS idx_source_parcel_geometry_wkt ON source_parcel USING GIST (geometry_wkt);

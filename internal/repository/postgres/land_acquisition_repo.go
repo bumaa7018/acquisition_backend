@@ -25,13 +25,13 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 			geometry, area_m2,
 			status, start_date, end_date,
 			created_at, created_by, updated_at, updated_by
-		) VALUES (
-			$1, $2, $3,
-			$4, $5,
-			$6, $7,
-			$8, $9, $10,
-			$11, $12, $13, $14
-		)
+			) VALUES (
+				$1, $2, $3,
+				ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326), $5,
+				ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326), $7,
+				$8, $9, $10,
+				$11, $12, $13, $14
+			)
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode,
 		acq.PlanGeomWKT, acq.PlanAreaM2,
@@ -94,12 +94,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	offset := (page - 1) * pageSize
 
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-		SELECT id, plan_id, plan_code,
-		       COALESCE(plan_geom,''), COALESCE(plan_area_m2,0),
-		       COALESCE(geometry,''), COALESCE(area_m2,0),
-		       status, start_date, end_date,
-		       created_at, COALESCE(created_by,''),
-		       updated_at, COALESCE(updated_by,'')
+			SELECT id, plan_id, plan_code,
+			       COALESCE(ST_AsText(plan_geom),''), COALESCE(plan_area_m2,0),
+			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
+			       status, start_date, end_date,
+			       created_at, COALESCE(created_by,''),
+			       updated_at, COALESCE(updated_by,'')
 		FROM land_acquisition
 		WHERE %s
 		ORDER BY created_at DESC
@@ -131,12 +131,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error) {
 	acq := &domain.LandAcquisition{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, plan_id, plan_code,
-		       COALESCE(plan_geom,''), COALESCE(plan_area_m2,0),
-		       COALESCE(geometry,''), COALESCE(area_m2,0),
-		       status, start_date, end_date,
-		       created_at, COALESCE(created_by,''),
-		       updated_at, COALESCE(updated_by,'')
+			SELECT id, plan_id, plan_code,
+			       COALESCE(ST_AsText(plan_geom),''), COALESCE(plan_area_m2,0),
+			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
+			       status, start_date, end_date,
+			       created_at, COALESCE(created_by,''),
+			       updated_at, COALESCE(updated_by,'')
 		FROM land_acquisition
 		WHERE id = $1
 	`, id).Scan(
@@ -200,11 +200,11 @@ func (r *landAcqRepo) getAUs(ctx context.Context, acqID uuid.UUID) ([]domain.Lan
 func (r *landAcqRepo) ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error) {
 	var ok bool
 	err := r.db.QueryRow(ctx, `
-		SELECT ST_Within(
-			ST_GeomFromText($1, 4326),
-			ST_GeomFromText($2, 4326)
-		)
-	`, innerWKT, outerWKT).Scan(&ok)
+			SELECT ST_Within(
+				ST_GeomFromText($1, 4326)::geometry(Polygon, 4326),
+				ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)
+			)
+		`, innerWKT, outerWKT).Scan(&ok)
 	return ok, err
 }
 
@@ -217,8 +217,8 @@ func (r *landAcqRepo) FindIntersectingAU3(ctx context.Context, geomWKT string) (
 		FROM au3 a3
 		JOIN au1 a1 ON a1.code = a3.au1_code
 		JOIN au2 a2 ON a2.code = a3.au2_code
-		WHERE a3.geometry IS NOT NULL
-		  AND ST_Intersects(ST_GeomFromText(a3.geometry, 4326), ST_GeomFromText($1, 4326))
+			WHERE a3.geometry IS NOT NULL
+			  AND ST_Intersects(a3.geometry, ST_GeomFromText($1, 4326)::geometry(Polygon, 4326))
 	`, geomWKT)
 	if err != nil {
 		return nil, err
@@ -263,11 +263,11 @@ func (r *landAcqRepo) BulkInsertParcels(ctx context.Context, acquisitionID uuid.
 	for _, sp := range parcels {
 		var intersects bool
 		if err := r.db.QueryRow(ctx, `
-			SELECT ST_Intersects(
-				ST_GeomFromText($1, 4326),
-				ST_GeomFromText($2, 4326)
-			)
-		`, sp.GeometryWKT, acqWKT).Scan(&intersects); err != nil {
+				SELECT ST_Intersects(
+					ST_GeomFromText($1, 4326)::geometry(Polygon, 4326),
+					ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)
+				)
+			`, sp.GeometryWKT, acqWKT).Scan(&intersects); err != nil {
 			continue // невалид geometry → skip
 		}
 		if !intersects {
@@ -275,24 +275,37 @@ func (r *landAcqRepo) BulkInsertParcels(ctx context.Context, acquisitionID uuid.
 		}
 
 		_, err := r.db.Exec(ctx, `
-			INSERT INTO parcel (
-				id, parcel_id, acquisition_id,
-				au1_code, au2_code, au3_code,
-				geometry,
+				WITH geom AS (
+					SELECT
+						ST_GeomFromText($6, 4326)::geometry(Polygon, 4326) AS parcel_geom,
+						ST_GeomFromText($7, 4326)::geometry(Polygon, 4326) AS acquisition_geom
+				),
+				overlap AS (
+					SELECT ST_GeometryN(ST_CollectionExtract(ST_Intersection(parcel_geom, acquisition_geom), 3), 1)::geometry(Polygon, 4326) AS geom
+					FROM geom
+				)
+				INSERT INTO parcel (
+					id, parcel_id, acquisition_id,
+					au1_code, au2_code, au3_code,
+					geometry,
 				acquisition_geom,
 				acquisition_area_m2,
 				right_type, landuse, area_m2,
 				created_at, created_by, updated_at, updated_by
-			) VALUES (
-				uuid_generate_v4(), $1, $2,
-				$3, $4, $5,
-				$6,
-				ST_AsText(ST_Intersection(ST_GeomFromText($6, 4326), ST_GeomFromText($7, 4326))),
-				ST_Area(ST_Intersection(ST_GeomFromText($6, 4326), ST_GeomFromText($7, 4326))::geography),
-				$8, $9, $10,
-				$11, 'system', $12, 'system'
-			) ON CONFLICT (parcel_id) DO NOTHING
-		`,
+				)
+				SELECT
+					uuid_generate_v4(), $1, $2,
+					$3, $4, $5,
+					geom.parcel_geom,
+					overlap.geom,
+					ST_Area(overlap.geom::geography),
+					$8, $9, $10,
+					$11, 'system', $12, 'system'
+				FROM geom, overlap
+				WHERE overlap.geom IS NOT NULL
+				  AND NOT ST_IsEmpty(overlap.geom)
+				ON CONFLICT (parcel_id) DO NOTHING
+			`,
 			sp.ParcelID, acquisitionID,
 			sp.AU1Code, sp.AU2Code, sp.AU3Code,
 			sp.GeometryWKT, acqWKT,
@@ -361,13 +374,13 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 
 	rows, err := r.db.Query(ctx,
 		fmt.Sprintf(`
-			SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
-			       acquisition_id, valid_from, valid_till,
-			       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
-			       COALESCE(geometry,''),
-			       COALESCE(acquisition_area_m2,0),
-			       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
-			       created_at, COALESCE(created_by,'')
+				SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
+				       acquisition_id, valid_from, valid_till,
+				       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
+				       COALESCE(ST_AsText(geometry),''),
+				       COALESCE(acquisition_area_m2,0),
+				       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+				       created_at, COALESCE(created_by,'')
 			FROM parcel
 			WHERE %s
 			ORDER BY parcel_id
@@ -402,14 +415,14 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.Parcel, error) {
 	p := &domain.Parcel{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
-		       acquisition_id, valid_from, valid_till,
-		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
-		       COALESCE(geometry,''),
-		       COALESCE(acquisition_geom,''),
-		       COALESCE(acquisition_area_m2,0),
-		       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
-		       created_at, COALESCE(created_by,'')
+			SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
+			       acquisition_id, valid_from, valid_till,
+			       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
+			       COALESCE(ST_AsText(geometry),''),
+			       COALESCE(ST_AsText(acquisition_geom),''),
+			       COALESCE(acquisition_area_m2,0),
+			       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+			       created_at, COALESCE(created_by,'')
 		FROM parcel
 		WHERE id = $1
 	`, id).Scan(
@@ -434,14 +447,14 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			p.id, COALESCE(p.parcel_id,''), COALESCE(p.old_parcel_id,''),
-			p.acquisition_id, p.valid_from, p.valid_till,
-			COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
-			COALESCE(p.geometry,''),
-			COALESCE(p.acquisition_geom,''),
-			COALESCE(p.acquisition_area_m2,0),
-			COALESCE(p.right_type,''), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
-			p.created_at, COALESCE(p.created_by,''),
+				p.id, COALESCE(p.parcel_id,''), COALESCE(p.old_parcel_id,''),
+				p.acquisition_id, p.valid_from, p.valid_till,
+				COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
+				COALESCE(ST_AsText(p.geometry),''),
+				COALESCE(ST_AsText(p.acquisition_geom),''),
+				COALESCE(p.acquisition_area_m2,0),
+				COALESCE(p.right_type,''), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
+				p.created_at, COALESCE(p.created_by,''),
 			COALESCE(pd.right_type,''),
 			COALESCE(pd.app_no,''), pd.app_timestamps,
 			COALESCE(pd.decision_no,''), pd.decision_date,
@@ -485,13 +498,25 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 
 func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error {
 	_, err := r.db.Exec(ctx, `
+		WITH overlap AS (
+			SELECT ST_GeometryN(
+				ST_CollectionExtract(
+					ST_Intersection(geometry, ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)),
+					3
+				),
+				1
+			)::geometry(Polygon, 4326) AS geom
+			FROM parcel
+			WHERE id = $1
+		)
 		UPDATE parcel SET
-			acquisition_geom    = ST_AsText(ST_Intersection(ST_GeomFromText(geometry, 4326), ST_GeomFromText($2, 4326))),
-			acquisition_area_m2 = ST_Area(ST_Intersection(ST_GeomFromText(geometry, 4326), ST_GeomFromText($2, 4326))::geography),
+			acquisition_geom    = (SELECT geom FROM overlap),
+			acquisition_area_m2 = ST_Area((SELECT geom FROM overlap)::geography),
 			updated_at          = NOW()
 		WHERE id = $1
 		  AND geometry IS NOT NULL
-		  AND ST_Intersects(ST_GeomFromText(geometry, 4326), ST_GeomFromText($2, 4326))
+		  AND (SELECT geom FROM overlap) IS NOT NULL
+		  AND NOT ST_IsEmpty((SELECT geom FROM overlap))
 	`, parcelID, acqWKT)
 	return err
 }
@@ -568,13 +593,13 @@ func (r *landAcqRepo) UpsertParcelRight(ctx context.Context, parcelID, acquisiti
 
 func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) error {
 	_, err := r.db.Exec(ctx, `
-		UPDATE land_acquisition SET
-			plan_id       = $2,
-			plan_code     = $3,
-			plan_geom     = $4,
-			plan_area_m2  = $5,
-			geometry      = $6,
-			area_m2       = $7,
+			UPDATE land_acquisition SET
+				plan_id       = $2,
+				plan_code     = $3,
+				plan_geom     = ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326),
+				plan_area_m2  = $5,
+				geometry      = ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326),
+				area_m2       = $7,
 			start_date    = $8,
 			end_date      = $9,
 			updated_at    = NOW(),

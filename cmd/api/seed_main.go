@@ -54,11 +54,11 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 	// Аймаг — Төв аймаг (ойролцоо хил, хялбарчилсан)
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO au1 (id, code, name, area_m2, geometry, created_by, updated_by)
-		VALUES (
-			uuid_generate_v4(), $1, $2, $3,
-			$4,
-			'system', 'system'
-		)
+			VALUES (
+				uuid_generate_v4(), $1, $2, $3,
+				ST_GeomFromText($4, 4326)::geometry(Polygon, 4326),
+				'system', 'system'
+			)
 		ON CONFLICT (code) DO NOTHING
 	`,
 		"01",
@@ -73,11 +73,11 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 	// Сум — Зуунмод сум
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO au2 (id, code, name, au1_code, area_m2, geometry, created_by, updated_by)
-		VALUES (
-			uuid_generate_v4(), $1, $2, $3, $4,
-			$5,
-			'system', 'system'
-		)
+			VALUES (
+				uuid_generate_v4(), $1, $2, $3, $4,
+				ST_GeomFromText($5, 4326)::geometry(Polygon, 4326),
+				'system', 'system'
+			)
 		ON CONFLICT (code) DO NOTHING
 	`,
 		"0101",
@@ -93,11 +93,11 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 	// Баг — 1-р баг
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO au3 (id, code, name, au1_code, au2_code, area_m2, geometry, created_by, updated_by)
-		VALUES (
-			uuid_generate_v4(), $1, $2, $3, $4, $5,
-			$6,
-			'system', 'system'
-		)
+			VALUES (
+				uuid_generate_v4(), $1, $2, $3, $4, $5,
+				ST_GeomFromText($6, 4326)::geometry(Polygon, 4326),
+				'system', 'system'
+			)
 		ON CONFLICT (code) DO NOTHING
 	`,
 		"010101",
@@ -136,14 +136,14 @@ func (s *MainSeeder) seedLandAcquisition(ctx context.Context) (uuid.UUID, error)
 			status, start_date, end_date,
 			created_by, updated_by
 		) VALUES (
-			uuid_generate_v4(),
-			uuid_generate_v4(),
-			$1,
-			$2, $3,
-			$4, $5,
-			$6, $7, $8,
-			'system', 'system'
-		)
+				uuid_generate_v4(),
+				uuid_generate_v4(),
+				$1,
+				ST_GeomFromText($2, 4326)::geometry(Polygon, 4326), $3,
+				ST_GeomFromText($4, 4326)::geometry(Polygon, 4326), $5,
+				$6, $7, $8,
+				'system', 'system'
+			)
 		RETURNING id
 	`,
 		"LA-2024-001",
@@ -230,12 +230,12 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 			created_by, updated_by
 		) VALUES (
 			uuid_generate_v4(), $1, $2,
-			$3,
-			$4, NULL,
-			$5, $6, $7,
-			$8, $9, $10, $11,
-			'system', 'system'
-		)
+				$3,
+				$4, NULL,
+				$5, $6, $7,
+				ST_GeomFromText($8, 4326)::geometry(Polygon, 4326), $9, $10, $11,
+				'system', 'system'
+			)
 		ON CONFLICT (parcel_id) DO UPDATE SET updated_at = NOW()
 		RETURNING id
 	`,

@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS land_acquisition (
     id           UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
     plan_id      UUID,
     plan_code    VARCHAR(100)   NOT NULL,
-    plan_geom    TEXT,
+    plan_geom    geometry(Polygon, 4326),
     plan_area_m2 NUMERIC(18, 4),
-    geometry     TEXT,
+    geometry     geometry(Polygon, 4326),
     area_m2      NUMERIC(18, 4),
     status       SMALLINT       NOT NULL DEFAULT 2,
     start_date   DATE,
@@ -19,11 +19,13 @@ CREATE TABLE IF NOT EXISTS land_acquisition (
     updated_by   VARCHAR(255)
 );
 COMMENT ON COLUMN land_acquisition.status IS '1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED';
-COMMENT ON COLUMN land_acquisition.geometry IS 'WKT хэлбэрт (POLYGON(...))';
-COMMENT ON COLUMN land_acquisition.plan_geom IS 'WKT хэлбэрт (POLYGON(...))';
+COMMENT ON COLUMN land_acquisition.geometry IS 'PostGIS geometry(Polygon, 4326)';
+COMMENT ON COLUMN land_acquisition.plan_geom IS 'PostGIS geometry(Polygon, 4326)';
 
 CREATE INDEX IF NOT EXISTS idx_land_acquisition_status    ON land_acquisition (status);
 CREATE INDEX IF NOT EXISTS idx_land_acquisition_plan_code ON land_acquisition (plan_code);
+CREATE INDEX IF NOT EXISTS idx_land_acquisition_plan_geom ON land_acquisition USING GIST (plan_geom);
+CREATE INDEX IF NOT EXISTS idx_land_acquisition_geometry  ON land_acquisition USING GIST (geometry);
 
 -- 2. аймаг (au1)
 CREATE TABLE IF NOT EXISTS au1 (
@@ -31,13 +33,14 @@ CREATE TABLE IF NOT EXISTS au1 (
     code       VARCHAR(10)  NOT NULL UNIQUE,
     name       VARCHAR(100) NOT NULL,
     area_m2    NUMERIC(18, 4),
-    geometry   TEXT,
+    geometry   geometry(Polygon, 4326),
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     created_by VARCHAR(255),
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_by VARCHAR(255)
 );
-COMMENT ON COLUMN au1.geometry IS 'WKT хэлбэрт';
+COMMENT ON COLUMN au1.geometry IS 'PostGIS geometry(Polygon, 4326)';
+CREATE INDEX IF NOT EXISTS idx_au1_geometry ON au1 USING GIST (geometry);
 
 -- 3. сум (au2)
 CREATE TABLE IF NOT EXISTS au2 (
@@ -46,13 +49,14 @@ CREATE TABLE IF NOT EXISTS au2 (
     name       VARCHAR(100) NOT NULL,
     au1_code   VARCHAR(10)  NOT NULL REFERENCES au1(code),
     area_m2    NUMERIC(18, 4),
-    geometry   TEXT,
+    geometry   geometry(Polygon, 4326),
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     created_by VARCHAR(255),
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_by VARCHAR(255)
 );
 CREATE INDEX IF NOT EXISTS idx_au2_au1_code ON au2 (au1_code);
+CREATE INDEX IF NOT EXISTS idx_au2_geometry ON au2 USING GIST (geometry);
 
 -- 4. баг (au3)
 CREATE TABLE IF NOT EXISTS au3 (
@@ -62,7 +66,7 @@ CREATE TABLE IF NOT EXISTS au3 (
     au1_code   VARCHAR(10)  NOT NULL REFERENCES au1(code),
     au2_code   VARCHAR(10)  NOT NULL REFERENCES au2(code),
     area_m2    NUMERIC(18, 4),
-    geometry   TEXT,
+    geometry   geometry(Polygon, 4326),
     created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     created_by VARCHAR(255),
     updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
@@ -70,6 +74,7 @@ CREATE TABLE IF NOT EXISTS au3 (
 );
 CREATE INDEX IF NOT EXISTS idx_au3_au1_code ON au3 (au1_code);
 CREATE INDEX IF NOT EXISTS idx_au3_au2_code ON au3 (au2_code);
+CREATE INDEX IF NOT EXISTS idx_au3_geometry ON au3 USING GIST (geometry);
 
 -- 5. газар чөлөөлөлт ↔ захиргааны нэгж холбоос
 CREATE TABLE IF NOT EXISTS land_acquisition_au (
@@ -115,8 +120,8 @@ CREATE TABLE IF NOT EXISTS parcel (
     au1_code            VARCHAR(10),
     au2_code            VARCHAR(10),
     au3_code            VARCHAR(10),
-    geometry            TEXT,
-    acquisition_geom    TEXT,
+    geometry            geometry(Polygon, 4326),
+    acquisition_geom    geometry(Polygon, 4326),
     acquisition_area_m2 NUMERIC(18, 4),
     right_type          VARCHAR(50),
     landuse             VARCHAR(100),
@@ -126,12 +131,14 @@ CREATE TABLE IF NOT EXISTS parcel (
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_by          VARCHAR(255)
 );
-COMMENT ON COLUMN parcel.geometry         IS 'WKT хэлбэрт';
-COMMENT ON COLUMN parcel.acquisition_geom IS 'Нэгж талбар болон чөлөөлөлтийн бүсийн давхцах хэсгийн геометр (WKT)';
+COMMENT ON COLUMN parcel.geometry         IS 'PostGIS geometry(Polygon, 4326)';
+COMMENT ON COLUMN parcel.acquisition_geom IS 'Нэгж талбар болон чөлөөлөлтийн бүсийн давхцах хэсгийн PostGIS geometry(Polygon, 4326)';
 COMMENT ON COLUMN parcel.acquisition_area_m2 IS 'Давхцах хэсгийн талбай (м²)';
 
 CREATE INDEX IF NOT EXISTS idx_parcel_acquisition_id ON parcel (acquisition_id);
 CREATE INDEX IF NOT EXISTS idx_parcel_au_codes       ON parcel (au1_code, au2_code, au3_code);
+CREATE INDEX IF NOT EXISTS idx_parcel_geometry       ON parcel USING GIST (geometry);
+CREATE INDEX IF NOT EXISTS idx_parcel_acquisition_geom ON parcel USING GIST (acquisition_geom);
 
 -- 8. нэгж талбарын эрх зүйн дэлгэрэнгүй мэдээлэл
 CREATE TABLE IF NOT EXISTS parcel_detail (

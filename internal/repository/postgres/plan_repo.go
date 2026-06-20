@@ -19,7 +19,7 @@ func NewPlanRepo(db *pgxpool.Pool) repository.PlanRepository {
 func (r *planRepo) GetByCode(ctx context.Context, planCode string) (*domain.Plan, error) {
 	var p domain.Plan
 	err := r.db.QueryRow(ctx, `
-		SELECT id, plan_code, name, boundary_wkt, COALESCE(area_m2, 0), status, created_at, updated_at
+		SELECT id, plan_code, name, ST_AsText(boundary_wkt), COALESCE(area_m2, 0), status, created_at, updated_at
 		FROM plan
 		WHERE plan_code = $1
 	`, planCode).Scan(
@@ -34,7 +34,7 @@ func (r *planRepo) GetByCode(ctx context.Context, planCode string) (*domain.Plan
 
 func (r *planRepo) GetSourceParcels(ctx context.Context, planCode string) ([]*domain.SourceParcel, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, parcel_id, plan_code, geometry_wkt,
+		SELECT id, parcel_id, plan_code, ST_AsText(geometry_wkt),
 		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
 		       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       COALESCE(holder_last_name,''), COALESCE(holder_name,''),
@@ -78,7 +78,7 @@ func (r *planRepo) GetSourceParcels(ctx context.Context, planCode string) ([]*do
 func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*domain.SourceParcel, error) {
 	sp := &domain.SourceParcel{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, parcel_id, plan_code, geometry_wkt,
+		SELECT id, parcel_id, plan_code, ST_AsText(geometry_wkt),
 		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
 		       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       COALESCE(holder_last_name,''), COALESCE(holder_name,''),
@@ -112,5 +112,5 @@ func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*d
 var _ repository.PlanRepository = (*planRepo)(nil)
 
 // helper — used only in this file
-func ptrTime(t time.Time) *time.Time { return &t }
+func ptrTime(t time.Time) *time.Time  { return &t }
 func ptrUUID(id uuid.UUID) *uuid.UUID { return &id }

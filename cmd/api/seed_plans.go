@@ -31,10 +31,10 @@ func (s *PlansSeeder) seedPlan(ctx context.Context) error {
 	const boundary = "POLYGON((106.5 47.5, 107.5 47.5, 107.5 48.0, 106.5 48.0, 106.5 47.5))"
 
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO plan (id, plan_code, name, boundary_wkt, area_m2, status)
-		VALUES (uuid_generate_v4(), $1, $2, $3, $4, 2)
-		ON CONFLICT (plan_code) DO NOTHING
-	`,
+			INSERT INTO plan (id, plan_code, name, boundary_wkt, area_m2, status)
+			VALUES (uuid_generate_v4(), $1, $2, ST_GeomFromText($3, 4326)::geometry(Polygon, 4326), $4, 2)
+			ON CONFLICT (plan_code) DO NOTHING
+		`,
 		"PLAN-2024-001",
 		"Зуунмод сумын газар зохион байгуулалтын ерөнхий төлөвлөгөө 2024",
 		boundary,
@@ -50,19 +50,19 @@ func (s *PlansSeeder) seedPlan(ctx context.Context) error {
 // seedSourceParcels — эх нэгж талбарын мэдээлэл (чөлөөлөх бүсийн дотор)
 func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 	parcels := []struct {
-		parcelID    string
-		geom        string
-		au1, au2, au3 string
-		rightType   string
-		landuse     string
-		areaM2      float64
+		parcelID                                                 string
+		geom                                                     string
+		au1, au2, au3                                            string
+		rightType                                                string
+		landuse                                                  string
+		areaM2                                                   float64
 		lastName, name, regNo, phone, email, holderType, civilID string
-		appNo, decisionNo, contractNo, certNo string
+		appNo, decisionNo, contractNo, certNo                    string
 	}{
 		{
-			parcelID:   "010101000001",
-			geom:       "POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))",
-			au1: "01", au2: "0101", au3: "010101",
+			parcelID: "010101000001",
+			geom:     "POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))",
+			au1:      "01", au2: "0101", au3: "010101",
 			rightType: "OWNERSHIP", landuse: "AGRICULTURAL", areaM2: 85000,
 			lastName: "Дорж", name: "Батбаяр", regNo: "УЦ89102501",
 			phone: "+97688001234", email: "batbayar@example.mn",
@@ -71,9 +71,9 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 			contractNo: "ГЭ-2024-001", certNo: "01-001-2024",
 		},
 		{
-			parcelID:   "010101000002",
-			geom:       "POLYGON((106.82 47.66, 106.88 47.66, 106.88 47.72, 106.82 47.72, 106.82 47.66))",
-			au1: "01", au2: "0101", au3: "010101",
+			parcelID: "010101000002",
+			geom:     "POLYGON((106.82 47.66, 106.88 47.66, 106.88 47.72, 106.82 47.72, 106.82 47.66))",
+			au1:      "01", au2: "0101", au3: "010101",
 			rightType: "LEASE", landuse: "RESIDENTIAL", areaM2: 1200,
 			lastName: "Гантулга", name: "Мөнхбаяр", regNo: "ДА95041512",
 			phone: "+97699112233", email: "munkhbayar@example.mn",
@@ -82,9 +82,9 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 			contractNo: "ГЭ-2024-002", certNo: "01-002-2024",
 		},
 		{
-			parcelID:   "010101000003",
-			geom:       "POLYGON((106.76 47.72, 106.84 47.72, 106.84 47.78, 106.76 47.78, 106.76 47.72))",
-			au1: "01", au2: "0101", au3: "010101",
+			parcelID: "010101000003",
+			geom:     "POLYGON((106.76 47.72, 106.84 47.72, 106.84 47.78, 106.76 47.78, 106.76 47.72))",
+			au1:      "01", au2: "0101", au3: "010101",
 			rightType: "OWNERSHIP", landuse: "COMMERCIAL", areaM2: 5600,
 			lastName: "", name: "Монгол Орон ХХК", regNo: "7700012345",
 			phone: "+97677001234", email: "info@mongolornon.mn",
@@ -103,9 +103,9 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 				holder_last_name, holder_name, holder_register_no,
 				holder_phone, holder_email, holder_type, holder_civil_id,
 				app_no, decision_no, contract_no, certificate_no
-			) VALUES (
-				uuid_generate_v4(), $1, 'PLAN-2024-001', $2,
-				$3, $4, $5,
+				) VALUES (
+					uuid_generate_v4(), $1, 'PLAN-2024-001', ST_GeomFromText($2, 4326)::geometry(Polygon, 4326),
+					$3, $4, $5,
 				$6, $7, $8,
 				$9, $10, $11,
 				$12, $13, $14, $15,
