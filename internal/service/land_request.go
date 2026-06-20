@@ -3,11 +3,16 @@ package service
 import "time"
 
 type CreateLandAcquisitionRequest struct {
-	PlanCode      string
-	StartDate     time.Time
-	EndDate       time.Time
-	ShapefileData []byte
-	CreatedBy     string
+	PlanCode        string
+	StartDate       time.Time
+	EndDate         time.Time
+	ShapefileData   []byte
+	CreatedBy       string
+	ProjectName     string
+	ImplementingOrg string
+	Reason          string
+	ResponsibleOrg  string
+	FundingSource   string
 }
 
 type UpdateLandAcquisitionRequest struct {

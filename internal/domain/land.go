@@ -64,22 +64,27 @@ type SourceParcel struct {
 
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
-	ID          uuid.UUID
-	PlanID      *uuid.UUID
-	PlanCode    string
-	PlanGeomWKT string
-	PlanAreaM2  float64
-	GeometryWKT string
-	AreaM2      float64
-	Status      int
-	StartDate   *time.Time
-	EndDate     *time.Time
-	CreatedAt   time.Time
-	CreatedBy   string
-	UpdatedAt   time.Time
-	UpdatedBy   string
-	AUs         []LandAcquisitionAU
-	Parcels     []*Parcel
+	ID             uuid.UUID
+	PlanID         *uuid.UUID
+	PlanCode       string
+	PlanGeomWKT    string
+	PlanAreaM2     float64
+	GeometryWKT    string
+	AreaM2         float64
+	Status         int
+	StartDate      *time.Time
+	EndDate        *time.Time
+	ProjectName    string
+	ImplementingOrg string
+	Reason          string
+	ResponsibleOrg  string
+	FundingSource   string
+	CreatedAt      time.Time
+	CreatedBy      string
+	UpdatedAt      time.Time
+	UpdatedBy      string
+	AUs            []LandAcquisitionAU
+	Parcels        []*Parcel
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос

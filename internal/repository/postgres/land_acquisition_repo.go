@@ -24,13 +24,15 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 			plan_geom, plan_area_m2,
 			geometry, area_m2,
 			status, start_date, end_date,
-			created_at, created_by, updated_at, updated_by
+			created_at, created_by, updated_at, updated_by,
+			project_name, implementing_org, reason, responsible_org, funding_source
 			) VALUES (
 				$1, $2, $3,
 				ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326), $5,
 				ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326), $7,
 				$8, $9, $10,
-				$11, $12, $13, $14
+				$11, $12, $13, $14,
+				$15, $16, $17, $18, $19
 			)
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode,
@@ -38,6 +40,7 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.GeometryWKT, acq.AreaM2,
 		acq.Status, acq.StartDate, acq.EndDate,
 		acq.CreatedAt, acq.CreatedBy, acq.UpdatedAt, acq.UpdatedBy,
+		acq.ProjectName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 	)
 	return err
 }
@@ -99,7 +102,9 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
 			       status, start_date, end_date,
 			       created_at, COALESCE(created_by,''),
-			       updated_at, COALESCE(updated_by,'')
+			       updated_at, COALESCE(updated_by,''),
+			       COALESCE(project_name,''), COALESCE(implementing_org,''),
+			       COALESCE(reason,''), COALESCE(responsible_org,''), COALESCE(funding_source,'')
 		FROM land_acquisition
 		WHERE %s
 		ORDER BY created_at DESC
@@ -120,6 +125,8 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.Status, &acq.StartDate, &acq.EndDate,
 			&acq.CreatedAt, &acq.CreatedBy,
 			&acq.UpdatedAt, &acq.UpdatedBy,
+			&acq.ProjectName, &acq.ImplementingOrg,
+			&acq.Reason, &acq.ResponsibleOrg, &acq.FundingSource,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -136,7 +143,9 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
 			       status, start_date, end_date,
 			       created_at, COALESCE(created_by,''),
-			       updated_at, COALESCE(updated_by,'')
+			       updated_at, COALESCE(updated_by,''),
+			       COALESCE(project_name,''), COALESCE(implementing_org,''),
+			       COALESCE(reason,''), COALESCE(responsible_org,''), COALESCE(funding_source,'')
 		FROM land_acquisition
 		WHERE id = $1
 	`, id).Scan(
@@ -146,6 +155,8 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		&acq.Status, &acq.StartDate, &acq.EndDate,
 		&acq.CreatedAt, &acq.CreatedBy,
 		&acq.UpdatedAt, &acq.UpdatedBy,
+		&acq.ProjectName, &acq.ImplementingOrg,
+		&acq.Reason, &acq.ResponsibleOrg, &acq.FundingSource,
 	)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -594,22 +605,28 @@ func (r *landAcqRepo) UpsertParcelRight(ctx context.Context, parcelID, acquisiti
 func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) error {
 	_, err := r.db.Exec(ctx, `
 			UPDATE land_acquisition SET
-				plan_id       = $2,
-				plan_code     = $3,
-				plan_geom     = ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326),
-				plan_area_m2  = $5,
-				geometry      = ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326),
-				area_m2       = $7,
-			start_date    = $8,
-			end_date      = $9,
-			updated_at    = NOW(),
-			updated_by    = $10
+				plan_id          = $2,
+				plan_code        = $3,
+				plan_geom        = ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326),
+				plan_area_m2     = $5,
+				geometry         = ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326),
+				area_m2          = $7,
+				start_date       = $8,
+				end_date         = $9,
+				project_name     = $10,
+				implementing_org = $11,
+				reason           = $12,
+				responsible_org  = $13,
+				funding_source   = $14,
+				updated_at       = NOW(),
+				updated_by       = $15
 		WHERE id = $1
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode,
 		acq.PlanGeomWKT, acq.PlanAreaM2,
 		acq.GeometryWKT, acq.AreaM2,
 		acq.StartDate, acq.EndDate,
+		acq.ProjectName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 		acq.UpdatedBy,
 	)
 	return err

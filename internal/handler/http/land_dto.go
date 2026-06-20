@@ -7,17 +7,22 @@ import (
 )
 
 type landAcquisitionResponse struct {
-	ID          string           `json:"id"`
-	PlanCode    string           `json:"plan_code"`
-	GeometryWKT string           `json:"geometry_wkt"`
-	AreaM2      float64          `json:"area_m2"`
-	Status      int              `json:"status"`
-	StartDate   *string          `json:"start_date"`
-	EndDate     *string          `json:"end_date"`
-	CreatedAt   string           `json:"created_at"`
-	CreatedBy   string           `json:"created_by"`
-	AUs         []auResponse     `json:"aus"`
-	Parcels     []parcelResponse `json:"parcels"`
+	ID             string           `json:"id"`
+	PlanCode       string           `json:"plan_code"`
+	GeometryWKT    string           `json:"geometry_wkt"`
+	AreaM2         float64          `json:"area_m2"`
+	Status         int              `json:"status"`
+	StartDate      *string          `json:"start_date"`
+	EndDate        *string          `json:"end_date"`
+	ProjectName    string           `json:"project_name"`
+	ImplementingOrg string          `json:"implementing_org"`
+	Reason         string           `json:"reason"`
+	ResponsibleOrg string           `json:"responsible_org"`
+	FundingSource  string           `json:"funding_source"`
+	CreatedAt      string           `json:"created_at"`
+	CreatedBy      string           `json:"created_by"`
+	AUs            []auResponse     `json:"aus"`
+	Parcels        []parcelResponse `json:"parcels"`
 }
 
 type auResponse struct {
@@ -82,13 +87,18 @@ type parcelDetailInfo struct {
 
 func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 	r := landAcquisitionResponse{
-		ID:          acq.ID.String(),
-		PlanCode:    acq.PlanCode,
-		GeometryWKT: acq.GeometryWKT,
-		AreaM2:      acq.AreaM2,
-		Status:      acq.Status,
-		CreatedAt:   acq.CreatedAt.Format(time.RFC3339),
-		CreatedBy:   acq.CreatedBy,
+		ID:             acq.ID.String(),
+		PlanCode:       acq.PlanCode,
+		GeometryWKT:    acq.GeometryWKT,
+		AreaM2:         acq.AreaM2,
+		Status:         acq.Status,
+		ProjectName:    acq.ProjectName,
+		ImplementingOrg: acq.ImplementingOrg,
+		Reason:         acq.Reason,
+		ResponsibleOrg: acq.ResponsibleOrg,
+		FundingSource:  acq.FundingSource,
+		CreatedAt:      acq.CreatedAt.Format(time.RFC3339),
+		CreatedBy:      acq.CreatedBy,
 	}
 	if acq.StartDate != nil {
 		s := acq.StartDate.Format("2006-01-02")

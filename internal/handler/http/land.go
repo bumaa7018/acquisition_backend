@@ -88,9 +88,14 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Failure      422  {object}  response.Response
 // @Router       /land-acquisitions [post]
 func (h *LandHandler) Create(c *gin.Context) {
-	planCode := c.PostForm("plan_code")
-	startStr := c.PostForm("start_date")
-	endStr := c.PostForm("end_date")
+	planCode       := c.PostForm("plan_code")
+	startStr       := c.PostForm("start_date")
+	endStr         := c.PostForm("end_date")
+	projectName    := c.PostForm("project_name")
+	implementingOrg := c.PostForm("implementing_org")
+	reason         := c.PostForm("reason")
+	responsibleOrg := c.PostForm("responsible_org")
+	fundingSource  := c.PostForm("funding_source")
 
 	if planCode == "" || startStr == "" || endStr == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{
@@ -134,11 +139,16 @@ func (h *LandHandler) Create(c *gin.Context) {
 	}
 
 	acq, err := h.svc.Create(c.Request.Context(), service.CreateLandAcquisitionRequest{
-		PlanCode:      planCode,
-		StartDate:     startDate,
-		EndDate:       endDate,
-		ShapefileData: zipData,
-		CreatedBy:     createdByStr,
+		PlanCode:        planCode,
+		StartDate:       startDate,
+		EndDate:         endDate,
+		ShapefileData:   zipData,
+		CreatedBy:       createdByStr,
+		ProjectName:     projectName,
+		ImplementingOrg: implementingOrg,
+		Reason:          reason,
+		ResponsibleOrg:  responsibleOrg,
+		FundingSource:   fundingSource,
 	})
 	if err != nil {
 		switch err {

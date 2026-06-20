@@ -29,6 +29,7 @@ var defaultPermissions = []domain.Permission{
 	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
 	{Name: "land:update", Description: "Update land acquisitions", Resource: "land", Action: "update"},
 	{Name: "land:delete", Description: "Delete land acquisitions", Resource: "land", Action: "delete"},
+	{Name: "acquisition.create", Description: "Create acquisition records", Resource: "acquisition", Action: "create"},
 }
 
 type Seeder struct {

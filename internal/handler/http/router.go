@@ -19,6 +19,7 @@ func NewRouter(
 	roleSvc service.RoleService,
 	permSvc service.PermissionService,
 	landSvc service.LandService,
+	planSvc service.PlanService,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -36,6 +37,7 @@ func NewRouter(
 	roleH := NewRoleHandler(roleSvc)
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
+	planH := NewPlanHandler(planSvc)
 
 	v1 := r.Group("/api/v1")
 
@@ -84,13 +86,19 @@ func NewRouter(
 		land := protected.Group("/land-acquisitions")
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
-			land.POST("", middleware.RequirePermission("land:create"), landH.Create)
+			land.POST("", middleware.RequirePermission("acquisition.create"), landH.Create)
 			land.GET("/:id", middleware.RequirePermission("land:read"), landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), landH.ListParcels)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequirePermission("land:read"), landH.GetParcelByID)
 			land.PUT("/:id", middleware.RequirePermission("land:update"), landH.Update)
 			land.DELETE("/:id", middleware.RequirePermission("land:delete"), landH.Delete)
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), landH.SyncParcel)
+		}
+
+		// Газар зохион байгуулалтын төлөвлөгөө
+		plans := protected.Group("/plans")
+		{
+			plans.GET("/search", middleware.RequirePermission("land:read"), planH.Search)
 		}
 	}
 

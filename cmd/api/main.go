@@ -105,6 +105,7 @@ func main() {
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
 	landSvc := service.NewLandService(planRepo, landAcqRepo)
+	planSvc := service.NewPlanService(planRepo)
 
 	// Auth seeder — хэрэглэгч, эрх, роль
 	seeder := NewSeeder(authDB, userRepo, roleRepo, permRepo)
@@ -124,7 +125,7 @@ func main() {
 		slog.Warn("plans seed failed", "error", err)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.App.Port,

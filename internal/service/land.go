@@ -68,19 +68,24 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 	now := time.Now()
 	planIDCopy := plan.ID
 	acq := &domain.LandAcquisition{
-		ID:          uuid.New(),
-		PlanID:      &planIDCopy,
-		PlanCode:    plan.PlanCode,
-		PlanGeomWKT: plan.BoundaryWKT,
-		PlanAreaM2:  plan.AreaM2,
-		GeometryWKT: acqWKT,
-		Status:      domain.LandAcquisitionStatusActive,
-		StartDate:   &req.StartDate,
-		EndDate:     &req.EndDate,
-		CreatedAt:   now,
-		CreatedBy:   req.CreatedBy,
-		UpdatedAt:   now,
-		UpdatedBy:   req.CreatedBy,
+		ID:             uuid.New(),
+		PlanID:         &planIDCopy,
+		PlanCode:       plan.PlanCode,
+		PlanGeomWKT:    plan.BoundaryWKT,
+		PlanAreaM2:     plan.AreaM2,
+		GeometryWKT:    acqWKT,
+		Status:         domain.LandAcquisitionStatusActive,
+		StartDate:      &req.StartDate,
+		EndDate:        &req.EndDate,
+		ProjectName:    req.ProjectName,
+		ImplementingOrg: req.ImplementingOrg,
+		Reason:          req.Reason,
+		ResponsibleOrg:  req.ResponsibleOrg,
+		FundingSource:   req.FundingSource,
+		CreatedAt:      now,
+		CreatedBy:      req.CreatedBy,
+		UpdatedAt:      now,
+		UpdatedBy:      req.CreatedBy,
 	}
 
 	if err := s.landRepo.Create(ctx, acq); err != nil {
