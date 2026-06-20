@@ -1,6 +1,7 @@
 package response
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -48,6 +49,14 @@ func Paginated(c *gin.Context, data any, total int64, page, pageSize int) {
 
 func Error(c *gin.Context, err error) {
 	status, msg := mapError(err)
+	if status >= http.StatusInternalServerError {
+		slog.Error("request failed",
+			"error", err,
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", status,
+		)
+	}
 	c.AbortWithStatusJSON(status, Response{Error: msg})
 }
 

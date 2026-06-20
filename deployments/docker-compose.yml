@@ -48,4 +48,4 @@ volumes:
 networks:
   gov_network:
     name: gov_network
-    driver: bridge
+    external: true
