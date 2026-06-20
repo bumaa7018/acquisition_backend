@@ -21,6 +21,6 @@ WORKDIR /app
 COPY --from=builder /app/server .
 COPY --from=builder /app/migrations ./migrations
 
-EXPOSE ${APP_PORT:-8081}
+EXPOSE ${APP_PORT:-8080}
 
 ENTRYPOINT ["./server"]

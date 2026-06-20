@@ -34,7 +34,7 @@ services:
       AUTH_DB_HOST: postgres
       AUTH_DB_PORT: 5432
     ports:
-      - "${APP_PORT:-8081}:${APP_PORT:-8081}"
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
     depends_on:
       postgres:
         condition: service_healthy
