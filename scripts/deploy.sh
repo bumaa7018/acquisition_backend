@@ -67,3 +67,11 @@ docker image prune -f
 docker builder prune -f
 
 compose ps
+
+# Frontend container байвал restart хийнэ — backend шинэчлэгдсэний дараа
+# DNS cache цэвэрлэгдэж, шинэ api container-тай дахин холбогдоно
+FRONTEND=$(docker ps --filter "label=com.docker.compose.service=frontend" --format "{{.Names}}" 2>/dev/null | head -1)
+if [[ -n "$FRONTEND" ]]; then
+  echo "Frontend container ($FRONTEND) restart хийж байна..."
+  docker restart "$FRONTEND"
+fi
