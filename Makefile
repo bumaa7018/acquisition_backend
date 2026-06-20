@@ -65,7 +65,7 @@ migrate-auth-down:
 	migrate -path ./migrations/auth -database "$(AUTH_DSN)" down 1
 
 up:
-	SKIP_GIT_PULL=1 ./scripts/deploy.sh
+	BUILD_FLAGS="--no-cache --pull" SKIP_GIT_PULL=1 ./scripts/deploy.sh
 
 down:
 	docker compose -f deployments/docker-compose.yml --env-file .env down
