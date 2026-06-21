@@ -41,32 +41,32 @@ func TestAuthService_Register_Success(t *testing.T) {
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(nil, domain.ErrNotFound)
+	userRepo.On("GetByUsername", context.Background(), "testuser").Return(nil, domain.ErrNotFound)
 	userRepo.On("Create", context.Background(), mock.MatchedBy(func(u *domain.User) bool { return u != nil })).Return(nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	user, err := svc.Register(context.Background(), service.RegisterRequest{
-		Email: "test@example.com", Password: "Password123!",
+		Username: "testuser", Password: "Password123!",
 		FirstName: "Test", LastName: "User",
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, "test@example.com", user.Email)
+	assert.Equal(t, "testuser", user.Username)
 	assert.Empty(t, user.Password)
 	userRepo.AssertExpectations(t)
 }
 
-func TestAuthService_Register_DuplicateEmail(t *testing.T) {
+func TestAuthService_Register_DuplicateUsername(t *testing.T) {
 	userRepo := &mocks.MockUserRepository{}
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	existing := &domain.User{ID: uuid.New(), Email: "test@example.com"}
-	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(existing, nil)
+	existing := &domain.User{ID: uuid.New(), Username: "testuser"}
+	userRepo.On("GetByUsername", context.Background(), "testuser").Return(existing, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Register(context.Background(), service.RegisterRequest{
-		Email: "test@example.com", Password: "Password123!",
+		Username: "testuser", Password: "Password123!",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrAlreadyExists)
@@ -81,14 +81,15 @@ func TestAuthService_Login_Success(t *testing.T) {
 
 	userID := uuid.New()
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782" // "secret"
-	user := &domain.User{ID: userID, Email: "test@example.com", Password: hashedPwd, IsActive: true}
+	user := &domain.User{ID: userID, Username: "testuser", Password: hashedPwd, IsActive: true}
 
-	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(user, nil)
+	userRepo.On("GetByUsername", context.Background(), "testuser").Return(user, nil)
 	userRepo.On("GetPermissions", context.Background(), userID).Return([]string{"users:read"}, nil)
+	userRepo.On("GetRoles", context.Background(), userID).Return([]string{"admin"}, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	tokens, err := svc.Login(context.Background(), service.LoginRequest{
-		Email: "test@example.com", Password: "secret",
+		Username: "testuser", Password: "secret",
 	})
 
 	require.NoError(t, err)
@@ -102,12 +103,12 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 	es := &mockEmailSender{}
 
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782"
-	user := &domain.User{ID: uuid.New(), Email: "test@example.com", Password: hashedPwd, IsActive: true}
-	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(user, nil)
+	user := &domain.User{ID: uuid.New(), Username: "testuser", Password: hashedPwd, IsActive: true}
+	userRepo.On("GetByUsername", context.Background(), "testuser").Return(user, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Login(context.Background(), service.LoginRequest{
-		Email: "test@example.com", Password: "wrongpassword",
+		Username: "testuser", Password: "wrongpassword",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
@@ -118,11 +119,11 @@ func TestAuthService_Login_UserNotFound(t *testing.T) {
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	userRepo.On("GetByEmail", context.Background(), "noone@example.com").Return(nil, domain.ErrNotFound)
+	userRepo.On("GetByUsername", context.Background(), "noone").Return(nil, domain.ErrNotFound)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Login(context.Background(), service.LoginRequest{
-		Email: "noone@example.com", Password: "anything",
+		Username: "noone", Password: "anything",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
@@ -138,14 +139,13 @@ func TestAuthService_ForgotPassword_SendsEmail(t *testing.T) {
 	user := &domain.User{ID: uuid.New(), Email: "test@example.com"}
 	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(user, nil)
 	pwdRepo.On("Create", context.Background(), mock.MatchedBy(func(t *domain.PasswordResetToken) bool { return t != nil })).Return(nil)
-	// Email sender-г дуудна, link нь "http://localhost:3000/reset?token=" + hextoken
 	es.On("SendPasswordReset", "test@example.com", mock.AnythingOfType("string")).Return(nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	err := svc.ForgotPassword(context.Background(), "test@example.com")
 
 	require.NoError(t, err)
-	es.AssertExpectations(t)   // email sender заавал дуудагдсан эсэхийг шалгана
+	es.AssertExpectations(t)
 	pwdRepo.AssertExpectations(t)
 }
 
@@ -155,13 +155,12 @@ func TestAuthService_ForgotPassword_UnknownEmail_NoError(t *testing.T) {
 	es := &mockEmailSender{}
 
 	userRepo.On("GetByEmail", context.Background(), "unknown@example.com").Return(nil, domain.ErrNotFound)
-	// email sender огт дуудагдаж болохгүй
 	es.AssertNotCalled(t, "SendPasswordReset")
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	err := svc.ForgotPassword(context.Background(), "unknown@example.com")
 
-	require.NoError(t, err) // email enumeration: алдаа буцаахгүй
+	require.NoError(t, err)
 }
 
 // ── ResetPassword ────────────────────────────────────────────

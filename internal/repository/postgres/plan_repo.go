@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/go-api-template/internal/domain"
 	"github.com/your-org/go-api-template/internal/repository"
@@ -27,7 +29,10 @@ func (r *planRepo) GetByCode(ctx context.Context, planCode string) (*domain.Plan
 		&p.AreaM2, &p.Status, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
 	}
 	return &p, nil
 }
@@ -36,7 +41,7 @@ func (r *planRepo) GetSourceParcels(ctx context.Context, planCode string) ([]*do
 	rows, err := r.db.Query(ctx, `
 		SELECT id, parcel_id, plan_code, ST_AsText(geometry_wkt),
 		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
-		       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+		       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       COALESCE(holder_last_name,''), COALESCE(holder_name,''),
 		       COALESCE(holder_register_no,''), COALESCE(holder_phone,''),
 		       COALESCE(holder_email,''), COALESCE(holder_type,''), COALESCE(holder_civil_id,''),
@@ -80,7 +85,7 @@ func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*d
 	err := r.db.QueryRow(ctx, `
 		SELECT id, parcel_id, plan_code, ST_AsText(geometry_wkt),
 		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
-		       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+		       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       COALESCE(holder_last_name,''), COALESCE(holder_name,''),
 		       COALESCE(holder_register_no,''), COALESCE(holder_phone,''),
 		       COALESCE(holder_email,''), COALESCE(holder_type,''), COALESCE(holder_civil_id,''),
@@ -103,7 +108,10 @@ func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*d
 		&sp.CreatedAt,
 	)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
 	}
 	return sp, nil
 }

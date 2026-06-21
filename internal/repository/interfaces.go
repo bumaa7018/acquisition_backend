@@ -11,10 +11,12 @@ type UserRepository interface {
 	Create(ctx context.Context, user *domain.User) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
 	GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error)
+	GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
 }
 
 type RoleRepository interface {
@@ -68,6 +70,20 @@ type LandAcquisitionRepository interface {
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
 	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
+	CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error
+	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
+	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
+	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
+	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
+	// Document methods
+	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
+	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error
+	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
+	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
+	DeleteDocument(ctx context.Context, documentID uuid.UUID) error
+	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
 }

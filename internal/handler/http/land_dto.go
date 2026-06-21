@@ -7,22 +7,24 @@ import (
 )
 
 type landAcquisitionResponse struct {
-	ID             string           `json:"id"`
-	PlanCode       string           `json:"plan_code"`
-	GeometryWKT    string           `json:"geometry_wkt"`
-	AreaM2         float64          `json:"area_m2"`
-	Status         int              `json:"status"`
-	StartDate      *string          `json:"start_date"`
-	EndDate        *string          `json:"end_date"`
-	ProjectName    string           `json:"project_name"`
-	ImplementingOrg string          `json:"implementing_org"`
-	Reason         string           `json:"reason"`
-	ResponsibleOrg string           `json:"responsible_org"`
-	FundingSource  string           `json:"funding_source"`
-	CreatedAt      string           `json:"created_at"`
-	CreatedBy      string           `json:"created_by"`
-	AUs            []auResponse     `json:"aus"`
-	Parcels        []parcelResponse `json:"parcels"`
+	ID              string           `json:"id"`
+	PlanCode        string           `json:"plan_code"`
+	PlanName        string           `json:"plan_name"`
+	GeometryWKT     string           `json:"geometry_wkt"`
+	AreaM2          float64          `json:"area_m2"`
+	Status          int              `json:"status"`
+	StartDate       *string          `json:"start_date"`
+	EndDate         *string          `json:"end_date"`
+	AcquisitionName string           `json:"acquisition_name"`
+	ImplementingOrg string           `json:"implementing_org"`
+	Reason          string           `json:"reason"`
+	ResponsibleOrg  string           `json:"responsible_org"`
+	FundingSource   string           `json:"funding_source"`
+	CreatedAt       string           `json:"created_at"`
+	CreatedBy       string           `json:"created_by"`
+	ParcelCount     int64            `json:"parcel_count"`
+	AUs             []auResponse     `json:"aus"`
+	Parcels         []parcelResponse `json:"parcels"`
 }
 
 type auResponse struct {
@@ -40,10 +42,12 @@ type parcelResponse struct {
 	AU1Code           string  `json:"au1_code"`
 	AU2Code           string  `json:"au2_code"`
 	AU3Code           string  `json:"au3_code"`
-	RightType         string  `json:"right_type"`
+	RightType         int     `json:"right_type"`
 	Landuse           string  `json:"landuse"`
 	AreaM2            float64 `json:"area_m2"`
 	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
+	CompensationPaid  bool    `json:"compensation_paid"`
+	GeometryWKT       string  `json:"geometry_wkt,omitempty"`
 }
 
 type parcelFullResponse struct {
@@ -59,7 +63,7 @@ type parcelFullResponse struct {
 	GeometryWKT        string            `json:"geometry_wkt"`
 	AcquisitionGeomWKT string            `json:"acquisition_geom_wkt"`
 	AcquisitionAreaM2  float64           `json:"acquisition_area_m2"`
-	RightType          string            `json:"right_type"`
+	RightType          int               `json:"right_type"`
 	Landuse            string            `json:"landuse"`
 	AreaM2             float64           `json:"area_m2"`
 	CreatedAt          string            `json:"created_at"`
@@ -68,7 +72,7 @@ type parcelFullResponse struct {
 }
 
 type parcelDetailInfo struct {
-	RightType        string  `json:"right_type"`
+	RightType        int     `json:"right_type"`
 	HolderLastName   string  `json:"holder_last_name"`
 	HolderName       string  `json:"holder_name"`
 	HolderRegisterNo string  `json:"holder_register_no"`
@@ -85,20 +89,113 @@ type parcelDetailInfo struct {
 	CertificateDate  *string `json:"certificate_date"`
 }
 
+type progressResponse struct {
+	ID         string `json:"id"`
+	FromStatus int    `json:"from_status"`
+	ToStatus   int    `json:"to_status"`
+	Note       string `json:"note"`
+	ChangedBy  string `json:"changed_by"`
+	ChangedAt  string `json:"changed_at"`
+}
+
+type documentResponse struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	FileType   string `json:"file_type"`
+	FileURL    string `json:"file_url"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Note       string `json:"note"`
+	UploadedBy string `json:"uploaded_by"`
+	UploadedAt string `json:"uploaded_at"`
+}
+
+func toDocumentResponse(d *domain.Document) documentResponse {
+	return documentResponse{
+		ID:         d.ID.String(),
+		Name:       d.Name,
+		FileType:   d.FileType,
+		FileURL:    d.FileURL,
+		SizeBytes:  d.SizeBytes,
+		Note:       d.Note,
+		UploadedBy: d.UploadedBy,
+		UploadedAt: d.UploadedAt.Format(time.RFC3339),
+	}
+}
+
+type globalParcelResponse struct {
+	ID                string  `json:"id"`
+	ParcelID          string  `json:"parcel_id"`
+	AU1Code           string  `json:"au1_code"`
+	AU2Code           string  `json:"au2_code"`
+	AU3Code           string  `json:"au3_code"`
+	RightType         int     `json:"right_type"`
+	Landuse           string  `json:"landuse"`
+	AreaM2            float64 `json:"area_m2"`
+	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
+	CompensationPaid  bool    `json:"compensation_paid"`
+	AcquisitionID     string  `json:"acquisition_id"`
+	AcquisitionName   string  `json:"acquisition_name"`
+	PlanCode          string  `json:"plan_code"`
+	AcquisitionStatus int     `json:"acquisition_status"`
+	StartDate         *string `json:"start_date"`
+	EndDate           *string `json:"end_date"`
+}
+
+type parcelPaymentResponse struct {
+	ID        string  `json:"id"`
+	ParcelID  string  `json:"parcel_id"`
+	Amount    float64 `json:"amount"`
+	Currency  string  `json:"currency"`
+	PaidAt    *string `json:"paid_at"`
+	Note      string  `json:"note"`
+	CreatedAt string  `json:"created_at"`
+	CreatedBy string  `json:"created_by"`
+}
+
+func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
+	r := globalParcelResponse{
+		ID:                p.ID.String(),
+		ParcelID:          p.ParcelID,
+		AU1Code:           p.AU1Code,
+		AU2Code:           p.AU2Code,
+		AU3Code:           p.AU3Code,
+		RightType:         p.RightType,
+		Landuse:           p.Landuse,
+		AreaM2:            p.AreaM2,
+		AcquisitionAreaM2: p.AcquisitionAreaM2,
+		CompensationPaid:  p.CompensationPaid,
+		AcquisitionID:     p.AcquisitionID.String(),
+		AcquisitionName:   p.AcquisitionName,
+		PlanCode:          p.PlanCode,
+		AcquisitionStatus: p.AcquisitionStatus,
+	}
+	if p.StartDate != nil {
+		s := p.StartDate.Format("2006-01-02")
+		r.StartDate = &s
+	}
+	if p.EndDate != nil {
+		e := p.EndDate.Format("2006-01-02")
+		r.EndDate = &e
+	}
+	return r
+}
+
 func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 	r := landAcquisitionResponse{
-		ID:             acq.ID.String(),
-		PlanCode:       acq.PlanCode,
-		GeometryWKT:    acq.GeometryWKT,
-		AreaM2:         acq.AreaM2,
-		Status:         acq.Status,
-		ProjectName:    acq.ProjectName,
+		ID:              acq.ID.String(),
+		PlanCode:        acq.PlanCode,
+		PlanName:        acq.PlanName,
+		GeometryWKT:     acq.GeometryWKT,
+		AreaM2:          acq.AreaM2,
+		Status:          acq.Status,
+		AcquisitionName: acq.AcquisitionName,
 		ImplementingOrg: acq.ImplementingOrg,
-		Reason:         acq.Reason,
-		ResponsibleOrg: acq.ResponsibleOrg,
-		FundingSource:  acq.FundingSource,
-		CreatedAt:      acq.CreatedAt.Format(time.RFC3339),
-		CreatedBy:      acq.CreatedBy,
+		Reason:          acq.Reason,
+		ResponsibleOrg:  acq.ResponsibleOrg,
+		FundingSource:   acq.FundingSource,
+		CreatedAt:       acq.CreatedAt.Format(time.RFC3339),
+		CreatedBy:       acq.CreatedBy,
+		ParcelCount:     acq.ParcelCount,
 	}
 	if acq.StartDate != nil {
 		s := acq.StartDate.Format("2006-01-02")

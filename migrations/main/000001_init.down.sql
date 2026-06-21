@@ -1,3 +1,8 @@
+DROP TABLE IF EXISTS parcel_document;
+DROP TABLE IF EXISTS acquisition_document;
+DROP TABLE IF EXISTS document;
+DROP TABLE IF EXISTS parcel_payment;
+DROP TABLE IF EXISTS acquisition_progress;
 DROP TABLE IF EXISTS parcel_detail;
 DROP TABLE IF EXISTS parcel;
 DROP TABLE IF EXISTS right_holder;

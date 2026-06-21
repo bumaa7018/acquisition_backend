@@ -106,6 +106,94 @@ func (m *MockLandService) SyncParcel(ctx context.Context, acquisitionID, parcelI
 	return m.Called(ctx, acquisitionID, parcelID).Error(0)
 }
 
+func (m *MockLandService) GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AcquisitionProgress), args.Error(1)
+}
+
+func (m *MockLandService) GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.StatusOption), args.Error(1)
+}
+
+func (m *MockLandService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy string) (*domain.LandAcquisition, error) {
+	args := m.Called(ctx, acquisitionID, toStatus, note, changedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
+}
+
+func (m *MockLandService) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Document), args.Error(1)
+}
+
+func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
+	args := m.Called(ctx, acquisitionID, filename, contentType, data, uploadedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Document), args.Error(1)
+}
+
+func (m *MockLandService) DeleteAcquisitionDocument(ctx context.Context, documentID uuid.UUID) error {
+	return m.Called(ctx, documentID).Error(0)
+}
+
+func (m *MockLandService) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
+	return m.Called(ctx, parcelID, paid).Error(0)
+}
+
+func (m *MockLandService) ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*domain.GlobalParcel), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockLandService) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelPayment), args.Error(1)
+}
+
+func (m *MockLandService) AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error {
+	return m.Called(ctx, p).Error(0)
+}
+
+func (m *MockLandService) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Document), args.Error(1)
+}
+
+func (m *MockLandService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
+	args := m.Called(ctx, parcelID, filename, contentType, data, uploadedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Document), args.Error(1)
+}
+
+func (m *MockLandService) DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error {
+	return m.Called(ctx, documentID).Error(0)
+}
+
 type MockUserService struct {
 	mock.Mock
 }
@@ -145,4 +233,98 @@ func (m *MockUserService) Update(ctx context.Context, id uuid.UUID, req service.
 func (m *MockUserService) Delete(ctx context.Context, id uuid.UUID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
+}
+
+type MockRoleService struct{ mock.Mock }
+
+func (m *MockRoleService) List(ctx context.Context) ([]*domain.Role, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Role), args.Error(1)
+}
+
+func (m *MockRoleService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Role), args.Error(1)
+}
+
+func (m *MockRoleService) Create(ctx context.Context, req service.CreateRoleRequest) (*domain.Role, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Role), args.Error(1)
+}
+
+func (m *MockRoleService) Update(ctx context.Context, id uuid.UUID, req service.UpdateRoleRequest) (*domain.Role, error) {
+	args := m.Called(ctx, id, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Role), args.Error(1)
+}
+
+func (m *MockRoleService) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockRoleService) AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+	return m.Called(ctx, roleID, permissionID).Error(0)
+}
+
+func (m *MockRoleService) RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+	return m.Called(ctx, roleID, permissionID).Error(0)
+}
+
+func (m *MockRoleService) AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error {
+	return m.Called(ctx, userID, roleID).Error(0)
+}
+
+func (m *MockRoleService) RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error {
+	return m.Called(ctx, userID, roleID).Error(0)
+}
+
+type MockPermissionService struct{ mock.Mock }
+
+func (m *MockPermissionService) List(ctx context.Context) ([]*domain.Permission, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Permission), args.Error(1)
+}
+
+func (m *MockPermissionService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Permission), args.Error(1)
+}
+
+func (m *MockPermissionService) Create(ctx context.Context, req service.CreatePermissionRequest) (*domain.Permission, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Permission), args.Error(1)
+}
+
+func (m *MockPermissionService) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+type MockPlanService struct{ mock.Mock }
+
+func (m *MockPlanService) Search(ctx context.Context, code string) (*domain.Plan, error) {
+	args := m.Called(ctx, code)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Plan), args.Error(1)
 }

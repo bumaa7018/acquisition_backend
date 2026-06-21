@@ -40,7 +40,7 @@ func TestUserService_GetByID_NotFound(t *testing.T) {
 
 func TestUserService_Create_Success(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	repo.On("GetByEmail", context.Background(), "new@example.com").Return(nil, domain.ErrNotFound)
+	repo.On("GetByUsername", context.Background(), "").Return(nil, domain.ErrNotFound)
 	repo.On("Create", context.Background(), mock_any_user()).Return(nil)
 
 	svc := service.NewUserService(repo)
@@ -58,13 +58,14 @@ func TestUserService_Create_Success(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func TestUserService_Create_DuplicateEmail(t *testing.T) {
+func TestUserService_Create_DuplicateUsername(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	existing := &domain.User{ID: uuid.New(), Email: "dup@example.com"}
-	repo.On("GetByEmail", context.Background(), "dup@example.com").Return(existing, nil)
+	existing := &domain.User{ID: uuid.New(), Username: "duplicate"}
+	repo.On("GetByUsername", context.Background(), "duplicate").Return(existing, nil)
 
 	svc := service.NewUserService(repo)
 	_, err := svc.Create(context.Background(), service.CreateUserRequest{
+		Username: "duplicate",
 		Email:    "dup@example.com",
 		Password: "Password123!",
 	})

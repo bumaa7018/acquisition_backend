@@ -19,7 +19,8 @@ type UserService interface {
 }
 
 type CreateUserRequest struct {
-	Email     string `validate:"required,email"`
+	Username  string `validate:"required"`
+	Email     string `validate:"omitempty"`
 	Password  string `validate:"required,min=8"`
 	FirstName string `validate:"required"`
 	LastName  string `validate:"required"`
@@ -27,7 +28,8 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	Email     string `validate:"omitempty,email"`
+	Username  string `validate:"omitempty"`
+	Email     string `validate:"omitempty"`
 	FirstName string
 	LastName  string
 	IsActive  *bool
@@ -68,7 +70,7 @@ func (s *userService) List(ctx context.Context, filter domain.UserFilter) ([]*do
 }
 
 func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domain.User, error) {
-	existing, err := s.userRepo.GetByEmail(ctx, req.Email)
+	existing, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, err
 	}
@@ -84,6 +86,7 @@ func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domai
 	now := time.Now()
 	user := &domain.User{
 		ID:        uuid.New(),
+		Username:  req.Username,
 		Email:     req.Email,
 		Password:  hashed,
 		FirstName: req.FirstName,
@@ -103,6 +106,9 @@ func (s *userService) Update(ctx context.Context, id uuid.UUID, req UpdateUserRe
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if req.Username != "" {
+		user.Username = req.Username
 	}
 	if req.Email != "" {
 		user.Email = req.Email

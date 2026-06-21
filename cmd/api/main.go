@@ -32,6 +32,7 @@ import (
 	"github.com/your-org/go-api-template/internal/config"
 	handler "github.com/your-org/go-api-template/internal/handler/http"
 	"github.com/your-org/go-api-template/internal/pkg/email"
+	"github.com/your-org/go-api-template/internal/pkg/filestorage"
 	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
 	"github.com/your-org/go-api-template/internal/repository/postgres"
 	"github.com/your-org/go-api-template/internal/service"
@@ -104,25 +105,49 @@ func main() {
 	userSvc := service.NewUserService(userRepo)
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
-	landSvc := service.NewLandService(planRepo, landAcqRepo)
+	fileStorage := filestorage.NewMockStorage(cfg.FileServer.BaseURL, cfg.FileServer.LocalDir)
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage)
 	planSvc := service.NewPlanService(planRepo)
 
+	if err := ensureSeedHistory(ctx, mainDB); err != nil {
+		slog.Error("failed to create seed_history", "error", err)
+		os.Exit(1)
+	}
+
 	// Auth seeder — хэрэглэгч, эрх, роль
-	seeder := NewSeeder(authDB, userRepo, roleRepo, permRepo)
-	if err := seeder.Seed(ctx, cfg.Admin); err != nil {
-		slog.Warn("auth seed failed", "error", err)
+	if applied, _ := isSeedApplied(ctx, mainDB, "auth_seeder"); !applied {
+		seeder := NewSeeder(authDB, userRepo, roleRepo, permRepo)
+		if err := seeder.Seed(ctx, cfg.Admin); err != nil {
+			slog.Warn("auth seed failed", "error", err)
+		} else if err := markSeedApplied(ctx, mainDB, "auth_seeder"); err != nil {
+			slog.Warn("failed to mark auth_seeder", "error", err)
+		}
+	} else {
+		slog.Info("seed skipped (already applied)", "name", "auth_seeder")
 	}
 
 	// Main seeder — аймаг, сум, баг, газар чөлөөлөлт, нэгж талбар
-	mainSeeder := NewMainSeeder(mainDB)
-	if err := mainSeeder.Seed(ctx); err != nil {
-		slog.Warn("main seed failed", "error", err)
+	if applied, _ := isSeedApplied(ctx, mainDB, "main_seeder"); !applied {
+		mainSeeder := NewMainSeeder(mainDB)
+		if err := mainSeeder.Seed(ctx); err != nil {
+			slog.Warn("main seed failed", "error", err)
+		} else if err := markSeedApplied(ctx, mainDB, "main_seeder"); err != nil {
+			slog.Warn("failed to mark main_seeder", "error", err)
+		}
+	} else {
+		slog.Info("seed skipped (already applied)", "name", "main_seeder")
 	}
 
 	// Plans seeder — auth DB-д төлөвлөгөө, эх нэгж талбар
-	plansSeeder := NewPlansSeeder(authDB)
-	if err := plansSeeder.Seed(ctx); err != nil {
-		slog.Warn("plans seed failed", "error", err)
+	if applied, _ := isSeedApplied(ctx, mainDB, "plans_seeder"); !applied {
+		plansSeeder := NewPlansSeeder(authDB)
+		if err := plansSeeder.Seed(ctx); err != nil {
+			slog.Warn("plans seed failed", "error", err)
+		} else if err := markSeedApplied(ctx, mainDB, "plans_seeder"); err != nil {
+			slog.Warn("failed to mark plans_seeder", "error", err)
+		}
+	} else {
+		slog.Info("seed skipped (already applied)", "name", "plans_seeder")
 	}
 
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc)

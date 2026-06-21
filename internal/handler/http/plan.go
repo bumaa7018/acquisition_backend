@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
 )
@@ -39,7 +40,7 @@ type planResponse struct {
 func (h *PlanHandler) Search(c *gin.Context) {
 	code := c.Query("code")
 	if code == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "code параметр шаардлагатай"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrCodeRequired)
 		return
 	}
 
@@ -47,7 +48,7 @@ func (h *PlanHandler) Search(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
-			c.AbortWithStatusJSON(http.StatusNotFound, response.Response{Error: "Төлөвлөгөө олдсонгүй"})
+			response.Abort(c, http.StatusNotFound, i18n.ErrPlanNotFound)
 		default:
 			response.Error(c, err)
 		}

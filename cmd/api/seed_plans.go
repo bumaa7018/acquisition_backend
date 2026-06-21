@@ -53,7 +53,7 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 		parcelID                                                 string
 		geom                                                     string
 		au1, au2, au3                                            string
-		rightType                                                string
+		rightType                                                int
 		landuse                                                  string
 		areaM2                                                   float64
 		lastName, name, regNo, phone, email, holderType, civilID string
@@ -63,7 +63,7 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 			parcelID: "010101000001",
 			geom:     "POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))",
 			au1:      "01", au2: "0101", au3: "010101",
-			rightType: "OWNERSHIP", landuse: "AGRICULTURAL", areaM2: 85000,
+			rightType: 3, landuse: "AGRICULTURAL", areaM2: 85000, // 3=OWNERSHIP
 			lastName: "Дорж", name: "Батбаяр", regNo: "УЦ89102501",
 			phone: "+97688001234", email: "batbayar@example.mn",
 			holderType: "INDIVIDUAL", civilID: "МН1234567",
@@ -74,7 +74,7 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 			parcelID: "010101000002",
 			geom:     "POLYGON((106.82 47.66, 106.88 47.66, 106.88 47.72, 106.82 47.72, 106.82 47.66))",
 			au1:      "01", au2: "0101", au3: "010101",
-			rightType: "LEASE", landuse: "RESIDENTIAL", areaM2: 1200,
+			rightType: 2, landuse: "RESIDENTIAL", areaM2: 1200, // 2=LEASE
 			lastName: "Гантулга", name: "Мөнхбаяр", regNo: "ДА95041512",
 			phone: "+97699112233", email: "munkhbayar@example.mn",
 			holderType: "INDIVIDUAL", civilID: "МН9087654",
@@ -85,7 +85,7 @@ func (s *PlansSeeder) seedSourceParcels(ctx context.Context) error {
 			parcelID: "010101000003",
 			geom:     "POLYGON((106.76 47.72, 106.84 47.72, 106.84 47.78, 106.76 47.78, 106.76 47.72))",
 			au1:      "01", au2: "0101", au3: "010101",
-			rightType: "OWNERSHIP", landuse: "COMMERCIAL", areaM2: 5600,
+			rightType: 3, landuse: "COMMERCIAL", areaM2: 5600, // 3=OWNERSHIP
 			lastName: "", name: "Монгол Орон ХХК", regNo: "7700012345",
 			phone: "+97677001234", email: "info@mongolornon.mn",
 			holderType: "LEGAL_ENTITY", civilID: "",

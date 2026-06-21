@@ -6,27 +6,52 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 )
 
 type Response struct {
-	Data  any    `json:"data,omitempty"`
-	Error string `json:"error,omitempty"`
+	Code    int    `json:"code"`
+	Data    any    `json:"data,omitempty"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message"`
 }
 
 type PaginatedResponse struct {
-	Data       any   `json:"data"`
-	Total      int64 `json:"total"`
-	Page       int   `json:"page"`
-	PageSize   int   `json:"page_size"`
-	TotalPages int64 `json:"total_pages"`
+	Code       int    `json:"code"`
+	Data       any    `json:"data"`
+	Message    string `json:"message"`
+	Total      int64  `json:"total"`
+	Page       int    `json:"page"`
+	PageSize   int    `json:"page_size"`
+	TotalPages int64  `json:"total_pages"`
+}
+
+func lang(c *gin.Context) i18n.Lang {
+	return i18n.Detect(c.GetHeader("Accept-Language"))
 }
 
 func OK(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, Response{Data: data})
+	c.JSON(http.StatusOK, Response{
+		Code:    http.StatusOK,
+		Data:    data,
+		Message: i18n.T(lang(c), i18n.MsgOK),
+	})
+}
+
+func OKMsg(c *gin.Context, data any, key i18n.Key) {
+	c.JSON(http.StatusOK, Response{
+		Code:    http.StatusOK,
+		Data:    data,
+		Message: i18n.T(lang(c), key),
+	})
 }
 
 func Created(c *gin.Context, data any) {
-	c.JSON(http.StatusCreated, Response{Data: data})
+	c.JSON(http.StatusCreated, Response{
+		Code:    http.StatusCreated,
+		Data:    data,
+		Message: i18n.T(lang(c), i18n.MsgCreated),
+	})
 }
 
 func NoContent(c *gin.Context) {
@@ -39,7 +64,9 @@ func Paginated(c *gin.Context, data any, total int64, page, pageSize int) {
 		totalPages++
 	}
 	c.JSON(http.StatusOK, PaginatedResponse{
+		Code:       http.StatusOK,
 		Data:       data,
+		Message:    i18n.T(lang(c), i18n.MsgOK),
 		Total:      total,
 		Page:       page,
 		PageSize:   pageSize,
@@ -47,8 +74,28 @@ func Paginated(c *gin.Context, data any, total int64, page, pageSize int) {
 	})
 }
 
+// Abort sends an error response using an i18n key.
+func Abort(c *gin.Context, status int, key i18n.Key) {
+	msg := i18n.T(lang(c), key)
+	c.AbortWithStatusJSON(status, Response{
+		Code:    status,
+		Error:   msg,
+		Message: msg,
+	})
+}
+
+// AbortValidation sends a 400 with a raw validation error string (from go-playground/validator).
+func AbortValidation(c *gin.Context, err error) {
+	c.AbortWithStatusJSON(http.StatusBadRequest, Response{
+		Code:    http.StatusBadRequest,
+		Error:   err.Error(),
+		Message: err.Error(),
+	})
+}
+
 func Error(c *gin.Context, err error) {
-	status, msg := mapError(err)
+	status, key := mapError(err)
+	msg := i18n.T(lang(c), key)
 	if status >= http.StatusInternalServerError {
 		slog.Error("request failed",
 			"error", err,
@@ -57,26 +104,32 @@ func Error(c *gin.Context, err error) {
 			"status", status,
 		)
 	}
-	c.AbortWithStatusJSON(status, Response{Error: msg})
+	c.AbortWithStatusJSON(status, Response{
+		Code:    status,
+		Error:   msg,
+		Message: msg,
+	})
 }
 
-func mapError(err error) (int, string) {
+func mapError(err error) (int, i18n.Key) {
 	switch err {
 	case domain.ErrNotFound:
-		return http.StatusNotFound, err.Error()
+		return http.StatusNotFound, i18n.ErrNotFound
 	case domain.ErrAlreadyExists:
-		return http.StatusConflict, err.Error()
+		return http.StatusConflict, i18n.ErrConflict
 	case domain.ErrInvalidCredentials:
-		return http.StatusUnauthorized, err.Error()
+		return http.StatusUnauthorized, i18n.ErrInvalidCreds
 	case domain.ErrUnauthorized:
-		return http.StatusUnauthorized, err.Error()
+		return http.StatusUnauthorized, i18n.ErrUnauthorized
 	case domain.ErrForbidden:
-		return http.StatusForbidden, err.Error()
-	case domain.ErrInvalidToken, domain.ErrExpiredToken:
-		return http.StatusUnauthorized, err.Error()
+		return http.StatusForbidden, i18n.ErrForbidden
+	case domain.ErrInvalidToken:
+		return http.StatusUnauthorized, i18n.ErrInvalidToken
+	case domain.ErrExpiredToken:
+		return http.StatusUnauthorized, i18n.ErrExpiredToken
 	case domain.ErrInvalidInput:
-		return http.StatusBadRequest, err.Error()
+		return http.StatusBadRequest, i18n.ErrInvalidInput
 	default:
-		return http.StatusInternalServerError, "internal server error"
+		return http.StatusInternalServerError, i18n.ErrInternalServer
 	}
 }

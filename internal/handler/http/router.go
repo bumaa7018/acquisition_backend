@@ -27,6 +27,7 @@ func NewRouter(
 	r.Use(cors.Default())
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	r.Static("/mock-files", "uploads/mock-file-server")
 
 	healthH := NewHealthHandler(db)
 	r.GET("/health", healthH.Live)
@@ -93,12 +94,30 @@ func NewRouter(
 			land.PUT("/:id", middleware.RequirePermission("land:update"), landH.Update)
 			land.DELETE("/:id", middleware.RequirePermission("land:delete"), landH.Delete)
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), landH.SyncParcel)
+			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), landH.SetParcelCompensation)
+			land.GET("/:id/progress", middleware.RequirePermission("land:read"), landH.ListProgress)
+			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), landH.GetAvailableStatuses)
+			land.POST("/:id/advance", middleware.RequirePermission("acquisition.create"), landH.AdvanceStatus)
+			land.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListAcquisitionDocuments)
+			land.POST("/:id/documents", middleware.RequirePermission("land:write"), landH.UploadAcquisitionDocument)
+			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:write"), landH.DeleteAcquisitionDocument)
 		}
 
 		// Газар зохион байгуулалтын төлөвлөгөө
 		plans := protected.Group("/plans")
 		{
 			plans.GET("/search", middleware.RequirePermission("land:read"), planH.Search)
+		}
+
+		// Глобал нэгж талбарын маршрут
+		parcels := protected.Group("/parcels")
+		{
+			parcels.GET("", middleware.RequirePermission("land:read"), landH.ListGlobalParcels)
+			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), landH.ListParcelPayments)
+			parcels.POST("/:id/payments", middleware.RequirePermission("land:update"), landH.AddParcelPayment)
+			parcels.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListParcelDocuments)
+			parcels.POST("/:id/documents", middleware.RequirePermission("land:write"), landH.UploadParcelDocument)
+			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:write"), landH.DeleteParcelDocument)
 		}
 	}
 

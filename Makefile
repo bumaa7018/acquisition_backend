@@ -2,6 +2,7 @@
 
 BINARY=server
 CMD=./cmd/api
+COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
 
 # Үндсэн DB
 DB_HOST     ?= $(shell grep '^DB_HOST'     .env 2>/dev/null | cut -d= -f2)
@@ -65,17 +66,20 @@ migrate-auth-down:
 	migrate -path ./migrations/auth -database "$(AUTH_DSN)" down 1
 
 up:
-	BUILD_FLAGS="--no-cache --pull" SKIP_GIT_PULL=1 ./scripts/deploy.sh
+	@docker network inspect gov_network >/dev/null 2>&1 || docker network create gov_network >/dev/null
+	$(COMPOSE) build --no-cache --pull
+	$(COMPOSE) up -d --remove-orphans --wait
 
 down:
-	docker compose -f deployments/docker-compose.yml --env-file .env down
+	$(COMPOSE) down
 
 reset:
-	docker compose -f deployments/docker-compose.yml --env-file .env down -v
-	SKIP_GIT_PULL=1 ./scripts/deploy.sh
+	$(COMPOSE) down -v
+	$(COMPOSE) build --no-cache --pull
+	$(COMPOSE) up -d --remove-orphans --wait
 
 logs:
-	docker compose -f deployments/docker-compose.yml logs -f
+	$(COMPOSE) logs -f
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &

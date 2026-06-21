@@ -8,10 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
 )
-
 
 type LandHandler struct {
 	svc service.LandService
@@ -88,48 +88,46 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Failure      422  {object}  response.Response
 // @Router       /land-acquisitions [post]
 func (h *LandHandler) Create(c *gin.Context) {
-	planCode       := c.PostForm("plan_code")
-	startStr       := c.PostForm("start_date")
-	endStr         := c.PostForm("end_date")
-	projectName    := c.PostForm("project_name")
+	planCode := c.PostForm("plan_code")
+	startStr := c.PostForm("start_date")
+	endStr := c.PostForm("end_date")
+	projectName := c.PostForm("acquisition_name")
 	implementingOrg := c.PostForm("implementing_org")
-	reason         := c.PostForm("reason")
+	reason := c.PostForm("reason")
 	responsibleOrg := c.PostForm("responsible_org")
-	fundingSource  := c.PostForm("funding_source")
+	fundingSource := c.PostForm("funding_source")
 
 	if planCode == "" || startStr == "" || endStr == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{
-			Error: "plan_code, start_date, end_date заавал шаардлагатай",
-		})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 
 	startDate, err := time.Parse("2006-01-02", startStr)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "start_date формат буруу (YYYY-MM-DD)"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrStartDateFormat)
 		return
 	}
 	endDate, err := time.Parse("2006-01-02", endStr)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "end_date формат буруу (YYYY-MM-DD)"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrEndDateFormat)
 		return
 	}
 
 	fh, err := c.FormFile("shapefile")
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "shapefile файл шаардлагатай"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequired)
 		return
 	}
 	f, err := fh.Open()
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "shapefile нээхэд алдаа"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
 		return
 	}
 	defer f.Close()
 
 	zipData, err := io.ReadAll(f)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "shapefile уншихад алдаа"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRead)
 		return
 	}
 
@@ -144,7 +142,7 @@ func (h *LandHandler) Create(c *gin.Context) {
 		EndDate:         endDate,
 		ShapefileData:   zipData,
 		CreatedBy:       createdByStr,
-		ProjectName:     projectName,
+		AcquisitionName: projectName,
 		ImplementingOrg: implementingOrg,
 		Reason:          reason,
 		ResponsibleOrg:  responsibleOrg,
@@ -153,11 +151,9 @@ func (h *LandHandler) Create(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
-			c.AbortWithStatusJSON(http.StatusNotFound, response.Response{Error: "Төлөвлөгөө олдсонгүй"})
+			response.Abort(c, http.StatusNotFound, i18n.ErrPlanNotFound)
 		case domain.ErrInvalidInput:
-			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, response.Response{
-				Error: "Чөлөөлөх хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу",
-			})
+			response.Abort(c, http.StatusUnprocessableEntity, i18n.ErrBoundaryExceeds)
 		default:
 			response.Error(c, err)
 		}
@@ -187,7 +183,7 @@ func (h *LandHandler) Create(c *gin.Context) {
 func (h *LandHandler) ListParcels(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
@@ -199,7 +195,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 		AU1Code:   c.Query("au1_code"),
 		AU2Code:   c.Query("au2_code"),
 		AU3Code:   c.Query("au3_code"),
-		RightType: c.Query("right_type"),
+		RightType: queryInt(c, "right_type", 0),
 		Landuse:   c.Query("landuse"),
 		Page:      page,
 		PageSize:  pageSize,
@@ -218,6 +214,8 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 			AU1Code: p.AU1Code, AU2Code: p.AU2Code, AU3Code: p.AU3Code,
 			RightType: p.RightType, Landuse: p.Landuse, AreaM2: p.AreaM2,
 			AcquisitionAreaM2: p.AcquisitionAreaM2,
+			CompensationPaid:  p.CompensationPaid,
+			GeometryWKT:       p.GeometryWKT,
 		})
 	}
 	response.Paginated(c, result, total, page, pageSize)
@@ -243,7 +241,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 func (h *LandHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
@@ -254,7 +252,7 @@ func (h *LandHandler) Update(c *gin.Context) {
 	if s := c.PostForm("start_date"); s != "" {
 		t, err := time.Parse("2006-01-02", s)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "start_date формат буруу (YYYY-MM-DD)"})
+			response.Abort(c, http.StatusBadRequest, i18n.ErrStartDateFormat)
 			return
 		}
 		req.StartDate = &t
@@ -262,7 +260,7 @@ func (h *LandHandler) Update(c *gin.Context) {
 	if s := c.PostForm("end_date"); s != "" {
 		t, err := time.Parse("2006-01-02", s)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "end_date формат буруу (YYYY-MM-DD)"})
+			response.Abort(c, http.StatusBadRequest, i18n.ErrEndDateFormat)
 			return
 		}
 		req.EndDate = &t
@@ -271,24 +269,29 @@ func (h *LandHandler) Update(c *gin.Context) {
 	if fh, err := c.FormFile("shapefile"); err == nil {
 		f, err := fh.Open()
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "shapefile нээхэд алдаа"})
+			response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
 			return
 		}
 		defer f.Close()
 		data, err := io.ReadAll(f)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "shapefile уншихад алдаа"})
+			response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRead)
 			return
 		}
 		req.ShapefileData = data
 	}
 
 	if req.PlanCode != "" && len(req.ShapefileData) == 0 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{
-			Error: "Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай",
-		})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequiredForPlan)
 		return
 	}
+
+	req.AcquisitionName = c.PostForm("acquisition_name")
+	req.ImplementingOrg = c.PostForm("implementing_org")
+	req.Reason = c.PostForm("reason")
+	req.ResponsibleOrg = c.PostForm("responsible_org")
+	req.FundingSource = c.PostForm("funding_source")
+	req.ClearEndDate = c.PostForm("clear_end_date") == "true"
 
 	if uid, ok := c.Get("userID"); ok {
 		req.UpdatedBy = uid.(uuid.UUID).String()
@@ -298,24 +301,23 @@ func (h *LandHandler) Update(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
-			c.AbortWithStatusJSON(http.StatusNotFound, response.Response{Error: "Чөлөөлөлт олдсонгүй"})
+			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
 		case domain.ErrInvalidInput:
-			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, response.Response{
-				Error: "Шинэ хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу",
-			})
+			response.Abort(c, http.StatusUnprocessableEntity, i18n.ErrNewBoundaryExceeds)
 		default:
 			response.Error(c, err)
 		}
 		return
 	}
 
+	l := i18n.Detect(c.GetHeader("Accept-Language"))
 	type updateResp struct {
 		landAcquisitionResponse
 		Warning string `json:"warning,omitempty"`
 	}
 	r := updateResp{landAcquisitionResponse: toLandAcqResponse(acq)}
 	if geomChanged {
-		r.Warning = "Хуучин бүсийн хилтэй давхцах нэгж талбарын бүх мэдээлэл устгагдаж шинэчлэгдлээ"
+		r.Warning = i18n.T(l, i18n.WarnGeomChanged)
 	}
 	response.OK(c, r)
 }
@@ -334,18 +336,16 @@ func (h *LandHandler) Update(c *gin.Context) {
 func (h *LandHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
 		switch err {
 		case domain.ErrNotFound:
-			c.AbortWithStatusJSON(http.StatusNotFound, response.Response{Error: "Чөлөөлөлт олдсонгүй"})
+			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
 		case domain.ErrForbidden:
-			c.AbortWithStatusJSON(http.StatusForbidden, response.Response{
-				Error: "Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой",
-			})
+			response.Abort(c, http.StatusForbidden, i18n.ErrDeleteNotNew)
 		default:
 			response.Error(c, err)
 		}
@@ -366,13 +366,13 @@ func (h *LandHandler) Delete(c *gin.Context) {
 func (h *LandHandler) GetByID(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
 	acq, err := h.svc.GetByID(c.Request.Context(), id)
 	if err != nil {
-		response.Error(c, domain.ErrNotFound)
+		response.Error(c, err)
 		return
 	}
 	response.OK(c, toLandAcqResponse(acq))
@@ -392,12 +392,12 @@ func (h *LandHandler) GetByID(c *gin.Context) {
 func (h *LandHandler) SyncParcel(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу acquisition UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
 		return
 	}
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу parcel UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
 		return
 	}
 
@@ -405,7 +405,7 @@ func (h *LandHandler) SyncParcel(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, gin.H{"message": "Нэгж талбарын мэдээлэл амжилттай татагдлаа"})
+	response.OKMsg(c, nil, i18n.MsgSynced)
 }
 
 // GetParcelByID godoc
@@ -422,12 +422,12 @@ func (h *LandHandler) SyncParcel(c *gin.Context) {
 func (h *LandHandler) GetParcelByID(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу acquisition UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
 		return
 	}
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "Буруу parcel UUID формат"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
 		return
 	}
 
@@ -439,3 +439,447 @@ func (h *LandHandler) GetParcelByID(c *gin.Context) {
 	response.OK(c, toParcelFullResponse(pf))
 }
 
+// ListProgress godoc
+// @Summary      Статус өөрчлөлтийн түүх
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      200  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Router       /land-acquisitions/{id}/progress [get]
+func (h *LandHandler) ListProgress(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	list, err := h.svc.GetProgress(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	result := make([]progressResponse, 0, len(list))
+	for _, p := range list {
+		result = append(result, progressResponse{
+			ID:         p.ID.String(),
+			FromStatus: p.FromStatus,
+			ToStatus:   p.ToStatus,
+			Note:       p.Note,
+			ChangedBy:  p.ChangedBy,
+			ChangedAt:  p.ChangedAt.Format(time.RFC3339),
+		})
+	}
+	response.OK(c, result)
+}
+
+// GetAvailableStatuses godoc
+// @Summary      Шилжих боломжтой статусуудын жагсаалт
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      200  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Router       /land-acquisitions/{id}/available-statuses [get]
+func (h *LandHandler) GetAvailableStatuses(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	opts, err := h.svc.GetAvailableStatuses(c.Request.Context(), id)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
+		default:
+			response.Error(c, err)
+		}
+		return
+	}
+	response.OK(c, opts)
+}
+
+// AdvanceStatus godoc
+// @Summary      Сонгосон статус руу шилжүүлэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path  string  true  "LandAcquisition UUID"
+// @Param        body  body  object  true  "to_status, note"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Failure      422  {object}  response.Response
+// @Router       /land-acquisitions/{id}/advance [post]
+func (h *LandHandler) AdvanceStatus(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		ToStatus int    `json:"to_status" binding:"required"`
+		Note     string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, "to_status шаардлагатай")
+		return
+	}
+
+	changedBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		changedBy = uid.(uuid.UUID).String()
+	}
+
+	acq, err := h.svc.AdvanceStatus(c.Request.Context(), id, body.ToStatus, body.Note, changedBy)
+	if err != nil {
+		switch err {
+		case domain.ErrNotFound:
+			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
+		case domain.ErrInvalidInput:
+			response.Abort(c, http.StatusUnprocessableEntity, "Буруу статус")
+		default:
+			response.Error(c, err)
+		}
+		return
+	}
+	response.OK(c, toLandAcqResponse(acq))
+}
+
+func (h *LandHandler) ListAcquisitionDocuments(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	list, err := h.svc.ListAcquisitionDocuments(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]documentResponse, 0, len(list))
+	for _, d := range list {
+		result = append(result, toDocumentResponse(d))
+	}
+	response.OK(c, result)
+}
+
+func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	const maxSize = 10 * 1024 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	fh, err := c.FormFile("file")
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "file field is required")
+		return
+	}
+	if fh.Size > maxSize {
+		response.Abort(c, http.StatusBadRequest, "file exceeds 10MB limit")
+		return
+	}
+	f, err := fh.Open()
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "failed to open file")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "failed to read file")
+		return
+	}
+	uploadedBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		uploadedBy = uid.(uuid.UUID).String()
+	}
+	contentType := fh.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	doc, err := h.svc.UploadAcquisitionDocument(c.Request.Context(), id, fh.Filename, contentType, data, uploadedBy)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, toDocumentResponse(doc))
+}
+
+func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
+	docID, err := uuid.Parse(c.Param("doc_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteAcquisitionDocument(c.Request.Context(), docID); err != nil {
+		if err == domain.ErrNotFound {
+			response.Abort(c, http.StatusNotFound, "document not found")
+			return
+		}
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ListGlobalParcels godoc
+// @Summary      Бүх нэгж талбарын нэгдсэн жагсаалт
+// @Tags         parcels
+// @Produce      json
+// @Security     BearerAuth
+// @Param        page              query  int     false  "Хуудасны дугаар (default: 1)"
+// @Param        page_size         query  int     false  "Хуудасны хэмжээ (default: 20)"
+// @Param        parcel_id         query  string  false  "Нэгж талбарын дугаар (ILIKE)"
+// @Param        right_type        query  int     false  "Эрхийн төрөл"
+// @Param        landuse           query  string  false  "Газрын зориулалт"
+// @Param        au3_code          query  string  false  "Багийн код"
+// @Param        acquisition_name  query  string  false  "Чөлөөлөлтийн нэр (ILIKE)"
+// @Param        status            query  int     false  "Чөлөөлөлтийн статус"
+// @Success      200  {object}  response.PaginatedResponse
+// @Router       /parcels [get]
+func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	filter := domain.GlobalParcelFilter{
+		ParcelID:        c.Query("parcel_id"),
+		RightType:       queryInt(c, "right_type", 0),
+		Landuse:         c.Query("landuse"),
+		AU3Code:         c.Query("au3_code"),
+		AcquisitionName: c.Query("acquisition_name"),
+		Status:          queryInt(c, "status", 0),
+		Page:            page,
+		PageSize:        pageSize,
+	}
+	parcels, total, err := h.svc.ListGlobalParcels(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]globalParcelResponse, 0, len(parcels))
+	for _, p := range parcels {
+		result = append(result, toGlobalParcelResponse(p))
+	}
+	response.Paginated(c, result, total, page, pageSize)
+}
+
+// ListParcelPayments godoc
+// @Summary      Нэгж талбарын төлбөрийн бичлэгүүд
+// @Tags         parcels
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Parcel UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /parcels/{id}/payments [get]
+func (h *LandHandler) ListParcelPayments(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	list, err := h.svc.ListParcelPayments(c.Request.Context(), parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	result := make([]parcelPaymentResponse, 0, len(list))
+	for _, p := range list {
+		r := parcelPaymentResponse{
+			ID:        p.ID.String(),
+			ParcelID:  p.ParcelID.String(),
+			Amount:    p.Amount,
+			Currency:  p.Currency,
+			Note:      p.Note,
+			CreatedAt: p.CreatedAt.Format(time.RFC3339),
+			CreatedBy: p.CreatedBy,
+		}
+		if p.PaidAt != nil {
+			s := p.PaidAt.Format("2006-01-02")
+			r.PaidAt = &s
+		}
+		result = append(result, r)
+	}
+	response.OK(c, result)
+}
+
+// AddParcelPayment godoc
+// @Summary      Нэгж талбарт төлбөрийн бичлэг нэмэх
+// @Tags         parcels
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path  string  true  "Parcel UUID"
+// @Param        body  body  object  true  "amount, currency, paid_at, note"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /parcels/{id}/payments [post]
+func (h *LandHandler) AddParcelPayment(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		Amount   float64 `json:"amount" binding:"required"`
+		Currency string  `json:"currency"`
+		PaidAt   string  `json:"paid_at"`
+		Note     string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	currency := body.Currency
+	if currency == "" {
+		currency = "MNT"
+	}
+
+	createdBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		createdBy = uid.(uuid.UUID).String()
+	}
+
+	p := &domain.ParcelPayment{
+		ParcelID:  parcelID,
+		Amount:    body.Amount,
+		Currency:  currency,
+		Note:      body.Note,
+		CreatedBy: createdBy,
+	}
+	if body.PaidAt != "" {
+		if t, err := time.Parse("2006-01-02", body.PaidAt); err == nil {
+			p.PaidAt = &t
+		}
+	}
+
+	if err := h.svc.AddParcelPayment(c.Request.Context(), p); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, nil)
+}
+
+func (h *LandHandler) ListParcelDocuments(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	list, err := h.svc.ListParcelDocuments(c.Request.Context(), parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]documentResponse, 0, len(list))
+	for _, d := range list {
+		result = append(result, toDocumentResponse(d))
+	}
+	response.OK(c, result)
+}
+
+func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	const maxSize = 10 * 1024 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	fh, err := c.FormFile("file")
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "file field is required")
+		return
+	}
+	if fh.Size > maxSize {
+		response.Abort(c, http.StatusBadRequest, "file exceeds 10MB limit")
+		return
+	}
+	f, err := fh.Open()
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "failed to open file")
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, "failed to read file")
+		return
+	}
+	uploadedBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		uploadedBy = uid.(uuid.UUID).String()
+	}
+	contentType := fh.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, fh.Filename, contentType, data, uploadedBy)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, toDocumentResponse(doc))
+}
+
+func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
+	docID, err := uuid.Parse(c.Param("doc_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteParcelDocument(c.Request.Context(), docID); err != nil {
+		if err == domain.ErrNotFound {
+			response.Abort(c, http.StatusNotFound, "document not found")
+			return
+		}
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// SetParcelCompensation godoc
+// @Summary      Нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Parcel UUID"
+// @Param        body       body  object  true  "paid"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/compensation [put]
+func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		Paid bool `json:"paid"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	if err := h.svc.SetParcelCompensation(c.Request.Context(), parcelID, body.Paid); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}

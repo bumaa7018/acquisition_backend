@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/your-org/go-api-template/internal/domain"
 	"github.com/your-org/go-api-template/internal/middleware"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
 )
@@ -94,7 +95,7 @@ func (h *UserHandler) List(c *gin.Context) {
 func (h *UserHandler) GetByID(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	user, err := h.userSvc.GetByID(c.Request.Context(), id)
@@ -121,21 +122,23 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 // @Router       /users [post]
 func (h *UserHandler) Create(c *gin.Context) {
 	var req struct {
-		Email     string `json:"email" validate:"required,email"`
+		Username  string `json:"username" validate:"required"`
+		Email     string `json:"email"`
 		Password  string `json:"password" validate:"required,min=8"`
 		FirstName string `json:"first_name" validate:"required"`
 		LastName  string `json:"last_name" validate:"required"`
 		IsActive  bool   `json:"is_active"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	user, err := h.userSvc.Create(c.Request.Context(), service.CreateUserRequest{
+		Username:  req.Username,
 		Email:     req.Email,
 		Password:  req.Password,
 		FirstName: req.FirstName,
@@ -167,20 +170,22 @@ func (h *UserHandler) Create(c *gin.Context) {
 func (h *UserHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	var req struct {
+		Username  string `json:"username"`
 		Email     string `json:"email"`
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
 		IsActive  *bool  `json:"is_active"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	user, err := h.userSvc.Update(c.Request.Context(), id, service.UpdateUserRequest{
+		Username:  req.Username,
 		Email:     req.Email,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
@@ -209,7 +214,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 func (h *UserHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	if err := h.userSvc.Delete(c.Request.Context(), id); err != nil {

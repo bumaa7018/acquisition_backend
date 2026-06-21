@@ -245,7 +245,7 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		"01", "0101", "010101",
 		"POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))",
-		"OWNERSHIP",
+		3, // OWNERSHIP
 		"AGRICULTURAL",
 		85000.0,
 	).Scan(&id)
@@ -287,7 +287,7 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 			'system', 'system'
 		)
 	`,
-		parcelID, acqID, "OWNERSHIP", holderID,
+		parcelID, acqID, 3, holderID, // 3=OWNERSHIP
 		"ГМТ-2024-001", time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
 		"ТЗД-2024/001", time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC),
 		"ГЭ-2024-001", time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),

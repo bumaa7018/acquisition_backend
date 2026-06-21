@@ -81,7 +81,7 @@ func sampleAcquisition() *domain.LandAcquisition {
 		PlanCode:    "PLAN-2024-001",
 		GeometryWKT: "POLYGON((106.76 47.66,106.82 47.66,106.82 47.72,106.76 47.72,106.76 47.66))",
 		AreaM2:      85000,
-		Status:      domain.LandAcquisitionStatusActive,
+		Status:      domain.LandAcquisitionStatusField,
 		StartDate:   &start,
 		EndDate:     &end,
 		CreatedAt:   time.Now(),
@@ -124,7 +124,7 @@ func TestLandHandler_List_WithFilter(t *testing.T) {
 
 	filter := domain.LandAcquisitionFilter{
 		PlanCode: "PLAN-2024",
-		Status:   domain.LandAcquisitionStatusActive,
+		Status:   domain.LandAcquisitionStatusField,
 		Page:     2,
 		PageSize: 10,
 	}
@@ -363,8 +363,8 @@ func TestLandHandler_ListParcels_Success(t *testing.T) {
 
 	acqID := uuid.New()
 	parcels := []*domain.Parcel{
-		{ID: uuid.New(), ParcelID: "010101000001", AU1Code: "01", AU2Code: "0101", AU3Code: "010101", RightType: "OWNERSHIP", Landuse: "AGRICULTURAL", AreaM2: 85000},
-		{ID: uuid.New(), ParcelID: "010101000002", AU1Code: "01", AU2Code: "0101", AU3Code: "010101", RightType: "LEASE", Landuse: "RESIDENTIAL", AreaM2: 1200},
+		{ID: uuid.New(), ParcelID: "010101000001", AU1Code: "01", AU2Code: "0101", AU3Code: "010101", RightType: domain.RightTypeOwnership, Landuse: "AGRICULTURAL", AreaM2: 85000},
+		{ID: uuid.New(), ParcelID: "010101000002", AU1Code: "01", AU2Code: "0101", AU3Code: "010101", RightType: domain.RightTypeLease, Landuse: "RESIDENTIAL", AreaM2: 1200},
 	}
 	filter := domain.ParcelFilter{Page: 1, PageSize: 20}
 	mockSvc.On("GetParcels", mock.Anything, acqID, filter).Return(parcels, int64(2), nil)
@@ -393,15 +393,15 @@ func TestLandHandler_ListParcels_WithFilter(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	acqID := uuid.New()
-	filter := domain.ParcelFilter{AU3Code: "010101", RightType: "OWNERSHIP", Page: 1, PageSize: 10}
+	filter := domain.ParcelFilter{AU3Code: "010101", RightType: domain.RightTypeOwnership, Page: 1, PageSize: 10}
 	mockSvc.On("GetParcels", mock.Anything, acqID, filter).Return([]*domain.Parcel{
-		{ID: uuid.New(), ParcelID: "010101000001", RightType: "OWNERSHIP"},
+		{ID: uuid.New(), ParcelID: "010101000001", RightType: domain.RightTypeOwnership},
 	}, int64(1), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet,
-		"/land-acquisitions/"+acqID.String()+"/parcels?au3_code=010101&right_type=OWNERSHIP&page_size=10", nil)
+		"/land-acquisitions/"+acqID.String()+"/parcels?au3_code=010101&right_type=3&page_size=10", nil)
 	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
 
 	h.ListParcels(c)
@@ -635,7 +635,7 @@ func TestLandHandler_SyncParcel_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["data"])
+	assert.Equal(t, float64(http.StatusOK), resp["code"])
 	mockSvc.AssertExpectations(t)
 }
 

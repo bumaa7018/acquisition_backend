@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
 )
@@ -21,13 +22,10 @@ func NewRoleHandler(roleSvc service.RoleService) *RoleHandler {
 
 // List godoc
 // @Summary      List roles
-// @Description  Returns all roles with their permissions. Requires roles:read permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Produce      json
-// @Success      200  {object}  dataResponse{data=[]roleResponse}
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
+// @Success      200  {object}  response.Response
 // @Router       /roles [get]
 func (h *RoleHandler) List(c *gin.Context) {
 	roles, err := h.roleSvc.List(c.Request.Context())
@@ -40,21 +38,18 @@ func (h *RoleHandler) List(c *gin.Context) {
 
 // GetByID godoc
 // @Summary      Get role by ID
-// @Description  Returns a single role with its permissions. Requires roles:read permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id   path      string  true  "Role UUID"
-// @Success      200  {object}  dataResponse{data=roleResponse}
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
-// @Failure      404  {object}  errorResponse
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [get]
 func (h *RoleHandler) GetByID(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	role, err := h.roleSvc.GetByID(c.Request.Context(), id)
@@ -67,17 +62,14 @@ func (h *RoleHandler) GetByID(c *gin.Context) {
 
 // Create godoc
 // @Summary      Create role
-// @Description  Create a new role. Requires roles:create permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
 // @Param        body body createRoleBody true "Role payload"
-// @Success      201  {object}  dataResponse{data=roleResponse}
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
-// @Failure      409  {object}  errorResponse "Role name already exists"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      409  {object}  response.Response
 // @Router       /roles [post]
 func (h *RoleHandler) Create(c *gin.Context) {
 	var req struct {
@@ -85,11 +77,11 @@ func (h *RoleHandler) Create(c *gin.Context) {
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	role, err := h.roleSvc.Create(c.Request.Context(), service.CreateRoleRequest{
@@ -105,23 +97,20 @@ func (h *RoleHandler) Create(c *gin.Context) {
 
 // Update godoc
 // @Summary      Update role
-// @Description  Update role name or description. Requires roles:update permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
-// @Param        id   path      string          true  "Role UUID"
+// @Param        id   path      string  true  "Role UUID"
 // @Param        body body      updateRoleBody  true  "Fields to update"
-// @Success      200  {object}  dataResponse{data=roleResponse}
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
-// @Failure      404  {object}  errorResponse
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [put]
 func (h *RoleHandler) Update(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	var req struct {
@@ -129,7 +118,7 @@ func (h *RoleHandler) Update(c *gin.Context) {
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	role, err := h.roleSvc.Update(c.Request.Context(), id, service.UpdateRoleRequest{
@@ -145,21 +134,18 @@ func (h *RoleHandler) Update(c *gin.Context) {
 
 // Delete godoc
 // @Summary      Delete role
-// @Description  Delete a role. Requires roles:delete permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id   path      string  true  "Role UUID"
-// @Success      204  "No Content"
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
-// @Failure      404  {object}  errorResponse
+// @Success      204
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [delete]
 func (h *RoleHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	if err := h.roleSvc.Delete(c.Request.Context(), id); err != nil {
@@ -171,65 +157,63 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 
 // AssignPermission godoc
 // @Summary      Assign permission to role
-// @Description  Add a permission to a role. Requires roles:update permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Accept       json
 // @Produce      json
-// @Param        id   path      string               true  "Role UUID"
+// @Param        id   path      string  true  "Role UUID"
 // @Param        body body      assignPermissionBody true  "Permission to assign"
-// @Success      200  {object}  dataResponse{data=messageResponse}
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
 // @Router       /roles/{id}/permissions [post]
 func (h *RoleHandler) AssignPermission(c *gin.Context) {
 	roleID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid role id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	var req struct {
 		PermissionID string `json:"permission_id" validate:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	permID, err := uuid.Parse(req.PermissionID)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid permission_id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	if err := h.roleSvc.AssignPermission(c.Request.Context(), roleID, permID); err != nil {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, gin.H{"message": "permission assigned"})
+	l := i18n.Detect(c.GetHeader("Accept-Language"))
+	c.JSON(http.StatusOK, response.Response{
+		Code:    http.StatusOK,
+		Message: i18n.T(l, i18n.MsgAssigned),
+	})
 }
 
 // RemovePermission godoc
 // @Summary      Remove permission from role
-// @Description  Remove a permission from a role. Requires roles:update permission.
 // @Tags         Roles
 // @Security     BearerAuth
 // @Produce      json
 // @Param        id            path  string  true  "Role UUID"
 // @Param        permission_id path  string  true  "Permission UUID"
-// @Success      204  "No Content"
-// @Failure      400  {object}  errorResponse
-// @Failure      401  {object}  errorResponse
-// @Failure      403  {object}  errorResponse
+// @Success      204
+// @Failure      400  {object}  response.Response
 // @Router       /roles/{id}/permissions/{permission_id} [delete]
 func (h *RoleHandler) RemovePermission(c *gin.Context) {
 	roleID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid role id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	permID, err := uuid.Parse(c.Param("permission_id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid permission_id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	if err := h.roleSvc.RemovePermission(c.Request.Context(), roleID, permID); err != nil {

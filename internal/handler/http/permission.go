@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
 )
@@ -60,11 +61,11 @@ func (h *PermissionHandler) Create(c *gin.Context) {
 		Action      string `json:"action" validate:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	if err := h.validate.Struct(req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: err.Error()})
+		response.AbortValidation(c, err)
 		return
 	}
 	perm, err := h.permSvc.Create(c.Request.Context(), service.CreatePermissionRequest{
@@ -96,7 +97,7 @@ func (h *PermissionHandler) Create(c *gin.Context) {
 func (h *PermissionHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Error: "invalid id"})
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 	if err := h.permSvc.Delete(c.Request.Context(), id); err != nil {

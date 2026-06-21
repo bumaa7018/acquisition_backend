@@ -11,6 +11,11 @@ import (
 
 type Claims struct {
 	UserID      uuid.UUID `json:"user_id"`
+	Username    string    `json:"username"`
+	Email       string    `json:"email"`
+	FirstName   string    `json:"first_name"`
+	LastName    string    `json:"last_name"`
+	Roles       []string  `json:"roles"`
 	Permissions []string  `json:"permissions"`
 	jwt.RegisteredClaims
 }
@@ -36,22 +41,37 @@ func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.D
 	}
 }
 
-func (m *Manager) GenerateTokenPair(userID uuid.UUID, permissions []string) (*TokenPair, error) {
-	access, err := m.generateToken(userID, permissions, m.accessSecret, m.accessTTL)
+type UserInfo struct {
+	ID          uuid.UUID
+	Username    string
+	Email       string
+	FirstName   string
+	LastName    string
+	Roles       []string
+	Permissions []string
+}
+
+func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
+	access, err := m.generateToken(u, m.accessSecret, m.accessTTL)
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := m.generateToken(userID, nil, m.refreshSecret, m.refreshTTL)
+	refresh, err := m.generateToken(UserInfo{ID: u.ID}, m.refreshSecret, m.refreshTTL)
 	if err != nil {
 		return nil, err
 	}
 	return &TokenPair{AccessToken: access, RefreshToken: refresh}, nil
 }
 
-func (m *Manager) generateToken(userID uuid.UUID, permissions []string, secret string, ttl time.Duration) (string, error) {
+func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (string, error) {
 	claims := Claims{
-		UserID:      userID,
-		Permissions: permissions,
+		UserID:      u.ID,
+		Username:    u.Username,
+		Email:       u.Email,
+		FirstName:   u.FirstName,
+		LastName:    u.LastName,
+		Roles:       u.Roles,
+		Permissions: u.Permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

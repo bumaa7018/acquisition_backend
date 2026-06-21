@@ -118,6 +118,7 @@ func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, role
 	now := time.Now()
 	user := &domain.User{
 		ID:        uuid.New(),
+		Username:  "admin",
 		Email:     cfg.Email,
 		Password:  hashed,
 		FirstName: "Admin",

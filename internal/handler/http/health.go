@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 )
 
@@ -37,7 +38,7 @@ func (h *HealthHandler) Live(c *gin.Context) {
 // @Router       /health/ready [get]
 func (h *HealthHandler) Ready(c *gin.Context) {
 	if err := h.db.Ping(c.Request.Context()); err != nil {
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, response.Response{Error: "database unavailable"})
+		response.Abort(c, http.StatusServiceUnavailable, i18n.ErrDBUnavailable)
 		return
 	}
 	response.OK(c, gin.H{"status": "ready"})

@@ -23,14 +23,15 @@ type AuthService interface {
 }
 
 type RegisterRequest struct {
-	Email     string `validate:"required,email"`
+	Username  string `validate:"required"`
+	Email     string `validate:"omitempty"`
 	Password  string `validate:"required,min=8"`
 	FirstName string `validate:"required"`
 	LastName  string `validate:"required"`
 }
 
 type LoginRequest struct {
-	Email    string `validate:"required,email"`
+	Username string `validate:"required"`
 	Password string `validate:"required"`
 }
 
@@ -59,7 +60,7 @@ func NewAuthService(
 }
 
 func (s *authService) Register(ctx context.Context, req RegisterRequest) (*domain.User, error) {
-	existing, err := s.userRepo.GetByEmail(ctx, req.Email)
+	existing, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, err
 	}
@@ -75,6 +76,7 @@ func (s *authService) Register(ctx context.Context, req RegisterRequest) (*domai
 	now := time.Now()
 	user := &domain.User{
 		ID:        uuid.New(),
+		Username:  req.Username,
 		Email:     req.Email,
 		Password:  hashed,
 		FirstName: req.FirstName,
@@ -91,7 +93,10 @@ func (s *authService) Register(ctx context.Context, req RegisterRequest) (*domai
 }
 
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
-	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	user, err := s.userRepo.GetByUsername(ctx, req.Username)
+	if err == domain.ErrNotFound {
+		user, err = s.userRepo.GetByEmail(ctx, req.Username)
+	}
 	if err != nil {
 		if err == domain.ErrNotFound {
 			return nil, domain.ErrInvalidCredentials
@@ -109,7 +114,19 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	if err != nil {
 		return nil, err
 	}
-	return s.jwtManager.GenerateTokenPair(user.ID, perms)
+	roles, err := s.userRepo.GetRoles(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.jwtManager.GenerateTokenPair(jwt.UserInfo{
+		ID:          user.ID,
+		Username:    user.Username,
+		Email:       user.Email,
+		FirstName:   user.FirstName,
+		LastName:    user.LastName,
+		Roles:       roles,
+		Permissions: perms,
+	})
 }
 
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
@@ -117,11 +134,27 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
-	perms, err := s.userRepo.GetPermissions(ctx, claims.UserID)
+	user, err := s.userRepo.GetByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
-	return s.jwtManager.GenerateTokenPair(claims.UserID, perms)
+	perms, err := s.userRepo.GetPermissions(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := s.userRepo.GetRoles(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.jwtManager.GenerateTokenPair(jwt.UserInfo{
+		ID:          user.ID,
+		Username:    user.Username,
+		Email:       user.Email,
+		FirstName:   user.FirstName,
+		LastName:    user.LastName,
+		Roles:       roles,
+		Permissions: perms,
+	})
 }
 
 // ForgotPassword нь reset token үүсгэж, email-р илгээнэ.

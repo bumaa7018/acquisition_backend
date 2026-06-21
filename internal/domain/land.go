@@ -15,11 +15,33 @@ const (
 
 // LandAcquisition статус (main DB)
 const (
-	LandAcquisitionStatusNew       = 1 // 1=NEW
-	LandAcquisitionStatusActive    = 2 // 2=ACTIVE
-	LandAcquisitionStatusClosed    = 3 // 3=CLOSED
-	LandAcquisitionStatusCancelled = 4 // 4=CANCELLED
+	LandAcquisitionStatusNew       = 1 // Шинэ
+	LandAcquisitionStatusField     = 2 // Хээрийн судалгаа
+	LandAcquisitionStatusVerified  = 3 // Баталгаажсан
+	LandAcquisitionStatusCancelled = 4 // Цуцлагдсан
 )
+
+// AcquisitionStatusLabels — статусын монгол нэрс
+var AcquisitionStatusLabels = map[int]string{
+	LandAcquisitionStatusNew:       "Шинэ",
+	LandAcquisitionStatusField:     "Хээрийн судалгаа",
+	LandAcquisitionStatusVerified:  "Баталгаажсан",
+	LandAcquisitionStatusCancelled: "Цуцлагдсан",
+}
+
+// AcquisitionStatusOrder — дэс дугаарын эрэмбэ
+var AcquisitionStatusOrder = []int{
+	LandAcquisitionStatusNew,
+	LandAcquisitionStatusField,
+	LandAcquisitionStatusVerified,
+	LandAcquisitionStatusCancelled,
+}
+
+// StatusOption — боломжтой явцын мэдээлэл
+type StatusOption struct {
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+}
 
 // Plan — газар зохион байгуулалтын төлөвлөгөө (auth DB-д хадгалагдана)
 type Plan struct {
@@ -42,7 +64,7 @@ type SourceParcel struct {
 	AU1Code          string
 	AU2Code          string
 	AU3Code          string
-	RightType        string
+	RightType        int
 	Landuse          string
 	AreaM2           float64
 	HolderLastName   string
@@ -64,27 +86,29 @@ type SourceParcel struct {
 
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
-	ID             uuid.UUID
-	PlanID         *uuid.UUID
-	PlanCode       string
-	PlanGeomWKT    string
-	PlanAreaM2     float64
-	GeometryWKT    string
-	AreaM2         float64
-	Status         int
-	StartDate      *time.Time
-	EndDate        *time.Time
-	ProjectName    string
+	ID              uuid.UUID
+	PlanID          *uuid.UUID
+	PlanCode        string
+	PlanName        string
+	PlanGeomWKT     string
+	PlanAreaM2      float64
+	GeometryWKT     string
+	AreaM2          float64
+	Status          int
+	StartDate       *time.Time
+	EndDate         *time.Time
+	AcquisitionName string
 	ImplementingOrg string
 	Reason          string
 	ResponsibleOrg  string
 	FundingSource   string
-	CreatedAt      time.Time
-	CreatedBy      string
-	UpdatedAt      time.Time
-	UpdatedBy      string
-	AUs            []LandAcquisitionAU
-	Parcels        []*Parcel
+	CreatedAt       time.Time
+	CreatedBy       string
+	UpdatedAt       time.Time
+	UpdatedBy       string
+	AUs             []LandAcquisitionAU
+	Parcels         []*Parcel
+	ParcelCount     int64
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос
@@ -110,12 +134,18 @@ type LandAcquisitionFilter struct {
 }
 
 // ParcelFilter — нэгж талбарын жагсаалт шүүх болон хуудаслах параметр
+const (
+	RightTypeUse       = 1 // Ашиглах
+	RightTypeLease     = 2 // Эзэмших
+	RightTypeOwnership = 3 // Өмчлөх
+)
+
 type ParcelFilter struct {
 	ParcelID  string
 	AU1Code   string
 	AU2Code   string
 	AU3Code   string
-	RightType string
+	RightType int
 	Landuse   string
 	Page      int
 	PageSize  int
@@ -135,16 +165,17 @@ type Parcel struct {
 	GeometryWKT        string
 	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
 	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
-	RightType          string
+	RightType          int
 	Landuse            string
 	AreaM2             float64
+	CompensationPaid   bool
 	CreatedAt          time.Time
 	CreatedBy          string
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
 type ParcelDetailInfo struct {
-	RightType        string
+	RightType        int
 	HolderLastName   string
 	HolderName       string
 	HolderRegisterNo string
@@ -167,3 +198,61 @@ type ParcelFull struct {
 	Parcel
 	Detail *ParcelDetailInfo
 }
+
+// AcquisitionProgress — газар чөлөөлөлтийн статус өөрчлөлтийн түүх
+type AcquisitionProgress struct {
+	ID            uuid.UUID
+	AcquisitionID uuid.UUID
+	FromStatus    int
+	ToStatus      int
+	Note          string
+	ChangedBy     string
+	ChangedAt     time.Time
+}
+
+// Document — үндсэн баримт бичиг (URL-аар хадгалагдана)
+type Document struct {
+	ID         uuid.UUID
+	Name       string
+	FileType   string
+	FileURL    string
+	SizeBytes  int64
+	Note       string
+	UploadedBy string
+	UploadedAt time.Time
+}
+
+// GlobalParcel — parcel joined with acquisition info
+type GlobalParcel struct {
+	Parcel
+	AcquisitionName   string
+	PlanCode          string
+	AcquisitionStatus int
+	StartDate         *time.Time
+	EndDate           *time.Time
+}
+
+// GlobalParcelFilter — глобал нэгж талбарын жагсаалт шүүх болон хуудаслах параметр
+type GlobalParcelFilter struct {
+	ParcelID        string
+	RightType       int
+	Landuse         string
+	AU3Code         string
+	AcquisitionName string
+	Status          int
+	Page            int
+	PageSize        int
+}
+
+// ParcelPayment — нэгж талбарт хийсэн төлбөрийн бичлэг
+type ParcelPayment struct {
+	ID        uuid.UUID
+	ParcelID  uuid.UUID
+	Amount    float64
+	Currency  string
+	PaidAt    *time.Time
+	Note      string
+	CreatedAt time.Time
+	CreatedBy string
+}
+

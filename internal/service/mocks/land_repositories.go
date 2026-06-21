@@ -127,3 +127,84 @@ func (m *MockLandAcquisitionRepository) DeleteParcelsAndAUs(ctx context.Context,
 func (m *MockLandAcquisitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
+
+func (m *MockLandAcquisitionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status int) error {
+	return m.Called(ctx, id, status).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AcquisitionProgress), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "CreateProgress" {
+			return m.Called(ctx, p).Error(0)
+		}
+	}
+	return nil
+}
+
+func (m *MockLandAcquisitionRepository) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
+	return m.Called(ctx, parcelID, paid).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*domain.GlobalParcel), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelPayment), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error {
+	return m.Called(ctx, p).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Document), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error {
+	return m.Called(ctx, acquisitionID, doc).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Document), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error {
+	return m.Called(ctx, parcelID, doc).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteDocument(ctx context.Context, documentID uuid.UUID) error {
+	return m.Called(ctx, documentID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error) {
+	args := m.Called(ctx, documentID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Document), args.Error(1)
+}

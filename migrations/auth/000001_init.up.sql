@@ -4,6 +4,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 -- Хэрэглэгч
 CREATE TABLE IF NOT EXISTS users (
     id         UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username   TEXT         NOT NULL UNIQUE,
     email      VARCHAR(255) NOT NULL UNIQUE,
     password   VARCHAR(255) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
@@ -86,7 +87,7 @@ CREATE TABLE IF NOT EXISTS source_parcel (
     au1_code           VARCHAR(10),
     au2_code           VARCHAR(10),
     au3_code           VARCHAR(10),
-    right_type         VARCHAR(50),
+    right_type         INTEGER,
     landuse            VARCHAR(100),
     area_m2            NUMERIC(18, 4),
     holder_last_name   VARCHAR(100),

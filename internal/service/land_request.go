@@ -8,7 +8,7 @@ type CreateLandAcquisitionRequest struct {
 	EndDate         time.Time
 	ShapefileData   []byte
 	CreatedBy       string
-	ProjectName     string
+	AcquisitionName     string
 	ImplementingOrg string
 	Reason          string
 	ResponsibleOrg  string
@@ -16,9 +16,15 @@ type CreateLandAcquisitionRequest struct {
 }
 
 type UpdateLandAcquisitionRequest struct {
-	PlanCode      string     // хоосон бол одоогийн план хэвээр үлдэнэ
-	StartDate     *time.Time // nil бол өөрчлөхгүй
-	EndDate       *time.Time // nil бол өөрчлөхгүй
-	ShapefileData []byte     // nil бол геометр өөрчлөхгүй
-	UpdatedBy     string
+	PlanCode        string     // хоосон бол одоогийн план хэвээр үлдэнэ
+	StartDate       *time.Time // nil бол өөрчлөхгүй
+	EndDate         *time.Time // nil бол өөрчлөхгүй
+	ClearEndDate    bool       // true = end_date-г NULL болгоно
+	ShapefileData   []byte     // nil бол геометр өөрчлөхгүй
+	UpdatedBy       string
+	AcquisitionName     string
+	ImplementingOrg string
+	Reason          string
+	ResponsibleOrg  string
+	FundingSource   string
 }

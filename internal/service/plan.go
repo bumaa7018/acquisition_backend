@@ -20,9 +20,5 @@ func NewPlanService(planRepo repository.PlanRepository) PlanService {
 }
 
 func (s *planService) Search(ctx context.Context, code string) (*domain.Plan, error) {
-	p, err := s.planRepo.GetByCode(ctx, code)
-	if err != nil {
-		return nil, domain.ErrNotFound
-	}
-	return p, nil
+	return s.planRepo.GetByCode(ctx, code)
 }

@@ -20,27 +20,27 @@ func NewLandAcquisitionRepo(db *pgxpool.Pool) repository.LandAcquisitionReposito
 func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO land_acquisition (
-			id, plan_id, plan_code,
+			id, plan_id, plan_code, plan_name,
 			plan_geom, plan_area_m2,
 			geometry, area_m2,
 			status, start_date, end_date,
 			created_at, created_by, updated_at, updated_by,
-			project_name, implementing_org, reason, responsible_org, funding_source
+			acquisition_name, implementing_org, reason, responsible_org, funding_source
 			) VALUES (
-				$1, $2, $3,
-				ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326), $5,
-				ST_GeomFromText(NULLIF($6, ''), 4326)::geometry(Polygon, 4326), $7,
-				$8, $9, $10,
-				$11, $12, $13, $14,
-				$15, $16, $17, $18, $19
+				$1, $2, $3, $4,
+				ST_GeomFromText(NULLIF($5, ''), 4326)::geometry(Polygon, 4326), $6,
+				ST_GeomFromText(NULLIF($7, ''), 4326)::geometry(Polygon, 4326), $8,
+				$9, $10, $11,
+				$12, $13, $14, $15,
+				$16, $17, $18, $19, $20
 			)
 	`,
-		acq.ID, acq.PlanID, acq.PlanCode,
+		acq.ID, acq.PlanID, acq.PlanCode, acq.PlanName,
 		acq.PlanGeomWKT, acq.PlanAreaM2,
 		acq.GeometryWKT, acq.AreaM2,
 		acq.Status, acq.StartDate, acq.EndDate,
 		acq.CreatedAt, acq.CreatedBy, acq.UpdatedAt, acq.UpdatedBy,
-		acq.ProjectName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
+		acq.AcquisitionName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 	)
 	return err
 }
@@ -97,14 +97,15 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	offset := (page - 1) * pageSize
 
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
-			SELECT id, plan_id, plan_code,
+			SELECT id, plan_id, plan_code, COALESCE(plan_name,''),
 			       COALESCE(ST_AsText(plan_geom),''), COALESCE(plan_area_m2,0),
 			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
 			       status, start_date, end_date,
 			       created_at, COALESCE(created_by,''),
 			       updated_at, COALESCE(updated_by,''),
-			       COALESCE(project_name,''), COALESCE(implementing_org,''),
-			       COALESCE(reason,''), COALESCE(responsible_org,''), COALESCE(funding_source,'')
+			       COALESCE(acquisition_name,''), COALESCE(implementing_org,''),
+			       COALESCE(reason,''), COALESCE(responsible_org,''), COALESCE(funding_source,''),
+			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = land_acquisition.id)
 		FROM land_acquisition
 		WHERE %s
 		ORDER BY created_at DESC
@@ -119,14 +120,15 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	for rows.Next() {
 		acq := &domain.LandAcquisition{}
 		if err := rows.Scan(
-			&acq.ID, &acq.PlanID, &acq.PlanCode,
+			&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
 			&acq.PlanGeomWKT, &acq.PlanAreaM2,
 			&acq.GeometryWKT, &acq.AreaM2,
 			&acq.Status, &acq.StartDate, &acq.EndDate,
 			&acq.CreatedAt, &acq.CreatedBy,
 			&acq.UpdatedAt, &acq.UpdatedBy,
-			&acq.ProjectName, &acq.ImplementingOrg,
+			&acq.AcquisitionName, &acq.ImplementingOrg,
 			&acq.Reason, &acq.ResponsibleOrg, &acq.FundingSource,
+			&acq.ParcelCount,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -138,24 +140,24 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error) {
 	acq := &domain.LandAcquisition{}
 	err := r.db.QueryRow(ctx, `
-			SELECT id, plan_id, plan_code,
+			SELECT id, plan_id, plan_code, COALESCE(plan_name,''),
 			       COALESCE(ST_AsText(plan_geom),''), COALESCE(plan_area_m2,0),
 			       COALESCE(ST_AsText(geometry),''), COALESCE(area_m2,0),
 			       status, start_date, end_date,
 			       created_at, COALESCE(created_by,''),
 			       updated_at, COALESCE(updated_by,''),
-			       COALESCE(project_name,''), COALESCE(implementing_org,''),
+			       COALESCE(acquisition_name,''), COALESCE(implementing_org,''),
 			       COALESCE(reason,''), COALESCE(responsible_org,''), COALESCE(funding_source,'')
 		FROM land_acquisition
 		WHERE id = $1
 	`, id).Scan(
-		&acq.ID, &acq.PlanID, &acq.PlanCode,
+		&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
 		&acq.PlanGeomWKT, &acq.PlanAreaM2,
 		&acq.GeometryWKT, &acq.AreaM2,
 		&acq.Status, &acq.StartDate, &acq.EndDate,
 		&acq.CreatedAt, &acq.CreatedBy,
 		&acq.UpdatedAt, &acq.UpdatedBy,
-		&acq.ProjectName, &acq.ImplementingOrg,
+		&acq.AcquisitionName, &acq.ImplementingOrg,
 		&acq.Reason, &acq.ResponsibleOrg, &acq.FundingSource,
 	)
 	if err != nil {
@@ -168,11 +170,12 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	}
 	acq.AUs = aus
 
-	parcels, _, err := r.GetParcels(ctx, id, domain.ParcelFilter{Page: 1, PageSize: 1000})
+	parcels, total, err := r.GetParcels(ctx, id, domain.ParcelFilter{Page: 1, PageSize: 1000})
 	if err != nil {
 		return nil, err
 	}
 	acq.Parcels = parcels
+	acq.ParcelCount = total
 
 	return acq, nil
 }
@@ -355,7 +358,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 		args = append(args, filter.AU3Code)
 		i++
 	}
-	if filter.RightType != "" {
+	if filter.RightType != 0 {
 		where += fmt.Sprintf(" AND right_type = $%d", i)
 		args = append(args, filter.RightType)
 		i++
@@ -390,7 +393,8 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
 				       COALESCE(ST_AsText(geometry),''),
 				       COALESCE(acquisition_area_m2,0),
-				       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+				       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
+				       COALESCE(compensation_paid,false),
 				       created_at, COALESCE(created_by,'')
 			FROM parcel
 			WHERE %s
@@ -414,6 +418,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.GeometryWKT,
 			&p.AcquisitionAreaM2,
 			&p.RightType, &p.Landuse, &p.AreaM2,
+			&p.CompensationPaid,
 			&p.CreatedAt, &p.CreatedBy,
 		); err != nil {
 			return nil, 0, err
@@ -432,7 +437,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 			       COALESCE(ST_AsText(geometry),''),
 			       COALESCE(ST_AsText(acquisition_geom),''),
 			       COALESCE(acquisition_area_m2,0),
-			       COALESCE(right_type,''), COALESCE(landuse,''), COALESCE(area_m2,0),
+			       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 			       created_at, COALESCE(created_by,'')
 		FROM parcel
 		WHERE id = $1
@@ -464,9 +469,9 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(ST_AsText(p.geometry),''),
 				COALESCE(ST_AsText(p.acquisition_geom),''),
 				COALESCE(p.acquisition_area_m2,0),
-				COALESCE(p.right_type,''), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
+				COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 				p.created_at, COALESCE(p.created_by,''),
-			COALESCE(pd.right_type,''),
+			COALESCE(pd.right_type,0),
 			COALESCE(pd.app_no,''), pd.app_timestamps,
 			COALESCE(pd.decision_no,''), pd.decision_date,
 			COALESCE(pd.contract_no,''), pd.contract_date,
@@ -501,7 +506,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if d.HolderName != "" || d.RightType != "" {
+	if d.HolderName != "" || d.RightType != 0 {
 		pf.Detail = d
 	}
 	return pf, nil
@@ -613,7 +618,7 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 				area_m2          = $7,
 				start_date       = $8,
 				end_date         = $9,
-				project_name     = $10,
+				acquisition_name     = $10,
 				implementing_org = $11,
 				reason           = $12,
 				responsible_org  = $13,
@@ -626,7 +631,7 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.PlanGeomWKT, acq.PlanAreaM2,
 		acq.GeometryWKT, acq.AreaM2,
 		acq.StartDate, acq.EndDate,
-		acq.ProjectName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
+		acq.AcquisitionName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 		acq.UpdatedBy,
 	)
 	return err
@@ -659,6 +664,283 @@ func (r *landAcqRepo) DeleteParcelsAndAUs(ctx context.Context, acquisitionID uui
 func (r *landAcqRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.Exec(ctx, "DELETE FROM land_acquisition WHERE id = $1", id)
 	return err
+}
+
+func (r *landAcqRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status int) error {
+	_, err := r.db.Exec(ctx,
+		"UPDATE land_acquisition SET status = $2, updated_at = NOW() WHERE id = $1",
+		id, status,
+	)
+	return err
+}
+
+func (r *landAcqRepo) ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, acquisition_id, from_status, to_status,
+		       COALESCE(note,''), changed_by, changed_at
+		FROM acquisition_progress
+		WHERE acquisition_id = $1
+		ORDER BY changed_at ASC
+	`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*domain.AcquisitionProgress
+	for rows.Next() {
+		p := &domain.AcquisitionProgress{}
+		if err := rows.Scan(
+			&p.ID, &p.AcquisitionID,
+			&p.FromStatus, &p.ToStatus,
+			&p.Note, &p.ChangedBy, &p.ChangedAt,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO acquisition_progress (id, acquisition_id, from_status, to_status, note, changed_by, changed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`,
+		p.ID, p.AcquisitionID, p.FromStatus, p.ToStatus, p.Note, p.ChangedBy, p.ChangedAt,
+	)
+	return err
+}
+
+func (r *landAcqRepo) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
+	_, err := r.db.Exec(ctx, `UPDATE parcel SET compensation_paid = $1 WHERE id = $2`, paid, parcelID)
+	return err
+}
+
+func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error) {
+	args := []any{}
+	where := "1=1"
+	i := 1
+
+	if filter.ParcelID != "" {
+		where += fmt.Sprintf(" AND p.parcel_id ILIKE $%d", i)
+		args = append(args, "%"+filter.ParcelID+"%")
+		i++
+	}
+	if filter.RightType != 0 {
+		where += fmt.Sprintf(" AND p.right_type = $%d", i)
+		args = append(args, filter.RightType)
+		i++
+	}
+	if filter.Landuse != "" {
+		where += fmt.Sprintf(" AND p.landuse ILIKE $%d", i)
+		args = append(args, "%"+filter.Landuse+"%")
+		i++
+	}
+	if filter.AU3Code != "" {
+		where += fmt.Sprintf(" AND p.au3_code = $%d", i)
+		args = append(args, filter.AU3Code)
+		i++
+	}
+	if filter.AcquisitionName != "" {
+		where += fmt.Sprintf(" AND la.acquisition_name ILIKE $%d", i)
+		args = append(args, "%"+filter.AcquisitionName+"%")
+		i++
+	}
+	if filter.Status != 0 {
+		where += fmt.Sprintf(" AND la.status = $%d", i)
+		args = append(args, filter.Status)
+		i++
+	}
+
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		WHERE %s
+	`, where), args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT p.id, COALESCE(p.parcel_id,''), COALESCE(p.old_parcel_id,''),
+		       p.acquisition_id, p.valid_from, p.valid_till,
+		       COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
+		       COALESCE(ST_AsText(p.geometry),''),
+		       '',
+		       COALESCE(p.acquisition_area_m2,0),
+		       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
+		       COALESCE(p.compensation_paid,false),
+		       p.created_at, COALESCE(p.created_by,''),
+		       COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
+		       la.status, la.start_date, la.end_date
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		WHERE %s
+		ORDER BY p.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, where, i, i+1), append(args, pageSize, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var result []*domain.GlobalParcel
+	for rows.Next() {
+		gp := &domain.GlobalParcel{}
+		if err := rows.Scan(
+			&gp.ID, &gp.ParcelID, &gp.OldParcelID,
+			&gp.AcquisitionID, &gp.ValidFrom, &gp.ValidTill,
+			&gp.AU1Code, &gp.AU2Code, &gp.AU3Code,
+			&gp.GeometryWKT,
+			&gp.AcquisitionGeomWKT,
+			&gp.AcquisitionAreaM2,
+			&gp.RightType, &gp.Landuse, &gp.AreaM2,
+			&gp.CompensationPaid,
+			&gp.CreatedAt, &gp.CreatedBy,
+			&gp.AcquisitionName, &gp.PlanCode,
+			&gp.AcquisitionStatus, &gp.StartDate, &gp.EndDate,
+		); err != nil {
+			return nil, 0, err
+		}
+		result = append(result, gp)
+	}
+	return result, total, rows.Err()
+}
+
+func (r *landAcqRepo) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, parcel_id, COALESCE(amount,0), COALESCE(currency,'MNT'),
+		       paid_at, COALESCE(note,''), created_at, COALESCE(created_by,'')
+		FROM parcel_payment
+		WHERE parcel_id = $1
+		ORDER BY created_at DESC
+	`, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []*domain.ParcelPayment
+	for rows.Next() {
+		p := &domain.ParcelPayment{}
+		if err := rows.Scan(
+			&p.ID, &p.ParcelID, &p.Amount, &p.Currency,
+			&p.PaidAt, &p.Note, &p.CreatedAt, &p.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO parcel_payment (id, parcel_id, amount, currency, paid_at, note, created_at, created_by)
+		VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, NOW(), $6)
+	`, p.ParcelID, p.Amount, p.Currency, p.PaidAt, p.Note, p.CreatedBy)
+	return err
+}
+
+func (r *landAcqRepo) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at
+		FROM document d
+		JOIN acquisition_document ad ON ad.document_id = d.id
+		WHERE ad.acquisition_id = $1
+		ORDER BY d.uploaded_at DESC
+	`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.Document
+	for rows.Next() {
+		d := &domain.Document{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, d)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error {
+	_, err := r.db.Exec(ctx, `
+		WITH ins AS (
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id
+		)
+		INSERT INTO acquisition_document (acquisition_id, document_id)
+		SELECT $9, id FROM ins
+	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, acquisitionID)
+	return err
+}
+
+func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at
+		FROM document d
+		JOIN parcel_document pd ON pd.document_id = d.id
+		WHERE pd.parcel_id = $1
+		ORDER BY d.uploaded_at DESC
+	`, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.Document
+	for rows.Next() {
+		d := &domain.Document{}
+		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, d)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error {
+	_, err := r.db.Exec(ctx, `
+		WITH ins AS (
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id
+		)
+		INSERT INTO parcel_document (parcel_id, document_id)
+		SELECT $9, id FROM ins
+	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, parcelID)
+	return err
+}
+
+func (r *landAcqRepo) DeleteDocument(ctx context.Context, documentID uuid.UUID) error {
+	// deleting from document cascades to mapping tables via FK
+	_, err := r.db.Exec(ctx, "DELETE FROM document WHERE id = $1", documentID)
+	return err
+}
+
+func (r *landAcqRepo) GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error) {
+	d := &domain.Document{}
+	err := r.db.QueryRow(ctx, `
+		SELECT id, name, file_type, file_url, size_bytes, COALESCE(note,''), uploaded_by, uploaded_at
+		FROM document WHERE id = $1
+	`, documentID).Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)

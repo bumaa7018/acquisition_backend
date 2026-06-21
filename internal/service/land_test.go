@@ -105,7 +105,7 @@ func TestLandService_Create_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, acq.ID)
 	assert.Equal(t, testPlanCode, acq.PlanCode)
-	assert.Equal(t, domain.LandAcquisitionStatusActive, acq.Status)
+	assert.Equal(t, domain.LandAcquisitionStatusNew, acq.Status)
 	assert.Len(t, acq.AUs, 1)
 	planRepo.AssertExpectations(t)
 	landRepo.AssertExpectations(t)
@@ -192,7 +192,7 @@ func TestLandService_GetByID_Success(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	id := uuid.New()
-	expected := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, Status: domain.LandAcquisitionStatusActive}
+	expected := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, Status: domain.LandAcquisitionStatusField}
 	landRepo.On("GetByID", ctx, id).Return(expected, nil)
 
 	acq, err := svc.GetByID(ctx, id)
@@ -221,7 +221,7 @@ func TestLandService_Update_DatesOnly(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	id := uuid.New()
-	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusActive}
+	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusField}
 	newEnd := time.Date(2025, 6, 30, 0, 0, 0, 0, time.UTC)
 
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
@@ -242,7 +242,7 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	id := uuid.New()
-	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusActive}
+	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusField}
 	plan := testPlan()
 
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
@@ -312,7 +312,7 @@ func TestLandService_Delete_NotNewStatus(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	id := uuid.New()
-	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusActive}, nil)
+	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusField}, nil)
 
 	err := svc.Delete(ctx, id)
 	assert.Equal(t, domain.ErrForbidden, err)

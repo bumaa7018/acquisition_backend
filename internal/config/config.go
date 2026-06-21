@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	App    AppConfig
-	DB     DBConfig    `envPrefix:"DB_"`
-	AuthDB DBConfig    `envPrefix:"AUTH_DB_"`
-	JWT    JWTConfig
-	Admin  AdminConfig
-	Email  EmailConfig
+	App        AppConfig
+	DB         DBConfig `envPrefix:"DB_"`
+	AuthDB     DBConfig `envPrefix:"AUTH_DB_"`
+	JWT        JWTConfig
+	Admin      AdminConfig
+	Email      EmailConfig
+	FileServer FileServerConfig
 }
 
 type AppConfig struct {
@@ -53,6 +54,12 @@ type EmailConfig struct {
 	Password string `env:"EMAIL_PASSWORD" envDefault:""`
 	From     string `env:"EMAIL_FROM" envDefault:"noreply@example.com"`
 	ResetURL string `env:"EMAIL_RESET_URL" envDefault:"http://localhost:3000/reset-password?token="`
+}
+
+type FileServerConfig struct {
+	BaseURL  string `env:"FILE_SERVER_BASE_URL" envDefault:"http://localhost:8080/mock-files"`
+	LocalDir string `env:"FILE_SERVER_LOCAL_DIR" envDefault:"uploads/mock-file-server"`
+	Mode     string `env:"FILE_SERVER_MODE" envDefault:"mock"`
 }
 
 func (e EmailConfig) Enabled() bool {

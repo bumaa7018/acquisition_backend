@@ -1,6 +1,7 @@
 package http_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	handler "github.com/your-org/go-api-template/internal/handler/http"
 	"github.com/your-org/go-api-template/internal/handler/http/mocks"
 	"github.com/your-org/go-api-template/internal/middleware"
+	"github.com/your-org/go-api-template/internal/service"
 )
 
 func TestUserHandler_GetByID_Success(t *testing.T) {
@@ -105,4 +107,97 @@ func TestUserHandler_Delete_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_List(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc)
+
+	users := []*domain.User{{ID: uuid.New(), Username: "user1"}}
+	mockSvc.On("List", mock.Anything, mock.AnythingOfType("domain.UserFilter")).Return(users, int64(1), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/users", nil)
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_Create_Success(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc)
+
+	user := &domain.User{ID: uuid.New(), Username: "newuser"}
+	mockSvc.On("Create", mock.Anything, service.CreateUserRequest{
+		Username:  "newuser",
+		Password:  "Password123!",
+		FirstName: "New",
+		LastName:  "User",
+		IsActive:  true,
+	}).Return(user, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"username":"newuser","password":"Password123!","first_name":"New","last_name":"User","is_active":true}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Create(c)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_Create_ValidationError(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"password":"short"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Create(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUserHandler_Update_Success(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc)
+
+	id := uuid.New()
+	user := &domain.User{ID: id, Username: "updated"}
+	mockSvc.On("Update", mock.Anything, id, service.UpdateUserRequest{FirstName: "Updated"}).Return(user, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"first_name":"Updated"}`
+	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+id.String(), bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+
+	h.Update(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_Update_InvalidUUID(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "bad-uuid"}}
+	c.Request = httptest.NewRequest(http.MethodPut, "/users/bad-uuid", bytes.NewBufferString(`{}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Update(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

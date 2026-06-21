@@ -27,9 +27,9 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 	mockSvc := &mocks.MockAuthService{}
 	h := handler.NewAuthHandler(mockSvc)
 
-	user := &domain.User{ID: uuid.New(), Email: "test@example.com"}
+	user := &domain.User{ID: uuid.New(), Username: "testuser"}
 	mockSvc.On("Register", mock.Anything, service.RegisterRequest{
-		Email:     "test@example.com",
+		Username:  "testuser",
 		Password:  "Password123!",
 		FirstName: "Test",
 		LastName:  "User",
@@ -37,7 +37,7 @@ func TestAuthHandler_Register_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"email":"test@example.com","password":"Password123!","first_name":"Test","last_name":"User"}`
+	body := `{"username":"testuser","password":"Password123!","first_name":"Test","last_name":"User"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -56,7 +56,7 @@ func TestAuthHandler_Register_ValidationError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"email":"not-an-email","password":"short"}`
+	body := `{"password":"short"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -71,13 +71,13 @@ func TestAuthHandler_Login_Success(t *testing.T) {
 
 	tokens := &jwtpkg.TokenPair{AccessToken: "access", RefreshToken: "refresh"}
 	mockSvc.On("Login", mock.Anything, service.LoginRequest{
-		Email:    "test@example.com",
+		Username: "testuser",
 		Password: "Password123!",
 	}).Return(tokens, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"email":"test@example.com","password":"Password123!"}`
+	body := `{"username":"testuser","password":"Password123!"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -96,17 +96,105 @@ func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 	h := handler.NewAuthHandler(mockSvc)
 
 	mockSvc.On("Login", mock.Anything, service.LoginRequest{
-		Email:    "test@example.com",
+		Username: "testuser",
 		Password: "wrong",
 	}).Return(nil, domain.ErrInvalidCredentials)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	body := `{"email":"test@example.com","password":"wrong"}`
+	body := `{"username":"testuser","password":"wrong"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	h.Login(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthHandler_RefreshToken_Success(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	tokens := &jwtpkg.TokenPair{AccessToken: "new-access", RefreshToken: "new-refresh"}
+	mockSvc.On("RefreshToken", mock.Anything, "valid-refresh-token").Return(tokens, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"refresh_token":"valid-refresh-token"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RefreshToken(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]any)
+	assert.Equal(t, "new-access", data["access_token"])
+	mockSvc.AssertExpectations(t)
+}
+
+func TestAuthHandler_RefreshToken_InvalidToken(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	mockSvc.On("RefreshToken", mock.Anything, "bad-token").Return(nil, domain.ErrInvalidToken)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"refresh_token":"bad-token"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/refresh", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.RefreshToken(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestAuthHandler_Logout(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+
+	h.Logout(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestAuthHandler_ResetPassword_Success(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	mockSvc.On("ResetPassword", mock.Anything, "valid-token", "NewPassword123!").Return(nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"token":"valid-token","new_password":"NewPassword123!"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/reset-password", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.ResetPassword(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestAuthHandler_ResetPassword_ExpiredToken(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	mockSvc.On("ResetPassword", mock.Anything, "expired-token", "NewPassword123!").Return(domain.ErrExpiredToken)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"token":"expired-token","new_password":"NewPassword123!"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/reset-password", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.ResetPassword(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

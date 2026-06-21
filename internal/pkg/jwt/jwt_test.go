@@ -25,7 +25,7 @@ func TestGenerateAndValidateTokenPair(t *testing.T) {
 	userID := uuid.New()
 	perms := []string{"users:read", "users:write"}
 
-	pair, err := m.GenerateTokenPair(userID, perms)
+	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID, Username: "testuser", Permissions: perms})
 	require.NoError(t, err)
 	assert.NotEmpty(t, pair.AccessToken)
 	assert.NotEmpty(t, pair.RefreshToken)
@@ -40,7 +40,7 @@ func TestValidateRefreshToken(t *testing.T) {
 	m := newManager()
 	userID := uuid.New()
 
-	pair, err := m.GenerateTokenPair(userID, nil)
+	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 	require.NoError(t, err)
 
 	claims, err := m.ValidateRefreshToken(pair.RefreshToken)
@@ -57,7 +57,7 @@ func TestInvalidAccessTokenReturnsError(t *testing.T) {
 func TestWrongSecretRefreshToken(t *testing.T) {
 	m := newManager()
 	userID := uuid.New()
-	pair, _ := m.GenerateTokenPair(userID, nil)
+	pair, _ := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 
 	// Access token should fail refresh validation
 	_, err := m.ValidateRefreshToken(pair.AccessToken)
@@ -72,7 +72,7 @@ func TestExpiredToken(t *testing.T) {
 		168*time.Hour,
 	)
 	userID := uuid.New()
-	pair, err := m.GenerateTokenPair(userID, nil)
+	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 	require.NoError(t, err)
 
 	_, err = m.ValidateAccessToken(pair.AccessToken)
