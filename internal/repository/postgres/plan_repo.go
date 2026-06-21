@@ -116,6 +116,30 @@ func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*d
 	return sp, nil
 }
 
+func (r *planRepo) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT ON (plan_code) plan_code, COALESCE(plan_name, '')
+		FROM land_acquisition
+		WHERE plan_code IS NOT NULL
+		  AND (plan_code ILIKE $1 OR plan_name ILIKE $1)
+		ORDER BY plan_code
+		LIMIT 20
+	`, "%"+q+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.Plan
+	for rows.Next() {
+		p := &domain.Plan{}
+		if err := rows.Scan(&p.PlanCode, &p.Name); err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
 // compile-time check
 var _ repository.PlanRepository = (*planRepo)(nil)
 

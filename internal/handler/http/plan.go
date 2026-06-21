@@ -64,3 +64,33 @@ func (h *PlanHandler) Search(c *gin.Context) {
 		BoundaryWKT: plan.BoundaryWKT,
 	})
 }
+
+// Suggest godoc
+// @Summary      Төлөвлөгөө дугаар/нэрээр хайх (ILIKE)
+// @Tags         plans
+// @Produce      json
+// @Security     BearerAuth
+// @Param        q  query  string  true  "Хайх үг"
+// @Success      200  {object}  response.Response
+// @Router       /plans/suggest [get]
+func (h *PlanHandler) Suggest(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		response.OK(c, []planResponse{})
+		return
+	}
+	plans, err := h.svc.Suggest(c.Request.Context(), q)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]planResponse, 0, len(plans))
+	for _, p := range plans {
+		result = append(result, planResponse{
+			ID:       p.PlanCode,
+			PlanCode: p.PlanCode,
+			Name:     p.Name,
+		})
+	}
+	response.OK(c, result)
+}

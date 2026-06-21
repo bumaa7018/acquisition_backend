@@ -747,6 +747,16 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, "%"+filter.AcquisitionName+"%")
 		i++
 	}
+	if filter.AcquisitionID != "" {
+		where += fmt.Sprintf(" AND la.id = $%d::uuid", i)
+		args = append(args, filter.AcquisitionID)
+		i++
+	}
+	if filter.PlanCode != "" {
+		where += fmt.Sprintf(" AND la.plan_code ILIKE $%d", i)
+		args = append(args, "%"+filter.PlanCode+"%")
+		i++
+	}
 	if filter.Status != 0 {
 		where += fmt.Sprintf(" AND la.status = $%d", i)
 		args = append(args, filter.Status)

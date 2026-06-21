@@ -97,7 +97,7 @@ func (h *LandHandler) Create(c *gin.Context) {
 	responsibleOrg := c.PostForm("responsible_org")
 	fundingSource := c.PostForm("funding_source")
 
-	if planCode == "" || startStr == "" || endStr == "" {
+	if planCode == "" || startStr == "" || endStr == "" || projectName == "" {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
@@ -287,6 +287,10 @@ func (h *LandHandler) Update(c *gin.Context) {
 	}
 
 	req.AcquisitionName = c.PostForm("acquisition_name")
+	if req.AcquisitionName == "" {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
 	req.ImplementingOrg = c.PostForm("implementing_org")
 	req.Reason = c.PostForm("reason")
 	req.ResponsibleOrg = c.PostForm("responsible_org")
@@ -656,6 +660,8 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		Landuse:         c.Query("landuse"),
 		AU3Code:         c.Query("au3_code"),
 		AcquisitionName: c.Query("acquisition_name"),
+		AcquisitionID:   c.Query("acquisition_id"),
+		PlanCode:        c.Query("plan_code"),
 		Status:          queryInt(c, "status", 0),
 		Page:            page,
 		PageSize:        pageSize,

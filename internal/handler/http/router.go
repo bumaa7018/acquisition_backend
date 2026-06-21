@@ -103,10 +103,11 @@ func NewRouter(
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:write"), landH.DeleteAcquisitionDocument)
 		}
 
-		// Газар зохион байгуулалтын төлөвлөгөө
+		// Газар зохион байгуулалтын төлөвлөвлөгөө
 		plans := protected.Group("/plans")
 		{
 			plans.GET("/search", middleware.RequirePermission("land:read"), planH.Search)
+			plans.GET("/suggest", middleware.RequirePermission("land:read"), planH.Suggest)
 		}
 
 		// Глобал нэгж талбарын маршрут

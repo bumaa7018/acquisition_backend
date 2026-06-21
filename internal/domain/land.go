@@ -239,6 +239,8 @@ type GlobalParcelFilter struct {
 	Landuse         string
 	AU3Code         string
 	AcquisitionName string
+	AcquisitionID   string
+	PlanCode        string
 	Status          int
 	Page            int
 	PageSize        int

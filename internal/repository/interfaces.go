@@ -52,6 +52,7 @@ type PlanRepository interface {
 	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)
 	GetSourceParcels(ctx context.Context, planCode string) ([]*domain.SourceParcel, error)
 	GetSourceParcelByID(ctx context.Context, parcelID string) (*domain.SourceParcel, error)
+	Suggest(ctx context.Context, q string) ([]*domain.Plan, error)
 }
 
 // LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ
