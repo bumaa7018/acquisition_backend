@@ -12,7 +12,7 @@ make up
 ```
 
 `make up` дуусмагц:
-- PostgreSQL асна (healthcheck дамжуулсны дараа)
+- PostgreSQL асна (healthcheck дамжуулсны дараа )
 - Migration автоматаар хийгдэнэ
 - Admin хэрэглэгч болон permission-ууд seed хийгдэнэ
 - API `http://localhost:8080` дээр ажиллана
