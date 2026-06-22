@@ -118,10 +118,9 @@ func (r *planRepo) GetSourceParcelByID(ctx context.Context, parcelID string) (*d
 
 func (r *planRepo) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT DISTINCT ON (plan_code) plan_code, COALESCE(plan_name, '')
-		FROM land_acquisition
-		WHERE plan_code IS NOT NULL
-		  AND (plan_code ILIKE $1 OR plan_name ILIKE $1)
+		SELECT plan_code, COALESCE(name, '')
+		FROM plan
+		WHERE plan_code ILIKE $1 OR name ILIKE $1
 		ORDER BY plan_code
 		LIMIT 20
 	`, "%"+q+"%")

@@ -114,73 +114,47 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Auth seeder — хэрэглэгч, эрх, роль
-	if applied, _ := isSeedApplied(ctx, mainDB, "auth_seeder"); !applied {
-		seeder := NewSeeder(authDB, userRepo, roleRepo, permRepo)
-		if err := seeder.Seed(ctx, cfg.Admin); err != nil {
-			slog.Warn("auth seed failed", "error", err)
-		} else if err := markSeedApplied(ctx, mainDB, "auth_seeder"); err != nil {
-			slog.Warn("failed to mark auth_seeder", "error", err)
-		}
-	} else {
-		slog.Info("seed skipped (already applied)", "name", "auth_seeder")
-	}
-
-	// Main seeder — аймаг, сум, баг, газар чөлөөлөлт, нэгж талбар, барилга
-	if applied, _ := isSeedApplied(ctx, mainDB, "main_seeder"); !applied {
-		mainSeeder := NewMainSeeder(mainDB)
-		if err := mainSeeder.Seed(ctx); err != nil {
-			slog.Warn("main seed failed", "error", err)
-		} else if err := markSeedApplied(ctx, mainDB, "main_seeder"); err != nil {
-			slog.Warn("failed to mark main_seeder", "error", err)
-		}
-	} else {
-		slog.Info("seed skipped (already applied)", "name", "main_seeder")
-	}
-
-	// Buildings seeder — өмнө main_seeder ажилласан орчинд барилгын жишээ өгөгдөл нөхөж оруулна
-	if applied, _ := isSeedApplied(ctx, mainDB, "buildings_seeder"); !applied {
-		mainSeeder := NewMainSeeder(mainDB)
-		if err := mainSeeder.seedDefaultBuildings(ctx); err != nil {
-			slog.Warn("buildings seed failed", "error", err)
-		} else if err := markSeedApplied(ctx, mainDB, "buildings_seeder"); err != nil {
-			slog.Warn("failed to mark buildings_seeder", "error", err)
-		}
-	} else {
-		slog.Info("seed skipped (already applied)", "name", "buildings_seeder")
-	}
-
-	// Plans seeder — auth DB-д төлөвлөгөө, эх нэгж талбар
-	if applied, _ := isSeedApplied(ctx, mainDB, "plans_seeder"); !applied {
-		plansSeeder := NewPlansSeeder(authDB)
-		if err := plansSeeder.Seed(ctx); err != nil {
-			slog.Warn("plans seed failed", "error", err)
-		} else if err := markSeedApplied(ctx, mainDB, "plans_seeder"); err != nil {
-			slog.Warn("failed to mark plans_seeder", "error", err)
-		}
-	} else {
-		slog.Info("seed skipped (already applied)", "name", "plans_seeder")
-	}
-
-	// Compensation seeder — нөхөн олговрын жишээ өгөгдөл
-	if applied, _ := isSeedApplied(ctx, mainDB, "compensation_seeder"); !applied {
-		mainSeeder := NewMainSeeder(mainDB)
-		var acqID [16]byte
-		err := mainDB.QueryRow(ctx,
-			"SELECT id FROM land_acquisition WHERE plan_code = $1 LIMIT 1", "LA-2024-001",
-		).Scan(&acqID)
-		if err == nil {
-			if err := mainSeeder.seedCompensations(ctx, acqID); err != nil {
-				slog.Warn("compensation seed failed", "error", err)
-			} else if err := markSeedApplied(ctx, mainDB, "compensation_seeder"); err != nil {
-				slog.Warn("failed to mark compensation_seeder", "error", err)
-			}
-		} else {
-			slog.Warn("compensation seed skipped: land_acquisition LA-2024-001 not found")
-		}
-	} else {
-		slog.Info("seed skipped (already applied)", "name", "compensation_seeder")
-	}
+	runSeedSteps(ctx, mainDB, []seedStep{
+		{
+			name:    "000001_auth",
+			aliases: []string{"auth_seeder"},
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin)
+			},
+		},
+		{
+			name:    "000002_main",
+			aliases: []string{"main_seeder"},
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).Seed(ctx)
+			},
+		},
+		{
+			name:    "000003_buildings_backfill",
+			aliases: []string{"buildings_seeder"},
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDefaultBuildings(ctx)
+			},
+		},
+		{
+			name:    "000004_plans",
+			aliases: []string{"plans_seeder"},
+			run: func(ctx context.Context) error {
+				return NewPlansSeeder(authDB).Seed(ctx)
+			},
+		},
+		{
+			name:    "000005_compensations",
+			aliases: []string{"compensation_seeder"},
+			run: func(ctx context.Context) error {
+				acqID, err := findSeedLandAcquisitionID(ctx, mainDB)
+				if err != nil {
+					return seedError("land_acquisition LA-2024-001 not found", err)
+				}
+				return NewMainSeeder(mainDB).seedCompensations(ctx, acqID)
+			},
+		},
+	})
 
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc)
 

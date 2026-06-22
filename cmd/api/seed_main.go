@@ -49,11 +49,7 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 		return err
 	}
 
-	if err := s.seedBuildings(ctx, acqID); err != nil {
-		return err
-	}
-
-	return s.seedCompensations(ctx, acqID)
+	return s.seedBuildings(ctx, acqID)
 }
 
 func (s *MainSeeder) seedDefaultBuildings(ctx context.Context) error {

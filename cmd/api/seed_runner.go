@@ -1,0 +1,73 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type seedStep struct {
+	name    string
+	aliases []string
+	run     func(context.Context) error
+}
+
+func runSeedSteps(ctx context.Context, db *pgxpool.Pool, steps []seedStep) {
+	for _, step := range steps {
+		applied, appliedName, err := isSeedStepApplied(ctx, db, step)
+		if err != nil {
+			slog.Warn("seed history check failed", "name", step.name, "error", err)
+			continue
+		}
+		if applied {
+			if appliedName != step.name {
+				_ = markSeedApplied(ctx, db, step.name)
+			}
+			slog.Info("seed skipped (already applied)", "name", step.name, "applied_as", appliedName)
+			continue
+		}
+
+		slog.Info("seed applying", "name", step.name)
+		if err := step.run(ctx); err != nil {
+			slog.Warn("seed failed", "name", step.name, "error", err)
+			continue
+		}
+		if err := markSeedApplied(ctx, db, step.name); err != nil {
+			slog.Warn("failed to mark seed", "name", step.name, "error", err)
+			continue
+		}
+		slog.Info("seed applied", "name", step.name)
+	}
+}
+
+func isSeedStepApplied(ctx context.Context, db *pgxpool.Pool, step seedStep) (bool, string, error) {
+	names := append([]string{step.name}, step.aliases...)
+	for _, name := range names {
+		applied, err := isSeedApplied(ctx, db, name)
+		if err != nil {
+			return false, "", err
+		}
+		if applied {
+			return true, name, nil
+		}
+	}
+	return false, "", nil
+}
+
+func seedError(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", name, err)
+}
+
+func findSeedLandAcquisitionID(ctx context.Context, db *pgxpool.Pool) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := db.QueryRow(ctx,
+		"SELECT id FROM land_acquisition WHERE plan_code = $1 LIMIT 1", "LA-2024-001",
+	).Scan(&id)
+	return id, err
+}
