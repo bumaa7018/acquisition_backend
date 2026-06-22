@@ -35,6 +35,14 @@ func (m *MockPlanRepository) GetSourceParcelByID(ctx context.Context, parcelID s
 	return args.Get(0).(*domain.SourceParcel), args.Error(1)
 }
 
+func (m *MockPlanRepository) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
+	args := m.Called(ctx, q)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Plan), args.Error(1)
+}
+
 // MockLandAcquisitionRepository — LandAcquisitionRepository-ийн mock
 type MockLandAcquisitionRepository struct{ mock.Mock }
 
@@ -159,6 +167,14 @@ func (m *MockLandAcquisitionRepository) ListGlobalParcels(ctx context.Context, f
 		return nil, args.Get(1).(int64), args.Error(2)
 	}
 	return args.Get(0).([]*domain.GlobalParcel), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockLandAcquisitionRepository) ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error) {
+	args := m.Called(ctx, acquisitionID, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*domain.Building), args.Get(1).(int64), args.Error(2)
 }
 
 func (m *MockLandAcquisitionRepository) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {

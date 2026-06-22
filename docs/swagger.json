@@ -19,7 +19,6 @@
     "paths": {
         "/auth/forgot-password": {
             "post": {
-                "description": "Request a password reset token (always returns 200 to prevent email enumeration)",
                 "consumes": [
                     "application/json"
                 ],
@@ -45,19 +44,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.messageResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -65,7 +52,6 @@
         },
         "/auth/login": {
             "post": {
-                "description": "Authenticate with email and password, receive JWT token pair",
                 "consumes": [
                     "application/json"
                 ],
@@ -91,31 +77,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.tokenPairResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "401": {
-                        "description": "Invalid credentials",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -128,7 +102,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Invalidate the current session (client must discard the token)",
                 "produces": [
                     "application/json"
                 ],
@@ -140,19 +113,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.messageResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -160,7 +121,6 @@
         },
         "/auth/refresh": {
             "post": {
-                "description": "Exchange a valid refresh token for a new token pair",
                 "consumes": [
                     "application/json"
                 ],
@@ -186,25 +146,13 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.tokenPairResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "401": {
-                        "description": "Invalid or expired refresh token",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -212,7 +160,6 @@
         },
         "/auth/register": {
             "post": {
-                "description": "Create a new user account",
                 "consumes": [
                     "application/json"
                 ],
@@ -238,31 +185,19 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.userResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "409": {
-                        "description": "Email already exists",
+                        "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -270,7 +205,6 @@
         },
         "/auth/reset-password": {
             "post": {
-                "description": "Reset user password using a valid reset token",
                 "consumes": [
                     "application/json"
                 ],
@@ -296,31 +230,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.messageResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "401": {
-                        "description": "Invalid or expired token",
+                        "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -391,6 +313,1086 @@
                         "description": "Database unavailable",
                         "schema": {
                             "$ref": "#/definitions/http.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Газар чөлөөлөлтийн жагсаалт",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны дугаар (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны хэмжээ (default: 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Төлөвлөгөөний дугаар (ILIKE)",
+                        "name": "plan_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Статус (1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Багийн код",
+                        "name": "au3_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Эхлэх огноо дээд хязгаар (YYYY-MM-DD)",
+                        "name": "start_date_from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Эхлэх огноо доод хязгаар (YYYY-MM-DD)",
+                        "name": "start_date_to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Газар чөлөөлөлтийн мэдээлэл үүсгэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Газар зохион байгуулалтын төлөвлөгөөний дугаар",
+                        "name": "plan_code",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Эхлэх огноо (YYYY-MM-DD)",
+                        "name": "start_date",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Дуусах огноо (YYYY-MM-DD)",
+                        "name": "end_date",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Чөлөөлөх бүсийн хил (.shp файл)",
+                        "name": "shapefile",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Газар чөлөөлөлтийн дэлгэрэнгүй",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Геометр өөрчлөх бол shapefile заавал шаардлагатай. Геометр өөрчлөгдвөл хуучин нэгж талбарын мэдээлэл бүгд устана.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Газар чөлөөлөлтийн мэдээлэл засах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Шинэ төлөвлөгөөний дугаар (солих бол shapefile заавал)",
+                        "name": "plan_code",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Эхлэх огноо (YYYY-MM-DD)",
+                        "name": "start_date",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Дуусах огноо (YYYY-MM-DD)",
+                        "name": "end_date",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "Шинэ хилийн .shp файл",
+                        "name": "shapefile",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Зөвхөн статус нь NEW үед устгах боломжтой",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Газар чөлөөлөлт устгах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/advance": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Сонгосон статус руу шилжүүлэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "to_status, note",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/available-statuses": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Шилжих боломжтой статусуудын жагсаалт",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/buildings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Чөлөөлөлтийн барилгын мэдээллийн жагсаалт",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны дугаар (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны хэмжээ (default: 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын дугаар (ILIKE)",
+                        "name": "parcel_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Барилга нэмэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/buildings/{building_id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Барилгын мэдээлэл засах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Building UUID",
+                        "name": "building_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Барилга устгах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Building UUID",
+                        "name": "building_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Чөлөөлөлтийн нэгж талбарын жагсаалт",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны дугаар (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны хэмжээ (default: 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын дугаар (ILIKE)",
+                        "name": "parcel_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Аймгийн код",
+                        "name": "au1_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Сумын код",
+                        "name": "au2_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Багийн код",
+                        "name": "au3_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Эрхийн төрөл (OWNERSHIP, LEASE, ...)",
+                        "name": "right_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Газрын зориулалт",
+                        "name": "landuse",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Парцелийн геометр, чөлөөлөлтийн давхцал, эрх эзэмшигчийн мэдээлэл",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нэгж талбарын дэлгэрэнгүй мэдээлэл",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын UUID",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}/acquisition-amount": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нэгж талбарын нөхөх олговрын үнэлгээ тохируулах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Parcel UUID",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}/compensation": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Parcel UUID",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "paid",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}/sync": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Эзэмшигч болон эрх зүйн мэдээллийг auth DB-аас татаж main DB-д хадгална",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нэгж талбарын дэлгэрэнгүй мэдээллийг secondary DB-аас татах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын UUID",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/progress": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Статус өөрчлөлтийн түүх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/parcels": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "parcels"
+                ],
+                "summary": "Бүх нэгж талбарын нэгдсэн жагсаалт",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны дугаар (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны хэмжээ (default: 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын дугаар (ILIKE)",
+                        "name": "parcel_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Эрхийн төрөл",
+                        "name": "right_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Газрын зориулалт",
+                        "name": "landuse",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Багийн код",
+                        "name": "au3_code",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Чөлөөлөлтийн нэр (ILIKE)",
+                        "name": "acquisition_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Чөлөөлөлтийн статус",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/parcels/{id}/payments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "parcels"
+                ],
+                "summary": "Нэгж талбарын төлбөрийн бичлэгүүд",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parcel UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "parcels"
+                ],
+                "summary": "Нэгж талбарт төлбөрийн бичлэг нэмэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Parcel UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "amount, currency, paid_at, note",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -576,6 +1578,84 @@
                 }
             }
         },
+        "/plans/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "plans"
+                ],
+                "summary": "Төлөвлөгөө дугаараар хайх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Төлөвлөгөөний дугаар",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/plans/suggest": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "plans"
+                ],
+                "summary": "Төлөвлөгөө дугаар/нэрээр хайх (ILIKE)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Хайх үг",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/roles": {
             "get": {
                 "security": [
@@ -583,7 +1663,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all roles with their permissions. Requires roles:read permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -595,34 +1674,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/http.roleResponse"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -633,7 +1685,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Create a new role. Requires roles:create permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -659,43 +1710,19 @@
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.roleResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "409": {
-                        "description": "Role name already exists",
+                        "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -708,7 +1735,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns a single role with its permissions. Requires roles:read permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -729,43 +1755,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.roleResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -776,7 +1778,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Update role name or description. Requires roles:update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -809,43 +1810,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.roleResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -856,7 +1833,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Delete a role. Requires roles:delete permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -880,25 +1856,13 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -911,7 +1875,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Add a permission to a role. Requires roles:update permission.",
                 "consumes": [
                     "application/json"
                 ],
@@ -944,37 +1907,13 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/http.dataResponse"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/http.messageResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/response.Response"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -987,7 +1926,6 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Remove a permission from a role. Requires roles:update permission.",
                 "produces": [
                     "application/json"
                 ],
@@ -1018,19 +1956,7 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
-                        "schema": {
-                            "$ref": "#/definitions/http.errorResponse"
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -1635,46 +2561,6 @@
                 }
             }
         },
-        "http.roleResponse": {
-            "type": "object",
-            "properties": {
-                "CreatedAt": {
-                    "type": "string",
-                    "example": "2026-01-01T00:00:00Z"
-                },
-                "Description": {
-                    "type": "string",
-                    "example": "System administrator"
-                },
-                "ID": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                },
-                "Name": {
-                    "type": "string",
-                    "example": "admin"
-                },
-                "Permissions": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/http.permissionResponse"
-                    }
-                }
-            }
-        },
-        "http.tokenPairResponse": {
-            "type": "object",
-            "properties": {
-                "access_token": {
-                    "type": "string",
-                    "example": "eyJhbGci..."
-                },
-                "refresh_token": {
-                    "type": "string",
-                    "example": "eyJhbGci..."
-                }
-            }
-        },
         "http.updateRoleBody": {
             "type": "object",
             "properties": {
@@ -1743,6 +2629,45 @@
                 "UpdatedAt": {
                     "type": "string",
                     "example": "2026-01-01T00:00:00Z"
+                }
+            }
+        },
+        "response.PaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "response.Response": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "data": {},
+                "error": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
                 }
             }
         }

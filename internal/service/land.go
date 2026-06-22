@@ -25,6 +25,11 @@ type LandService interface {
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy string) (*domain.LandAcquisition, error)
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
+	ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error)
+	CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
+	UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
+	DeleteBuilding(ctx context.Context, id uuid.UUID) error
+	SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
@@ -361,6 +366,40 @@ func (s *landService) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		return nil, 0, domain.ErrInternalServer
 	}
 	return list, total, nil
+}
+
+// ListBuildings — чөлөөлөлтөд хамаарах барилгын мэдээллийн жагсаалт
+func (s *landService) ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error) {
+	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return nil, 0, domain.ErrNotFound
+	}
+	list, total, err := s.landRepo.ListBuildings(ctx, acquisitionID, filter)
+	if err != nil {
+		return nil, 0, domain.ErrInternalServer
+	}
+	return list, total, nil
+}
+
+func (s *landService) CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
+	if err := s.landRepo.CreateBuilding(ctx, b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s *landService) UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
+	if err := s.landRepo.UpdateBuilding(ctx, b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s *landService) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteBuilding(ctx, id)
+}
+
+func (s *landService) SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error {
+	return s.landRepo.SetParcelAcquisitionAmount(ctx, parcelID, amount)
 }
 
 // ListParcelPayments — нэгж талбарын төлбөрийн бичлэгүүд

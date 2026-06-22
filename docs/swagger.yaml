@@ -149,34 +149,6 @@ definitions:
         example: abc123hex
         type: string
     type: object
-  http.roleResponse:
-    properties:
-      CreatedAt:
-        example: "2026-01-01T00:00:00Z"
-        type: string
-      Description:
-        example: System administrator
-        type: string
-      ID:
-        example: 550e8400-e29b-41d4-a716-446655440000
-        type: string
-      Name:
-        example: admin
-        type: string
-      Permissions:
-        items:
-          $ref: '#/definitions/http.permissionResponse'
-        type: array
-    type: object
-  http.tokenPairResponse:
-    properties:
-      access_token:
-        example: eyJhbGci...
-        type: string
-      refresh_token:
-        example: eyJhbGci...
-        type: string
-    type: object
   http.updateRoleBody:
     properties:
       description:
@@ -228,6 +200,32 @@ definitions:
         example: "2026-01-01T00:00:00Z"
         type: string
     type: object
+  response.PaginatedResponse:
+    properties:
+      code:
+        type: integer
+      data: {}
+      message:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  response.Response:
+    properties:
+      code:
+        type: integer
+      data: {}
+      error:
+        type: string
+      message:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
@@ -245,8 +243,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Request a password reset token (always returns 200 to prevent email
-        enumeration)
       parameters:
       - description: Email address
         in: body
@@ -260,12 +256,7 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.messageResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
       summary: Forgot password
       tags:
       - Auth
@@ -273,7 +264,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Authenticate with email and password, receive JWT token pair
       parameters:
       - description: Login credentials
         in: body
@@ -287,38 +277,27 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.tokenPairResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "401":
-          description: Invalid credentials
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       summary: Login
       tags:
       - Auth
   /auth/logout:
     post:
-      description: Invalidate the current session (client must discard the token)
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.messageResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Logout
@@ -328,7 +307,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Exchange a valid refresh token for a new token pair
       parameters:
       - description: Refresh token
         in: body
@@ -342,16 +320,11 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.tokenPairResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "401":
-          description: Invalid or expired refresh token
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       summary: Refresh access token
       tags:
       - Auth
@@ -359,7 +332,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new user account
       parameters:
       - description: Registration payload
         in: body
@@ -373,20 +345,15 @@ paths:
         "201":
           description: Created
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.userResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "409":
-          description: Email already exists
+          description: Conflict
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       summary: Register a new user
       tags:
       - Auth
@@ -394,7 +361,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Reset user password using a valid reset token
       parameters:
       - description: Token and new password
         in: body
@@ -408,20 +374,15 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.messageResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "401":
-          description: Invalid or expired token
+          description: Unauthorized
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       summary: Reset password
       tags:
       - Auth
@@ -465,6 +426,695 @@ paths:
       summary: Readiness probe
       tags:
       - Health
+  /land-acquisitions:
+    get:
+      parameters:
+      - description: 'Хуудасны дугаар (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Хуудасны хэмжээ (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Төлөвлөгөөний дугаар (ILIKE)
+        in: query
+        name: plan_code
+        type: string
+      - description: Статус (1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED)
+        in: query
+        name: status
+        type: integer
+      - description: Багийн код
+        in: query
+        name: au3_code
+        type: string
+      - description: Эхлэх огноо дээд хязгаар (YYYY-MM-DD)
+        in: query
+        name: start_date_from
+        type: string
+      - description: Эхлэх огноо доод хязгаар (YYYY-MM-DD)
+        in: query
+        name: start_date_to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.PaginatedResponse'
+      security:
+      - BearerAuth: []
+      summary: Газар чөлөөлөлтийн жагсаалт
+      tags:
+      - land-acquisitions
+    post:
+      consumes:
+      - multipart/form-data
+      description: plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад
+        чөлөөлөлт үүсгэнэ
+      parameters:
+      - description: Газар зохион байгуулалтын төлөвлөгөөний дугаар
+        in: formData
+        name: plan_code
+        required: true
+        type: string
+      - description: Эхлэх огноо (YYYY-MM-DD)
+        in: formData
+        name: start_date
+        required: true
+        type: string
+      - description: Дуусах огноо (YYYY-MM-DD)
+        in: formData
+        name: end_date
+        required: true
+        type: string
+      - description: Чөлөөлөх бүсийн хил (.shp файл)
+        in: formData
+        name: shapefile
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Газар чөлөөлөлтийн мэдээлэл үүсгэх
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}:
+    delete:
+      description: Зөвхөн статус нь NEW үед устгах боломжтой
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Газар чөлөөлөлт устгах
+      tags:
+      - land-acquisitions
+    get:
+      parameters:
+      - description: UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Газар чөлөөлөлтийн дэлгэрэнгүй
+      tags:
+      - land-acquisitions
+    put:
+      consumes:
+      - multipart/form-data
+      description: Геометр өөрчлөх бол shapefile заавал шаардлагатай. Геометр өөрчлөгдвөл
+        хуучин нэгж талбарын мэдээлэл бүгд устана.
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Шинэ төлөвлөгөөний дугаар (солих бол shapefile заавал)
+        in: formData
+        name: plan_code
+        type: string
+      - description: Эхлэх огноо (YYYY-MM-DD)
+        in: formData
+        name: start_date
+        type: string
+      - description: Дуусах огноо (YYYY-MM-DD)
+        in: formData
+        name: end_date
+        type: string
+      - description: Шинэ хилийн .shp файл
+        in: formData
+        name: shapefile
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Газар чөлөөлөлтийн мэдээлэл засах
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/advance:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: to_status, note
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Сонгосон статус руу шилжүүлэх
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/available-statuses:
+    get:
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Шилжих боломжтой статусуудын жагсаалт
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/buildings:
+    get:
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Хуудасны дугаар (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Хуудасны хэмжээ (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Нэгж талбарын дугаар (ILIKE)
+        in: query
+        name: parcel_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.PaginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Чөлөөлөлтийн барилгын мэдээллийн жагсаалт
+      tags:
+      - land-acquisitions
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Барилга нэмэх
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/buildings/{building_id}:
+    delete:
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Building UUID
+        in: path
+        name: building_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Барилга устгах
+      tags:
+      - land-acquisitions
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Building UUID
+        in: path
+        name: building_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Барилгын мэдээлэл засах
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels:
+    get:
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Хуудасны дугаар (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Хуудасны хэмжээ (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Нэгж талбарын дугаар (ILIKE)
+        in: query
+        name: parcel_id
+        type: string
+      - description: Аймгийн код
+        in: query
+        name: au1_code
+        type: string
+      - description: Сумын код
+        in: query
+        name: au2_code
+        type: string
+      - description: Багийн код
+        in: query
+        name: au3_code
+        type: string
+      - description: Эрхийн төрөл (OWNERSHIP, LEASE, ...)
+        in: query
+        name: right_type
+        type: string
+      - description: Газрын зориулалт
+        in: query
+        name: landuse
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.PaginatedResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Чөлөөлөлтийн нэгж талбарын жагсаалт
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}:
+    get:
+      description: Парцелийн геометр, чөлөөлөлтийн давхцал, эрх эзэмшигчийн мэдээлэл
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Нэгж талбарын UUID
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын дэлгэрэнгүй мэдээлэл
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}/acquisition-amount:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Parcel UUID
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын нөхөх олговрын үнэлгээ тохируулах
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}/compensation:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Parcel UUID
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      - description: paid
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэх
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}/sync:
+    post:
+      description: Эзэмшигч болон эрх зүйн мэдээллийг auth DB-аас татаж main DB-д
+        хадгална
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Нэгж талбарын UUID
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын дэлгэрэнгүй мэдээллийг secondary DB-аас татах
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/progress:
+    get:
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Статус өөрчлөлтийн түүх
+      tags:
+      - land-acquisitions
+  /parcels:
+    get:
+      parameters:
+      - description: 'Хуудасны дугаар (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Хуудасны хэмжээ (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      - description: Нэгж талбарын дугаар (ILIKE)
+        in: query
+        name: parcel_id
+        type: string
+      - description: Эрхийн төрөл
+        in: query
+        name: right_type
+        type: integer
+      - description: Газрын зориулалт
+        in: query
+        name: landuse
+        type: string
+      - description: Багийн код
+        in: query
+        name: au3_code
+        type: string
+      - description: Чөлөөлөлтийн нэр (ILIKE)
+        in: query
+        name: acquisition_name
+        type: string
+      - description: Чөлөөлөлтийн статус
+        in: query
+        name: status
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.PaginatedResponse'
+      security:
+      - BearerAuth: []
+      summary: Бүх нэгж талбарын нэгдсэн жагсаалт
+      tags:
+      - parcels
+  /parcels/{id}/payments:
+    get:
+      parameters:
+      - description: Parcel UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын төлбөрийн бичлэгүүд
+      tags:
+      - parcels
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Parcel UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: amount, currency, paid_at, note
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарт төлбөрийн бичлэг нэмэх
+      tags:
+      - parcels
   /permissions:
     get:
       description: Returns all permissions. Requires permissions:read permission.
@@ -574,31 +1224,63 @@ paths:
       summary: Delete permission
       tags:
       - Permissions
-  /roles:
+  /plans/search:
     get:
-      description: Returns all roles with their permissions. Requires roles:read permission.
+      parameters:
+      - description: Төлөвлөгөөний дугаар
+        in: query
+        name: code
+        required: true
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/http.roleResponse'
-                  type: array
-              type: object
-        "401":
-          description: Unauthorized
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Төлөвлөгөө дугаараар хайх
+      tags:
+      - plans
+  /plans/suggest:
+    get:
+      parameters:
+      - description: Хайх үг
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Төлөвлөгөө дугаар/нэрээр хайх (ILIKE)
+      tags:
+      - plans
+  /roles:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: List roles
@@ -607,7 +1289,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new role. Requires roles:create permission.
       parameters:
       - description: Role payload
         in: body
@@ -621,28 +1302,15 @@ paths:
         "201":
           description: Created
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.roleResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "409":
-          description: Role name already exists
+          description: Conflict
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Create role
@@ -650,7 +1318,6 @@ paths:
       - Roles
   /roles/{id}:
     delete:
-      description: Delete a role. Requires roles:delete permission.
       parameters:
       - description: Role UUID
         in: path
@@ -665,27 +1332,17 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Delete role
       tags:
       - Roles
     get:
-      description: Returns a single role with its permissions. Requires roles:read
-        permission.
       parameters:
       - description: Role UUID
         in: path
@@ -698,28 +1355,15 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.roleResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Get role by ID
@@ -728,7 +1372,6 @@ paths:
     put:
       consumes:
       - application/json
-      description: Update role name or description. Requires roles:update permission.
       parameters:
       - description: Role UUID
         in: path
@@ -747,28 +1390,15 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.roleResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Update role
@@ -778,7 +1408,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Add a permission to a role. Requires roles:update permission.
       parameters:
       - description: Role UUID
         in: path
@@ -797,24 +1426,11 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/http.dataResponse'
-            - properties:
-                data:
-                  $ref: '#/definitions/http.messageResponse'
-              type: object
+            $ref: '#/definitions/response.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Assign permission to role
@@ -822,7 +1438,6 @@ paths:
       - Roles
   /roles/{id}/permissions/{permission_id}:
     delete:
-      description: Remove a permission from a role. Requires roles:update permission.
       parameters:
       - description: Role UUID
         in: path
@@ -842,15 +1457,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/http.errorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/http.errorResponse'
-        "403":
-          description: Forbidden
-          schema:
-            $ref: '#/definitions/http.errorResponse'
+            $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
       summary: Remove permission from role

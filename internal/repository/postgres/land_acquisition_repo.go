@@ -392,7 +392,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       acquisition_id, valid_from, valid_till,
 				       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
 				       COALESCE(ST_AsText(geometry),''),
-				       COALESCE(acquisition_area_m2,0),
+				       COALESCE(acquisition_area_m2,0), COALESCE(acquisition_amount,0),
 				       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 				       COALESCE(compensation_paid,false),
 				       created_at, COALESCE(created_by,'')
@@ -416,7 +416,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.AcquisitionID, &p.ValidFrom, &p.ValidTill,
 			&p.AU1Code, &p.AU2Code, &p.AU3Code,
 			&p.GeometryWKT,
-			&p.AcquisitionAreaM2,
+			&p.AcquisitionAreaM2, &p.AcquisitionAmount,
 			&p.RightType, &p.Landuse, &p.AreaM2,
 			&p.CompensationPaid,
 			&p.CreatedAt, &p.CreatedBy,
@@ -436,7 +436,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 			       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
 			       COALESCE(ST_AsText(geometry),''),
 			       COALESCE(ST_AsText(acquisition_geom),''),
-			       COALESCE(acquisition_area_m2,0),
+			       COALESCE(acquisition_area_m2,0), COALESCE(acquisition_amount,0),
 			       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 			       created_at, COALESCE(created_by,'')
 		FROM parcel
@@ -447,7 +447,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 		&p.AU1Code, &p.AU2Code, &p.AU3Code,
 		&p.GeometryWKT,
 		&p.AcquisitionGeomWKT,
-		&p.AcquisitionAreaM2,
+		&p.AcquisitionAreaM2, &p.AcquisitionAmount,
 		&p.RightType, &p.Landuse, &p.AreaM2,
 		&p.CreatedAt, &p.CreatedBy,
 	)
@@ -468,7 +468,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
 				COALESCE(ST_AsText(p.geometry),''),
 				COALESCE(ST_AsText(p.acquisition_geom),''),
-				COALESCE(p.acquisition_area_m2,0),
+				COALESCE(p.acquisition_area_m2,0), COALESCE(p.acquisition_amount,0),
 				COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 				p.created_at, COALESCE(p.created_by,''),
 			COALESCE(pd.right_type,0),
@@ -490,7 +490,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pf.AU1Code, &pf.AU2Code, &pf.AU3Code,
 		&pf.GeometryWKT,
 		&pf.AcquisitionGeomWKT,
-		&pf.AcquisitionAreaM2,
+		&pf.AcquisitionAreaM2, &pf.AcquisitionAmount,
 		&pf.RightType, &pf.Landuse, &pf.AreaM2,
 		&pf.CreatedAt, &pf.CreatedBy,
 		&d.RightType,
@@ -788,7 +788,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
 		       COALESCE(ST_AsText(p.geometry),''),
 		       '',
-		       COALESCE(p.acquisition_area_m2,0),
+		       COALESCE(p.acquisition_area_m2,0), COALESCE(p.acquisition_amount,0),
 		       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 		       COALESCE(p.compensation_paid,false),
 		       p.created_at, COALESCE(p.created_by,''),
@@ -814,7 +814,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			&gp.AU1Code, &gp.AU2Code, &gp.AU3Code,
 			&gp.GeometryWKT,
 			&gp.AcquisitionGeomWKT,
-			&gp.AcquisitionAreaM2,
+			&gp.AcquisitionAreaM2, &gp.AcquisitionAmount,
 			&gp.RightType, &gp.Landuse, &gp.AreaM2,
 			&gp.CompensationPaid,
 			&gp.CreatedAt, &gp.CreatedBy,
@@ -951,6 +951,69 @@ func (r *landAcqRepo) GetDocument(ctx context.Context, documentID uuid.UUID) (*d
 		return nil, err
 	}
 	return d, nil
+}
+
+// ── Building CRUD ─────────────────────────────────────────────────────────────
+
+func (r *landAcqRepo) ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error) {
+	where := "WHERE acquisition_id = $1"
+	args := []any{acquisitionID}
+	i := 2
+	if filter.ParcelID != "" {
+		where += fmt.Sprintf(" AND parcel_id = $%d", i)
+		args = append(args, filter.ParcelID)
+		i++
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, acquisition_id, parcel_id, building_number, building_type,
+		       floor_count, area_m2, acquisition_amount, owner_name, address, notes, created_at, updated_at
+		FROM building `+where+` ORDER BY created_at DESC
+	`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var list []*domain.Building
+	for rows.Next() {
+		b := &domain.Building{}
+		if err := rows.Scan(&b.ID, &b.AcquisitionID, &b.ParcelID, &b.BuildingNumber, &b.BuildingType,
+			&b.FloorCount, &b.AreaM2, &b.AcquisitionAmount, &b.OwnerName, &b.Address, &b.Notes, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		list = append(list, b)
+	}
+	return list, int64(len(list)), rows.Err()
+}
+
+func (r *landAcqRepo) CreateBuilding(ctx context.Context, b *domain.Building) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO building (acquisition_id, parcel_id, building_number, building_type,
+		                      floor_count, area_m2, acquisition_amount, owner_name, address, notes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		RETURNING id, created_at, updated_at
+	`, b.AcquisitionID, b.ParcelID, b.BuildingNumber, b.BuildingType,
+		b.FloorCount, b.AreaM2, b.AcquisitionAmount, b.OwnerName, b.Address, b.Notes,
+	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
+}
+
+func (r *landAcqRepo) UpdateBuilding(ctx context.Context, b *domain.Building) error {
+	return r.db.QueryRow(ctx, `
+		UPDATE building SET parcel_id=$2, building_number=$3, building_type=$4,
+		    floor_count=$5, area_m2=$6, acquisition_amount=$7, owner_name=$8, address=$9, notes=$10, updated_at=NOW()
+		WHERE id=$1 RETURNING updated_at
+	`, b.ID, b.ParcelID, b.BuildingNumber, b.BuildingType,
+		b.FloorCount, b.AreaM2, b.AcquisitionAmount, b.OwnerName, b.Address, b.Notes,
+	).Scan(&b.UpdatedAt)
+}
+
+func (r *landAcqRepo) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.Exec(ctx, "DELETE FROM building WHERE id=$1", id)
+	return err
+}
+
+func (r *landAcqRepo) SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error {
+	_, err := r.db.Exec(ctx, "UPDATE parcel SET acquisition_amount=$2 WHERE id=$1", parcelID, amount)
+	return err
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)

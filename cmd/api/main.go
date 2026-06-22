@@ -126,7 +126,7 @@ func main() {
 		slog.Info("seed skipped (already applied)", "name", "auth_seeder")
 	}
 
-	// Main seeder — аймаг, сум, баг, газар чөлөөлөлт, нэгж талбар
+	// Main seeder — аймаг, сум, баг, газар чөлөөлөлт, нэгж талбар, барилга
 	if applied, _ := isSeedApplied(ctx, mainDB, "main_seeder"); !applied {
 		mainSeeder := NewMainSeeder(mainDB)
 		if err := mainSeeder.Seed(ctx); err != nil {
@@ -136,6 +136,18 @@ func main() {
 		}
 	} else {
 		slog.Info("seed skipped (already applied)", "name", "main_seeder")
+	}
+
+	// Buildings seeder — өмнө main_seeder ажилласан орчинд барилгын жишээ өгөгдөл нөхөж оруулна
+	if applied, _ := isSeedApplied(ctx, mainDB, "buildings_seeder"); !applied {
+		mainSeeder := NewMainSeeder(mainDB)
+		if err := mainSeeder.seedDefaultBuildings(ctx); err != nil {
+			slog.Warn("buildings seed failed", "error", err)
+		} else if err := markSeedApplied(ctx, mainDB, "buildings_seeder"); err != nil {
+			slog.Warn("failed to mark buildings_seeder", "error", err)
+		}
+	} else {
+		slog.Info("seed skipped (already applied)", "name", "buildings_seeder")
 	}
 
 	// Plans seeder — auth DB-д төлөвлөгөө, эх нэгж талбар

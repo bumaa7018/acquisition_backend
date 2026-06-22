@@ -71,7 +71,7 @@ func NewRouter(
 			roles.GET("/:id", middleware.RequirePermission("roles:read"), roleH.GetByID)
 			roles.POST("", middleware.RequirePermission("roles:create"), roleH.Create)
 			roles.PUT("/:id", middleware.RequirePermission("roles:update"), roleH.Update)
-			roles.DELETE("/:id", middleware.RequirePermission("roles:update"), roleH.Delete)
+			roles.DELETE("/:id", middleware.RequirePermission("roles:delete"), roleH.Delete)
 			roles.POST("/:id/permissions", middleware.RequirePermission("roles:update"), roleH.AssignPermission)
 			roles.DELETE("/:id/permissions/:permission_id", middleware.RequirePermission("roles:update"), roleH.RemovePermission)
 		}
@@ -87,9 +87,14 @@ func NewRouter(
 		land := protected.Group("/land-acquisitions")
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
-			land.POST("", middleware.RequirePermission("acquisition.create"), landH.Create)
+			land.POST("", middleware.RequirePermission("land:create"), landH.Create)
 			land.GET("/:id", middleware.RequirePermission("land:read"), landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), landH.ListParcels)
+			land.GET("/:id/buildings", middleware.RequirePermission("land:read"), landH.ListBuildings)
+			land.POST("/:id/buildings", middleware.RequirePermission("land:create"), landH.CreateBuilding)
+			land.PUT("/:id/buildings/:building_id", middleware.RequirePermission("land:update"), landH.UpdateBuilding)
+			land.DELETE("/:id/buildings/:building_id", middleware.RequirePermission("land:update"), landH.DeleteBuilding)
+			land.PUT("/:id/parcels/:parcel_id/acquisition-amount", middleware.RequirePermission("land:update"), landH.SetParcelAcquisitionAmount)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequirePermission("land:read"), landH.GetParcelByID)
 			land.PUT("/:id", middleware.RequirePermission("land:update"), landH.Update)
 			land.DELETE("/:id", middleware.RequirePermission("land:delete"), landH.Delete)
@@ -97,10 +102,10 @@ func NewRouter(
 			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), landH.SetParcelCompensation)
 			land.GET("/:id/progress", middleware.RequirePermission("land:read"), landH.ListProgress)
 			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), landH.GetAvailableStatuses)
-			land.POST("/:id/advance", middleware.RequirePermission("acquisition.create"), landH.AdvanceStatus)
+			land.POST("/:id/advance", middleware.RequirePermission("land:update"), landH.AdvanceStatus)
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListAcquisitionDocuments)
-			land.POST("/:id/documents", middleware.RequirePermission("land:write"), landH.UploadAcquisitionDocument)
-			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:write"), landH.DeleteAcquisitionDocument)
+			land.POST("/:id/documents", middleware.RequirePermission("land:update"), landH.UploadAcquisitionDocument)
+			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), landH.DeleteAcquisitionDocument)
 		}
 
 		// Газар зохион байгуулалтын төлөвлөвлөгөө
@@ -117,8 +122,8 @@ func NewRouter(
 			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), landH.ListParcelPayments)
 			parcels.POST("/:id/payments", middleware.RequirePermission("land:update"), landH.AddParcelPayment)
 			parcels.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListParcelDocuments)
-			parcels.POST("/:id/documents", middleware.RequirePermission("land:write"), landH.UploadParcelDocument)
-			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:write"), landH.DeleteParcelDocument)
+			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), landH.UploadParcelDocument)
+			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), landH.DeleteParcelDocument)
 		}
 	}
 

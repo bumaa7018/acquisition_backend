@@ -61,6 +61,17 @@ const (
 	ErrDeleteNotNew            Key = "delete_not_new"
 	WarnGeomChanged            Key = "geom_changed"
 	ErrCodeRequired            Key = "code_required"
+
+	// Status errors
+	ErrStatusRequired Key = "status_required"
+	ErrInvalidStatus  Key = "invalid_status"
+
+	// Document / file errors
+	ErrFileRequired   Key = "file_required"
+	ErrFileTooLarge   Key = "file_too_large"
+	ErrFileOpen       Key = "file_open"
+	ErrFileRead       Key = "file_read"
+	ErrDocNotFound    Key = "doc_not_found"
 )
 
 var messages = map[Key][2]string{
@@ -102,7 +113,16 @@ var messages = map[Key][2]string{
 	ErrShapefileRequiredForPlan: {"Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай", "Shapefile is required when changing plan"},
 	ErrDeleteNotNew:            {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
 	WarnGeomChanged:            {"Хуучин бүсийн хилтэй давхцах нэгж талбарын бүх мэдээлэл устгагдаж шинэчлэгдлээ", "All parcels overlapping the old boundary have been removed and updated"},
-	ErrCodeRequired:            {"code параметр шаардлагатай", "code parameter is required"},
+	ErrCodeRequired: {"code параметр шаардлагатай", "code parameter is required"},
+
+	ErrStatusRequired: {"to_status шаардлагатай", "to_status is required"},
+	ErrInvalidStatus:  {"Буруу статус", "Invalid status"},
+
+	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
+	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},
+	ErrFileOpen:     {"Файл нээхэд алдаа гарлаа", "failed to open file"},
+	ErrFileRead:     {"Файл уншихад алдаа гарлаа", "failed to read file"},
+	ErrDocNotFound:  {"Баримт олдсонгүй", "document not found"},
 }
 
 // T returns the translated message for the given key and language.

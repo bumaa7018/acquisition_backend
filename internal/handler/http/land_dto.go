@@ -46,6 +46,7 @@ type parcelResponse struct {
 	Landuse           string  `json:"landuse"`
 	AreaM2            float64 `json:"area_m2"`
 	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
+	AcquisitionAmount float64 `json:"acquisition_amount"`
 	CompensationPaid  bool    `json:"compensation_paid"`
 	GeometryWKT       string  `json:"geometry_wkt,omitempty"`
 }
@@ -63,6 +64,7 @@ type parcelFullResponse struct {
 	GeometryWKT        string            `json:"geometry_wkt"`
 	AcquisitionGeomWKT string            `json:"acquisition_geom_wkt"`
 	AcquisitionAreaM2  float64           `json:"acquisition_area_m2"`
+	AcquisitionAmount  float64           `json:"acquisition_amount"`
 	RightType          int               `json:"right_type"`
 	Landuse            string            `json:"landuse"`
 	AreaM2             float64           `json:"area_m2"`
@@ -152,6 +154,40 @@ type parcelPaymentResponse struct {
 	CreatedBy string  `json:"created_by"`
 }
 
+type buildingResponse struct {
+	ID                string  `json:"id"`
+	AcquisitionID     string  `json:"acquisition_id"`
+	ParcelID          string  `json:"parcel_id"`
+	BuildingNumber    string  `json:"building_number"`
+	BuildingType      string  `json:"building_type"`
+	FloorCount        int     `json:"floor_count"`
+	AreaM2            float64 `json:"area_m2"`
+	AcquisitionAmount float64 `json:"acquisition_amount"`
+	OwnerName         string  `json:"owner_name"`
+	Address           string  `json:"address"`
+	Notes             string  `json:"notes"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+}
+
+func toBuildingResponse(b *domain.Building) buildingResponse {
+	return buildingResponse{
+		ID:                b.ID.String(),
+		AcquisitionID:     b.AcquisitionID.String(),
+		ParcelID:          b.ParcelID,
+		BuildingNumber:    b.BuildingNumber,
+		BuildingType:      b.BuildingType,
+		FloorCount:        b.FloorCount,
+		AreaM2:            b.AreaM2,
+		AcquisitionAmount: b.AcquisitionAmount,
+		OwnerName:         b.OwnerName,
+		Address:           b.Address,
+		Notes:             b.Notes,
+		CreatedAt:         b.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         b.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
 func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 	r := globalParcelResponse{
 		ID:                p.ID.String(),
@@ -234,6 +270,7 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		GeometryWKT:        pf.GeometryWKT,
 		AcquisitionGeomWKT: pf.AcquisitionGeomWKT,
 		AcquisitionAreaM2:  pf.AcquisitionAreaM2,
+		AcquisitionAmount:  pf.AcquisitionAmount,
 		RightType:          pf.RightType,
 		Landuse:            pf.Landuse,
 		AreaM2:             pf.AreaM2,

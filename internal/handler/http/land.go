@@ -214,6 +214,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 			AU1Code: p.AU1Code, AU2Code: p.AU2Code, AU3Code: p.AU3Code,
 			RightType: p.RightType, Landuse: p.Landuse, AreaM2: p.AreaM2,
 			AcquisitionAreaM2: p.AcquisitionAreaM2,
+			AcquisitionAmount: p.AcquisitionAmount,
 			CompensationPaid:  p.CompensationPaid,
 			GeometryWKT:       p.GeometryWKT,
 		})
@@ -533,7 +534,7 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 		Note     string `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		response.Abort(c, http.StatusBadRequest, "to_status шаардлагатай")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrStatusRequired)
 		return
 	}
 
@@ -548,7 +549,7 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 		case domain.ErrNotFound:
 			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
 		case domain.ErrInvalidInput:
-			response.Abort(c, http.StatusUnprocessableEntity, "Буруу статус")
+			response.Abort(c, http.StatusUnprocessableEntity, i18n.ErrInvalidStatus)
 		default:
 			response.Error(c, err)
 		}
@@ -585,22 +586,22 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "file field is required")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
 	if fh.Size > maxSize {
-		response.Abort(c, http.StatusBadRequest, "file exceeds 10MB limit")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
 	f, err := fh.Open()
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "failed to open file")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
 	defer f.Close()
 	data, err := io.ReadAll(f)
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "failed to read file")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
 		return
 	}
 	uploadedBy := ""
@@ -627,7 +628,7 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 	}
 	if err := h.svc.DeleteAcquisitionDocument(c.Request.Context(), docID); err != nil {
 		if err == domain.ErrNotFound {
-			response.Abort(c, http.StatusNotFound, "document not found")
+			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
 			return
 		}
 		response.Error(c, err)
@@ -676,6 +677,219 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		result = append(result, toGlobalParcelResponse(p))
 	}
 	response.Paginated(c, result, total, page, pageSize)
+}
+
+// ListBuildings godoc
+// @Summary      Чөлөөлөлтийн барилгын мэдээллийн жагсаалт
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path   string  true   "LandAcquisition UUID"
+// @Param        page       query  int     false  "Хуудасны дугаар (default: 1)"
+// @Param        page_size  query  int     false  "Хуудасны хэмжээ (default: 20)"
+// @Param        parcel_id  query  string  false  "Нэгж талбарын дугаар (ILIKE)"
+// @Success      200  {object}  response.PaginatedResponse
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/buildings [get]
+func (h *LandHandler) ListBuildings(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	filter := domain.BuildingFilter{
+		ParcelID: c.Query("parcel_id"),
+		Page:     page,
+		PageSize: pageSize,
+	}
+
+	buildings, total, err := h.svc.ListBuildings(c.Request.Context(), id, filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	result := make([]buildingResponse, 0, len(buildings))
+	for _, b := range buildings {
+		result = append(result, toBuildingResponse(b))
+	}
+	response.Paginated(c, result, total, page, pageSize)
+}
+
+// CreateBuilding godoc
+// @Summary      Барилга нэмэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path  string  true  "LandAcquisition UUID"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/buildings [post]
+func (h *LandHandler) CreateBuilding(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		ParcelID          string  `json:"parcel_id" binding:"required"`
+		BuildingNumber    string  `json:"building_number"`
+		BuildingType      string  `json:"building_type"`
+		FloorCount        int     `json:"floor_count"`
+		AreaM2            float64 `json:"area_m2"`
+		AcquisitionAmount float64 `json:"acquisition_amount"`
+		OwnerName         string  `json:"owner_name"`
+		Address           string  `json:"address"`
+		Notes             string  `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	b := &domain.Building{
+		AcquisitionID:     acqID,
+		ParcelID:          body.ParcelID,
+		BuildingNumber:    body.BuildingNumber,
+		BuildingType:      body.BuildingType,
+		FloorCount:        body.FloorCount,
+		AreaM2:            body.AreaM2,
+		AcquisitionAmount: body.AcquisitionAmount,
+		OwnerName:         body.OwnerName,
+		Address:           body.Address,
+		Notes:             body.Notes,
+	}
+
+	created, err := h.svc.CreateBuilding(c.Request.Context(), b)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	r := toBuildingResponse(created)
+	response.Created(c, r)
+}
+
+// UpdateBuilding godoc
+// @Summary      Барилгын мэдээлэл засах
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id           path  string  true  "LandAcquisition UUID"
+// @Param        building_id  path  string  true  "Building UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/buildings/{building_id} [put]
+func (h *LandHandler) UpdateBuilding(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	buildingID, err := uuid.Parse(c.Param("building_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		ParcelID          string  `json:"parcel_id"`
+		BuildingNumber    string  `json:"building_number"`
+		BuildingType      string  `json:"building_type"`
+		FloorCount        int     `json:"floor_count"`
+		AreaM2            float64 `json:"area_m2"`
+		AcquisitionAmount float64 `json:"acquisition_amount"`
+		OwnerName         string  `json:"owner_name"`
+		Address           string  `json:"address"`
+		Notes             string  `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	b := &domain.Building{
+		ID:                buildingID,
+		AcquisitionID:     acqID,
+		ParcelID:          body.ParcelID,
+		BuildingNumber:    body.BuildingNumber,
+		BuildingType:      body.BuildingType,
+		FloorCount:        body.FloorCount,
+		AreaM2:            body.AreaM2,
+		AcquisitionAmount: body.AcquisitionAmount,
+		OwnerName:         body.OwnerName,
+		Address:           body.Address,
+		Notes:             body.Notes,
+	}
+
+	updated, err := h.svc.UpdateBuilding(c.Request.Context(), b)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toBuildingResponse(updated))
+}
+
+// DeleteBuilding godoc
+// @Summary      Барилга устгах
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id           path  string  true  "LandAcquisition UUID"
+// @Param        building_id  path  string  true  "Building UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/buildings/{building_id} [delete]
+func (h *LandHandler) DeleteBuilding(c *gin.Context) {
+	buildingID, err := uuid.Parse(c.Param("building_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	if err := h.svc.DeleteBuilding(c.Request.Context(), buildingID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// SetParcelAcquisitionAmount godoc
+// @Summary      Нэгж талбарын нөхөх олговрын үнэлгээ тохируулах
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Parcel UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/acquisition-amount [put]
+func (h *LandHandler) SetParcelAcquisitionAmount(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		Amount float64 `json:"amount" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	if err := h.svc.SetParcelAcquisitionAmount(c.Request.Context(), parcelID, body.Amount); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
 }
 
 // ListParcelPayments godoc
@@ -807,22 +1021,22 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "file field is required")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
 	if fh.Size > maxSize {
-		response.Abort(c, http.StatusBadRequest, "file exceeds 10MB limit")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
 	f, err := fh.Open()
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "failed to open file")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
 	defer f.Close()
 	data, err := io.ReadAll(f)
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, "failed to read file")
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
 		return
 	}
 	uploadedBy := ""
@@ -849,7 +1063,7 @@ func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
 	}
 	if err := h.svc.DeleteParcelDocument(c.Request.Context(), docID); err != nil {
 		if err == domain.ErrNotFound {
-			response.Abort(c, http.StatusNotFound, "document not found")
+			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
 			return
 		}
 		response.Error(c, err)

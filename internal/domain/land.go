@@ -163,14 +163,15 @@ type Parcel struct {
 	AU2Code            string
 	AU3Code            string
 	GeometryWKT        string
-	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
-	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
-	RightType          int
-	Landuse            string
-	AreaM2             float64
-	CompensationPaid   bool
-	CreatedAt          time.Time
-	CreatedBy          string
+	AcquisitionGeomWKT  string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
+	AcquisitionAreaM2   float64 // давхцах хэсгийн талбай (м²)
+	AcquisitionAmount   float64 // нөхөх олговрын үнэлгээ (₮)
+	RightType           int
+	Landuse             string
+	AreaM2              float64
+	CompensationPaid    bool
+	CreatedAt           time.Time
+	CreatedBy           string
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
@@ -246,6 +247,30 @@ type GlobalParcelFilter struct {
 	PageSize        int
 }
 
+// BuildingFilter — барилгын жагсаалт шүүх болон хуудаслах параметр
+type BuildingFilter struct {
+	ParcelID string
+	Page     int
+	PageSize int
+}
+
+// Building — барилгын мэдээлэл
+type Building struct {
+	ID                uuid.UUID `json:"id"`
+	AcquisitionID     uuid.UUID `json:"acquisition_id"`
+	ParcelID          string    `json:"parcel_id"`
+	BuildingNumber    string    `json:"building_number"`
+	BuildingType      string    `json:"building_type"`
+	FloorCount        int       `json:"floor_count"`
+	AreaM2            float64   `json:"area_m2"`
+	AcquisitionAmount float64   `json:"acquisition_amount"`
+	OwnerName         string    `json:"owner_name"`
+	Address           string    `json:"address"`
+	Notes             string    `json:"notes"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // ParcelPayment — нэгж талбарт хийсэн төлбөрийн бичлэг
 type ParcelPayment struct {
 	ID        uuid.UUID
@@ -257,4 +282,3 @@ type ParcelPayment struct {
 	CreatedAt time.Time
 	CreatedBy string
 }
-

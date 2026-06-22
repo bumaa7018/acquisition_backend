@@ -10,7 +10,7 @@ import (
 )
 
 // MainSeeder үндсэн DB-д жишээ өгөгдөл нэмнэ.
-// Аймаг → Сум → Баг → Газар чөлөөлөлт → Нэгж талбар → Эзэмшигч → Эрх зүй
+// Аймаг → Сум → Баг → Газар чөлөөлөлт → Нэгж талбар → Эзэмшигч → Эрх зүй → Барилга
 type MainSeeder struct {
 	db *pgxpool.Pool
 }
@@ -45,7 +45,24 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 		return err
 	}
 
-	return s.seedParcelDetail(ctx, parcelID, acqID, holderID)
+	if err := s.seedParcelDetail(ctx, parcelID, acqID, holderID); err != nil {
+		return err
+	}
+
+	return s.seedBuildings(ctx, acqID)
+}
+
+func (s *MainSeeder) seedDefaultBuildings(ctx context.Context) error {
+	acqID, err := s.seedLandAcquisition(ctx)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.seedParcel(ctx, acqID); err != nil {
+		return err
+	}
+
+	return s.seedBuildings(ctx, acqID)
 }
 
 // seedAUs — Аймаг, Сум, Баг жишээ өгөгдөл
@@ -297,5 +314,100 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 		return err
 	}
 	slog.Info("parcel_detail seeded")
+	return nil
+}
+
+// seedBuildings — газар чөлөөлөлтөд хамрагдсан барилгын жишээ мэдээлэл
+func (s *MainSeeder) seedBuildings(ctx context.Context, acqID uuid.UUID) error {
+	buildings := []struct {
+		parcelID       string
+		buildingNumber string
+		buildingType   string
+		floorCount     int
+		areaM2         float64
+		ownerName      string
+		address        string
+		notes          string
+		geometryWKT    string
+	}{
+		{
+			parcelID:       "010101000001",
+			buildingNumber: "B-001",
+			buildingType:   "Амины орон сууц",
+			floorCount:     1,
+			areaM2:         96.5,
+			ownerName:      "Дорж Батбаяр",
+			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:          "Тоосгон хийцтэй, инженерийн шугамд холбогдсон.",
+			geometryWKT:    "POLYGON((106.7700 47.6700, 106.7710 47.6700, 106.7710 47.6710, 106.7700 47.6710, 106.7700 47.6700))",
+		},
+		{
+			parcelID:       "010101000001",
+			buildingNumber: "B-002",
+			buildingType:   "Гарааш",
+			floorCount:     1,
+			areaM2:         32.0,
+			ownerName:      "Дорж Батбаяр",
+			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:          "Металл хаалгатай туслах байгууламж.",
+			geometryWKT:    "POLYGON((106.7720 47.6700, 106.7725 47.6700, 106.7725 47.6706, 106.7720 47.6706, 106.7720 47.6700))",
+		},
+		{
+			parcelID:       "010101000001",
+			buildingNumber: "B-003",
+			buildingType:   "Агуулах",
+			floorCount:     1,
+			areaM2:         120.0,
+			ownerName:      "Дорж Батбаяр",
+			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:          "Модон карказтай, улирлын чанартай ашигладаг.",
+			geometryWKT:    "POLYGON((106.7740 47.6695, 106.7752 47.6695, 106.7752 47.6705, 106.7740 47.6705, 106.7740 47.6695))",
+		},
+	}
+
+	for _, b := range buildings {
+		tag, err := s.db.Exec(ctx, `
+			INSERT INTO building (
+				acquisition_id,
+				parcel_id,
+				building_number,
+				building_type,
+				floor_count,
+				area_m2,
+				owner_name,
+				address,
+				notes,
+				geometry
+			)
+			SELECT
+				$1, $2, $3, $4, $5, $6, $7, $8, $9,
+				ST_GeomFromText($10, 4326)::geometry(Polygon, 4326)
+			WHERE NOT EXISTS (
+				SELECT 1
+				FROM building
+				WHERE acquisition_id = $1
+				  AND parcel_id = $2
+				  AND building_number = $3
+			)
+		`,
+			acqID,
+			b.parcelID,
+			b.buildingNumber,
+			b.buildingType,
+			b.floorCount,
+			b.areaM2,
+			b.ownerName,
+			b.address,
+			b.notes,
+			b.geometryWKT,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() > 0 {
+			slog.Info("building seeded", "parcel_id", b.parcelID, "building_number", b.buildingNumber)
+		}
+	}
+
 	return nil
 }

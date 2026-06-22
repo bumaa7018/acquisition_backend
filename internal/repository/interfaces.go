@@ -78,6 +78,12 @@ type LandAcquisitionRepository interface {
 	CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
+	// Building methods
+	ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error)
+	CreateBuilding(ctx context.Context, b *domain.Building) error
+	UpdateBuilding(ctx context.Context, b *domain.Building) error
+	DeleteBuilding(ctx context.Context, id uuid.UUID) error
+	SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
 	// Document methods

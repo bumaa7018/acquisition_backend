@@ -3,6 +3,8 @@
 BINARY=server
 CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
+GOPATH_BIN=$(shell go env GOPATH 2>/dev/null)/bin
+SWAG=$(GOPATH_BIN)/swag
 
 # Үндсэн DB
 DB_HOST     ?= $(shell grep '^DB_HOST'     .env 2>/dev/null | cut -d= -f2)
@@ -23,7 +25,9 @@ AUTH_DB_SSL  ?= $(shell grep '^AUTH_DB_SSLMODE'  .env 2>/dev/null | cut -d= -f2)
 AUTH_DSN      = postgres://$(AUTH_DB_USER):$(AUTH_DB_PASS)@$(AUTH_DB_HOST):$(AUTH_DB_PORT)/$(AUTH_DB_NAME)?sslmode=$(AUTH_DB_SSL)
 
 swag:
-	CGO_ENABLED=0 $(shell go env GOPATH)/bin/swag init -g cmd/api/main.go -o docs
+	@command -v go >/dev/null 2>&1 || (echo "Go олдсонгүй. Ubuntu дээр Go суулгаад дахин ажиллуулна уу." && exit 1)
+	@test -x "$(SWAG)" || (echo "swag суулгаж байна..." && go install github.com/swaggo/swag/cmd/swag@latest)
+	CGO_ENABLED=0 "$(SWAG)" init -g cmd/api/main.go -o docs
 
 run: swag
 	CGO_ENABLED=0 go run $(CMD)
