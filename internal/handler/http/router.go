@@ -126,6 +126,12 @@ func NewRouter(
 			plans.GET("/suggest", middleware.RequirePermission("land:read"), planH.Suggest)
 		}
 
+		// Тайлангийн маршрут
+		report := protected.Group("/report")
+		{
+			report.GET("/download", middleware.RequirePermission("land:read"), landH.ListReportParcels)
+		}
+
 		// Глобал нэгж талбарын маршрут
 		parcels := protected.Group("/parcels")
 		{

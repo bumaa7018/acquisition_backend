@@ -1,0 +1,15 @@
+DROP INDEX IF EXISTS idx_compensation_grant_acquisition;
+DROP INDEX IF EXISTS idx_compensation_asset_id;
+DROP INDEX IF EXISTS idx_compensation_acq_parcel_type;
+DROP INDEX IF EXISTS idx_parcel_landuse_trgm;
+DROP INDEX IF EXISTS idx_parcel_parcel_id_trgm;
+DROP INDEX IF EXISTS idx_parcel_created_at;
+DROP INDEX IF EXISTS idx_parcel_landuse;
+DROP INDEX IF EXISTS idx_parcel_right_type;
+DROP INDEX IF EXISTS idx_land_acquisition_acq_name_trgm;
+DROP INDEX IF EXISTS idx_land_acquisition_plan_code_trgm;
+DROP INDEX IF EXISTS idx_land_acquisition_decree_year;
+DROP INDEX IF EXISTS idx_land_acquisition_decree_date;
+DROP INDEX IF EXISTS idx_land_acquisition_construction_type;
+DROP INDEX IF EXISTS idx_land_acquisition_created_at;
+DROP INDEX IF EXISTS idx_land_acquisition_start_date;

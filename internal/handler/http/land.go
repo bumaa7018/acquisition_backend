@@ -757,6 +757,7 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		AcquisitionID:   c.Query("acquisition_id"),
 		PlanCode:        c.Query("plan_code"),
 		Status:          queryInt(c, "status", 0),
+		Year:            queryInt(c, "year", 0),
 		Page:            page,
 		PageSize:        pageSize,
 	}
@@ -768,6 +769,53 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 	result := make([]globalParcelResponse, 0, len(parcels))
 	for _, p := range parcels {
 		result = append(result, toGlobalParcelResponse(p))
+	}
+	response.Paginated(c, result, total, page, pageSize)
+}
+
+// ListReportParcels godoc
+// @Summary      Тайлангийн нэгж талбарын жагсаалт
+// @Description  Нэгж талбар бүрийн эзэмшигч, нөхөн төлбөр нэгтгэсэн мэдээллийг буцаана
+// @Tags         report
+// @Produce      json
+// @Security     BearerAuth
+// @Param        plan_code          query  string  false  "Төлөвлөгөөний код (ILIKE)"
+// @Param        acquisition_name   query  string  false  "Чөлөөлөлтийн нэр (ILIKE)"
+// @Param        au3_code           query  string  false  "Хорооны код"
+// @Param        year               query  int     false  "Захирамжийн он (decree_date эсвэл start_date)"
+// @Param        compensation_type  query  string  false  "Нөхөн төлбөрийн төрөл: cash | land_grant"
+// @Param        page               query  int     false  "Хуудасны дугаар (default: 1)"
+// @Param        page_size          query  int     false  "Хуудасны хэмжээ (default: 20, max: 200)"
+// @Success      200  {object}  response.PaginatedResponse
+// @Failure      500  {object}  response.Response
+// @Router       /report/download [get]
+func (h *LandHandler) ListReportParcels(c *gin.Context) {
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	year := queryInt(c, "year", 0)
+
+	filter := domain.ReportParcelFilter{
+		PlanCode:         c.Query("plan_code"),
+		AcquisitionName:  c.Query("acquisition_name"),
+		AU3Code:          c.Query("au3_code"),
+		Year:             year,
+		CompensationType: c.Query("compensation_type"),
+		Page:             page,
+		PageSize:         pageSize,
+	}
+
+	rows, total, err := h.svc.ListReportParcels(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	result := make([]reportParcelRowResponse, 0, len(rows))
+	for _, r := range rows {
+		result = append(result, toReportParcelRowResponse(r))
 	}
 	response.Paginated(c, result, total, page, pageSize)
 }

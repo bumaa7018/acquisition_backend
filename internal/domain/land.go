@@ -262,8 +262,45 @@ type GlobalParcelFilter struct {
 	AcquisitionID   string
 	PlanCode        string
 	Status          int
+	Year            int
 	Page            int
 	PageSize        int
+}
+
+// ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр
+type ReportParcelFilter struct {
+	PlanCode           string
+	AcquisitionName    string
+	AU3Code            string
+	Year               int    // decree_date эсвэл start_date-ийн он
+	CompensationType   string // 'cash' | 'land_grant' | '' (бүгд)
+	Page               int
+	PageSize           int
+}
+
+// ReportParcelRow — тайлангийн нэг мөрийн бүх мэдээлэл (нэг JOIN query-аас)
+type ReportParcelRow struct {
+	// Нэгж талбар
+	ParcelID        string
+	AreaM2          float64
+	AcquisitionAreaM2 float64
+	RemainingAreaM2 float64
+	RightType       int
+	DbChanged       bool
+	ChangedParcelID string
+	// Чөлөөлөлт
+	AcquisitionName      string
+	ConstructionTypeName string
+	DecreeNumber         string
+	DecreeDate           *time.Time
+	// Эзэмшигч
+	HolderLastName   string
+	HolderName       string
+	HolderRegisterNo string
+	// Нөхөн төлбөр (нэгтгэсэн)
+	LandComp      float64
+	RealStateComp float64
+	PropertyComp  float64
 }
 
 // AssetFilter — хөрөнгийн жагсаалт шүүх болон хуудаслах параметр

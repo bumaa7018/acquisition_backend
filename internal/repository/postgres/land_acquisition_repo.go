@@ -845,6 +845,11 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, filter.Status)
 		i++
 	}
+	if filter.Year != 0 {
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM COALESCE(la.decree_date, la.start_date)) = $%d", i)
+		args = append(args, filter.Year)
+		i++
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
@@ -907,6 +912,131 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			return nil, 0, err
 		}
 		result = append(result, gp)
+	}
+	return result, total, rows.Err()
+}
+
+func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error) {
+	args := []any{}
+	where := "1=1"
+	i := 1
+
+	if filter.PlanCode != "" {
+		where += fmt.Sprintf(" AND la.plan_code ILIKE $%d", i)
+		args = append(args, "%"+filter.PlanCode+"%")
+		i++
+	}
+	if filter.AcquisitionName != "" {
+		where += fmt.Sprintf(" AND la.acquisition_name ILIKE $%d", i)
+		args = append(args, "%"+filter.AcquisitionName+"%")
+		i++
+	}
+	if filter.AU3Code != "" {
+		where += fmt.Sprintf(" AND p.au3_code = $%d", i)
+		args = append(args, filter.AU3Code)
+		i++
+	}
+	if filter.Year != 0 {
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM COALESCE(la.decree_date, la.start_date)) = $%d", i)
+		args = append(args, filter.Year)
+		i++
+	}
+	if filter.CompensationType != "" {
+		where += fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM compensation c2
+			WHERE c2.acquisition_id = p.acquisition_id
+			  AND c2.parcel_id = p.parcel_id
+			  AND c2.compensation_type = $%d
+		)`, i)
+		args = append(args, filter.CompensationType)
+		i++
+	}
+
+	var total int64
+	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
+		SELECT COUNT(DISTINCT p.id)
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		WHERE %s
+	`, where), args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT
+			COALESCE(p.parcel_id, ''),
+			COALESCE(p.area_m2, 0),
+			COALESCE(p.acquisition_area_m2, 0),
+			COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2, 0), 0),
+			COALESCE(p.right_type, 0),
+			COALESCE(p.db_changed, false),
+			COALESCE(p.changed_parcel_id, ''),
+			COALESCE(la.acquisition_name, ''),
+			COALESCE(ct.name, ''),
+			COALESCE(la.decree_number, ''),
+			la.decree_date,
+			COALESCE(rh.last_name, ''),
+			COALESCE(rh.name, ''),
+			COALESCE(rh.register_no, ''),
+			COALESCE(SUM(CASE WHEN c.target_type = 'parcel' THEN c.amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN c.target_type = 'asset' AND a.asset_type = 'real_state' THEN c.amount ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN c.target_type = 'asset' AND a.asset_type = 'property' THEN c.amount ELSE 0 END), 0)
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		LEFT JOIN construction_type ct ON ct.id = la.construction_type_id
+		LEFT JOIN parcel_detail pd ON pd.parcel_id = p.id
+		LEFT JOIN right_holder rh ON rh.id = pd.holder_id
+		LEFT JOIN compensation c ON c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id
+		LEFT JOIN assets a ON a.id = c.asset_id
+		WHERE %s
+		GROUP BY
+			p.id, p.parcel_id, p.area_m2, p.acquisition_area_m2,
+			p.remaining_area_m2, p.right_type, p.db_changed, p.changed_parcel_id,
+			la.acquisition_name, ct.name, la.decree_number, la.decree_date,
+			rh.last_name, rh.name, rh.register_no
+		ORDER BY la.acquisition_name, p.parcel_id
+		LIMIT $%d OFFSET $%d
+	`, where, i, i+1), append(args, pageSize, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var result []*domain.ReportParcelRow
+	for rows.Next() {
+		row := &domain.ReportParcelRow{}
+		if err := rows.Scan(
+			&row.ParcelID,
+			&row.AreaM2,
+			&row.AcquisitionAreaM2,
+			&row.RemainingAreaM2,
+			&row.RightType,
+			&row.DbChanged,
+			&row.ChangedParcelID,
+			&row.AcquisitionName,
+			&row.ConstructionTypeName,
+			&row.DecreeNumber,
+			&row.DecreeDate,
+			&row.HolderLastName,
+			&row.HolderName,
+			&row.HolderRegisterNo,
+			&row.LandComp,
+			&row.RealStateComp,
+			&row.PropertyComp,
+		); err != nil {
+			return nil, 0, err
+		}
+		result = append(result, row)
 	}
 	return result, total, rows.Err()
 }

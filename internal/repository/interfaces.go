@@ -83,6 +83,7 @@ type LandAcquisitionRepository interface {
 	CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
+	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	// Asset methods
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error

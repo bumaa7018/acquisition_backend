@@ -454,3 +454,51 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	}
 	return r
 }
+
+type reportParcelRowResponse struct {
+	ParcelID             string  `json:"parcel_id"`
+	AreaM2               float64 `json:"area_m2"`
+	AcquisitionAreaM2    float64 `json:"acquisition_area_m2"`
+	RemainingAreaM2      float64 `json:"remaining_area_m2"`
+	RightType            int     `json:"right_type"`
+	DbChanged            bool    `json:"db_changed"`
+	ChangedParcelID      string  `json:"changed_parcel_id"`
+	AcquisitionName      string  `json:"acquisition_name"`
+	ConstructionTypeName string  `json:"construction_type_name"`
+	DecreeNumber         string  `json:"decree_number"`
+	DecreeDate           *string `json:"decree_date"`
+	HolderLastName       string  `json:"holder_last_name"`
+	HolderName           string  `json:"holder_name"`
+	HolderRegisterNo     string  `json:"holder_register_no"`
+	LandComp             float64 `json:"land_comp"`
+	RealStateComp        float64 `json:"real_state_comp"`
+	PropertyComp         float64 `json:"property_comp"`
+	TotalComp            float64 `json:"total_comp"`
+}
+
+func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowResponse {
+	resp := reportParcelRowResponse{
+		ParcelID:             r.ParcelID,
+		AreaM2:               r.AreaM2,
+		AcquisitionAreaM2:    r.AcquisitionAreaM2,
+		RemainingAreaM2:      r.RemainingAreaM2,
+		RightType:            r.RightType,
+		DbChanged:            r.DbChanged,
+		ChangedParcelID:      r.ChangedParcelID,
+		AcquisitionName:      r.AcquisitionName,
+		ConstructionTypeName: r.ConstructionTypeName,
+		DecreeNumber:         r.DecreeNumber,
+		HolderLastName:       r.HolderLastName,
+		HolderName:           r.HolderName,
+		HolderRegisterNo:     r.HolderRegisterNo,
+		LandComp:             r.LandComp,
+		RealStateComp:        r.RealStateComp,
+		PropertyComp:         r.PropertyComp,
+		TotalComp:            r.LandComp + r.RealStateComp + r.PropertyComp,
+	}
+	if r.DecreeDate != nil {
+		s := r.DecreeDate.Format("2006-01-02")
+		resp.DecreeDate = &s
+	}
+	return resp
+}

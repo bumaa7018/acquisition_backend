@@ -28,6 +28,7 @@ type LandService interface {
 	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
+	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
@@ -406,6 +407,15 @@ func (s *landService) SetParcelCompensation(ctx context.Context, parcelID uuid.U
 // ListGlobalParcels — бүх чөлөөлөлтийн нэгж талбарын нэгдсэн жагсаалт
 func (s *landService) ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error) {
 	list, total, err := s.landRepo.ListGlobalParcels(ctx, filter)
+	if err != nil {
+		return nil, 0, domain.ErrInternalServer
+	}
+	return list, total, nil
+}
+
+// ListReportParcels — тайлангийн нэгж талбарын жагсаалт (нөхөн төлбөр, эзэмшигч нэгтгэсэн)
+func (s *landService) ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error) {
+	list, total, err := s.landRepo.ListReportParcels(ctx, filter)
 	if err != nil {
 		return nil, 0, domain.ErrInternalServer
 	}
