@@ -20,7 +20,7 @@ func buildShp(t *testing.T, pts [][2]float64, shapeType uint32) []byte {
 
 	contentLen := 4 + 32 + 4 + 4 + numParts*4 + numPoints*16
 	contentWords := uint32(contentLen / 2)
-	fileWords := uint32((100+8+contentLen) / 2)
+	fileWords := uint32((100 + 8 + contentLen) / 2)
 
 	shpBuf := make([]byte, 100+8+contentLen)
 

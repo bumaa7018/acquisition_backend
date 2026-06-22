@@ -5,6 +5,7 @@ CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
 GOPATH_BIN=$(shell go env GOPATH 2>/dev/null)/bin
 SWAG=$(GOPATH_BIN)/swag
+GOLANGCI_LINT=$(GOPATH_BIN)/golangci-lint
 
 # Үндсэн DB
 DB_HOST     ?= $(shell grep '^DB_HOST'     .env 2>/dev/null | cut -d= -f2)
@@ -48,7 +49,9 @@ test-cover:
 	@echo "Coverage report: coverage.html"
 
 lint:
-	golangci-lint run ./...
+	@command -v go >/dev/null 2>&1 || (echo "Go олдсонгүй. Go суулгаад дахин ажиллуулна уу." && exit 1)
+	@test -x "$(GOLANGCI_LINT)" || (echo "golangci-lint суулгаж байна..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+	"$(GOLANGCI_LINT)" run ./...
 
 # Хоёр DB-д зэрэг migration
 migrate-up: migrate-main-up migrate-auth-up

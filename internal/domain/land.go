@@ -192,10 +192,10 @@ type ParcelDetailInfo struct {
 	CertificateNo    string
 	CertificateDate  *time.Time
 	// Газрын үнэлгээний мэдээлэл
-	ValuationZone   string
-	BasePricePerHa  *float64
-	AuctionCoeff    *float64
-	AuctionPrice    *float64
+	ValuationZone  string
+	BasePricePerHa *float64
+	AuctionCoeff   *float64
+	AuctionPrice   *float64
 }
 
 // ParcelFull — нэгж талбарын дэлгэрэнгүй мэдээлэл (parcel + parcel_detail + right_holder)

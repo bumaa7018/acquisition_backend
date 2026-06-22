@@ -111,6 +111,10 @@ func (m *MockLandAcquisitionRepository) GetParcelDetailByID(ctx context.Context,
 	return args.Get(0).(*domain.ParcelFull), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {
+	return m.Called(ctx, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error {
 	return m.Called(ctx, parcelID, acqWKT).Error(0)
 }

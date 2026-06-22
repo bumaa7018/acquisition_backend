@@ -189,7 +189,3 @@ func TestAuthService_ResetPassword_ExpiredToken(t *testing.T) {
 func mock_any_user() interface{} {
 	return mock.MatchedBy(func(u *domain.User) bool { return u != nil })
 }
-
-func mock_any_prt() interface{} {
-	return mock.MatchedBy(func(t *domain.PasswordResetToken) bool { return t != nil })
-}

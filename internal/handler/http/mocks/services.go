@@ -102,6 +102,10 @@ func (m *MockLandService) GetParcelDetail(ctx context.Context, acquisitionID, pa
 	return args.Get(0).(*domain.ParcelFull), args.Error(1)
 }
 
+func (m *MockLandService) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {
+	return m.Called(ctx, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice).Error(0)
+}
+
 func (m *MockLandService) SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error {
 	return m.Called(ctx, acquisitionID, parcelID).Error(0)
 }

@@ -1,7 +1,8 @@
-package http
-
 // swagger:model
 // Request / Response DTO types used only for Swagger documentation.
+//
+//nolint:unused
+package http
 
 type registerBody struct {
 	Email     string `json:"email" example:"user@example.com"`
@@ -103,10 +104,10 @@ type userResponse struct {
 }
 
 type roleResponse struct {
-	ID          string             `json:"ID" example:"550e8400-e29b-41d4-a716-446655440000"`
-	Name        string             `json:"Name" example:"admin"`
-	Description string             `json:"Description" example:"System administrator"`
-	CreatedAt   string             `json:"CreatedAt" example:"2026-01-01T00:00:00Z"`
+	ID          string               `json:"ID" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Name        string               `json:"Name" example:"admin"`
+	Description string               `json:"Description" example:"System administrator"`
+	CreatedAt   string               `json:"CreatedAt" example:"2026-01-01T00:00:00Z"`
 	Permissions []permissionResponse `json:"Permissions"`
 }
 

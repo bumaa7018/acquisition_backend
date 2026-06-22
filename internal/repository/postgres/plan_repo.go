@@ -3,9 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/your-org/go-api-template/internal/domain"
@@ -141,7 +139,3 @@ func (r *planRepo) Suggest(ctx context.Context, q string) ([]*domain.Plan, error
 
 // compile-time check
 var _ repository.PlanRepository = (*planRepo)(nil)
-
-// helper — used only in this file
-func ptrTime(t time.Time) *time.Time  { return &t }
-func ptrUUID(id uuid.UUID) *uuid.UUID { return &id }

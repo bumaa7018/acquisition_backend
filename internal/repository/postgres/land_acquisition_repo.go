@@ -659,7 +659,7 @@ func (r *landAcqRepo) DeleteParcelsAndAUs(ctx context.Context, acquisitionID uui
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err = tx.Exec(ctx,
 		"DELETE FROM parcel WHERE acquisition_id = $1", acquisitionID,
@@ -977,7 +977,6 @@ func (r *landAcqRepo) ListBuildings(ctx context.Context, acquisitionID uuid.UUID
 	if filter.ParcelID != "" {
 		where += fmt.Sprintf(" AND parcel_id = $%d", i)
 		args = append(args, filter.ParcelID)
-		i++
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT id, acquisition_id, parcel_id, building_number, building_type,

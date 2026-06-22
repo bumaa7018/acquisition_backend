@@ -8,7 +8,7 @@ type CreateLandAcquisitionRequest struct {
 	EndDate         time.Time
 	ShapefileData   []byte
 	CreatedBy       string
-	AcquisitionName     string
+	AcquisitionName string
 	ImplementingOrg string
 	Reason          string
 	ResponsibleOrg  string
@@ -22,7 +22,7 @@ type UpdateLandAcquisitionRequest struct {
 	ClearEndDate    bool       // true = end_date-г NULL болгоно
 	ShapefileData   []byte     // nil бол геометр өөрчлөхгүй
 	UpdatedBy       string
-	AcquisitionName     string
+	AcquisitionName string
 	ImplementingOrg string
 	Reason          string
 	ResponsibleOrg  string
