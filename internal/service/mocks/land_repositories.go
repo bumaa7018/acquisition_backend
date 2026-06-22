@@ -177,6 +177,62 @@ func (m *MockLandAcquisitionRepository) ListBuildings(ctx context.Context, acqui
 	return args.Get(0).([]*domain.Building), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *MockLandAcquisitionRepository) CreateBuilding(ctx context.Context, b *domain.Building) error {
+	return m.Called(ctx, b).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateBuilding(ctx context.Context, b *domain.Building) error {
+	return m.Called(ctx, b).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.Compensation, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Compensation), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateCompensation(ctx context.Context, c *domain.Compensation) error {
+	return m.Called(ctx, c).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateCompensation(ctx context.Context, c *domain.Compensation) error {
+	return m.Called(ctx, c).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error {
+	return m.Called(ctx, g).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error {
+	return m.Called(ctx, g).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CompensationGrant), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
+	return m.Called(ctx, compensationID).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
 	args := m.Called(ctx, parcelID)
 	if args.Get(0) == nil {

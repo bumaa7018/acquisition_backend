@@ -162,6 +162,26 @@ func main() {
 		slog.Info("seed skipped (already applied)", "name", "plans_seeder")
 	}
 
+	// Compensation seeder — нөхөн олговрын жишээ өгөгдөл
+	if applied, _ := isSeedApplied(ctx, mainDB, "compensation_seeder"); !applied {
+		mainSeeder := NewMainSeeder(mainDB)
+		var acqID [16]byte
+		err := mainDB.QueryRow(ctx,
+			"SELECT id FROM land_acquisition WHERE plan_code = $1 LIMIT 1", "LA-2024-001",
+		).Scan(&acqID)
+		if err == nil {
+			if err := mainSeeder.seedCompensations(ctx, acqID); err != nil {
+				slog.Warn("compensation seed failed", "error", err)
+			} else if err := markSeedApplied(ctx, mainDB, "compensation_seeder"); err != nil {
+				slog.Warn("failed to mark compensation_seeder", "error", err)
+			}
+		} else {
+			slog.Warn("compensation seed skipped: land_acquisition LA-2024-001 not found")
+		}
+	} else {
+		slog.Info("seed skipped (already applied)", "name", "compensation_seeder")
+	}
+
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc)
 
 	srv := &http.Server{

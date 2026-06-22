@@ -176,9 +176,10 @@ func TestLandHandler_Create_Success(t *testing.T) {
 	})).Return(acq, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code":  "PLAN-2024-001",
-		"start_date": "2024-01-01",
-		"end_date":   "2024-12-31",
+		"plan_code":        "PLAN-2024-001",
+		"start_date":       "2024-01-01",
+		"end_date":         "2024-12-31",
+		"acquisition_name": "Test Project",
 	}, "shapefile", buildTestShp())
 
 	w := httptest.NewRecorder()
@@ -262,9 +263,10 @@ func TestLandHandler_Create_PlanNotFound(t *testing.T) {
 	mockSvc.On("Create", mock.Anything, mock.Anything).Return(nil, domain.ErrNotFound)
 
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code":  "UNKNOWN",
-		"start_date": "2024-01-01",
-		"end_date":   "2024-12-31",
+		"plan_code":        "UNKNOWN",
+		"start_date":       "2024-01-01",
+		"end_date":         "2024-12-31",
+		"acquisition_name": "Test Project",
 	}, "shapefile", buildTestShp())
 
 	w := httptest.NewRecorder()
@@ -284,9 +286,10 @@ func TestLandHandler_Create_GeometryOutside(t *testing.T) {
 	mockSvc.On("Create", mock.Anything, mock.Anything).Return(nil, domain.ErrInvalidInput)
 
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code":  "PLAN-2024-001",
-		"start_date": "2024-01-01",
-		"end_date":   "2024-12-31",
+		"plan_code":        "PLAN-2024-001",
+		"start_date":       "2024-01-01",
+		"end_date":         "2024-12-31",
+		"acquisition_name": "Test Project",
 	}, "shapefile", buildTestShp())
 
 	w := httptest.NewRecorder()
@@ -475,7 +478,8 @@ func TestLandHandler_Update_DatesOnly(t *testing.T) {
 	})).Return(acq, false, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
-		"end_date": "2025-06-30",
+		"end_date":         "2025-06-30",
+		"acquisition_name": "Test Project",
 	}, "", nil)
 
 	w := httptest.NewRecorder()
@@ -499,7 +503,9 @@ func TestLandHandler_Update_WithShapefile(t *testing.T) {
 		return len(r.ShapefileData) > 0
 	})).Return(acq, true, nil)
 
-	body, ct := buildMultipartForm(t, map[string]string{}, "shapefile", buildTestShp())
+	body, ct := buildMultipartForm(t, map[string]string{
+		"acquisition_name": "Test Project",
+	}, "shapefile", buildTestShp())
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -544,7 +550,7 @@ func TestLandHandler_Update_NotFound(t *testing.T) {
 	id := uuid.New()
 	mockSvc.On("Update", mock.Anything, id, mock.Anything).Return(nil, false, domain.ErrNotFound)
 
-	body, ct := buildMultipartForm(t, map[string]string{"end_date": "2025-12-31"}, "", nil)
+	body, ct := buildMultipartForm(t, map[string]string{"end_date": "2025-12-31", "acquisition_name": "Test Project"}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

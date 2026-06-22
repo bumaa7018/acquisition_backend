@@ -67,6 +67,7 @@ type LandAcquisitionRepository interface {
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.Parcel, error)
 	GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error)
+	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
 	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
@@ -83,9 +84,19 @@ type LandAcquisitionRepository interface {
 	CreateBuilding(ctx context.Context, b *domain.Building) error
 	UpdateBuilding(ctx context.Context, b *domain.Building) error
 	DeleteBuilding(ctx context.Context, id uuid.UUID) error
-	SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
+	// Compensation methods
+	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
+	CreateCompensation(ctx context.Context, c *domain.Compensation) error
+	UpdateCompensation(ctx context.Context, c *domain.Compensation) error
+	DeleteCompensation(ctx context.Context, id uuid.UUID) error
+	// CompensationGrant methods
+	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
+	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
+	GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error)
+	DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error
+	DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error
 	// Document methods
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error

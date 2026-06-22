@@ -19,6 +19,7 @@ type LandService interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error)
+	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
@@ -29,7 +30,17 @@ type LandService interface {
 	CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
 	UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
 	DeleteBuilding(ctx context.Context, id uuid.UUID) error
-	SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error
+	// Compensation
+	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
+	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
+	UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
+	DeleteCompensation(ctx context.Context, id uuid.UUID) error
+	// CompensationGrant
+	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
+	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
+	GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error)
+	DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error
+	DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
@@ -289,6 +300,13 @@ func (s *landService) GetParcelDetail(ctx context.Context, acquisitionID, parcel
 	return pf, nil
 }
 
+func (s *landService) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {
+	if err := s.landRepo.UpdateParcelValuation(ctx, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice); err != nil {
+		return domain.ErrInternalServer
+	}
+	return nil
+}
+
 // GetProgress — статус өөрчлөлтийн түүхийг буцаана
 func (s *landService) GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
@@ -398,8 +416,52 @@ func (s *landService) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
 	return s.landRepo.DeleteBuilding(ctx, id)
 }
 
-func (s *landService) SetParcelAcquisitionAmount(ctx context.Context, parcelID uuid.UUID, amount float64) error {
-	return s.landRepo.SetParcelAcquisitionAmount(ctx, parcelID, amount)
+func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
+	return s.landRepo.ListCompensations(ctx, acquisitionID, parcelID)
+}
+
+func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
+	if err := s.landRepo.CreateCompensation(ctx, c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
+	if err := s.landRepo.UpdateCompensation(ctx, c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (s *landService) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteCompensation(ctx, id)
+}
+
+func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	if err := s.landRepo.CreateCompensationGrant(ctx, g); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+func (s *landService) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	if err := s.landRepo.UpdateCompensationGrant(ctx, g); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+func (s *landService) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error) {
+	return s.landRepo.GetCompensationGrant(ctx, id)
+}
+
+func (s *landService) DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteCompensationGrant(ctx, id)
+}
+
+func (s *landService) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
+	return s.landRepo.DeleteCompensationGrantByCompensationID(ctx, compensationID)
 }
 
 // ListParcelPayments — нэгж талбарын төлбөрийн бичлэгүүд

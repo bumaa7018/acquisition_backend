@@ -46,7 +46,6 @@ type parcelResponse struct {
 	Landuse           string  `json:"landuse"`
 	AreaM2            float64 `json:"area_m2"`
 	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
-	AcquisitionAmount float64 `json:"acquisition_amount"`
 	CompensationPaid  bool    `json:"compensation_paid"`
 	GeometryWKT       string  `json:"geometry_wkt,omitempty"`
 }
@@ -64,7 +63,6 @@ type parcelFullResponse struct {
 	GeometryWKT        string            `json:"geometry_wkt"`
 	AcquisitionGeomWKT string            `json:"acquisition_geom_wkt"`
 	AcquisitionAreaM2  float64           `json:"acquisition_area_m2"`
-	AcquisitionAmount  float64           `json:"acquisition_amount"`
 	RightType          int               `json:"right_type"`
 	Landuse            string            `json:"landuse"`
 	AreaM2             float64           `json:"area_m2"`
@@ -74,21 +72,25 @@ type parcelFullResponse struct {
 }
 
 type parcelDetailInfo struct {
-	RightType        int     `json:"right_type"`
-	HolderLastName   string  `json:"holder_last_name"`
-	HolderName       string  `json:"holder_name"`
-	HolderRegisterNo string  `json:"holder_register_no"`
-	HolderPhone      string  `json:"holder_phone"`
-	HolderEmail      string  `json:"holder_email"`
-	HolderType       string  `json:"holder_type"`
-	HolderCivilID    string  `json:"holder_civil_id"`
-	AppNo            string  `json:"app_no"`
-	DecisionNo       string  `json:"decision_no"`
-	DecisionDate     *string `json:"decision_date"`
-	ContractNo       string  `json:"contract_no"`
-	ContractDate     *string `json:"contract_date"`
-	CertificateNo    string  `json:"certificate_no"`
-	CertificateDate  *string `json:"certificate_date"`
+	RightType        int      `json:"right_type"`
+	HolderLastName   string   `json:"holder_last_name"`
+	HolderName       string   `json:"holder_name"`
+	HolderRegisterNo string   `json:"holder_register_no"`
+	HolderPhone      string   `json:"holder_phone"`
+	HolderEmail      string   `json:"holder_email"`
+	HolderType       string   `json:"holder_type"`
+	HolderCivilID    string   `json:"holder_civil_id"`
+	AppNo            string   `json:"app_no"`
+	DecisionNo       string   `json:"decision_no"`
+	DecisionDate     *string  `json:"decision_date"`
+	ContractNo       string   `json:"contract_no"`
+	ContractDate     *string  `json:"contract_date"`
+	CertificateNo    string   `json:"certificate_no"`
+	CertificateDate  *string  `json:"certificate_date"`
+	ValuationZone    string   `json:"valuation_zone"`
+	BasePricePerHa   *float64 `json:"base_price_per_ha"`
+	AuctionCoeff     *float64 `json:"auction_coeff"`
+	AuctionPrice     *float64 `json:"auction_price"`
 }
 
 type progressResponse struct {
@@ -155,37 +157,125 @@ type parcelPaymentResponse struct {
 }
 
 type buildingResponse struct {
-	ID                string  `json:"id"`
-	AcquisitionID     string  `json:"acquisition_id"`
-	ParcelID          string  `json:"parcel_id"`
-	BuildingNumber    string  `json:"building_number"`
-	BuildingType      string  `json:"building_type"`
-	FloorCount        int     `json:"floor_count"`
-	AreaM2            float64 `json:"area_m2"`
-	AcquisitionAmount float64 `json:"acquisition_amount"`
-	OwnerName         string  `json:"owner_name"`
-	Address           string  `json:"address"`
-	Notes             string  `json:"notes"`
-	CreatedAt         string  `json:"created_at"`
-	UpdatedAt         string  `json:"updated_at"`
+	ID             string  `json:"id"`
+	AcquisitionID  string  `json:"acquisition_id"`
+	ParcelID       string  `json:"parcel_id"`
+	BuildingNumber string  `json:"building_number"`
+	BuildingType   string  `json:"building_type"`
+	FloorCount     int     `json:"floor_count"`
+	AreaM2         float64 `json:"area_m2"`
+	OwnerName      string  `json:"owner_name"`
+	Address        string  `json:"address"`
+	Notes          string  `json:"notes"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
 }
 
 func toBuildingResponse(b *domain.Building) buildingResponse {
 	return buildingResponse{
-		ID:                b.ID.String(),
-		AcquisitionID:     b.AcquisitionID.String(),
-		ParcelID:          b.ParcelID,
-		BuildingNumber:    b.BuildingNumber,
-		BuildingType:      b.BuildingType,
-		FloorCount:        b.FloorCount,
-		AreaM2:            b.AreaM2,
-		AcquisitionAmount: b.AcquisitionAmount,
-		OwnerName:         b.OwnerName,
-		Address:           b.Address,
-		Notes:             b.Notes,
-		CreatedAt:         b.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:         b.UpdatedAt.Format(time.RFC3339),
+		ID:             b.ID.String(),
+		AcquisitionID:  b.AcquisitionID.String(),
+		ParcelID:       b.ParcelID,
+		BuildingNumber: b.BuildingNumber,
+		BuildingType:   b.BuildingType,
+		FloorCount:     b.FloorCount,
+		AreaM2:         b.AreaM2,
+		OwnerName:      b.OwnerName,
+		Address:        b.Address,
+		Notes:          b.Notes,
+		CreatedAt:      b.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      b.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+type compensationGrantResponse struct {
+	ID             string  `json:"id"`
+	AcquisitionID  string  `json:"acquisition_id"`
+	CompensationID string  `json:"compensation_id"`
+	Amount         float64 `json:"amount"`
+	GrantDate      *string `json:"grant_date"`
+	Note           string  `json:"note"`
+	LandAreaM2     float64 `json:"land_area_m2"`
+	LandPrice      float64 `json:"land_price"`
+	LandLocation   string  `json:"land_location"`
+	LandPurpose    string  `json:"land_purpose"`
+	LandUseType    string  `json:"land_use_type"`
+	ParcelNumber   string  `json:"parcel_number"`
+	DecreeNumber   string  `json:"decree_number"`
+	CreatedAt      string  `json:"created_at"`
+	CreatedBy      string  `json:"created_by"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+func toCompensationGrantResponse(g *domain.CompensationGrant) compensationGrantResponse {
+	r := compensationGrantResponse{
+		ID:             g.ID.String(),
+		AcquisitionID:  g.AcquisitionID.String(),
+		CompensationID: g.CompensationID.String(),
+		Amount:         g.Amount,
+		Note:           g.Note,
+		LandAreaM2:     g.LandAreaM2,
+		LandPrice:      g.LandPrice,
+		LandLocation:   g.LandLocation,
+		LandPurpose:    g.LandPurpose,
+		LandUseType:    g.LandUseType,
+		ParcelNumber:   g.ParcelNumber,
+		DecreeNumber:   g.DecreeNumber,
+		CreatedAt:      g.CreatedAt.Format(time.RFC3339),
+		CreatedBy:      g.CreatedBy,
+		UpdatedAt:      g.UpdatedAt.Format(time.RFC3339),
+	}
+	if g.GrantDate != nil {
+		s := g.GrantDate.Format("2006-01-02")
+		r.GrantDate = &s
+	}
+	return r
+}
+
+type compensationResponse struct {
+	ID               string                     `json:"id"`
+	AcquisitionID    string                     `json:"acquisition_id"`
+	AssetType        string                     `json:"asset_type"`
+	ParcelID         string                     `json:"parcel_id"`
+	BuildingID       *string                    `json:"building_id"`
+	CompensationType string                     `json:"compensation_type"`
+	CoveragePercent  float64                    `json:"coverage_percent"`
+	Amount           float64                    `json:"amount"`
+	CompensationDate *string                    `json:"compensation_date"`
+	Note             string                     `json:"note"`
+	Grant            *compensationGrantResponse `json:"grant,omitempty"`
+	CreatedAt        string                     `json:"created_at"`
+	CreatedBy        string                     `json:"created_by"`
+	UpdatedAt        string                     `json:"updated_at"`
+}
+
+func toCompensationResponse(c *domain.Compensation) compensationResponse {
+	r := compensationResponse{
+		ID:               c.ID.String(),
+		AcquisitionID:    c.AcquisitionID.String(),
+		AssetType:        c.AssetType,
+		ParcelID:         c.ParcelID,
+		CompensationType: c.CompensationType,
+		CoveragePercent:  c.CoveragePercent,
+		Amount:           c.Amount,
+		Note:             c.Note,
+		CreatedAt:        c.CreatedAt.Format(time.RFC3339),
+		CreatedBy:        c.CreatedBy,
+		UpdatedAt:        c.UpdatedAt.Format(time.RFC3339),
+	}
+	if c.BuildingID != nil {
+		s := c.BuildingID.String()
+		r.BuildingID = &s
+	}
+	if c.CompensationDate != nil {
+		s := c.CompensationDate.Format("2006-01-02")
+		r.CompensationDate = &s
+	}
+	if c.Grant != nil {
+		gr := toCompensationGrantResponse(c.Grant)
+		r.Grant = &gr
+	}
+	return r
 }
 
 func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
@@ -270,7 +360,6 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		GeometryWKT:        pf.GeometryWKT,
 		AcquisitionGeomWKT: pf.AcquisitionGeomWKT,
 		AcquisitionAreaM2:  pf.AcquisitionAreaM2,
-		AcquisitionAmount:  pf.AcquisitionAmount,
 		RightType:          pf.RightType,
 		Landuse:            pf.Landuse,
 		AreaM2:             pf.AreaM2,
@@ -313,6 +402,10 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 			s := d.CertificateDate.Format("2006-01-02")
 			di.CertificateDate = &s
 		}
+		di.ValuationZone = d.ValuationZone
+		di.BasePricePerHa = d.BasePricePerHa
+		di.AuctionCoeff = d.AuctionCoeff
+		di.AuctionPrice = d.AuctionPrice
 		r.Detail = di
 	}
 	return r

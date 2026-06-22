@@ -170,6 +170,86 @@ func (m *MockLandService) ListBuildings(ctx context.Context, acquisitionID uuid.
 	return args.Get(0).([]*domain.Building), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *MockLandService) CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
+	args := m.Called(ctx, b)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Building), args.Error(1)
+}
+
+func (m *MockLandService) UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
+	args := m.Called(ctx, b)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Building), args.Error(1)
+}
+
+func (m *MockLandService) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.Compensation, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Compensation), args.Error(1)
+}
+
+func (m *MockLandService) CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
+	args := m.Called(ctx, c)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Compensation), args.Error(1)
+}
+
+func (m *MockLandService) UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
+	args := m.Called(ctx, c)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Compensation), args.Error(1)
+}
+
+func (m *MockLandService) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	args := m.Called(ctx, g)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CompensationGrant), args.Error(1)
+}
+
+func (m *MockLandService) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	args := m.Called(ctx, g)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CompensationGrant), args.Error(1)
+}
+
+func (m *MockLandService) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.CompensationGrant), args.Error(1)
+}
+
+func (m *MockLandService) DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
+	return m.Called(ctx, compensationID).Error(0)
+}
+
 func (m *MockLandService) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
 	args := m.Called(ctx, parcelID)
 	if args.Get(0) == nil {

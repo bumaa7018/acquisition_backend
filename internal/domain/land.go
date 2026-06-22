@@ -163,15 +163,14 @@ type Parcel struct {
 	AU2Code            string
 	AU3Code            string
 	GeometryWKT        string
-	AcquisitionGeomWKT  string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
-	AcquisitionAreaM2   float64 // давхцах хэсгийн талбай (м²)
-	AcquisitionAmount   float64 // нөхөх олговрын үнэлгээ (₮)
-	RightType           int
-	Landuse             string
-	AreaM2              float64
-	CompensationPaid    bool
-	CreatedAt           time.Time
-	CreatedBy           string
+	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
+	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
+	RightType          int
+	Landuse            string
+	AreaM2             float64
+	CompensationPaid   bool
+	CreatedAt          time.Time
+	CreatedBy          string
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
@@ -192,6 +191,11 @@ type ParcelDetailInfo struct {
 	ContractDate     *time.Time
 	CertificateNo    string
 	CertificateDate  *time.Time
+	// Газрын үнэлгээний мэдээлэл
+	ValuationZone   string
+	BasePricePerHa  *float64
+	AuctionCoeff    *float64
+	AuctionPrice    *float64
 }
 
 // ParcelFull — нэгж талбарын дэлгэрэнгүй мэдээлэл (parcel + parcel_detail + right_holder)
@@ -256,19 +260,56 @@ type BuildingFilter struct {
 
 // Building — барилгын мэдээлэл
 type Building struct {
-	ID                uuid.UUID `json:"id"`
-	AcquisitionID     uuid.UUID `json:"acquisition_id"`
-	ParcelID          string    `json:"parcel_id"`
-	BuildingNumber    string    `json:"building_number"`
-	BuildingType      string    `json:"building_type"`
-	FloorCount        int       `json:"floor_count"`
-	AreaM2            float64   `json:"area_m2"`
-	AcquisitionAmount float64   `json:"acquisition_amount"`
-	OwnerName         string    `json:"owner_name"`
-	Address           string    `json:"address"`
-	Notes             string    `json:"notes"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID             uuid.UUID `json:"id"`
+	AcquisitionID  uuid.UUID `json:"acquisition_id"`
+	ParcelID       string    `json:"parcel_id"`
+	BuildingNumber string    `json:"building_number"`
+	BuildingType   string    `json:"building_type"`
+	FloorCount     int       `json:"floor_count"`
+	AreaM2         float64   `json:"area_m2"`
+	OwnerName      string    `json:"owner_name"`
+	Address        string    `json:"address"`
+	Notes          string    `json:"notes"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// CompensationGrant — газар олгох олговрын бичлэг
+type CompensationGrant struct {
+	ID             uuid.UUID  `json:"id"`
+	AcquisitionID  uuid.UUID  `json:"acquisition_id"`
+	CompensationID uuid.UUID  `json:"compensation_id"`
+	Amount         float64    `json:"amount"`
+	GrantDate      *time.Time `json:"grant_date"`
+	Note           string     `json:"note"`
+	LandAreaM2     float64    `json:"land_area_m2"`
+	LandPrice      float64    `json:"land_price"`
+	LandLocation   string     `json:"land_location"`
+	LandPurpose    string     `json:"land_purpose"`
+	LandUseType    string     `json:"land_use_type"`
+	ParcelNumber   string     `json:"parcel_number"`
+	DecreeNumber   string     `json:"decree_number"`
+	CreatedAt      time.Time  `json:"created_at"`
+	CreatedBy      string     `json:"created_by"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// Compensation — нөхөх олговрын бичлэг
+type Compensation struct {
+	ID               uuid.UUID          `json:"id"`
+	AcquisitionID    uuid.UUID          `json:"acquisition_id"`
+	AssetType        string             `json:"asset_type"`
+	ParcelID         string             `json:"parcel_id"`
+	BuildingID       *uuid.UUID         `json:"building_id"`
+	CompensationType string             `json:"compensation_type"`
+	CoveragePercent  float64            `json:"coverage_percent"`
+	Amount           float64            `json:"amount"`
+	CompensationDate *time.Time         `json:"compensation_date"`
+	Note             string             `json:"note"`
+	Grant            *CompensationGrant `json:"grant,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
+	CreatedBy        string             `json:"created_by"`
+	UpdatedAt        time.Time          `json:"updated_at"`
 }
 
 // ParcelPayment — нэгж талбарт хийсэн төлбөрийн бичлэг

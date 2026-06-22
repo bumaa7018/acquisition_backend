@@ -49,7 +49,11 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 		return err
 	}
 
-	return s.seedBuildings(ctx, acqID)
+	if err := s.seedBuildings(ctx, acqID); err != nil {
+		return err
+	}
+
+	return s.seedCompensations(ctx, acqID)
 }
 
 func (s *MainSeeder) seedDefaultBuildings(ctx context.Context) error {
@@ -293,6 +297,7 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 			decision_no, decision_date,
 			contract_no, contract_date,
 			certificate_no, certificate_date,
+			valuation_zone, base_price_per_ha, auction_coeff, auction_price,
 			created_by, updated_by
 		) VALUES (
 			uuid_generate_v4(),
@@ -301,6 +306,7 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 			$7, $8,
 			$9, $10,
 			$11, $12,
+			$13, $14, $15, $16,
 			'system', 'system'
 		)
 	`,
@@ -309,6 +315,7 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 		"ТЗД-2024/001", time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC),
 		"ГЭ-2024-001", time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
 		"01-001-2024", time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+		"А бүс, 1-р зэрэглэл", 450_000_000.0, 1.2, 540_000_000.0,
 	)
 	if err != nil {
 		return err

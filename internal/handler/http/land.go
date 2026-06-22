@@ -214,7 +214,6 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 			AU1Code: p.AU1Code, AU2Code: p.AU2Code, AU3Code: p.AU3Code,
 			RightType: p.RightType, Landuse: p.Landuse, AreaM2: p.AreaM2,
 			AcquisitionAreaM2: p.AcquisitionAreaM2,
-			AcquisitionAmount: p.AcquisitionAmount,
 			CompensationPaid:  p.CompensationPaid,
 			GeometryWKT:       p.GeometryWKT,
 		})
@@ -442,6 +441,48 @@ func (h *LandHandler) GetParcelByID(c *gin.Context) {
 		return
 	}
 	response.OK(c, toParcelFullResponse(pf))
+}
+
+// UpdateParcelValuation godoc
+// @Summary      Нэгж талбарын үнэлгээний мэдээлэл шинэчлэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Нэгж талбарын UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/valuation [patch]
+func (h *LandHandler) UpdateParcelValuation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	_ = acqID
+
+	var body struct {
+		ValuationZone  string   `json:"valuation_zone"`
+		BasePricePerHa *float64 `json:"base_price_per_ha"`
+		AuctionCoeff   *float64 `json:"auction_coeff"`
+		AuctionPrice   *float64 `json:"auction_price"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+
+	if err := h.svc.UpdateParcelValuation(c.Request.Context(), parcelID, body.ValuationZone, body.BasePricePerHa, body.AuctionCoeff, body.AuctionPrice); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, nil, "Амжилттай шинэчлэгдлээ")
 }
 
 // ListProgress godoc
@@ -737,15 +778,14 @@ func (h *LandHandler) CreateBuilding(c *gin.Context) {
 	}
 
 	var body struct {
-		ParcelID          string  `json:"parcel_id" binding:"required"`
-		BuildingNumber    string  `json:"building_number"`
-		BuildingType      string  `json:"building_type"`
-		FloorCount        int     `json:"floor_count"`
-		AreaM2            float64 `json:"area_m2"`
-		AcquisitionAmount float64 `json:"acquisition_amount"`
-		OwnerName         string  `json:"owner_name"`
-		Address           string  `json:"address"`
-		Notes             string  `json:"notes"`
+		ParcelID       string  `json:"parcel_id" binding:"required"`
+		BuildingNumber string  `json:"building_number"`
+		BuildingType   string  `json:"building_type"`
+		FloorCount     int     `json:"floor_count"`
+		AreaM2         float64 `json:"area_m2"`
+		OwnerName      string  `json:"owner_name"`
+		Address        string  `json:"address"`
+		Notes          string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -753,16 +793,15 @@ func (h *LandHandler) CreateBuilding(c *gin.Context) {
 	}
 
 	b := &domain.Building{
-		AcquisitionID:     acqID,
-		ParcelID:          body.ParcelID,
-		BuildingNumber:    body.BuildingNumber,
-		BuildingType:      body.BuildingType,
-		FloorCount:        body.FloorCount,
-		AreaM2:            body.AreaM2,
-		AcquisitionAmount: body.AcquisitionAmount,
-		OwnerName:         body.OwnerName,
-		Address:           body.Address,
-		Notes:             body.Notes,
+		AcquisitionID:  acqID,
+		ParcelID:       body.ParcelID,
+		BuildingNumber: body.BuildingNumber,
+		BuildingType:   body.BuildingType,
+		FloorCount:     body.FloorCount,
+		AreaM2:         body.AreaM2,
+		OwnerName:      body.OwnerName,
+		Address:        body.Address,
+		Notes:          body.Notes,
 	}
 
 	created, err := h.svc.CreateBuilding(c.Request.Context(), b)
@@ -798,15 +837,14 @@ func (h *LandHandler) UpdateBuilding(c *gin.Context) {
 	}
 
 	var body struct {
-		ParcelID          string  `json:"parcel_id"`
-		BuildingNumber    string  `json:"building_number"`
-		BuildingType      string  `json:"building_type"`
-		FloorCount        int     `json:"floor_count"`
-		AreaM2            float64 `json:"area_m2"`
-		AcquisitionAmount float64 `json:"acquisition_amount"`
-		OwnerName         string  `json:"owner_name"`
-		Address           string  `json:"address"`
-		Notes             string  `json:"notes"`
+		ParcelID       string  `json:"parcel_id"`
+		BuildingNumber string  `json:"building_number"`
+		BuildingType   string  `json:"building_type"`
+		FloorCount     int     `json:"floor_count"`
+		AreaM2         float64 `json:"area_m2"`
+		OwnerName      string  `json:"owner_name"`
+		Address        string  `json:"address"`
+		Notes          string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -814,17 +852,16 @@ func (h *LandHandler) UpdateBuilding(c *gin.Context) {
 	}
 
 	b := &domain.Building{
-		ID:                buildingID,
-		AcquisitionID:     acqID,
-		ParcelID:          body.ParcelID,
-		BuildingNumber:    body.BuildingNumber,
-		BuildingType:      body.BuildingType,
-		FloorCount:        body.FloorCount,
-		AreaM2:            body.AreaM2,
-		AcquisitionAmount: body.AcquisitionAmount,
-		OwnerName:         body.OwnerName,
-		Address:           body.Address,
-		Notes:             body.Notes,
+		ID:             buildingID,
+		AcquisitionID:  acqID,
+		ParcelID:       body.ParcelID,
+		BuildingNumber: body.BuildingNumber,
+		BuildingType:   body.BuildingType,
+		FloorCount:     body.FloorCount,
+		AreaM2:         body.AreaM2,
+		OwnerName:      body.OwnerName,
+		Address:        body.Address,
+		Notes:          body.Notes,
 	}
 
 	updated, err := h.svc.UpdateBuilding(c.Request.Context(), b)
@@ -859,33 +896,282 @@ func (h *LandHandler) DeleteBuilding(c *gin.Context) {
 	response.OK(c, nil)
 }
 
-// SetParcelAcquisitionAmount godoc
-// @Summary      Нэгж талбарын нөхөх олговрын үнэлгээ тохируулах
-// @Tags         land-acquisitions
-// @Accept       json
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id         path  string  true  "LandAcquisition UUID"
-// @Param        parcel_id  path  string  true  "Parcel UUID"
-// @Success      200  {object}  response.Response
-// @Failure      400  {object}  response.Response
-// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/acquisition-amount [put]
-func (h *LandHandler) SetParcelAcquisitionAmount(c *gin.Context) {
-	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+// ListCompensations lists compensations for an acquisition
+func (h *LandHandler) ListCompensations(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Query("parcel_id")
+	list, err := h.svc.ListCompensations(c.Request.Context(), acqID, parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	resp := make([]compensationResponse, 0, len(list))
+	for _, c2 := range list {
+		resp = append(resp, toCompensationResponse(c2))
+	}
+	response.OK(c, resp)
+}
+
+// CreateCompensation creates a new compensation record
+func (h *LandHandler) CreateCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
 	var body struct {
-		Amount float64 `json:"amount" binding:"required"`
+		AssetType        string  `json:"asset_type"`
+		ParcelID         string  `json:"parcel_id"`
+		BuildingID       *string `json:"building_id"`
+		CompensationType string  `json:"compensation_type" binding:"required"`
+		CoveragePercent  float64 `json:"coverage_percent"`
+		Amount           float64 `json:"amount"`
+		CompensationDate *string `json:"compensation_date"`
+		Note             string  `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 
-	if err := h.svc.SetParcelAcquisitionAmount(c.Request.Context(), parcelID, body.Amount); err != nil {
+	createdBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		createdBy = uid.(uuid.UUID).String()
+	}
+
+	comp := &domain.Compensation{
+		AcquisitionID:    acqID,
+		AssetType:        body.AssetType,
+		ParcelID:         body.ParcelID,
+		CompensationType: body.CompensationType,
+		CoveragePercent:  body.CoveragePercent,
+		Amount:           body.Amount,
+		Note:             body.Note,
+		CreatedBy:        createdBy,
+	}
+	if body.AssetType == "" {
+		comp.AssetType = "parcel"
+	}
+	if body.CoveragePercent == 0 {
+		comp.CoveragePercent = 100
+	}
+	if body.BuildingID != nil {
+		if id, err := uuid.Parse(*body.BuildingID); err == nil {
+			comp.BuildingID = &id
+		}
+	}
+	if body.CompensationDate != nil {
+		if t, err := time.Parse("2006-01-02", *body.CompensationDate); err == nil {
+			comp.CompensationDate = &t
+		}
+	}
+
+	created, err := h.svc.CreateCompensation(c.Request.Context(), comp)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, toCompensationResponse(created))
+}
+
+// UpdateCompensation updates a compensation record
+func (h *LandHandler) UpdateCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		AssetType        string  `json:"asset_type"`
+		ParcelID         string  `json:"parcel_id"`
+		BuildingID       *string `json:"building_id"`
+		CompensationType string  `json:"compensation_type"`
+		CoveragePercent  float64 `json:"coverage_percent"`
+		Amount           float64 `json:"amount"`
+		CompensationDate *string `json:"compensation_date"`
+		Note             string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	comp := &domain.Compensation{
+		ID:               compID,
+		AcquisitionID:    acqID,
+		AssetType:        body.AssetType,
+		ParcelID:         body.ParcelID,
+		CompensationType: body.CompensationType,
+		CoveragePercent:  body.CoveragePercent,
+		Amount:           body.Amount,
+		Note:             body.Note,
+	}
+	if body.BuildingID != nil {
+		if id, err := uuid.Parse(*body.BuildingID); err == nil {
+			comp.BuildingID = &id
+		}
+	}
+	if body.CompensationDate != nil {
+		if t, err := time.Parse("2006-01-02", *body.CompensationDate); err == nil {
+			comp.CompensationDate = &t
+		}
+	}
+
+	updated, err := h.svc.UpdateCompensation(c.Request.Context(), comp)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toCompensationResponse(updated))
+}
+
+// DeleteCompensation deletes a compensation record
+func (h *LandHandler) DeleteCompensation(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteCompensation(c.Request.Context(), compID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// CreateCompensationGrant creates a new compensation grant record
+func (h *LandHandler) CreateCompensationGrant(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		Amount       float64 `json:"amount"`
+		GrantDate    *string `json:"grant_date"`
+		Note         string  `json:"note"`
+		LandAreaM2   float64 `json:"land_area_m2"`
+		LandPrice    float64 `json:"land_price"`
+		LandLocation string  `json:"land_location"`
+		LandPurpose  string  `json:"land_purpose"`
+		LandUseType  string  `json:"land_use_type"`
+		ParcelNumber string  `json:"parcel_number"`
+		DecreeNumber string  `json:"decree_number"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	createdBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		createdBy = uid.(uuid.UUID).String()
+	}
+
+	g := &domain.CompensationGrant{
+		AcquisitionID:  acqID,
+		CompensationID: compID,
+		Amount:         body.Amount,
+		Note:           body.Note,
+		LandAreaM2:     body.LandAreaM2,
+		LandPrice:      body.LandPrice,
+		LandLocation:   body.LandLocation,
+		LandPurpose:    body.LandPurpose,
+		LandUseType:    body.LandUseType,
+		ParcelNumber:   body.ParcelNumber,
+		DecreeNumber:   body.DecreeNumber,
+		CreatedBy:      createdBy,
+	}
+	if body.GrantDate != nil {
+		if t, err := time.Parse("2006-01-02", *body.GrantDate); err == nil {
+			g.GrantDate = &t
+		}
+	}
+
+	created, err := h.svc.CreateCompensationGrant(c.Request.Context(), g)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, toCompensationGrantResponse(created))
+}
+
+// UpdateCompensationGrant updates a compensation grant record
+func (h *LandHandler) UpdateCompensationGrant(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		Amount       float64 `json:"amount"`
+		GrantDate    *string `json:"grant_date"`
+		Note         string  `json:"note"`
+		LandAreaM2   float64 `json:"land_area_m2"`
+		LandPrice    float64 `json:"land_price"`
+		LandLocation string  `json:"land_location"`
+		LandPurpose  string  `json:"land_purpose"`
+		LandUseType  string  `json:"land_use_type"`
+		ParcelNumber string  `json:"parcel_number"`
+		DecreeNumber string  `json:"decree_number"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	g := &domain.CompensationGrant{
+		CompensationID: compID,
+		Amount:         body.Amount,
+		Note:           body.Note,
+		LandAreaM2:     body.LandAreaM2,
+		LandPrice:      body.LandPrice,
+		LandLocation:   body.LandLocation,
+		LandPurpose:    body.LandPurpose,
+		LandUseType:    body.LandUseType,
+		ParcelNumber:   body.ParcelNumber,
+		DecreeNumber:   body.DecreeNumber,
+	}
+	if body.GrantDate != nil {
+		if t, err := time.Parse("2006-01-02", *body.GrantDate); err == nil {
+			g.GrantDate = &t
+		}
+	}
+
+	updated, err := h.svc.UpdateCompensationGrant(c.Request.Context(), g)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toCompensationGrantResponse(updated))
+}
+
+// DeleteCompensationGrant deletes a compensation grant record by compensation ID
+func (h *LandHandler) DeleteCompensationGrant(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteCompensationGrantByCompensationID(c.Request.Context(), compID); err != nil {
 		response.Error(c, err)
 		return
 	}

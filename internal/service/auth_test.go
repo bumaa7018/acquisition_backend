@@ -120,6 +120,7 @@ func TestAuthService_Login_UserNotFound(t *testing.T) {
 	es := &mockEmailSender{}
 
 	userRepo.On("GetByUsername", context.Background(), "noone").Return(nil, domain.ErrNotFound)
+	userRepo.On("GetByEmail", context.Background(), "noone").Return(nil, domain.ErrNotFound)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Login(context.Background(), service.LoginRequest{
