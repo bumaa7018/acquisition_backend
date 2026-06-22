@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -845,10 +846,14 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, filter.Status)
 		i++
 	}
-	if filter.Year != 0 {
-		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM COALESCE(la.decree_date, la.start_date)) = $%d", i)
-		args = append(args, filter.Year)
-		i++
+	if len(filter.Years) > 0 {
+		placeholders := make([]string, len(filter.Years))
+		for j, yr := range filter.Years {
+			placeholders[j] = fmt.Sprintf("$%d", i)
+			args = append(args, yr)
+			i++
+		}
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM la.start_date) IN (%s)", strings.Join(placeholders, ","))
 	}
 
 	var total int64
@@ -921,6 +926,11 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 	where := "1=1"
 	i := 1
 
+	if filter.AcquisitionID != "" {
+		where += fmt.Sprintf(" AND la.id = $%d", i)
+		args = append(args, filter.AcquisitionID)
+		i++
+	}
 	if filter.PlanCode != "" {
 		where += fmt.Sprintf(" AND la.plan_code ILIKE $%d", i)
 		args = append(args, "%"+filter.PlanCode+"%")
@@ -936,10 +946,24 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 		args = append(args, filter.AU3Code)
 		i++
 	}
-	if filter.Year != 0 {
-		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM COALESCE(la.decree_date, la.start_date)) = $%d", i)
-		args = append(args, filter.Year)
+	if filter.RightType != 0 {
+		where += fmt.Sprintf(" AND p.right_type = $%d", i)
+		args = append(args, filter.RightType)
 		i++
+	}
+	if filter.Landuse != "" {
+		where += fmt.Sprintf(" AND p.landuse ILIKE $%d", i)
+		args = append(args, "%"+filter.Landuse+"%")
+		i++
+	}
+	if len(filter.Years) > 0 {
+		placeholders := make([]string, len(filter.Years))
+		for j, yr := range filter.Years {
+			placeholders[j] = fmt.Sprintf("$%d", i)
+			args = append(args, yr)
+			i++
+		}
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM la.start_date) IN (%s)", strings.Join(placeholders, ","))
 	}
 	if filter.CompensationType != "" {
 		where += fmt.Sprintf(` AND EXISTS (
@@ -981,7 +1005,9 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			COALESCE(p.right_type, 0),
 			COALESCE(p.db_changed, false),
 			COALESCE(p.changed_parcel_id, ''),
+			la.id,
 			COALESCE(la.acquisition_name, ''),
+			COALESCE(la.plan_code, ''),
 			COALESCE(ct.name, ''),
 			COALESCE(la.decree_number, ''),
 			la.decree_date,
@@ -1002,7 +1028,7 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 		GROUP BY
 			p.id, p.parcel_id, p.area_m2, p.acquisition_area_m2,
 			p.remaining_area_m2, p.right_type, p.db_changed, p.changed_parcel_id,
-			la.acquisition_name, ct.name, la.decree_number, la.decree_date,
+			la.id, la.acquisition_name, la.plan_code, ct.name, la.decree_number, la.decree_date,
 			rh.last_name, rh.name, rh.register_no
 		ORDER BY la.acquisition_name, p.parcel_id
 		LIMIT $%d OFFSET $%d
@@ -1023,7 +1049,9 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			&row.RightType,
 			&row.DbChanged,
 			&row.ChangedParcelID,
+			&row.AcquisitionID,
 			&row.AcquisitionName,
+			&row.PlanCode,
 			&row.ConstructionTypeName,
 			&row.DecreeNumber,
 			&row.DecreeDate,

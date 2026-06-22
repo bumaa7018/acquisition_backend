@@ -7,14 +7,14 @@ import (
 )
 
 type landAcquisitionResponse struct {
-	ID              string           `json:"id"`
-	PlanCode        string           `json:"plan_code"`
-	PlanName        string           `json:"plan_name"`
-	GeometryWKT     string           `json:"geometry_wkt"`
-	AreaM2          float64          `json:"area_m2"`
-	Status          int              `json:"status"`
-	StartDate       *string          `json:"start_date"`
-	EndDate         *string          `json:"end_date"`
+	ID                   string           `json:"id"`
+	PlanCode             string           `json:"plan_code"`
+	PlanName             string           `json:"plan_name"`
+	GeometryWKT          string           `json:"geometry_wkt"`
+	AreaM2               float64          `json:"area_m2"`
+	Status               int              `json:"status"`
+	StartDate            *string          `json:"start_date"`
+	EndDate              *string          `json:"end_date"`
 	AcquisitionName      string           `json:"acquisition_name"`
 	ImplementingOrg      string           `json:"implementing_org"`
 	Reason               string           `json:"reason"`
@@ -320,12 +320,12 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 
 func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 	r := landAcquisitionResponse{
-		ID:              acq.ID.String(),
-		PlanCode:        acq.PlanCode,
-		PlanName:        acq.PlanName,
-		GeometryWKT:     acq.GeometryWKT,
-		AreaM2:          acq.AreaM2,
-		Status:          acq.Status,
+		ID:                   acq.ID.String(),
+		PlanCode:             acq.PlanCode,
+		PlanName:             acq.PlanName,
+		GeometryWKT:          acq.GeometryWKT,
+		AreaM2:               acq.AreaM2,
+		Status:               acq.Status,
 		AcquisitionName:      acq.AcquisitionName,
 		ImplementingOrg:      acq.ImplementingOrg,
 		Reason:               acq.Reason,
@@ -463,7 +463,9 @@ type reportParcelRowResponse struct {
 	RightType            int     `json:"right_type"`
 	DbChanged            bool    `json:"db_changed"`
 	ChangedParcelID      string  `json:"changed_parcel_id"`
+	AcquisitionID        string  `json:"acquisition_id"`
 	AcquisitionName      string  `json:"acquisition_name"`
+	PlanCode             string  `json:"plan_code"`
 	ConstructionTypeName string  `json:"construction_type_name"`
 	DecreeNumber         string  `json:"decree_number"`
 	DecreeDate           *string `json:"decree_date"`
@@ -485,7 +487,9 @@ func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowRespons
 		RightType:            r.RightType,
 		DbChanged:            r.DbChanged,
 		ChangedParcelID:      r.ChangedParcelID,
+		AcquisitionID:        r.AcquisitionID.String(),
 		AcquisitionName:      r.AcquisitionName,
+		PlanCode:             r.PlanCode,
 		ConstructionTypeName: r.ConstructionTypeName,
 		DecreeNumber:         r.DecreeNumber,
 		HolderLastName:       r.HolderLastName,

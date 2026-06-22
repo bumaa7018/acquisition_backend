@@ -121,9 +121,9 @@ BEGIN
         ELSE 'Гадаадын зээл, тусламж'
       END
     FROM generate_series(1, 20) AS s
-    RETURNING id, row_number() OVER () AS rn
+    RETURNING id
   )
-  SELECT array_agg(id ORDER BY rn) INTO acq_ids FROM ins;
+  SELECT array_agg(id) INTO acq_ids FROM ins;
 
   RAISE NOTICE '20 чөлөөлөлт үүслээ';
 
@@ -140,9 +140,9 @@ BEGIN
         || lpad(((s % 99) + 1)::TEXT, 2, '0'),
       CASE s % 3 WHEN 0 THEN 'company' ELSE 'person' END
     FROM generate_series(1, 500) AS s
-    RETURNING id, row_number() OVER () AS rn
+    RETURNING id
   )
-  SELECT array_agg(id ORDER BY rn) INTO holder_ids FROM ins;
+  SELECT array_agg(id) INTO holder_ids FROM ins;
 
   RAISE NOTICE '500 эзэмшигч үүслээ';
 

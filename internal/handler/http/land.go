@@ -748,6 +748,12 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
+	var years []int
+	for _, s := range c.QueryArray("year") {
+		if y, err := strconv.Atoi(s); err == nil && y > 0 {
+			years = append(years, y)
+		}
+	}
 	filter := domain.GlobalParcelFilter{
 		ParcelID:        c.Query("parcel_id"),
 		RightType:       queryInt(c, "right_type", 0),
@@ -757,7 +763,7 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		AcquisitionID:   c.Query("acquisition_id"),
 		PlanCode:        c.Query("plan_code"),
 		Status:          queryInt(c, "status", 0),
-		Year:            queryInt(c, "year", 0),
+		Years:           years,
 		Page:            page,
 		PageSize:        pageSize,
 	}
@@ -779,9 +785,12 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 // @Tags         report
 // @Produce      json
 // @Security     BearerAuth
+// @Param        acquisition_id     query  string  false  "Чөлөөлөлтийн ID"
 // @Param        plan_code          query  string  false  "Төлөвлөгөөний код (ILIKE)"
 // @Param        acquisition_name   query  string  false  "Чөлөөлөлтийн нэр (ILIKE)"
 // @Param        au3_code           query  string  false  "Хорооны код"
+// @Param        right_type         query  int     false  "Эрхийн төрөл"
+// @Param        landuse            query  string  false  "Газрын зориулалт (ILIKE)"
 // @Param        year               query  int     false  "Захирамжийн он (decree_date эсвэл start_date)"
 // @Param        compensation_type  query  string  false  "Нөхөн төлбөрийн төрөл: cash | land_grant"
 // @Param        page               query  int     false  "Хуудасны дугаар (default: 1)"
@@ -795,13 +804,21 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 	if pageSize > 200 {
 		pageSize = 200
 	}
-	year := queryInt(c, "year", 0)
+	var years []int
+	for _, s := range c.QueryArray("year") {
+		if y, err := strconv.Atoi(s); err == nil && y > 0 {
+			years = append(years, y)
+		}
+	}
 
 	filter := domain.ReportParcelFilter{
+		AcquisitionID:    c.Query("acquisition_id"),
 		PlanCode:         c.Query("plan_code"),
 		AcquisitionName:  c.Query("acquisition_name"),
 		AU3Code:          c.Query("au3_code"),
-		Year:             year,
+		RightType:        queryInt(c, "right_type", 0),
+		Landuse:          c.Query("landuse"),
+		Years:            years,
 		CompensationType: c.Query("compensation_type"),
 		Page:             page,
 		PageSize:         pageSize,

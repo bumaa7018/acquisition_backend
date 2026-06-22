@@ -114,13 +114,13 @@ type LandAcquisition struct {
 	ConstructionTypeName string
 	DecreeNumber         string
 	DecreeDate           *time.Time
-	CreatedAt       time.Time
-	CreatedBy       string
-	UpdatedAt       time.Time
-	UpdatedBy       string
-	AUs             []LandAcquisitionAU
-	Parcels         []*Parcel
-	ParcelCount     int64
+	CreatedAt            time.Time
+	CreatedBy            string
+	UpdatedAt            time.Time
+	UpdatedBy            string
+	AUs                  []LandAcquisitionAU
+	Parcels              []*Parcel
+	ParcelCount          int64
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос
@@ -262,34 +262,39 @@ type GlobalParcelFilter struct {
 	AcquisitionID   string
 	PlanCode        string
 	Status          int
-	Year            int
+	Years           []int
 	Page            int
 	PageSize        int
 }
 
 // ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр
 type ReportParcelFilter struct {
-	PlanCode           string
-	AcquisitionName    string
-	AU3Code            string
-	Year               int    // decree_date эсвэл start_date-ийн он
-	CompensationType   string // 'cash' | 'land_grant' | '' (бүгд)
-	Page               int
-	PageSize           int
+	AcquisitionID    string
+	PlanCode         string
+	AcquisitionName  string
+	AU3Code          string
+	RightType        int
+	Landuse          string
+	Years            []int  // start_date-ийн он (олон утга дэмжинэ)
+	CompensationType string // 'cash' | 'land_grant' | '' (бүгд)
+	Page             int
+	PageSize         int
 }
 
 // ReportParcelRow — тайлангийн нэг мөрийн бүх мэдээлэл (нэг JOIN query-аас)
 type ReportParcelRow struct {
 	// Нэгж талбар
-	ParcelID        string
-	AreaM2          float64
+	ParcelID          string
+	AreaM2            float64
 	AcquisitionAreaM2 float64
-	RemainingAreaM2 float64
-	RightType       int
-	DbChanged       bool
-	ChangedParcelID string
+	RemainingAreaM2   float64
+	RightType         int
+	DbChanged         bool
+	ChangedParcelID   string
 	// Чөлөөлөлт
+	AcquisitionID        uuid.UUID
 	AcquisitionName      string
+	PlanCode             string
 	ConstructionTypeName string
 	DecreeNumber         string
 	DecreeDate           *time.Time
