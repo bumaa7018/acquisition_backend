@@ -130,10 +130,10 @@ func main() {
 			},
 		},
 		{
-			name:    "000003_buildings_backfill",
-			aliases: []string{"buildings_seeder"},
+			name:    "000003_assets_backfill",
+			aliases: []string{"assets_seeder", "buildings_seeder"},
 			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).seedDefaultBuildings(ctx)
+				return NewMainSeeder(mainDB).seedDefaultAssets(ctx)
 			},
 		},
 		{

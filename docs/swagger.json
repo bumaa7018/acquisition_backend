@@ -719,7 +719,7 @@
                 }
             }
         },
-        "/land-acquisitions/{id}/buildings": {
+        "/land-acquisitions/{id}/assets": {
             "get": {
                 "security": [
                     {
@@ -732,7 +732,7 @@
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Чөлөөлөлтийн барилгын мэдээллийн жагсаалт",
+                "summary": "Чөлөөлөлтийн хөрөнгийн мэдээллийн жагсаалт",
                 "parameters": [
                     {
                         "type": "string",
@@ -790,7 +790,7 @@
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилга нэмэх",
+                "summary": "Хөрөнгө нэмэх",
                 "parameters": [
                     {
                         "type": "string",
@@ -816,7 +816,7 @@
                 }
             }
         },
-        "/land-acquisitions/{id}/buildings/{building_id}": {
+        "/land-acquisitions/{id}/assets/{asset_id}": {
             "put": {
                 "security": [
                     {
@@ -832,7 +832,7 @@
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилгын мэдээлэл засах",
+                "summary": "Хөрөнгийн мэдээлэл засах",
                 "parameters": [
                     {
                         "type": "string",
@@ -843,8 +843,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Building UUID",
-                        "name": "building_id",
+                        "description": "Asset UUID",
+                        "name": "asset_id",
                         "in": "path",
                         "required": true
                     }
@@ -876,7 +876,7 @@
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилга устгах",
+                "summary": "Хөрөнгө устгах",
                 "parameters": [
                     {
                         "type": "string",
@@ -887,8 +887,8 @@
                     },
                     {
                         "type": "string",
-                        "description": "Building UUID",
-                        "name": "building_id",
+                        "description": "Asset UUID",
+                        "name": "asset_id",
                         "in": "path",
                         "required": true
                     }

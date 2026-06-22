@@ -725,7 +725,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/land-acquisitions/{id}/buildings": {
+        "/land-acquisitions/{id}/assets": {
             "get": {
                 "security": [
                     {
@@ -738,7 +738,7 @@ const docTemplate = `{
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Чөлөөлөлтийн барилгын мэдээллийн жагсаалт",
+                "summary": "Чөлөөлөлтийн хөрөнгийн мэдээллийн жагсаалт",
                 "parameters": [
                     {
                         "type": "string",
@@ -796,7 +796,7 @@ const docTemplate = `{
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилга нэмэх",
+                "summary": "Хөрөнгө нэмэх",
                 "parameters": [
                     {
                         "type": "string",
@@ -822,7 +822,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/land-acquisitions/{id}/buildings/{building_id}": {
+        "/land-acquisitions/{id}/assets/{asset_id}": {
             "put": {
                 "security": [
                     {
@@ -838,7 +838,7 @@ const docTemplate = `{
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилгын мэдээлэл засах",
+                "summary": "Хөрөнгийн мэдээлэл засах",
                 "parameters": [
                     {
                         "type": "string",
@@ -849,8 +849,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Building UUID",
-                        "name": "building_id",
+                        "description": "Asset UUID",
+                        "name": "asset_id",
                         "in": "path",
                         "required": true
                     }
@@ -882,7 +882,7 @@ const docTemplate = `{
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Барилга устгах",
+                "summary": "Хөрөнгө устгах",
                 "parameters": [
                     {
                         "type": "string",
@@ -893,8 +893,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "Building UUID",
-                        "name": "building_id",
+                        "description": "Asset UUID",
+                        "name": "asset_id",
                         "in": "path",
                         "required": true
                     }

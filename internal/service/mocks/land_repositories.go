@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -45,6 +46,11 @@ func (m *MockPlanRepository) Suggest(ctx context.Context, q string) ([]*domain.P
 
 // MockLandAcquisitionRepository — LandAcquisitionRepository-ийн mock
 type MockLandAcquisitionRepository struct{ mock.Mock }
+
+func (m *MockLandAcquisitionRepository) ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*domain.ConstructionType), args.Error(1)
+}
 
 func (m *MockLandAcquisitionRepository) Create(ctx context.Context, acq *domain.LandAcquisition) error {
 	return m.Called(ctx, acq).Error(0)
@@ -144,6 +150,14 @@ func (m *MockLandAcquisitionRepository) UpdateStatus(ctx context.Context, id uui
 	return m.Called(ctx, id, status).Error(0)
 }
 
+func (m *MockLandAcquisitionRepository) UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error {
+	return m.Called(ctx, id, number, date).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
+	return m.Called(ctx, parcelID, dbChanged, changedParcelID).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
 	args := m.Called(ctx, acquisitionID)
 	if args.Get(0) == nil {
@@ -173,23 +187,23 @@ func (m *MockLandAcquisitionRepository) ListGlobalParcels(ctx context.Context, f
 	return args.Get(0).([]*domain.GlobalParcel), args.Get(1).(int64), args.Error(2)
 }
 
-func (m *MockLandAcquisitionRepository) ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error) {
+func (m *MockLandAcquisitionRepository) ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error) {
 	args := m.Called(ctx, acquisitionID, filter)
 	if args.Get(0) == nil {
 		return nil, args.Get(1).(int64), args.Error(2)
 	}
-	return args.Get(0).([]*domain.Building), args.Get(1).(int64), args.Error(2)
+	return args.Get(0).([]*domain.Asset), args.Get(1).(int64), args.Error(2)
 }
 
-func (m *MockLandAcquisitionRepository) CreateBuilding(ctx context.Context, b *domain.Building) error {
+func (m *MockLandAcquisitionRepository) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	return m.Called(ctx, b).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateBuilding(ctx context.Context, b *domain.Building) error {
+func (m *MockLandAcquisitionRepository) UpdateAsset(ctx context.Context, b *domain.Asset) error {
 	return m.Called(ctx, b).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
+func (m *MockLandAcquisitionRepository) DeleteAsset(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
 

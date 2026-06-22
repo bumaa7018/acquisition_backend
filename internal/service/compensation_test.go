@@ -21,7 +21,7 @@ func TestCompensation_List_Success(t *testing.T) {
 		{
 			ID:               uuid.New(),
 			AcquisitionID:    acqID,
-			AssetType:        "parcel",
+			TargetType:       "asset",
 			ParcelID:         "PC-001",
 			CompensationType: "cash",
 			CoveragePercent:  100,
@@ -47,7 +47,7 @@ func TestCompensation_Create_Success(t *testing.T) {
 	acqID := uuid.New()
 	comp := &domain.Compensation{
 		AcquisitionID:    acqID,
-		AssetType:        "parcel",
+		TargetType:       "asset",
 		ParcelID:         "PC-002",
 		CompensationType: "cash",
 		CoveragePercent:  100,

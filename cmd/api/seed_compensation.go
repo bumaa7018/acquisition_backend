@@ -22,10 +22,10 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 		return nil
 	}
 
-	// Барилгын ID-г building_number-ээр авна
-	buildingIDs := map[string]uuid.UUID{}
+	// Хөрөнгийн ID-г asset_number-ээр авна
+	assetIDs := map[string]uuid.UUID{}
 	rows, err := s.db.Query(ctx,
-		`SELECT id, building_number FROM building WHERE acquisition_id = $1`, acqID,
+		`SELECT id, asset_number FROM assets WHERE acquisition_id = $1`, acqID,
 	)
 	if err != nil {
 		return err
@@ -37,22 +37,31 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 		if err := rows.Scan(&id, &num); err != nil {
 			return err
 		}
-		buildingIDs[num] = id
+		assetIDs[num] = id
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 
-	b001 := buildingIDs["B-001"]
-	b002 := buildingIDs["B-002"]
-	b003 := buildingIDs["B-003"]
+	a001 := assetIDs["A-001"]
+	if a001 == uuid.Nil {
+		a001 = assetIDs["B-001"]
+	}
+	a002 := assetIDs["A-002"]
+	if a002 == uuid.Nil {
+		a002 = assetIDs["B-002"]
+	}
+	a003 := assetIDs["A-003"]
+	if a003 == uuid.Nil {
+		a003 = assetIDs["B-003"]
+	}
 	compDate := time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	// ── 1. Compensation-уудыг эхлээд оруулна ─────────────────────────────────
 	type compSeed struct {
 		assetType        string
 		parcelID         string
-		buildingID       *uuid.UUID
+		assetID          *uuid.UUID
 		compensationType string
 		coveragePct      float64
 		amount           float64
@@ -60,7 +69,7 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 		needsGrant       bool
 	}
 
-	buildingPtr := func(id uuid.UUID) *uuid.UUID {
+	assetPtr := func(id uuid.UUID) *uuid.UUID {
 		if id == uuid.Nil {
 			return nil
 		}
@@ -69,27 +78,27 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 
 	seeds := []compSeed{
 		// Нэгж талбар: 80% мөнгөн
-		{assetType: "parcel", parcelID: "010101000001",
+		{assetType: "property", parcelID: "010101000001",
 			compensationType: "cash", coveragePct: 80, amount: 68_000_000,
 			note: "Нэгж талбарын 80%-д мөнгөн олговор олгосон"},
 		// Нэгж талбар: 20% газраар → grant холбогдоно
-		{assetType: "parcel", parcelID: "010101000001",
+		{assetType: "property", parcelID: "010101000001",
 			compensationType: "land_grant", coveragePct: 20, amount: 17_000_000,
 			note: "Нэгж талбарын 20%-д газраар дүйцүүлэх олговор", needsGrant: true},
-		// B-001 амины орон сууц: 100% мөнгөн
-		{assetType: "building", parcelID: "010101000001", buildingID: buildingPtr(b001),
+		// A-001 амины орон сууц: 100% мөнгөн
+		{assetType: "real_state", parcelID: "010101000001", assetID: assetPtr(a001),
 			compensationType: "cash", coveragePct: 100, amount: 45_000_000,
 			note: "Амины орон сууц барилгын бүрэн мөнгөн олговор"},
-		// B-002 гарааш: 100% мөнгөн
-		{assetType: "building", parcelID: "010101000001", buildingID: buildingPtr(b002),
+		// A-002 гарааш: 100% мөнгөн
+		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a002),
 			compensationType: "cash", coveragePct: 100, amount: 12_000_000,
 			note: "Гарааш барилгын бүрэн мөнгөн олговор"},
-		// B-003 агуулах: 60% мөнгөн
-		{assetType: "building", parcelID: "010101000001", buildingID: buildingPtr(b003),
+		// A-003 агуулах: 60% мөнгөн
+		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a003),
 			compensationType: "cash", coveragePct: 60, amount: 25_000_000,
 			note: "Агуулах барилгын 60%-д мөнгөн олговор"},
-		// B-003 агуулах: 40% газраар → grant холбогдоно
-		{assetType: "building", parcelID: "010101000001", buildingID: buildingPtr(b003),
+		// A-003 агуулах: 40% газраар → grant холбогдоно
+		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a003),
 			compensationType: "land_grant", coveragePct: 40, amount: 10_000_000,
 			note: "Агуулах барилгын 40%-д газраар дүйцүүлэх олговор", needsGrant: true},
 	}
@@ -102,13 +111,13 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 		var compID uuid.UUID
 		err := s.db.QueryRow(ctx, `
 			INSERT INTO compensation (
-				acquisition_id, asset_type, parcel_id, building_id,
+				acquisition_id, asset_type, parcel_id, asset_id,
 				compensation_type, coverage_percent, amount,
 				compensation_date, note, created_by
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'system')
 			RETURNING id
 		`,
-			acqID, c.assetType, c.parcelID, c.buildingID,
+			acqID, c.assetType, c.parcelID, c.assetID,
 			c.compensationType, c.coveragePct, c.amount,
 			compDate, c.note,
 		).Scan(&compID)

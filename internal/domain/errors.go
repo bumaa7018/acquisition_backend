@@ -12,4 +12,5 @@ var (
 	ErrExpiredToken       = errors.New("token expired")
 	ErrInvalidInput       = errors.New("invalid input")
 	ErrInternalServer     = errors.New("internal server error")
+	ErrDecreeRequired     = errors.New("decree number and date are required")
 )

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/your-org/go-api-template/internal/domain"
@@ -57,6 +58,7 @@ type PlanRepository interface {
 
 // LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ
 type LandAcquisitionRepository interface {
+	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
@@ -73,17 +75,19 @@ type LandAcquisitionRepository interface {
 	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
+	UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
-	// Building methods
-	ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error)
-	CreateBuilding(ctx context.Context, b *domain.Building) error
-	UpdateBuilding(ctx context.Context, b *domain.Building) error
-	DeleteBuilding(ctx context.Context, id uuid.UUID) error
+	// Asset methods
+	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
+	CreateAsset(ctx context.Context, b *domain.Asset) error
+	UpdateAsset(ctx context.Context, b *domain.Asset) error
+	DeleteAsset(ctx context.Context, id uuid.UUID) error
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
 	// Compensation methods

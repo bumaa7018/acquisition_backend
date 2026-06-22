@@ -1,2 +1,2 @@
-ALTER TABLE building
-    DROP CONSTRAINT IF EXISTS fk_building_parcel_id;
+ALTER TABLE assets
+    DROP CONSTRAINT IF EXISTS fk_assets_parcel_id;

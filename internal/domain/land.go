@@ -84,24 +84,36 @@ type SourceParcel struct {
 	CreatedAt        time.Time
 }
 
+// ConstructionType — бүтээн байгуулалтын төрөл (lookup)
+type ConstructionType struct {
+	ID        int    `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
-	ID              uuid.UUID
-	PlanID          *uuid.UUID
-	PlanCode        string
-	PlanName        string
-	PlanGeomWKT     string
-	PlanAreaM2      float64
-	GeometryWKT     string
-	AreaM2          float64
-	Status          int
-	StartDate       *time.Time
-	EndDate         *time.Time
-	AcquisitionName string
-	ImplementingOrg string
-	Reason          string
-	ResponsibleOrg  string
-	FundingSource   string
+	ID                   uuid.UUID
+	PlanID               *uuid.UUID
+	PlanCode             string
+	PlanName             string
+	PlanGeomWKT          string
+	PlanAreaM2           float64
+	GeometryWKT          string
+	AreaM2               float64
+	Status               int
+	StartDate            *time.Time
+	EndDate              *time.Time
+	AcquisitionName      string
+	ImplementingOrg      string
+	Reason               string
+	ResponsibleOrg       string
+	FundingSource        string
+	ConstructionTypeID   *int
+	ConstructionTypeName string
+	DecreeNumber         string
+	DecreeDate           *time.Time
 	CreatedAt       time.Time
 	CreatedBy       string
 	UpdatedAt       time.Time
@@ -165,10 +177,13 @@ type Parcel struct {
 	GeometryWKT        string
 	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
 	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
+	RemainingAreaM2    *float64
 	RightType          int
 	Landuse            string
 	AreaM2             float64
 	CompensationPaid   bool
+	DbChanged          bool
+	ChangedParcelID    string
 	CreatedAt          time.Time
 	CreatedBy          string
 }
@@ -251,27 +266,28 @@ type GlobalParcelFilter struct {
 	PageSize        int
 }
 
-// BuildingFilter — барилгын жагсаалт шүүх болон хуудаслах параметр
-type BuildingFilter struct {
+// AssetFilter — хөрөнгийн жагсаалт шүүх болон хуудаслах параметр
+type AssetFilter struct {
 	ParcelID string
 	Page     int
 	PageSize int
 }
 
-// Building — барилгын мэдээлэл
-type Building struct {
-	ID             uuid.UUID `json:"id"`
-	AcquisitionID  uuid.UUID `json:"acquisition_id"`
-	ParcelID       string    `json:"parcel_id"`
-	BuildingNumber string    `json:"building_number"`
-	BuildingType   string    `json:"building_type"`
-	FloorCount     int       `json:"floor_count"`
-	AreaM2         float64   `json:"area_m2"`
-	OwnerName      string    `json:"owner_name"`
-	Address        string    `json:"address"`
-	Notes          string    `json:"notes"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+// Asset — хөрөнгийн мэдээлэл
+type Asset struct {
+	ID            uuid.UUID `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	ParcelID      string    `json:"parcel_id"`
+	AssetNumber   string    `json:"asset_number"`
+	AssetType     string    `json:"asset_type"`
+	AssetName     string    `json:"asset_name"`
+	FloorCount    int       `json:"floor_count"`
+	AreaM2        float64   `json:"area_m2"`
+	OwnerName     string    `json:"owner_name"`
+	Address       string    `json:"address"`
+	Notes         string    `json:"notes"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // CompensationGrant — газар олгох олговрын бичлэг
@@ -298,9 +314,9 @@ type CompensationGrant struct {
 type Compensation struct {
 	ID               uuid.UUID          `json:"id"`
 	AcquisitionID    uuid.UUID          `json:"acquisition_id"`
-	AssetType        string             `json:"asset_type"`
+	TargetType       string             `json:"target_type"` // 'parcel' | 'asset'
 	ParcelID         string             `json:"parcel_id"`
-	BuildingID       *uuid.UUID         `json:"building_id"`
+	AssetID          *uuid.UUID         `json:"asset_id"`
 	CompensationType string             `json:"compensation_type"`
 	CoveragePercent  float64            `json:"coverage_percent"`
 	Amount           float64            `json:"amount"`

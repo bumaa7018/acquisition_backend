@@ -83,6 +83,9 @@ func NewRouter(
 			permissions.DELETE("/:id", middleware.RequirePermission("permissions:delete"), permH.Delete)
 		}
 
+		// Lookup
+		protected.GET("/construction-types", middleware.RequirePermission("land:read"), landH.ListConstructionTypes)
+
 		// Газар чөлөөлөлт
 		land := protected.Group("/land-acquisitions")
 		{
@@ -90,10 +93,10 @@ func NewRouter(
 			land.POST("", middleware.RequirePermission("land:create"), landH.Create)
 			land.GET("/:id", middleware.RequirePermission("land:read"), landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), landH.ListParcels)
-			land.GET("/:id/buildings", middleware.RequirePermission("land:read"), landH.ListBuildings)
-			land.POST("/:id/buildings", middleware.RequirePermission("land:create"), landH.CreateBuilding)
-			land.PUT("/:id/buildings/:building_id", middleware.RequirePermission("land:update"), landH.UpdateBuilding)
-			land.DELETE("/:id/buildings/:building_id", middleware.RequirePermission("land:update"), landH.DeleteBuilding)
+			land.GET("/:id/assets", middleware.RequirePermission("land:read"), landH.ListAssets)
+			land.POST("/:id/assets", middleware.RequirePermission("land:create"), landH.CreateAsset)
+			land.PUT("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), landH.UpdateAsset)
+			land.DELETE("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), landH.DeleteAsset)
 			land.GET("/:id/compensations", middleware.RequirePermission("land:read"), landH.ListCompensations)
 			land.POST("/:id/compensations", middleware.RequirePermission("land:update"), landH.CreateCompensation)
 			land.PUT("/:id/compensations/:comp_id", middleware.RequirePermission("land:update"), landH.UpdateCompensation)
@@ -107,6 +110,7 @@ func NewRouter(
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), landH.SyncParcel)
 			land.PATCH("/:id/parcels/:parcel_id/valuation", middleware.RequirePermission("land:update"), landH.UpdateParcelValuation)
 			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), landH.SetParcelCompensation)
+			land.PATCH("/:id/parcels/:parcel_id/meta", middleware.RequirePermission("land:update"), landH.UpdateParcelMeta)
 			land.GET("/:id/progress", middleware.RequirePermission("land:read"), landH.ListProgress)
 			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), landH.GetAvailableStatuses)
 			land.POST("/:id/advance", middleware.RequirePermission("land:update"), landH.AdvanceStatus)

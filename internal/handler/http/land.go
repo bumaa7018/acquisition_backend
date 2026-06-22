@@ -3,6 +3,7 @@ package http
 import (
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,16 @@ type LandHandler struct {
 
 func NewLandHandler(svc service.LandService) *LandHandler {
 	return &LandHandler{svc: svc}
+}
+
+// ListConstructionTypes returns all construction type lookup records.
+func (h *LandHandler) ListConstructionTypes(c *gin.Context) {
+	list, err := h.svc.ListConstructionTypes(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
 }
 
 // List godoc
@@ -136,17 +147,25 @@ func (h *LandHandler) Create(c *gin.Context) {
 		createdByStr = uid.(uuid.UUID).String()
 	}
 
+	var constructionTypeID *int
+	if s := c.PostForm("construction_type_id"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			constructionTypeID = &n
+		}
+	}
+
 	acq, err := h.svc.Create(c.Request.Context(), service.CreateLandAcquisitionRequest{
-		PlanCode:        planCode,
-		StartDate:       startDate,
-		EndDate:         endDate,
-		ShapefileData:   zipData,
-		CreatedBy:       createdByStr,
-		AcquisitionName: projectName,
-		ImplementingOrg: implementingOrg,
-		Reason:          reason,
-		ResponsibleOrg:  responsibleOrg,
-		FundingSource:   fundingSource,
+		PlanCode:           planCode,
+		StartDate:          startDate,
+		EndDate:            endDate,
+		ShapefileData:      zipData,
+		CreatedBy:          createdByStr,
+		AcquisitionName:    projectName,
+		ImplementingOrg:    implementingOrg,
+		Reason:             reason,
+		ResponsibleOrg:     responsibleOrg,
+		FundingSource:      fundingSource,
+		ConstructionTypeID: constructionTypeID,
 	})
 	if err != nil {
 		switch err {
@@ -209,14 +228,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 
 	result := make([]parcelResponse, 0, len(parcels))
 	for _, p := range parcels {
-		result = append(result, parcelResponse{
-			ID: p.ID.String(), ParcelID: p.ParcelID,
-			AU1Code: p.AU1Code, AU2Code: p.AU2Code, AU3Code: p.AU3Code,
-			RightType: p.RightType, Landuse: p.Landuse, AreaM2: p.AreaM2,
-			AcquisitionAreaM2: p.AcquisitionAreaM2,
-			CompensationPaid:  p.CompensationPaid,
-			GeometryWKT:       p.GeometryWKT,
-		})
+		result = append(result, toParcelResponse(p))
 	}
 	response.Paginated(c, result, total, page, pageSize)
 }
@@ -296,6 +308,11 @@ func (h *LandHandler) Update(c *gin.Context) {
 	req.ResponsibleOrg = c.PostForm("responsible_org")
 	req.FundingSource = c.PostForm("funding_source")
 	req.ClearEndDate = c.PostForm("clear_end_date") == "true"
+	if s := c.PostForm("construction_type_id"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			req.ConstructionTypeID = &n
+		}
+	}
 
 	if uid, ok := c.Get("userID"); ok {
 		req.UpdatedBy = uid.(uuid.UUID).String()
@@ -571,8 +588,10 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 	}
 
 	var body struct {
-		ToStatus int    `json:"to_status" binding:"required"`
-		Note     string `json:"note"`
+		ToStatus     int     `json:"to_status" binding:"required"`
+		Note         string  `json:"note"`
+		DecreeNumber string  `json:"decree_number"`
+		DecreeDate   *string `json:"decree_date"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrStatusRequired)
@@ -584,19 +603,52 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 		changedBy = uid.(uuid.UUID).String()
 	}
 
-	acq, err := h.svc.AdvanceStatus(c.Request.Context(), id, body.ToStatus, body.Note, changedBy)
+	var decreeDate *time.Time
+	if body.DecreeDate != nil && *body.DecreeDate != "" {
+		t, err := time.Parse("2006-01-02", *body.DecreeDate)
+		if err == nil {
+			decreeDate = &t
+		}
+	}
+
+	acq, err := h.svc.AdvanceStatus(c.Request.Context(), id, body.ToStatus, body.Note, changedBy, body.DecreeNumber, decreeDate)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
 			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
 		case domain.ErrInvalidInput:
 			response.Abort(c, http.StatusUnprocessableEntity, i18n.ErrInvalidStatus)
+		case domain.ErrDecreeRequired:
+			response.Abort(c, http.StatusUnprocessableEntity, "НЗД-ын захирамжийн огноо, дугаарыг оруулна уу")
 		default:
 			response.Error(c, err)
 		}
 		return
 	}
 	response.OK(c, toLandAcqResponse(acq))
+}
+
+func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	var body struct {
+		DbChanged       bool   `json:"db_changed"`
+		ChangedParcelID string `json:"changed_parcel_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	if err := h.svc.UpdateParcelMeta(c.Request.Context(), parcelID, body.DbChanged, body.ChangedParcelID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
 }
 
 func (h *LandHandler) ListAcquisitionDocuments(c *gin.Context) {
@@ -720,8 +772,8 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 	response.Paginated(c, result, total, page, pageSize)
 }
 
-// ListBuildings godoc
-// @Summary      Чөлөөлөлтийн барилгын мэдээллийн жагсаалт
+// ListAssets godoc
+// @Summary      Чөлөөлөлтийн хөрөнгийн мэдээллийн жагсаалт
 // @Tags         land-acquisitions
 // @Produce      json
 // @Security     BearerAuth
@@ -731,8 +783,8 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 // @Param        parcel_id  query  string  false  "Нэгж талбарын дугаар (ILIKE)"
 // @Success      200  {object}  response.PaginatedResponse
 // @Failure      400  {object}  response.Response
-// @Router       /land-acquisitions/{id}/buildings [get]
-func (h *LandHandler) ListBuildings(c *gin.Context) {
+// @Router       /land-acquisitions/{id}/assets [get]
+func (h *LandHandler) ListAssets(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -741,27 +793,27 @@ func (h *LandHandler) ListBuildings(c *gin.Context) {
 
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
-	filter := domain.BuildingFilter{
+	filter := domain.AssetFilter{
 		ParcelID: c.Query("parcel_id"),
 		Page:     page,
 		PageSize: pageSize,
 	}
 
-	buildings, total, err := h.svc.ListBuildings(c.Request.Context(), id, filter)
+	assets, total, err := h.svc.ListAssets(c.Request.Context(), id, filter)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
 
-	result := make([]buildingResponse, 0, len(buildings))
-	for _, b := range buildings {
-		result = append(result, toBuildingResponse(b))
+	result := make([]assetResponse, 0, len(assets))
+	for _, a := range assets {
+		result = append(result, toAssetResponse(a))
 	}
 	response.Paginated(c, result, total, page, pageSize)
 }
 
-// CreateBuilding godoc
-// @Summary      Барилга нэмэх
+// CreateAsset godoc
+// @Summary      Хөрөнгө нэмэх
 // @Tags         land-acquisitions
 // @Accept       json
 // @Produce      json
@@ -769,8 +821,8 @@ func (h *LandHandler) ListBuildings(c *gin.Context) {
 // @Param        id    path  string  true  "LandAcquisition UUID"
 // @Success      201  {object}  response.Response
 // @Failure      400  {object}  response.Response
-// @Router       /land-acquisitions/{id}/buildings [post]
-func (h *LandHandler) CreateBuilding(c *gin.Context) {
+// @Router       /land-acquisitions/{id}/assets [post]
+func (h *LandHandler) CreateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -778,118 +830,140 @@ func (h *LandHandler) CreateBuilding(c *gin.Context) {
 	}
 
 	var body struct {
-		ParcelID       string  `json:"parcel_id" binding:"required"`
-		BuildingNumber string  `json:"building_number"`
-		BuildingType   string  `json:"building_type"`
-		FloorCount     int     `json:"floor_count"`
-		AreaM2         float64 `json:"area_m2"`
-		OwnerName      string  `json:"owner_name"`
-		Address        string  `json:"address"`
-		Notes          string  `json:"notes"`
+		ParcelID             string  `json:"parcel_id" binding:"required"`
+		AssetNumber          string  `json:"asset_number"`
+		AssetType            string  `json:"asset_type"`
+		AssetName            string  `json:"asset_name"`
+		LegacyBuildingNumber string  `json:"building_number"`
+		LegacyBuildingType   string  `json:"building_type"`
+		FloorCount           int     `json:"floor_count"`
+		AreaM2               float64 `json:"area_m2"`
+		OwnerName            string  `json:"owner_name"`
+		Address              string  `json:"address"`
+		Notes                string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 
-	b := &domain.Building{
-		AcquisitionID:  acqID,
-		ParcelID:       body.ParcelID,
-		BuildingNumber: body.BuildingNumber,
-		BuildingType:   body.BuildingType,
-		FloorCount:     body.FloorCount,
-		AreaM2:         body.AreaM2,
-		OwnerName:      body.OwnerName,
-		Address:        body.Address,
-		Notes:          body.Notes,
+	if body.AssetNumber == "" {
+		body.AssetNumber = body.LegacyBuildingNumber
+	}
+	if body.AssetName == "" {
+		body.AssetName = body.LegacyBuildingType
 	}
 
-	created, err := h.svc.CreateBuilding(c.Request.Context(), b)
+	b := &domain.Asset{
+		AcquisitionID: acqID,
+		ParcelID:      body.ParcelID,
+		AssetNumber:   body.AssetNumber,
+		AssetType:     normalizeAssetRecordType(body.AssetType),
+		AssetName:     body.AssetName,
+		FloorCount:    body.FloorCount,
+		AreaM2:        body.AreaM2,
+		OwnerName:     body.OwnerName,
+		Address:       body.Address,
+		Notes:         body.Notes,
+	}
+
+	created, err := h.svc.CreateAsset(c.Request.Context(), b)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	r := toBuildingResponse(created)
+	r := toAssetResponse(created)
 	response.Created(c, r)
 }
 
-// UpdateBuilding godoc
-// @Summary      Барилгын мэдээлэл засах
+// UpdateAsset godoc
+// @Summary      Хөрөнгийн мэдээлэл засах
 // @Tags         land-acquisitions
 // @Accept       json
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id           path  string  true  "LandAcquisition UUID"
-// @Param        building_id  path  string  true  "Building UUID"
+// @Param        asset_id     path  string  true  "Asset UUID"
 // @Success      200  {object}  response.Response
 // @Failure      400  {object}  response.Response
-// @Router       /land-acquisitions/{id}/buildings/{building_id} [put]
-func (h *LandHandler) UpdateBuilding(c *gin.Context) {
+// @Router       /land-acquisitions/{id}/assets/{asset_id} [put]
+func (h *LandHandler) UpdateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	buildingID, err := uuid.Parse(c.Param("building_id"))
+	assetID, err := uuid.Parse(c.Param("asset_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
 	var body struct {
-		ParcelID       string  `json:"parcel_id"`
-		BuildingNumber string  `json:"building_number"`
-		BuildingType   string  `json:"building_type"`
-		FloorCount     int     `json:"floor_count"`
-		AreaM2         float64 `json:"area_m2"`
-		OwnerName      string  `json:"owner_name"`
-		Address        string  `json:"address"`
-		Notes          string  `json:"notes"`
+		ParcelID             string  `json:"parcel_id"`
+		AssetNumber          string  `json:"asset_number"`
+		AssetType            string  `json:"asset_type"`
+		AssetName            string  `json:"asset_name"`
+		LegacyBuildingNumber string  `json:"building_number"`
+		LegacyBuildingType   string  `json:"building_type"`
+		FloorCount           int     `json:"floor_count"`
+		AreaM2               float64 `json:"area_m2"`
+		OwnerName            string  `json:"owner_name"`
+		Address              string  `json:"address"`
+		Notes                string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 
-	b := &domain.Building{
-		ID:             buildingID,
-		AcquisitionID:  acqID,
-		ParcelID:       body.ParcelID,
-		BuildingNumber: body.BuildingNumber,
-		BuildingType:   body.BuildingType,
-		FloorCount:     body.FloorCount,
-		AreaM2:         body.AreaM2,
-		OwnerName:      body.OwnerName,
-		Address:        body.Address,
-		Notes:          body.Notes,
+	if body.AssetNumber == "" {
+		body.AssetNumber = body.LegacyBuildingNumber
+	}
+	if body.AssetName == "" {
+		body.AssetName = body.LegacyBuildingType
 	}
 
-	updated, err := h.svc.UpdateBuilding(c.Request.Context(), b)
+	b := &domain.Asset{
+		ID:            assetID,
+		AcquisitionID: acqID,
+		ParcelID:      body.ParcelID,
+		AssetNumber:   body.AssetNumber,
+		AssetType:     normalizeAssetRecordType(body.AssetType),
+		AssetName:     body.AssetName,
+		FloorCount:    body.FloorCount,
+		AreaM2:        body.AreaM2,
+		OwnerName:     body.OwnerName,
+		Address:       body.Address,
+		Notes:         body.Notes,
+	}
+
+	updated, err := h.svc.UpdateAsset(c.Request.Context(), b)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, toBuildingResponse(updated))
+	response.OK(c, toAssetResponse(updated))
 }
 
-// DeleteBuilding godoc
-// @Summary      Барилга устгах
+// DeleteAsset godoc
+// @Summary      Хөрөнгө устгах
 // @Tags         land-acquisitions
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id           path  string  true  "LandAcquisition UUID"
-// @Param        building_id  path  string  true  "Building UUID"
+// @Param        asset_id     path  string  true  "Asset UUID"
 // @Success      200  {object}  response.Response
 // @Failure      400  {object}  response.Response
-// @Router       /land-acquisitions/{id}/buildings/{building_id} [delete]
-func (h *LandHandler) DeleteBuilding(c *gin.Context) {
-	buildingID, err := uuid.Parse(c.Param("building_id"))
+// @Router       /land-acquisitions/{id}/assets/{asset_id} [delete]
+func (h *LandHandler) DeleteAsset(c *gin.Context) {
+	assetID, err := uuid.Parse(c.Param("asset_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
-	if err := h.svc.DeleteBuilding(c.Request.Context(), buildingID); err != nil {
+	if err := h.svc.DeleteAsset(c.Request.Context(), assetID); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -925,9 +999,10 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 	}
 
 	var body struct {
-		AssetType        string  `json:"asset_type"`
+		TargetType       string  `json:"target_type"`
 		ParcelID         string  `json:"parcel_id"`
-		BuildingID       *string `json:"building_id"`
+		AssetID          *string `json:"asset_id"`
+		LegacyBuildingID *string `json:"building_id"`
 		CompensationType string  `json:"compensation_type" binding:"required"`
 		CoveragePercent  float64 `json:"coverage_percent"`
 		Amount           float64 `json:"amount"`
@@ -946,7 +1021,7 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 
 	comp := &domain.Compensation{
 		AcquisitionID:    acqID,
-		AssetType:        body.AssetType,
+		TargetType:       normalizeTargetType(body.TargetType),
 		ParcelID:         body.ParcelID,
 		CompensationType: body.CompensationType,
 		CoveragePercent:  body.CoveragePercent,
@@ -954,15 +1029,16 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 		Note:             body.Note,
 		CreatedBy:        createdBy,
 	}
-	if body.AssetType == "" {
-		comp.AssetType = "parcel"
-	}
 	if body.CoveragePercent == 0 {
 		comp.CoveragePercent = 100
 	}
-	if body.BuildingID != nil {
-		if id, err := uuid.Parse(*body.BuildingID); err == nil {
-			comp.BuildingID = &id
+	assetID := body.AssetID
+	if assetID == nil {
+		assetID = body.LegacyBuildingID
+	}
+	if assetID != nil {
+		if id, err := uuid.Parse(*assetID); err == nil {
+			comp.AssetID = &id
 		}
 	}
 	if body.CompensationDate != nil {
@@ -993,9 +1069,10 @@ func (h *LandHandler) UpdateCompensation(c *gin.Context) {
 	}
 
 	var body struct {
-		AssetType        string  `json:"asset_type"`
+		TargetType       string  `json:"target_type"`
 		ParcelID         string  `json:"parcel_id"`
-		BuildingID       *string `json:"building_id"`
+		AssetID          *string `json:"asset_id"`
+		LegacyBuildingID *string `json:"building_id"`
 		CompensationType string  `json:"compensation_type"`
 		CoveragePercent  float64 `json:"coverage_percent"`
 		Amount           float64 `json:"amount"`
@@ -1010,16 +1087,20 @@ func (h *LandHandler) UpdateCompensation(c *gin.Context) {
 	comp := &domain.Compensation{
 		ID:               compID,
 		AcquisitionID:    acqID,
-		AssetType:        body.AssetType,
+		TargetType:       normalizeTargetType(body.TargetType),
 		ParcelID:         body.ParcelID,
 		CompensationType: body.CompensationType,
 		CoveragePercent:  body.CoveragePercent,
 		Amount:           body.Amount,
 		Note:             body.Note,
 	}
-	if body.BuildingID != nil {
-		if id, err := uuid.Parse(*body.BuildingID); err == nil {
-			comp.BuildingID = &id
+	assetID := body.AssetID
+	if assetID == nil {
+		assetID = body.LegacyBuildingID
+	}
+	if assetID != nil {
+		if id, err := uuid.Parse(*assetID); err == nil {
+			comp.AssetID = &id
 		}
 	}
 	if body.CompensationDate != nil {
@@ -1034,6 +1115,26 @@ func (h *LandHandler) UpdateCompensation(c *gin.Context) {
 		return
 	}
 	response.OK(c, toCompensationResponse(updated))
+}
+
+func normalizeTargetType(t string) string {
+	switch t {
+	case "parcel", "asset":
+		return t
+	default:
+		return "asset"
+	}
+}
+
+func normalizeAssetRecordType(assetType string) string {
+	switch assetType {
+	case "", "building":
+		return "real_state"
+	case "parcel":
+		return "property"
+	default:
+		return assetType
+	}
 }
 
 // DeleteCompensation deletes a compensation record

@@ -684,7 +684,7 @@ paths:
       summary: Шилжих боломжтой статусуудын жагсаалт
       tags:
       - land-acquisitions
-  /land-acquisitions/{id}/buildings:
+  /land-acquisitions/{id}/assets:
     get:
       parameters:
       - description: LandAcquisition UUID
@@ -717,7 +717,7 @@ paths:
             $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
-      summary: Чөлөөлөлтийн барилгын мэдээллийн жагсаалт
+      summary: Чөлөөлөлтийн хөрөнгийн мэдээллийн жагсаалт
       tags:
       - land-acquisitions
     post:
@@ -742,10 +742,10 @@ paths:
             $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
-      summary: Барилга нэмэх
+      summary: Хөрөнгө нэмэх
       tags:
       - land-acquisitions
-  /land-acquisitions/{id}/buildings/{building_id}:
+  /land-acquisitions/{id}/assets/{asset_id}:
     delete:
       parameters:
       - description: LandAcquisition UUID
@@ -753,9 +753,9 @@ paths:
         name: id
         required: true
         type: string
-      - description: Building UUID
+      - description: Asset UUID
         in: path
-        name: building_id
+        name: asset_id
         required: true
         type: string
       produces:
@@ -771,7 +771,7 @@ paths:
             $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
-      summary: Барилга устгах
+      summary: Хөрөнгө устгах
       tags:
       - land-acquisitions
     put:
@@ -783,9 +783,9 @@ paths:
         name: id
         required: true
         type: string
-      - description: Building UUID
+      - description: Asset UUID
         in: path
-        name: building_id
+        name: asset_id
         required: true
         type: string
       produces:
@@ -801,7 +801,7 @@ paths:
             $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
-      summary: Барилгын мэдээлэл засах
+      summary: Хөрөнгийн мэдээлэл засах
       tags:
       - land-acquisitions
   /land-acquisitions/{id}/parcels:

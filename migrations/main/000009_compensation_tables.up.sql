@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS compensation_grant (
 CREATE TABLE IF NOT EXISTS compensation (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     acquisition_id       UUID NOT NULL REFERENCES land_acquisition(id) ON DELETE CASCADE,
-    asset_type           VARCHAR(20) NOT NULL DEFAULT 'parcel',
+    asset_type           VARCHAR(20) NOT NULL DEFAULT 'property',
     parcel_code          VARCHAR(50) NOT NULL DEFAULT '',
-    building_id          UUID REFERENCES building(id) ON DELETE SET NULL,
+    asset_id             UUID REFERENCES assets(id) ON DELETE SET NULL,
     compensation_type    VARCHAR(20) NOT NULL DEFAULT 'cash',
     coverage_percent     NUMERIC(5,2) NOT NULL DEFAULT 100,
     amount               NUMERIC(20,2) NOT NULL DEFAULT 0,
@@ -35,4 +35,4 @@ CREATE TABLE IF NOT EXISTS compensation (
 
 ALTER TABLE parcel DROP COLUMN IF EXISTS acquisition_amount;
 ALTER TABLE parcel DROP COLUMN IF EXISTS compensation_types;
-ALTER TABLE building DROP COLUMN IF EXISTS acquisition_amount;
+ALTER TABLE assets DROP COLUMN IF EXISTS acquisition_amount;

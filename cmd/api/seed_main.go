@@ -10,7 +10,7 @@ import (
 )
 
 // MainSeeder үндсэн DB-д жишээ өгөгдөл нэмнэ.
-// Аймаг → Сум → Баг → Газар чөлөөлөлт → Нэгж талбар → Эзэмшигч → Эрх зүй → Барилга
+// Аймаг → Сум → Баг → Газар чөлөөлөлт → Нэгж талбар → Эзэмшигч → Эрх зүй → Хөрөнгө
 type MainSeeder struct {
 	db *pgxpool.Pool
 }
@@ -49,10 +49,10 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 		return err
 	}
 
-	return s.seedBuildings(ctx, acqID)
+	return s.seedAssets(ctx, acqID)
 }
 
-func (s *MainSeeder) seedDefaultBuildings(ctx context.Context) error {
+func (s *MainSeeder) seedDefaultAssets(ctx context.Context) error {
 	acqID, err := s.seedLandAcquisition(ctx)
 	if err != nil {
 		return err
@@ -62,7 +62,7 @@ func (s *MainSeeder) seedDefaultBuildings(ctx context.Context) error {
 		return err
 	}
 
-	return s.seedBuildings(ctx, acqID)
+	return s.seedAssets(ctx, acqID)
 }
 
 // seedAUs — Аймаг, Сум, Баг жишээ өгөгдөл
@@ -320,61 +320,66 @@ func (s *MainSeeder) seedParcelDetail(ctx context.Context, parcelID, acqID, hold
 	return nil
 }
 
-// seedBuildings — газар чөлөөлөлтөд хамрагдсан барилгын жишээ мэдээлэл
-func (s *MainSeeder) seedBuildings(ctx context.Context, acqID uuid.UUID) error {
-	buildings := []struct {
-		parcelID       string
-		buildingNumber string
-		buildingType   string
-		floorCount     int
-		areaM2         float64
-		ownerName      string
-		address        string
-		notes          string
-		geometryWKT    string
+// seedAssets — газар чөлөөлөлтөд хамрагдсан хөрөнгийн жишээ мэдээлэл
+func (s *MainSeeder) seedAssets(ctx context.Context, acqID uuid.UUID) error {
+	assets := []struct {
+		parcelID    string
+		assetNumber string
+		assetType   string
+		assetName   string
+		floorCount  int
+		areaM2      float64
+		ownerName   string
+		address     string
+		notes       string
+		geometryWKT string
 	}{
 		{
-			parcelID:       "010101000001",
-			buildingNumber: "B-001",
-			buildingType:   "Амины орон сууц",
-			floorCount:     1,
-			areaM2:         96.5,
-			ownerName:      "Дорж Батбаяр",
-			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
-			notes:          "Тоосгон хийцтэй, инженерийн шугамд холбогдсон.",
-			geometryWKT:    "POLYGON((106.7700 47.6700, 106.7710 47.6700, 106.7710 47.6710, 106.7700 47.6710, 106.7700 47.6700))",
+			parcelID:    "010101000001",
+			assetNumber: "A-001",
+			assetType:   "real_state",
+			assetName:   "Амины орон сууц",
+			floorCount:  1,
+			areaM2:      96.5,
+			ownerName:   "Дорж Батбаяр",
+			address:     "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:       "Тоосгон хийцтэй, инженерийн шугамд холбогдсон.",
+			geometryWKT: "POLYGON((106.7700 47.6700, 106.7710 47.6700, 106.7710 47.6710, 106.7700 47.6710, 106.7700 47.6700))",
 		},
 		{
-			parcelID:       "010101000001",
-			buildingNumber: "B-002",
-			buildingType:   "Гарааш",
-			floorCount:     1,
-			areaM2:         32.0,
-			ownerName:      "Дорж Батбаяр",
-			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
-			notes:          "Металл хаалгатай туслах байгууламж.",
-			geometryWKT:    "POLYGON((106.7720 47.6700, 106.7725 47.6700, 106.7725 47.6706, 106.7720 47.6706, 106.7720 47.6700))",
+			parcelID:    "010101000001",
+			assetNumber: "A-002",
+			assetType:   "property",
+			assetName:   "Гарааш",
+			floorCount:  1,
+			areaM2:      32.0,
+			ownerName:   "Дорж Батбаяр",
+			address:     "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:       "Металл хаалгатай туслах байгууламж.",
+			geometryWKT: "POLYGON((106.7720 47.6700, 106.7725 47.6700, 106.7725 47.6706, 106.7720 47.6706, 106.7720 47.6700))",
 		},
 		{
-			parcelID:       "010101000001",
-			buildingNumber: "B-003",
-			buildingType:   "Агуулах",
-			floorCount:     1,
-			areaM2:         120.0,
-			ownerName:      "Дорж Батбаяр",
-			address:        "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
-			notes:          "Модон карказтай, улирлын чанартай ашигладаг.",
-			geometryWKT:    "POLYGON((106.7740 47.6695, 106.7752 47.6695, 106.7752 47.6705, 106.7740 47.6705, 106.7740 47.6695))",
+			parcelID:    "010101000001",
+			assetNumber: "A-003",
+			assetType:   "property",
+			assetName:   "Агуулах",
+			floorCount:  1,
+			areaM2:      120.0,
+			ownerName:   "Дорж Батбаяр",
+			address:     "Төв аймаг, Зуунмод сум, 1-р баг, 12-1 тоот",
+			notes:       "Модон карказтай, улирлын чанартай ашигладаг.",
+			geometryWKT: "POLYGON((106.7740 47.6695, 106.7752 47.6695, 106.7752 47.6705, 106.7740 47.6705, 106.7740 47.6695))",
 		},
 	}
 
-	for _, b := range buildings {
+	for _, a := range assets {
 		tag, err := s.db.Exec(ctx, `
-			INSERT INTO building (
+			INSERT INTO assets (
 				acquisition_id,
 				parcel_id,
-				building_number,
-				building_type,
+				asset_number,
+				asset_type,
+				asset_name,
 				floor_count,
 				area_m2,
 				owner_name,
@@ -383,32 +388,33 @@ func (s *MainSeeder) seedBuildings(ctx context.Context, acqID uuid.UUID) error {
 				geometry
 			)
 			SELECT
-				$1, $2, $3, $4, $5, $6, $7, $8, $9,
-				ST_GeomFromText($10, 4326)::geometry(Polygon, 4326)
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+				ST_GeomFromText($11, 4326)::geometry(Polygon, 4326)
 			WHERE NOT EXISTS (
 				SELECT 1
-				FROM building
+				FROM assets
 				WHERE acquisition_id = $1
 				  AND parcel_id = $2
-				  AND building_number = $3
+				  AND asset_number = $3
 			)
 		`,
 			acqID,
-			b.parcelID,
-			b.buildingNumber,
-			b.buildingType,
-			b.floorCount,
-			b.areaM2,
-			b.ownerName,
-			b.address,
-			b.notes,
-			b.geometryWKT,
+			a.parcelID,
+			a.assetNumber,
+			a.assetType,
+			a.assetName,
+			a.floorCount,
+			a.areaM2,
+			a.ownerName,
+			a.address,
+			a.notes,
+			a.geometryWKT,
 		)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() > 0 {
-			slog.Info("building seeded", "parcel_id", b.parcelID, "building_number", b.buildingNumber)
+			slog.Info("asset seeded", "parcel_id", a.parcelID, "asset_number", a.assetNumber)
 		}
 	}
 

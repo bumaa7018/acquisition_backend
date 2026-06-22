@@ -1,1 +1,1 @@
-DROP TABLE IF EXISTS building;
+DROP TABLE IF EXISTS assets;

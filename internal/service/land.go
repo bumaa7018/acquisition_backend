@@ -12,6 +12,7 @@ import (
 )
 
 type LandService interface {
+	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error)
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
@@ -23,13 +24,14 @@ type LandService interface {
 	SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
-	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy string) (*domain.LandAcquisition, error)
+	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
-	ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error)
-	CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
-	UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error)
-	DeleteBuilding(ctx context.Context, id uuid.UUID) error
+	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
+	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
+	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
+	DeleteAsset(ctx context.Context, id uuid.UUID) error
 	// Compensation
 	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
@@ -74,6 +76,10 @@ func NewLandService(
 // Алхам:
 //  1. auth DB-аас plan_code-р төлөвлөгөө хайна
 //  2. Shapefile zip задалж polygon WKT гаргана
+func (s *landService) ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error) {
+	return s.landRepo.ListConstructionTypes(ctx)
+}
+
 //  3. PostGIS-аар чөлөөлөх хилийг төлөвлөгөөний хилтэй шалгана
 //  4. land_acquisition үүсгэнэ
 //  5. Огтлолцох баг (au3) олж холбоно
@@ -114,15 +120,16 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		Status:          domain.LandAcquisitionStatusNew,
 		StartDate:       &req.StartDate,
 		EndDate:         &req.EndDate,
-		AcquisitionName: req.AcquisitionName,
-		ImplementingOrg: req.ImplementingOrg,
-		Reason:          req.Reason,
-		ResponsibleOrg:  req.ResponsibleOrg,
-		FundingSource:   req.FundingSource,
-		CreatedAt:       now,
-		CreatedBy:       req.CreatedBy,
-		UpdatedAt:       now,
-		UpdatedBy:       req.CreatedBy,
+		AcquisitionName:    req.AcquisitionName,
+		ImplementingOrg:    req.ImplementingOrg,
+		Reason:             req.Reason,
+		ResponsibleOrg:     req.ResponsibleOrg,
+		FundingSource:      req.FundingSource,
+		ConstructionTypeID: req.ConstructionTypeID,
+		CreatedAt:          now,
+		CreatedBy:          req.CreatedBy,
+		UpdatedAt:          now,
+		UpdatedBy:          req.CreatedBy,
 	}
 
 	if err := s.landRepo.Create(ctx, acq); err != nil {
@@ -225,6 +232,7 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	acq.Reason = req.Reason
 	acq.ResponsibleOrg = req.ResponsibleOrg
 	acq.FundingSource = req.FundingSource
+	acq.ConstructionTypeID = req.ConstructionTypeID
 	acq.UpdatedBy = req.UpdatedBy
 
 	if err := s.landRepo.Update(ctx, acq); err != nil {
@@ -338,7 +346,7 @@ func (s *landService) GetAvailableStatuses(ctx context.Context, acquisitionID uu
 }
 
 // AdvanceStatus — сонгосон статус руу шилжүүлнэ
-func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy string) (*domain.LandAcquisition, error) {
+func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error) {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -349,6 +357,11 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 	}
 	if _, ok := domain.AcquisitionStatusLabels[toStatus]; !ok {
 		return nil, domain.ErrInvalidInput
+	}
+
+	// status=3 (Баталгаажсан) болоход НЗД-ын захирамжийн мэдээлэл заавал шаардагдана
+	if toStatus == 3 && (decreeNumber == "" || decreeDate == nil) {
+		return nil, domain.ErrDecreeRequired
 	}
 
 	progress := &domain.AcquisitionProgress{
@@ -368,8 +381,21 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 		return nil, domain.ErrInternalServer
 	}
 
+	if decreeNumber != "" && decreeDate != nil {
+		if err := s.landRepo.UpdateDecree(ctx, acquisitionID, decreeNumber, decreeDate); err != nil {
+			return nil, domain.ErrInternalServer
+		}
+		acq.DecreeNumber = decreeNumber
+		acq.DecreeDate = decreeDate
+	}
+
 	acq.Status = toStatus
 	return acq, nil
+}
+
+// UpdateParcelMeta — нэгж талбарын мэдээллийн сангийн өөрчлөлтийн мэдээллийг шинэчлэнэ
+func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
+	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID)
 }
 
 // SetParcelCompensation — нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэнэ
@@ -386,34 +412,34 @@ func (s *landService) ListGlobalParcels(ctx context.Context, filter domain.Globa
 	return list, total, nil
 }
 
-// ListBuildings — чөлөөлөлтөд хамаарах барилгын мэдээллийн жагсаалт
-func (s *landService) ListBuildings(ctx context.Context, acquisitionID uuid.UUID, filter domain.BuildingFilter) ([]*domain.Building, int64, error) {
+// ListAssets — чөлөөлөлтөд хамаарах барилгын мэдээллийн жагсаалт
+func (s *landService) ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error) {
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, 0, domain.ErrNotFound
 	}
-	list, total, err := s.landRepo.ListBuildings(ctx, acquisitionID, filter)
+	list, total, err := s.landRepo.ListAssets(ctx, acquisitionID, filter)
 	if err != nil {
 		return nil, 0, domain.ErrInternalServer
 	}
 	return list, total, nil
 }
 
-func (s *landService) CreateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
-	if err := s.landRepo.CreateBuilding(ctx, b); err != nil {
+func (s *landService) CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
+	if err := s.landRepo.CreateAsset(ctx, b); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (s *landService) UpdateBuilding(ctx context.Context, b *domain.Building) (*domain.Building, error) {
-	if err := s.landRepo.UpdateBuilding(ctx, b); err != nil {
+func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
+	if err := s.landRepo.UpdateAsset(ctx, b); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (s *landService) DeleteBuilding(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteBuilding(ctx, id)
+func (s *landService) DeleteAsset(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteAsset(ctx, id)
 }
 
 func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
