@@ -127,6 +127,9 @@ func NewRouter(
 			plans.GET("/suggest", middleware.RequirePermission("land:read"), planH.Suggest)
 		}
 
+		// Дашбоард
+		protected.GET("/dashboard", middleware.RequirePermission("land:read"), landH.Dashboard)
+
 		// Тайлангийн маршрут
 		report := protected.Group("/report")
 		{

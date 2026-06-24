@@ -902,6 +902,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 		       COALESCE(p.compensation_paid,false),
 		       p.created_at, COALESCE(p.created_by,''),
+		       COALESCE(p.status,0),
 		       COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
 		       la.status, la.start_date, la.end_date
 		FROM parcel p
@@ -928,6 +929,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			&gp.RightType, &gp.Landuse, &gp.AreaM2,
 			&gp.CompensationPaid,
 			&gp.CreatedAt, &gp.CreatedBy,
+			&gp.Status,
 			&gp.AcquisitionName, &gp.PlanCode,
 			&gp.AcquisitionStatus, &gp.StartDate, &gp.EndDate,
 		); err != nil {

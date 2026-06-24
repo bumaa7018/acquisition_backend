@@ -1565,3 +1565,39 @@ func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
 	}
 	response.OK(c, nil)
 }
+
+// Dashboard godoc
+// @Summary      Дашбоардын нийлмэл мэдээлэл
+// @Description  Чөлөөлөлт, нэгж талбарын төлөв, тайлан, бүх нэгж талбарыг нэг хүсэлтэд буцаана
+// @Tags         dashboard
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  response.Response
+// @Router       /dashboard [get]
+func (h *LandHandler) Dashboard(c *gin.Context) {
+	summary, err := h.svc.GetDashboard(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	acqs := make([]landAcquisitionResponse, 0, len(summary.Acquisitions))
+	for _, a := range summary.Acquisitions {
+		acqs = append(acqs, toLandAcqResponse(a))
+	}
+	parcels := make([]globalParcelResponse, 0, len(summary.GlobalParcels))
+	for _, p := range summary.GlobalParcels {
+		parcels = append(parcels, toGlobalParcelResponse(p))
+	}
+	reportRows := make([]reportParcelRowResponse, 0, len(summary.ReportRows))
+	for _, r := range summary.ReportRows {
+		reportRows = append(reportRows, toReportParcelRowResponse(r))
+	}
+
+	response.OK(c, dashboardResponse{
+		Acquisitions:   acqs,
+		ParcelStatuses: summary.ParcelStatuses,
+		ReportRows:     reportRows,
+		Parcels:        parcels,
+	})
+}

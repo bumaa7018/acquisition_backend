@@ -253,6 +253,7 @@ type Document struct {
 // GlobalParcel — parcel joined with acquisition info
 type GlobalParcel struct {
 	Parcel
+	Status            int
 	AcquisitionName   string
 	PlanCode          string
 	AcquisitionStatus int
@@ -388,4 +389,12 @@ type ParcelPayment struct {
 	Note      string
 	CreatedAt time.Time
 	CreatedBy string
+}
+
+// DashboardSummary — дашбоардын нийлмэл хариу
+type DashboardSummary struct {
+	Acquisitions  []*LandAcquisition  `json:"acquisitions"`
+	ParcelStatuses []*ParcelStatus    `json:"parcel_statuses"`
+	ReportRows    []*ReportParcelRow  `json:"report_rows"`
+	GlobalParcels []*GlobalParcel     `json:"parcels"`
 }

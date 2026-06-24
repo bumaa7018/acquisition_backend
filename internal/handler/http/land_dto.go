@@ -136,6 +136,13 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 	}
 }
 
+type dashboardResponse struct {
+	Acquisitions   []landAcquisitionResponse  `json:"acquisitions"`
+	ParcelStatuses []*domain.ParcelStatus     `json:"parcel_statuses"`
+	ReportRows     []reportParcelRowResponse  `json:"report_rows"`
+	Parcels        []globalParcelResponse     `json:"parcels"`
+}
+
 type globalParcelResponse struct {
 	ID                string  `json:"id"`
 	ParcelID          string  `json:"parcel_id"`
@@ -147,6 +154,7 @@ type globalParcelResponse struct {
 	AreaM2            float64 `json:"area_m2"`
 	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
 	CompensationPaid  bool    `json:"compensation_paid"`
+	Status            int     `json:"status"`
 	AcquisitionID     string  `json:"acquisition_id"`
 	AcquisitionName   string  `json:"acquisition_name"`
 	PlanCode          string  `json:"plan_code"`
@@ -302,6 +310,7 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 		AreaM2:            p.AreaM2,
 		AcquisitionAreaM2: p.AcquisitionAreaM2,
 		CompensationPaid:  p.CompensationPaid,
+		Status:            p.Status,
 		AcquisitionID:     p.AcquisitionID.String(),
 		AcquisitionName:   p.AcquisitionName,
 		PlanCode:          p.PlanCode,

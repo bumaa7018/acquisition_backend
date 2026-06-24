@@ -310,6 +310,14 @@ func (m *MockLandService) DeleteParcelDocument(ctx context.Context, documentID u
 	return m.Called(ctx, documentID).Error(0)
 }
 
+func (m *MockLandService) GetDashboard(ctx context.Context) (*domain.DashboardSummary, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DashboardSummary), args.Error(1)
+}
+
 type MockUserService struct {
 	mock.Mock
 }

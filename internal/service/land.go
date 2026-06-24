@@ -53,6 +53,7 @@ type LandService interface {
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error
+	GetDashboard(ctx context.Context) (*domain.DashboardSummary, error)
 }
 
 type landService struct {
@@ -625,4 +626,71 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID, parcelID uu
 	}
 
 	return s.landRepo.UpsertParcelRight(ctx, p.ID, acq.ID, holderID, src)
+}
+
+func (s *landService) GetDashboard(ctx context.Context) (*domain.DashboardSummary, error) {
+	type acqResult struct {
+		list  []*domain.LandAcquisition
+		total int64
+		err   error
+	}
+	type statusResult struct {
+		list []*domain.ParcelStatus
+		err  error
+	}
+	type reportResult struct {
+		list []*domain.ReportParcelRow
+		err  error
+	}
+	type parcelResult struct {
+		list []*domain.GlobalParcel
+		err  error
+	}
+
+	acqCh     := make(chan acqResult, 1)
+	statusCh  := make(chan statusResult, 1)
+	reportCh  := make(chan reportResult, 1)
+	parcelCh  := make(chan parcelResult, 1)
+
+	go func() {
+		list, total, err := s.List(ctx, domain.LandAcquisitionFilter{Page: 1, PageSize: 500})
+		acqCh <- acqResult{list, total, err}
+	}()
+	go func() {
+		list, err := s.ListParcelStatuses(ctx)
+		statusCh <- statusResult{list, err}
+	}()
+	go func() {
+		list, _, err := s.ListReportParcels(ctx, domain.ReportParcelFilter{Page: 1, PageSize: 5000})
+		reportCh <- reportResult{list, err}
+	}()
+	go func() {
+		list, _, err := s.ListGlobalParcels(ctx, domain.GlobalParcelFilter{Page: 1, PageSize: 10000})
+		parcelCh <- parcelResult{list, err}
+	}()
+
+	acqRes    := <-acqCh
+	statusRes := <-statusCh
+	reportRes := <-reportCh
+	parcelRes := <-parcelCh
+
+	if acqRes.err != nil {
+		return nil, acqRes.err
+	}
+	if statusRes.err != nil {
+		return nil, statusRes.err
+	}
+	if reportRes.err != nil {
+		return nil, reportRes.err
+	}
+	if parcelRes.err != nil {
+		return nil, parcelRes.err
+	}
+
+	return &domain.DashboardSummary{
+		Acquisitions:   acqRes.list,
+		ParcelStatuses: statusRes.list,
+		ReportRows:     reportRes.list,
+		GlobalParcels:  parcelRes.list,
+	}, nil
 }
