@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
@@ -90,6 +90,15 @@ logs:
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
+
+# seed_mock_data.sql + geometry нөхөлт (дараалан ажиллана)
+seed-mock:
+	psql "$(MAIN_DSN)" -f scripts/seed_mock_data.sql
+	psql "$(MAIN_DSN)" -f scripts/patch_mock_geometry.sql
+
+# Зөвхөн geometry нөхөлт — mock data аль хэдийн орсон үед
+seed-mock-geometry:
+	psql "$(MAIN_DSN)" -f scripts/patch_mock_geometry.sql
 
 deploy:
 	./scripts/deploy.sh

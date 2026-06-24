@@ -33,7 +33,9 @@ func (s *PlansSeeder) seedPlan(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `
 			INSERT INTO plan (id, plan_code, name, boundary_wkt, area_m2, status)
 			VALUES (uuid_generate_v4(), $1, $2, ST_GeomFromText($3, 4326)::geometry(Polygon, 4326), $4, 2)
-			ON CONFLICT (plan_code) DO NOTHING
+			ON CONFLICT (plan_code) DO UPDATE SET
+				boundary_wkt = CASE WHEN plan.boundary_wkt IS NULL
+				                    THEN EXCLUDED.boundary_wkt ELSE plan.boundary_wkt END
 		`,
 		"PLAN-2024-001",
 		"Зуунмод сумын газар зохион байгуулалтын ерөнхий төлөвлөгөө 2024",

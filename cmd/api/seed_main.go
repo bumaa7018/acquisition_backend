@@ -49,6 +49,10 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.seedExtraParcels(ctx, acqID); err != nil {
+		return err
+	}
+
 	return s.seedAssets(ctx, acqID)
 }
 
@@ -135,17 +139,8 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 func (s *MainSeeder) seedLandAcquisition(ctx context.Context) (uuid.UUID, error) {
 	const planWKT = "POLYGON((106.75 47.65, 106.90 47.65, 106.90 47.80, 106.75 47.80, 106.75 47.65))"
 
-	// Аль хэдийн оруулсан бол ID-г буцаана
 	var id uuid.UUID
-	err := s.db.QueryRow(ctx,
-		"SELECT id FROM land_acquisition WHERE plan_code = $1 LIMIT 1", "LA-2024-001",
-	).Scan(&id)
-	if err == nil {
-		slog.Info("land_acquisition already seeded", "id", id)
-		return id, nil
-	}
-
-	err = s.db.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		INSERT INTO land_acquisition (
 			id, plan_id, plan_code,
 			plan_geom, plan_area_m2,
@@ -153,14 +148,20 @@ func (s *MainSeeder) seedLandAcquisition(ctx context.Context) (uuid.UUID, error)
 			status, start_date, end_date,
 			created_by, updated_by
 		) VALUES (
-				uuid_generate_v4(),
-				uuid_generate_v4(),
-				$1,
-				ST_GeomFromText($2, 4326)::geometry(Polygon, 4326), $3,
-				ST_GeomFromText($4, 4326)::geometry(Polygon, 4326), $5,
-				$6, $7, $8,
-				'system', 'system'
-			)
+			uuid_generate_v4(),
+			uuid_generate_v4(),
+			$1,
+			ST_GeomFromText($2, 4326)::geometry(Polygon, 4326), $3,
+			ST_GeomFromText($4, 4326)::geometry(Polygon, 4326), $5,
+			$6, $7, $8,
+			'system', 'system'
+		)
+		ON CONFLICT (plan_code) DO UPDATE SET
+			plan_geom  = CASE WHEN land_acquisition.plan_geom IS NULL
+			                  THEN EXCLUDED.plan_geom ELSE land_acquisition.plan_geom END,
+			geometry   = CASE WHEN land_acquisition.geometry IS NULL
+			                  THEN EXCLUDED.geometry   ELSE land_acquisition.geometry   END,
+			updated_at = NOW()
 		RETURNING id
 	`,
 		"LA-2024-001",
@@ -236,6 +237,7 @@ func (s *MainSeeder) seedLandHolder(ctx context.Context) (uuid.UUID, error) {
 // seedParcel — нэгж талбар (газрын мэдээлэл)
 // Газрын талбай: чөлөөлөх зоны дотор (~85,000 м²)
 func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID, error) {
+	const geomWKT = "POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))"
 	var id uuid.UUID
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO parcel (
@@ -243,17 +245,29 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 			acquisition_id,
 			valid_from, valid_till,
 			au1_code, au2_code, au3_code,
-			geometry, right_type, landuse, area_m2,
+			geometry,
+			acquisition_geom,
+			right_type, landuse, area_m2,
 			created_by, updated_by
 		) VALUES (
 			uuid_generate_v4(), $1, $2,
 				$3,
 				$4, NULL,
 				$5, $6, $7,
-				ST_GeomFromText($8, 4326)::geometry(Polygon, 4326), $9, $10, $11,
+				ST_GeomFromText($8, 4326)::geometry(Polygon, 4326),
+				ST_Intersection(
+					ST_GeomFromText($8, 4326)::geometry(Polygon, 4326),
+					(SELECT geometry FROM land_acquisition WHERE id = $3)
+				)::geometry(Polygon, 4326),
+				$9, $10, $11,
 				'system', 'system'
 			)
-		ON CONFLICT (parcel_id) DO UPDATE SET updated_at = NOW()
+		ON CONFLICT (parcel_id) DO UPDATE SET
+			geometry         = CASE WHEN parcel.geometry IS NULL
+			                        THEN EXCLUDED.geometry         ELSE parcel.geometry         END,
+			acquisition_geom = CASE WHEN parcel.acquisition_geom IS NULL
+			                        THEN EXCLUDED.acquisition_geom ELSE parcel.acquisition_geom END,
+			updated_at       = NOW()
 		RETURNING id
 	`,
 		"010101000001",
@@ -261,7 +275,7 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 		acqID,
 		time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		"01", "0101", "010101",
-		"POLYGON((106.76 47.66, 106.82 47.66, 106.82 47.72, 106.76 47.72, 106.76 47.66))",
+		geomWKT,
 		3, // OWNERSHIP
 		"AGRICULTURAL",
 		85000.0,
@@ -271,6 +285,164 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 	}
 	slog.Info("parcel seeded", "id", id, "parcel_id", "010101000001")
 	return id, nil
+}
+
+// seedExtraParcels — 2-р болон 3-р нэгж талбарыг эзэмшигч, эрх зүйн мэдээлэлтэй нэмнэ.
+// source_parcel-тай тохирсон geometry, holder мэдээллийг ашиглана.
+func (s *MainSeeder) seedExtraParcels(ctx context.Context, acqID uuid.UUID) error {
+	type parcelEntry struct {
+		parcelID    string
+		oldParcelID string
+		geometryWKT string
+		rightType   int
+		landuse     string
+		areaM2      float64
+		lastName    string
+		holderName  string
+		regNo       string
+		phone       string
+		email       string
+		holderType  string
+		civilID     string
+		appNo       string
+		decisionNo  string
+		contractNo  string
+		certNo      string
+	}
+
+	entries := []parcelEntry{
+		{
+			parcelID:    "010101000002",
+			oldParcelID: "01010100000002",
+			geometryWKT: "POLYGON((106.82 47.66, 106.88 47.66, 106.88 47.72, 106.82 47.72, 106.82 47.66))",
+			rightType:   2, landuse: "RESIDENTIAL", areaM2: 1200.0,
+			lastName: "Гантулга", holderName: "Мөнхбаяр", regNo: "ДА95041512",
+			phone: "+97699112233", email: "munkhbayar@example.mn",
+			holderType: "INDIVIDUAL", civilID: "МН9087654",
+			appNo: "ГМТ-2024-002", decisionNo: "ТЗД-2024/002",
+			contractNo: "ГЭ-2024-002", certNo: "01-002-2024",
+		},
+		{
+			parcelID:    "010101000003",
+			oldParcelID: "01010100000003",
+			geometryWKT: "POLYGON((106.76 47.72, 106.84 47.72, 106.84 47.78, 106.76 47.78, 106.76 47.72))",
+			rightType:   3, landuse: "COMMERCIAL", areaM2: 5600.0,
+			lastName: "", holderName: "Монгол Орон ХХК", regNo: "7700012345",
+			phone: "+97677001234", email: "info@mongolornon.mn",
+			holderType: "LEGAL_ENTITY", civilID: "",
+			appNo: "ГМТ-2024-003", decisionNo: "ТЗД-2024/003",
+			contractNo: "ГЭ-2024-003", certNo: "01-003-2024",
+		},
+	}
+
+	for _, e := range entries {
+		var holderID uuid.UUID
+		if err := s.db.QueryRow(ctx, `
+			INSERT INTO right_holder (
+				id, last_name, name, register_no,
+				address, phone, email, holder_type, civil_id,
+				created_by, updated_by
+			) VALUES (
+				uuid_generate_v4(), $1, $2, $3,
+				$4, $5, $6, $7, $8,
+				'system', 'system'
+			)
+			ON CONFLICT (register_no) DO UPDATE SET updated_at = NOW()
+			RETURNING id
+		`,
+			e.lastName, e.holderName, e.regNo,
+			"", e.phone, e.email, e.holderType, e.civilID,
+		).Scan(&holderID); err != nil {
+			return err
+		}
+		slog.Info("right_holder seeded", "register_no", e.regNo, "name", e.holderName)
+
+		var parcelID uuid.UUID
+		if err := s.db.QueryRow(ctx, `
+			INSERT INTO parcel (
+				id, parcel_id, old_parcel_id,
+				acquisition_id,
+				valid_from, valid_till,
+				au1_code, au2_code, au3_code,
+				geometry,
+				acquisition_geom,
+				right_type, landuse, area_m2,
+				created_by, updated_by
+			) VALUES (
+				uuid_generate_v4(), $1, $2,
+				$3,
+				$4, NULL,
+				$5, $6, $7,
+				ST_GeomFromText($8, 4326)::geometry(Polygon, 4326),
+				ST_Intersection(
+					ST_GeomFromText($8, 4326)::geometry(Polygon, 4326),
+					(SELECT geometry FROM land_acquisition WHERE id = $3)
+				)::geometry(Polygon, 4326),
+				$9, $10, $11,
+				'system', 'system'
+			)
+			ON CONFLICT (parcel_id) DO UPDATE SET
+				geometry         = CASE WHEN parcel.geometry IS NULL
+				                        THEN EXCLUDED.geometry         ELSE parcel.geometry         END,
+				acquisition_geom = CASE WHEN parcel.acquisition_geom IS NULL
+				                        THEN EXCLUDED.acquisition_geom ELSE parcel.acquisition_geom END,
+				updated_at       = NOW()
+			RETURNING id
+		`,
+			e.parcelID, e.oldParcelID,
+			acqID,
+			time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			"01", "0101", "010101",
+			e.geometryWKT,
+			e.rightType, e.landuse, e.areaM2,
+		).Scan(&parcelID); err != nil {
+			return err
+		}
+		slog.Info("parcel seeded", "parcel_id", e.parcelID)
+
+		var count int
+		if err := s.db.QueryRow(ctx,
+			"SELECT COUNT(*) FROM parcel_detail WHERE parcel_id = $1", parcelID,
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+
+		if _, err := s.db.Exec(ctx, `
+			INSERT INTO parcel_detail (
+				id,
+				parcel_id, acquisition_id, right_type, holder_id,
+				app_no, app_timestamps,
+				decision_no, decision_date,
+				contract_no, contract_date,
+				certificate_no, certificate_date,
+				valuation_zone, base_price_per_ha, auction_coeff, auction_price,
+				created_by, updated_by
+			) VALUES (
+				uuid_generate_v4(),
+				$1, $2, $3, $4,
+				$5, $6,
+				$7, $8,
+				$9, $10,
+				$11, $12,
+				$13, $14, $15, $16,
+				'system', 'system'
+			)
+		`,
+			parcelID, acqID, e.rightType, holderID,
+			e.appNo, time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+			e.decisionNo, time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC),
+			e.contractNo, time.Date(2024, 4, 1, 0, 0, 0, 0, time.UTC),
+			e.certNo, time.Date(2024, 4, 15, 0, 0, 0, 0, time.UTC),
+			"А бүс, 1-р зэрэглэл", 450_000_000.0, 1.2, 540_000_000.0,
+		); err != nil {
+			return err
+		}
+		slog.Info("parcel_detail seeded", "parcel_id", e.parcelID)
+	}
+	return nil
 }
 
 // seedParcelDetail — нэгж талбарын эрх зүйн мэдээлэл (parcel_detail хүснэгтэд)
