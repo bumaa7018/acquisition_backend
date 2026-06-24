@@ -56,6 +56,11 @@ func (m *MockLandService) ListConstructionTypes(ctx context.Context) ([]*domain.
 	return args.Get(0).([]*domain.ConstructionType), args.Error(1)
 }
 
+func (m *MockLandService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
+}
+
 func (m *MockLandService) List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error) {
 	args := m.Called(ctx, filter)
 	if args.Get(0) == nil {

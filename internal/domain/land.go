@@ -92,6 +92,14 @@ type ConstructionType struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+// ParcelStatus — нэгж талбарын төлөв (lookup)
+type ParcelStatus struct {
+	ID        int    `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
 	ID                   uuid.UUID

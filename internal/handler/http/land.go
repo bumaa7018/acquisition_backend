@@ -32,6 +32,16 @@ func (h *LandHandler) ListConstructionTypes(c *gin.Context) {
 	response.OK(c, list)
 }
 
+// ListParcelStatuses returns all parcel status lookup records.
+func (h *LandHandler) ListParcelStatuses(c *gin.Context) {
+	list, err := h.svc.ListParcelStatuses(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
 // List godoc
 // @Summary      Газар чөлөөлөлтийн жагсаалт
 // @Tags         land-acquisitions

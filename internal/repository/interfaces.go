@@ -59,6 +59,7 @@ type PlanRepository interface {
 // LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ
 type LandAcquisitionRepository interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
+	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)

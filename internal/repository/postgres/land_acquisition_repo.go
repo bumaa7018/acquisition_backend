@@ -35,6 +35,23 @@ func (r *landAcqRepo) ListConstructionTypes(ctx context.Context) ([]*domain.Cons
 	return result, rows.Err()
 }
 
+func (r *landAcqRepo) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order FROM parcel_status ORDER BY sort_order`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.ParcelStatus
+	for rows.Next() {
+		status := &domain.ParcelStatus{}
+		if err := rows.Scan(&status.ID, &status.Code, &status.Name, &status.SortOrder); err != nil {
+			return nil, err
+		}
+		result = append(result, status)
+	}
+	return result, rows.Err()
+}
+
 func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO land_acquisition (

@@ -13,6 +13,7 @@ import (
 
 type LandService interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
+	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 	Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error)
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
@@ -81,10 +82,14 @@ func (s *landService) ListConstructionTypes(ctx context.Context) ([]*domain.Cons
 	return s.landRepo.ListConstructionTypes(ctx)
 }
 
-//  3. PostGIS-аар чөлөөлөх хилийг төлөвлөгөөний хилтэй шалгана
-//  4. land_acquisition үүсгэнэ
-//  5. Огтлолцох баг (au3) олж холбоно
-//  6. auth DB-аас нэгж талбар татаж, давхцахыг шалгаж main DB-д хадгална
+func (s *landService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
+	return s.landRepo.ListParcelStatuses(ctx)
+}
+
+// 3. PostGIS-аар чөлөөлөх хилийг төлөвлөгөөний хилтэй шалгана
+// 4. land_acquisition үүсгэнэ
+// 5. Огтлолцох баг (au3) олж холбоно
+// 6. auth DB-аас нэгж талбар татаж, давхцахыг шалгаж main DB-д хадгална
 func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error) {
 	// 1. Төлөвлөгөө хайх (auth DB)
 	plan, err := s.planRepo.GetByCode(ctx, req.PlanCode)
@@ -111,16 +116,16 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 	now := time.Now()
 	planIDCopy := plan.ID
 	acq := &domain.LandAcquisition{
-		ID:              uuid.New(),
-		PlanID:          &planIDCopy,
-		PlanCode:        plan.PlanCode,
-		PlanName:        plan.Name,
-		PlanGeomWKT:     plan.BoundaryWKT,
-		PlanAreaM2:      plan.AreaM2,
-		GeometryWKT:     acqWKT,
-		Status:          domain.LandAcquisitionStatusNew,
-		StartDate:       &req.StartDate,
-		EndDate:         &req.EndDate,
+		ID:                 uuid.New(),
+		PlanID:             &planIDCopy,
+		PlanCode:           plan.PlanCode,
+		PlanName:           plan.Name,
+		PlanGeomWKT:        plan.BoundaryWKT,
+		PlanAreaM2:         plan.AreaM2,
+		GeometryWKT:        acqWKT,
+		Status:             domain.LandAcquisitionStatusNew,
+		StartDate:          &req.StartDate,
+		EndDate:            &req.EndDate,
 		AcquisitionName:    req.AcquisitionName,
 		ImplementingOrg:    req.ImplementingOrg,
 		Reason:             req.Reason,

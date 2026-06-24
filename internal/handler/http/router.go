@@ -85,6 +85,7 @@ func NewRouter(
 
 		// Lookup
 		protected.GET("/construction-types", middleware.RequirePermission("land:read"), landH.ListConstructionTypes)
+		protected.GET("/parcel-statuses", middleware.RequirePermission("land:read"), landH.ListParcelStatuses)
 
 		// Газар чөлөөлөлт
 		land := protected.Group("/land-acquisitions")
