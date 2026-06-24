@@ -93,12 +93,18 @@ seed:
 
 # seed_mock_data.sql + geometry нөхөлт (дараалан ажиллана)
 seed-mock:
-	psql "$(MAIN_DSN)" -f scripts/seed_mock_data.sql
-	psql "$(MAIN_DSN)" -f scripts/patch_mock_geometry.sql
+	docker exec -i $$($(COMPOSE) ps -q postgres) \
+		psql -U $${DB_USER:-postgres} -d $${DB_NAME:-appdb} \
+		< scripts/seed_mock_data.sql
+	docker exec -i $$($(COMPOSE) ps -q postgres) \
+		psql -U $${DB_USER:-postgres} -d $${DB_NAME:-appdb} \
+		< scripts/patch_mock_geometry.sql
 
 # Зөвхөн geometry нөхөлт — mock data аль хэдийн орсон үед
 seed-mock-geometry:
-	psql "$(MAIN_DSN)" -f scripts/patch_mock_geometry.sql
+	docker exec -i $$($(COMPOSE) ps -q postgres) \
+		psql -U $${DB_USER:-postgres} -d $${DB_NAME:-appdb} \
+		< scripts/patch_mock_geometry.sql
 
 deploy:
 	./scripts/deploy.sh
