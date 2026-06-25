@@ -1,10 +1,13 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
     branches:
       - main
-  workflow_dispatch:
+    types:
+      - completed
 
 concurrency:
   group: production-deploy
@@ -14,6 +17,7 @@ jobs:
   deploy:
     name: Deploy to server
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Deploy over SSH
