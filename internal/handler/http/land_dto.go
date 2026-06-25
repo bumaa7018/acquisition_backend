@@ -134,7 +134,7 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 		Note:           d.Note,
 		UploadedBy:     d.UploadedBy,
 		DocumentTypeID: d.DocumentTypeID,
-		UploadedAt: d.UploadedAt.Format(time.RFC3339),
+		UploadedAt:     d.UploadedAt.Format(time.RFC3339),
 	}
 }
 
