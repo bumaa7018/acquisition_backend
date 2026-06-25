@@ -82,6 +82,7 @@ func main() {
 	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
 	planRepo := postgres.NewPlanRepo(authDB)
 	landAcqRepo := postgres.NewLandAcquisitionRepo(mainDB)
+	progressTypeRepo := postgres.NewProgressTypeRepo(mainDB)
 
 	jwtManager := jwtpkg.NewManager(
 		cfg.JWT.AccessSecret,
@@ -108,6 +109,7 @@ func main() {
 	fileStorage := filestorage.NewMockStorage(cfg.FileServer.BaseURL, cfg.FileServer.LocalDir)
 	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage)
 	planSvc := service.NewPlanService(planRepo)
+	progressTypeSvc := service.NewProgressTypeService(progressTypeRepo)
 
 	if err := ensureSeedHistory(ctx, mainDB); err != nil {
 		slog.Error("failed to create seed_history", "error", err)
@@ -156,7 +158,7 @@ func main() {
 		},
 	})
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, progressTypeSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.App.Port,

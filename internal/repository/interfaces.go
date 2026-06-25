@@ -111,3 +111,11 @@ type LandAcquisitionRepository interface {
 	DeleteDocument(ctx context.Context, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
 }
+
+type ProgressTypeRepository interface {
+	List(ctx context.Context) ([]*domain.ProgressType, error)
+	GetByID(ctx context.Context, id int) (*domain.ProgressType, error)
+	Create(ctx context.Context, pt *domain.ProgressType) error
+	Update(ctx context.Context, pt *domain.ProgressType) error
+	Delete(ctx context.Context, id int) error
+}

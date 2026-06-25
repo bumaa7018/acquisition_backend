@@ -20,6 +20,7 @@ func NewRouter(
 	permSvc service.PermissionService,
 	landSvc service.LandService,
 	planSvc service.PlanService,
+	progressTypeSvc service.ProgressTypeService,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -39,6 +40,7 @@ func NewRouter(
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
 	planH := NewPlanHandler(planSvc)
+	progressTypeH := NewProgressTypeHandler(progressTypeSvc)
 
 	v1 := r.Group("/api/v1")
 
@@ -125,6 +127,16 @@ func NewRouter(
 		{
 			plans.GET("/search", middleware.RequirePermission("land:read"), planH.Search)
 			plans.GET("/suggest", middleware.RequirePermission("land:read"), planH.Suggest)
+		}
+
+		// Явцын төрөл
+		progressTypes := protected.Group("/progress-types")
+		{
+			progressTypes.GET("", middleware.RequirePermission("land:read"), progressTypeH.List)
+			progressTypes.GET("/:id", middleware.RequirePermission("land:read"), progressTypeH.GetByID)
+			progressTypes.POST("", middleware.RequirePermission("land:create"), progressTypeH.Create)
+			progressTypes.PUT("/:id", middleware.RequirePermission("land:update"), progressTypeH.Update)
+			progressTypes.DELETE("/:id", middleware.RequirePermission("land:delete"), progressTypeH.Delete)
 		}
 
 		// Дашбоард
