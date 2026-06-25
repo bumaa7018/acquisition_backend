@@ -20,7 +20,9 @@ func NewRouter(
 	permSvc service.PermissionService,
 	landSvc service.LandService,
 	planSvc service.PlanService,
-	progressTypeSvc service.ProgressTypeService,
+	acquisitionProgressStatusSvc service.AcquisitionProgressStatusService,
+	parcelStatusSvc service.ParcelStatusService,
+	documentTypeSvc service.DocumentTypeService,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -40,7 +42,9 @@ func NewRouter(
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
 	planH := NewPlanHandler(planSvc)
-	progressTypeH := NewProgressTypeHandler(progressTypeSvc)
+	acquisitionProgressStatusH := NewAcquisitionProgressStatusHandler(acquisitionProgressStatusSvc)
+	parcelStatusH := NewParcelStatusHandler(parcelStatusSvc)
+	documentTypeH := NewDocumentTypeHandler(documentTypeSvc)
 
 	v1 := r.Group("/api/v1")
 
@@ -87,7 +91,6 @@ func NewRouter(
 
 		// Lookup
 		protected.GET("/construction-types", middleware.RequirePermission("land:read"), landH.ListConstructionTypes)
-		protected.GET("/parcel-statuses", middleware.RequirePermission("land:read"), landH.ListParcelStatuses)
 
 		// Газар чөлөөлөлт
 		land := protected.Group("/land-acquisitions")
@@ -130,14 +133,34 @@ func NewRouter(
 			plans.GET("/suggest", middleware.RequirePermission("land:read"), planH.Suggest)
 		}
 
-		// Явцын төрөл
-		progressTypes := protected.Group("/progress-types")
+		// Чөлөөлөлтийн явцын статус
+		acquisitionProgressStatuses := protected.Group("/acquisition-progress-statuses")
 		{
-			progressTypes.GET("", middleware.RequirePermission("land:read"), progressTypeH.List)
-			progressTypes.GET("/:id", middleware.RequirePermission("land:read"), progressTypeH.GetByID)
-			progressTypes.POST("", middleware.RequirePermission("land:create"), progressTypeH.Create)
-			progressTypes.PUT("/:id", middleware.RequirePermission("land:update"), progressTypeH.Update)
-			progressTypes.DELETE("/:id", middleware.RequirePermission("land:delete"), progressTypeH.Delete)
+			acquisitionProgressStatuses.GET("", middleware.RequirePermission("land:read"), acquisitionProgressStatusH.List)
+			acquisitionProgressStatuses.GET("/:id", middleware.RequirePermission("land:read"), acquisitionProgressStatusH.GetByID)
+			acquisitionProgressStatuses.POST("", middleware.RequirePermission("land:create"), acquisitionProgressStatusH.Create)
+			acquisitionProgressStatuses.PUT("/:id", middleware.RequirePermission("land:update"), acquisitionProgressStatusH.Update)
+			acquisitionProgressStatuses.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionProgressStatusH.Delete)
+		}
+
+		// Нэгж талбарын статус
+		parcelStatuses := protected.Group("/parcel-statuses")
+		{
+			parcelStatuses.GET("", middleware.RequirePermission("land:read"), parcelStatusH.List)
+			parcelStatuses.GET("/:id", middleware.RequirePermission("land:read"), parcelStatusH.GetByID)
+			parcelStatuses.POST("", middleware.RequirePermission("land:create"), parcelStatusH.Create)
+			parcelStatuses.PUT("/:id", middleware.RequirePermission("land:update"), parcelStatusH.Update)
+			parcelStatuses.DELETE("/:id", middleware.RequirePermission("land:delete"), parcelStatusH.Delete)
+		}
+
+		// Баримт бичгийн төрөл
+		documentTypes := protected.Group("/document-types")
+		{
+			documentTypes.GET("", middleware.RequirePermission("land:read"), documentTypeH.List)
+			documentTypes.GET("/:id", middleware.RequirePermission("land:read"), documentTypeH.GetByID)
+			documentTypes.POST("", middleware.RequirePermission("land:create"), documentTypeH.Create)
+			documentTypes.PUT("/:id", middleware.RequirePermission("land:update"), documentTypeH.Update)
+			documentTypes.DELETE("/:id", middleware.RequirePermission("land:delete"), documentTypeH.Delete)
 		}
 
 		// Дашбоард

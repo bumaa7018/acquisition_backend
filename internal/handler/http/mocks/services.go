@@ -97,6 +97,14 @@ func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *MockLandService) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
+}
+
 func (m *MockLandService) GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error) {
 	args := m.Called(ctx, acquisitionID, filter)
 	if args.Get(0) == nil {
@@ -440,6 +448,120 @@ func (m *MockPermissionService) Create(ctx context.Context, req service.CreatePe
 }
 
 func (m *MockPermissionService) Delete(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+type MockAcquisitionProgressStatusService struct{ mock.Mock }
+
+func (m *MockAcquisitionProgressStatusService) List(ctx context.Context) ([]*domain.AcquisitionProgressStatus, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AcquisitionProgressStatus), args.Error(1)
+}
+
+func (m *MockAcquisitionProgressStatusService) GetByID(ctx context.Context, id int) (*domain.AcquisitionProgressStatus, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
+}
+
+func (m *MockAcquisitionProgressStatusService) Create(ctx context.Context, req service.CreateAcquisitionProgressStatusRequest) (*domain.AcquisitionProgressStatus, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
+}
+
+func (m *MockAcquisitionProgressStatusService) Update(ctx context.Context, id int, req service.UpdateAcquisitionProgressStatusRequest) (*domain.AcquisitionProgressStatus, error) {
+	args := m.Called(ctx, id, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
+}
+
+func (m *MockAcquisitionProgressStatusService) Delete(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+type MockParcelStatusService struct{ mock.Mock }
+
+func (m *MockParcelStatusService) List(ctx context.Context) ([]*domain.ParcelStatus, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockParcelStatusService) GetByID(ctx context.Context, id int) (*domain.ParcelStatus, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockParcelStatusService) Create(ctx context.Context, req service.CreateParcelStatusRequest) (*domain.ParcelStatus, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockParcelStatusService) Update(ctx context.Context, id int, req service.UpdateParcelStatusRequest) (*domain.ParcelStatus, error) {
+	args := m.Called(ctx, id, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockParcelStatusService) Delete(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+type MockDocumentTypeService struct{ mock.Mock }
+
+func (m *MockDocumentTypeService) List(ctx context.Context) ([]*domain.DocumentType, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.DocumentType), args.Error(1)
+}
+
+func (m *MockDocumentTypeService) GetByID(ctx context.Context, id int) (*domain.DocumentType, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentType), args.Error(1)
+}
+
+func (m *MockDocumentTypeService) Create(ctx context.Context, req service.CreateDocumentTypeRequest) (*domain.DocumentType, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentType), args.Error(1)
+}
+
+func (m *MockDocumentTypeService) Update(ctx context.Context, id int, req service.UpdateDocumentTypeRequest) (*domain.DocumentType, error) {
+	args := m.Called(ctx, id, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentType), args.Error(1)
+}
+
+func (m *MockDocumentTypeService) Delete(ctx context.Context, id int) error {
 	return m.Called(ctx, id).Error(0)
 }
 

@@ -114,10 +114,26 @@ type LandAcquisitionRepository interface {
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
 }
 
-type ProgressTypeRepository interface {
-	List(ctx context.Context) ([]*domain.ProgressType, error)
-	GetByID(ctx context.Context, id int) (*domain.ProgressType, error)
-	Create(ctx context.Context, pt *domain.ProgressType) error
-	Update(ctx context.Context, pt *domain.ProgressType) error
+type AcquisitionProgressStatusRepository interface {
+	List(ctx context.Context) ([]*domain.AcquisitionProgressStatus, error)
+	GetByID(ctx context.Context, id int) (*domain.AcquisitionProgressStatus, error)
+	Create(ctx context.Context, aps *domain.AcquisitionProgressStatus) error
+	Update(ctx context.Context, aps *domain.AcquisitionProgressStatus) error
+	Delete(ctx context.Context, id int) error
+}
+
+type ParcelStatusRepository interface {
+	List(ctx context.Context) ([]*domain.ParcelStatus, error)
+	GetByID(ctx context.Context, id int) (*domain.ParcelStatus, error)
+	Create(ctx context.Context, ps *domain.ParcelStatus) error
+	Update(ctx context.Context, ps *domain.ParcelStatus) error
+	Delete(ctx context.Context, id int) error
+}
+
+type DocumentTypeRepository interface {
+	List(ctx context.Context) ([]*domain.DocumentType, error)
+	GetByID(ctx context.Context, id int) (*domain.DocumentType, error)
+	Create(ctx context.Context, dt *domain.DocumentType) error
+	Update(ctx context.Context, dt *domain.DocumentType) error
 	Delete(ctx context.Context, id int) error
 }

@@ -9,15 +9,15 @@ import (
 	"github.com/your-org/go-api-template/internal/service"
 )
 
-type ProgressTypeHandler struct {
-	svc service.ProgressTypeService
+type AcquisitionProgressStatusHandler struct {
+	svc service.AcquisitionProgressStatusService
 }
 
-func NewProgressTypeHandler(svc service.ProgressTypeService) *ProgressTypeHandler {
-	return &ProgressTypeHandler{svc: svc}
+func NewAcquisitionProgressStatusHandler(svc service.AcquisitionProgressStatusService) *AcquisitionProgressStatusHandler {
+	return &AcquisitionProgressStatusHandler{svc: svc}
 }
 
-func (h *ProgressTypeHandler) List(c *gin.Context) {
+func (h *AcquisitionProgressStatusHandler) List(c *gin.Context) {
 	list, err := h.svc.List(c.Request.Context())
 	if err != nil {
 		response.Error(c, err)
@@ -26,54 +26,54 @@ func (h *ProgressTypeHandler) List(c *gin.Context) {
 	response.OK(c, list)
 }
 
-func (h *ProgressTypeHandler) GetByID(c *gin.Context) {
+func (h *AcquisitionProgressStatusHandler) GetByID(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	pt, err := h.svc.GetByID(c.Request.Context(), id)
+	aps, err := h.svc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, pt)
+	response.OK(c, aps)
 }
 
-func (h *ProgressTypeHandler) Create(c *gin.Context) {
-	var req service.CreateProgressTypeRequest
+func (h *AcquisitionProgressStatusHandler) Create(c *gin.Context) {
+	var req service.CreateAcquisitionProgressStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	pt, err := h.svc.Create(c.Request.Context(), req)
+	aps, err := h.svc.Create(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, pt)
+	c.JSON(http.StatusCreated, aps)
 }
 
-func (h *ProgressTypeHandler) Update(c *gin.Context) {
+func (h *AcquisitionProgressStatusHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	var req service.UpdateProgressTypeRequest
+	var req service.UpdateAcquisitionProgressStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	pt, err := h.svc.Update(c.Request.Context(), id, req)
+	aps, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, pt)
+	response.OK(c, aps)
 }
 
-func (h *ProgressTypeHandler) Delete(c *gin.Context) {
+func (h *AcquisitionProgressStatusHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -83,5 +83,5 @@ func (h *ProgressTypeHandler) Delete(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+	response.NoContent(c)
 }

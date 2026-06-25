@@ -311,3 +311,19 @@ func (m *MockLandAcquisitionRepository) GetDocument(ctx context.Context, documen
 	}
 	return args.Get(0).(*domain.Document), args.Error(1)
 }
+
+func (m *MockLandAcquisitionRepository) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DashboardSummary), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
+}
