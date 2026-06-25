@@ -42,6 +42,36 @@ func (h *LandHandler) ListParcelStatuses(c *gin.Context) {
 	response.OK(c, list)
 }
 
+// Suggest godoc
+// @Summary      Газар чөлөөлөлт нэр/код-оор autocomplete хайлт
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        q  query  string  true  "Хайх үг (нэр эсвэл план код)"
+// @Success      200  {object}  response.Response
+// @Router       /land-acquisitions/suggest [get]
+func (h *LandHandler) Suggest(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		response.OK(c, []gin.H{})
+		return
+	}
+	list, err := h.svc.Suggest(c.Request.Context(), q)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]gin.H, 0, len(list))
+	for _, a := range list {
+		result = append(result, gin.H{
+			"id":               a.ID,
+			"acquisition_name": a.AcquisitionName,
+			"plan_code":        a.PlanCode,
+		})
+	}
+	response.OK(c, result)
+}
+
 // List godoc
 // @Summary      Газар чөлөөлөлтийн жагсаалт
 // @Tags         land-acquisitions
@@ -1575,7 +1605,17 @@ func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
 // @Success      200  {object}  response.Response
 // @Router       /dashboard [get]
 func (h *LandHandler) Dashboard(c *gin.Context) {
-	summary, err := h.svc.GetDashboard(c.Request.Context())
+	filter := domain.DashboardFilter{
+		AcquisitionID: c.Query("acquisition_id"),
+		PlanCode:      c.Query("plan_code"),
+	}
+	for _, y := range c.QueryArray("year") {
+		if n, err := strconv.Atoi(y); err == nil {
+			filter.Years = append(filter.Years, n)
+		}
+	}
+
+	summary, err := h.svc.GetDashboard(c.Request.Context(), filter)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -1585,19 +1625,17 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	for _, a := range summary.Acquisitions {
 		acqs = append(acqs, toLandAcqResponse(a))
 	}
-	parcels := make([]globalParcelResponse, 0, len(summary.GlobalParcels))
-	for _, p := range summary.GlobalParcels {
-		parcels = append(parcels, toGlobalParcelResponse(p))
-	}
-	reportRows := make([]reportParcelRowResponse, 0, len(summary.ReportRows))
-	for _, r := range summary.ReportRows {
-		reportRows = append(reportRows, toReportParcelRowResponse(r))
-	}
 
 	response.OK(c, dashboardResponse{
-		Acquisitions:   acqs,
-		ParcelStatuses: summary.ParcelStatuses,
-		ReportRows:     reportRows,
-		Parcels:        parcels,
+		Acquisitions:      acqs,
+		ParcelStatuses:    summary.ParcelStatuses,
+		TotalParcels:      summary.TotalParcels,
+		FreedParcels:      summary.FreedParcels,
+		FreedAreaM2:       summary.FreedAreaM2,
+		PlanAreaM2:        summary.PlanAreaM2,
+		TotalOrders:       summary.TotalOrders,
+		TotalCompensation: summary.TotalCompensation,
+		StatusBreakdown:   summary.StatusBreakdown,
+		Timeline:          summary.Timeline,
 	})
 }

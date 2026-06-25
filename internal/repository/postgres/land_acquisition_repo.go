@@ -116,6 +116,15 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, filter.AU3Code)
 		i++
 	}
+	if len(filter.Years) > 0 {
+		placeholders := make([]string, len(filter.Years))
+		for j, yr := range filter.Years {
+			placeholders[j] = fmt.Sprintf("$%d", i)
+			args = append(args, yr)
+			i++
+		}
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM start_date) IN (%s)", strings.Join(placeholders, ","))
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx,
@@ -1471,6 +1480,240 @@ func (r *landAcqRepo) DeleteCompensationGrant(ctx context.Context, id uuid.UUID)
 func (r *landAcqRepo) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
 	_, err := r.db.Exec(ctx, "DELETE FROM compensation_grant WHERE compensation_id=$1", compensationID)
 	return err
+}
+
+func (r *landAcqRepo) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
+		FROM land_acquisition
+		WHERE acquisition_name ILIKE $1 OR plan_code ILIKE $1
+		ORDER BY acquisition_name
+		LIMIT 20
+	`, "%"+q+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.LandAcquisition
+	for rows.Next() {
+		a := &domain.LandAcquisition{}
+		if err := rows.Scan(&a.ID, &a.AcquisitionName, &a.PlanCode); err != nil {
+			return nil, err
+		}
+		result = append(result, a)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
+	// ── шүүлтүүрийн WHERE clause ──────────────────────────────────────────────
+	args := []any{}
+	where := "1=1"
+	i := 1
+
+	if filter.AcquisitionID != "" {
+		where += fmt.Sprintf(" AND id = $%d::uuid", i)
+		args = append(args, filter.AcquisitionID)
+		i++
+	}
+	if filter.PlanCode != "" {
+		where += fmt.Sprintf(" AND plan_code ILIKE $%d", i)
+		args = append(args, "%"+filter.PlanCode+"%")
+		i++
+	}
+	if len(filter.Years) > 0 {
+		placeholders := make([]string, len(filter.Years))
+		for j, yr := range filter.Years {
+			placeholders[j] = fmt.Sprintf("$%d", i)
+			args = append(args, yr)
+			i++
+		}
+		where += fmt.Sprintf(" AND EXTRACT(YEAR FROM start_date) IN (%s)", strings.Join(placeholders, ","))
+	}
+
+	acqSubquery := fmt.Sprintf("SELECT id FROM land_acquisition WHERE %s", where)
+
+	// ── горутинуудаар зэрэгцүүлэн асуулга ────────────────────────────────────
+	type acqRes struct {
+		list []*domain.LandAcquisition
+		err  error
+	}
+	type statusRes struct {
+		list []*domain.ParcelStatus
+		err  error
+	}
+	type statsRes struct {
+		totalParcels int64
+		freedParcels int64
+		freedAreaM2  float64
+		err          error
+	}
+	type breakdownRes struct {
+		rows []domain.ParcelStatusStat
+		err  error
+	}
+	type timelineRes struct {
+		points []domain.TimelinePoint
+		err    error
+	}
+	type compRes struct {
+		total float64
+		err   error
+	}
+
+	acqCh       := make(chan acqRes, 1)
+	statusCh    := make(chan statusRes, 1)
+	statsCh     := make(chan statsRes, 1)
+	breakdownCh := make(chan breakdownRes, 1)
+	timelineCh  := make(chan timelineRes, 1)
+	compCh      := make(chan compRes, 1)
+
+	// 1. Шүүлтэд тохирох чөлөөлөлтүүд
+	go func() {
+		list, _, err := r.List(ctx, domain.LandAcquisitionFilter{
+			PlanCode:      filter.PlanCode,
+			Years:         filter.Years,
+			Page:          1,
+			PageSize:      1000,
+		})
+		// acquisition_id шүүлтүүр байвал нэг л acquisition авна
+		if err == nil && filter.AcquisitionID != "" {
+			filtered := list[:0]
+			for _, a := range list {
+				if a.ID.String() == filter.AcquisitionID {
+					filtered = append(filtered, a)
+					break
+				}
+			}
+			list = filtered
+		}
+		acqCh <- acqRes{list, err}
+	}()
+
+	// 2. Нэгж талбарын төлөвийн lookup
+	go func() {
+		list, err := r.ListParcelStatuses(ctx)
+		statusCh <- statusRes{list, err}
+	}()
+
+	// 3. Нэгж талбарын нийт тоо, чөлөөлөгдсөн тоо, чөлөөлөгдсөн талбай
+	go func() {
+		var total, freed int64
+		var freedArea float64
+		err := r.db.QueryRow(ctx, fmt.Sprintf(`
+			SELECT
+				COUNT(*),
+				COUNT(*) FILTER (WHERE compensation_paid = true),
+				COALESCE(SUM(acquisition_area_m2) FILTER (WHERE compensation_paid = true), 0)
+			FROM parcel
+			WHERE acquisition_id IN (%s)
+		`, acqSubquery), args...).Scan(&total, &freed, &freedArea)
+		statsCh <- statsRes{total, freed, freedArea, err}
+	}()
+
+	// 4. Төлөвийн задаргаа (нэгж талбар бүрийн тоо, талбай)
+	go func() {
+		rows, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT p.status, COALESCE(ps.name, CAST(p.status AS text)),
+			       COUNT(*), COALESCE(SUM(p.acquisition_area_m2), 0)
+			FROM parcel p
+			LEFT JOIN parcel_status ps ON ps.id = p.status
+			WHERE p.acquisition_id IN (%s)
+			GROUP BY p.status, ps.name
+			ORDER BY p.status
+		`, acqSubquery), args...)
+		if err != nil {
+			breakdownCh <- breakdownRes{nil, err}
+			return
+		}
+		defer rows.Close()
+		var result []domain.ParcelStatusStat
+		for rows.Next() {
+			var s domain.ParcelStatusStat
+			if err := rows.Scan(&s.StatusID, &s.Name, &s.Count, &s.AreaM2); err != nil {
+				breakdownCh <- breakdownRes{nil, err}
+				return
+			}
+			result = append(result, s)
+		}
+		breakdownCh <- breakdownRes{result, rows.Err()}
+	}()
+
+	// 5. Цаг хугацааны график (чөлөөлөлтийн эхлэх огноогоор нэгж талбарын тоо)
+	go func() {
+		rows, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT TO_CHAR(la.start_date, 'YYYY.MM.DD'), COUNT(p.id)
+			FROM parcel p
+			JOIN land_acquisition la ON la.id = p.acquisition_id
+			WHERE p.acquisition_id IN (%s)
+			  AND la.start_date IS NOT NULL
+			GROUP BY la.start_date
+			ORDER BY la.start_date
+		`, acqSubquery), args...)
+		if err != nil {
+			timelineCh <- timelineRes{nil, err}
+			return
+		}
+		defer rows.Close()
+		var result []domain.TimelinePoint
+		for rows.Next() {
+			var pt domain.TimelinePoint
+			if err := rows.Scan(&pt.Date, &pt.Count); err != nil {
+				timelineCh <- timelineRes{nil, err}
+				return
+			}
+			result = append(result, pt)
+		}
+		timelineCh <- timelineRes{result, rows.Err()}
+	}()
+
+	// 6. Нийт нөхөн олговорын дүн
+	go func() {
+		var total float64
+		err := r.db.QueryRow(ctx, fmt.Sprintf(`
+			SELECT COALESCE(SUM(c.amount), 0)
+			FROM compensation c
+			WHERE c.acquisition_id IN (%s)
+		`, acqSubquery), args...).Scan(&total)
+		compCh <- compRes{total, err}
+	}()
+
+	// ── үр дүн цуглуулах ─────────────────────────────────────────────────────
+	acqR    := <-acqCh
+	statusR := <-statusCh
+	statsR  := <-statsCh
+	bkR     := <-breakdownCh
+	tlR     := <-timelineCh
+	compR   := <-compCh
+
+	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err} {
+		if e != nil {
+			return nil, e
+		}
+	}
+
+	// plan_area_m2 болон total_orders-ийг чөлөөлөлтийн жагсаалтаас тооцно
+	var planAreaM2 float64
+	var totalOrders int64
+	for _, a := range acqR.list {
+		planAreaM2 += a.AreaM2
+		if a.DecreeNumber != "" {
+			totalOrders++
+		}
+	}
+
+	return &domain.DashboardSummary{
+		Acquisitions:      acqR.list,
+		ParcelStatuses:    statusR.list,
+		TotalParcels:      statsR.totalParcels,
+		FreedParcels:      statsR.freedParcels,
+		FreedAreaM2:       statsR.freedAreaM2,
+		PlanAreaM2:        planAreaM2,
+		TotalOrders:       totalOrders,
+		TotalCompensation: compR.total,
+		StatusBreakdown:   bkR.rows,
+		Timeline:          tlR.points,
+	}, nil
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)

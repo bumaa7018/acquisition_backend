@@ -93,6 +93,7 @@ func NewRouter(
 		land := protected.Group("/land-acquisitions")
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
+			land.GET("/suggest", middleware.RequirePermission("land:read"), landH.Suggest)
 			land.POST("", middleware.RequirePermission("land:create"), landH.Create)
 			land.GET("/:id", middleware.RequirePermission("land:read"), landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), landH.ListParcels)

@@ -149,6 +149,7 @@ type LandAcquisitionFilter struct {
 	AU3Code       string
 	StartDateFrom *time.Time
 	StartDateTo   *time.Time
+	Years         []int
 	Page          int
 	PageSize      int
 }
@@ -391,10 +392,37 @@ type ParcelPayment struct {
 	CreatedBy string
 }
 
-// DashboardSummary — дашбоардын нийлмэл хариу
+// DashboardFilter — дашбоардын шүүлтүүрийн параметр
+type DashboardFilter struct {
+	AcquisitionID string
+	PlanCode      string
+	Years         []int
+}
+
+// ParcelStatusStat — нэгж талбарын төлөвийн статистик
+type ParcelStatusStat struct {
+	StatusID int     `json:"status_id"`
+	Name     string  `json:"name"`
+	Count    int64   `json:"count"`
+	AreaM2   float64 `json:"area_m2"`
+}
+
+// TimelinePoint — огноогоор нэгж талбарын тоо
+type TimelinePoint struct {
+	Date  string `json:"date"`
+	Count int64  `json:"count"`
+}
+
+// DashboardSummary — дашбоардын нийлмэл хариу (бүх тооцоо DB-д хийгдсэн)
 type DashboardSummary struct {
-	Acquisitions  []*LandAcquisition  `json:"acquisitions"`
-	ParcelStatuses []*ParcelStatus    `json:"parcel_statuses"`
-	ReportRows    []*ReportParcelRow  `json:"report_rows"`
-	GlobalParcels []*GlobalParcel     `json:"parcels"`
+	Acquisitions      []*LandAcquisition `json:"acquisitions"`
+	ParcelStatuses    []*ParcelStatus    `json:"parcel_statuses"`
+	TotalParcels      int64              `json:"total_parcels"`
+	FreedParcels      int64              `json:"freed_parcels"`
+	FreedAreaM2       float64            `json:"freed_area_m2"`
+	PlanAreaM2        float64            `json:"plan_area_m2"`
+	TotalOrders       int64              `json:"total_orders"`
+	TotalCompensation float64            `json:"total_compensation"`
+	StatusBreakdown   []ParcelStatusStat `json:"status_breakdown"`
+	Timeline          []TimelinePoint    `json:"timeline"`
 }

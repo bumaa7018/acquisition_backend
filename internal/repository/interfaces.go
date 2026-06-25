@@ -62,6 +62,7 @@ type LandAcquisitionRepository interface {
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
+	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
@@ -85,6 +86,7 @@ type LandAcquisitionRepository interface {
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
+	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	// Asset methods
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error

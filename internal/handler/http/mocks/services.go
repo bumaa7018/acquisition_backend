@@ -310,8 +310,8 @@ func (m *MockLandService) DeleteParcelDocument(ctx context.Context, documentID u
 	return m.Called(ctx, documentID).Error(0)
 }
 
-func (m *MockLandService) GetDashboard(ctx context.Context) (*domain.DashboardSummary, error) {
-	args := m.Called(ctx)
+func (m *MockLandService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
+	args := m.Called(ctx, filter)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

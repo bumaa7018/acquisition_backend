@@ -137,10 +137,16 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 }
 
 type dashboardResponse struct {
-	Acquisitions   []landAcquisitionResponse  `json:"acquisitions"`
-	ParcelStatuses []*domain.ParcelStatus     `json:"parcel_statuses"`
-	ReportRows     []reportParcelRowResponse  `json:"report_rows"`
-	Parcels        []globalParcelResponse     `json:"parcels"`
+	Acquisitions      []landAcquisitionResponse `json:"acquisitions"`
+	ParcelStatuses    []*domain.ParcelStatus    `json:"parcel_statuses"`
+	TotalParcels      int64                     `json:"total_parcels"`
+	FreedParcels      int64                     `json:"freed_parcels"`
+	FreedAreaM2       float64                   `json:"freed_area_m2"`
+	PlanAreaM2        float64                   `json:"plan_area_m2"`
+	TotalOrders       int64                     `json:"total_orders"`
+	TotalCompensation float64                   `json:"total_compensation"`
+	StatusBreakdown   []domain.ParcelStatusStat `json:"status_breakdown"`
+	Timeline          []domain.TimelinePoint    `json:"timeline"`
 }
 
 type globalParcelResponse struct {
