@@ -125,8 +125,8 @@ func (m *MockLandService) UpdateParcelValuation(ctx context.Context, parcelID uu
 	return m.Called(ctx, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice).Error(0)
 }
 
-func (m *MockLandService) SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error {
-	return m.Called(ctx, acquisitionID, parcelID).Error(0)
+func (m *MockLandService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error {
+	return m.Called(ctx, acquisitionID, parcelCode).Error(0)
 }
 
 func (m *MockLandService) GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {

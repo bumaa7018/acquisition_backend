@@ -70,6 +70,7 @@ type LandAcquisitionRepository interface {
 	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.Parcel, error)
+	GetParcelByCode(ctx context.Context, parcelCode string) (*domain.Parcel, error)
 	GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error)
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error

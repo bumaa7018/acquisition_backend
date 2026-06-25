@@ -114,6 +114,14 @@ func (m *MockLandAcquisitionRepository) GetParcelByID(ctx context.Context, id uu
 	return args.Get(0).(*domain.Parcel), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) GetParcelByCode(ctx context.Context, parcelCode string) (*domain.Parcel, error) {
+	args := m.Called(ctx, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Parcel), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {

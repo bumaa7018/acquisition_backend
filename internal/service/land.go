@@ -22,7 +22,7 @@ type LandService interface {
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error)
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
-	SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
+	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
@@ -605,23 +605,22 @@ func (s *landService) DeleteParcelDocument(ctx context.Context, documentID uuid.
 
 // SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг auth DB-аас татаж хадгална.
 // Чөлөөлөлтийн бүстэй давхцах геометрийг PostGIS-р тооцоолж парцел дээр хадгална.
-func (s *landService) SyncParcel(ctx context.Context, acquisitionID, parcelID uuid.UUID) error {
+func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
 
-	p, err := s.landRepo.GetParcelByID(ctx, parcelID)
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
 	if err != nil {
 		return domain.ErrNotFound
 	}
 
-	// Чөлөөлөлтийн бүстэй давхцах геометр тооцоолж хадгална
 	if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, p.ID, acq.GeometryWKT); err != nil {
 		return domain.ErrInternalServer
 	}
 
-	src, err := s.planRepo.GetSourceParcelByID(ctx, p.ParcelID)
+	src, err := s.planRepo.GetSourceParcelByID(ctx, parcelCode)
 	if err != nil {
 		return domain.ErrNotFound
 	}

@@ -526,6 +526,43 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 	return p, nil
 }
 
+func (r *landAcqRepo) GetParcelByCode(ctx context.Context, parcelCode string) (*domain.Parcel, error) {
+	p := &domain.Parcel{}
+	var remainingAreaM2 float64
+	err := r.db.QueryRow(ctx, `
+		SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
+		       acquisition_id, valid_from, valid_till,
+		       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
+		       COALESCE(ST_AsText(geometry),''),
+		       COALESCE(ST_AsText(acquisition_geom),''),
+		       COALESCE(acquisition_area_m2,0),
+		       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
+		       created_at, COALESCE(created_by,''),
+		       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0)),
+		       COALESCE(db_changed,false), COALESCE(changed_parcel_id,'')
+		FROM parcel
+		WHERE parcel_id = $1
+	`, parcelCode).Scan(
+		&p.ID, &p.ParcelID, &p.OldParcelID,
+		&p.AcquisitionID, &p.ValidFrom, &p.ValidTill,
+		&p.AU1Code, &p.AU2Code, &p.AU3Code,
+		&p.GeometryWKT,
+		&p.AcquisitionGeomWKT,
+		&p.AcquisitionAreaM2,
+		&p.RightType, &p.Landuse, &p.AreaM2,
+		&p.CreatedAt, &p.CreatedBy,
+		&remainingAreaM2,
+		&p.DbChanged, &p.ChangedParcelID,
+	)
+	if err == nil {
+		p.RemainingAreaM2 = &remainingAreaM2
+	}
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	return p, nil
+}
+
 func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error) {
 	pf := &domain.ParcelFull{}
 	d := &domain.ParcelDetailInfo{}

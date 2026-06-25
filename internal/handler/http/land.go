@@ -461,17 +461,80 @@ func (h *LandHandler) SyncParcel(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
 		return
 	}
-	parcelID, err := uuid.Parse(c.Param("parcel_id"))
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
-		return
-	}
+	parcelCode := c.Param("parcel_id")
 
-	if err := h.svc.SyncParcel(c.Request.Context(), acqID, parcelID); err != nil {
+	if err := h.svc.SyncParcel(c.Request.Context(), acqID, parcelCode); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.OKMsg(c, nil, i18n.MsgSynced)
+}
+
+func (h *LandHandler) SyncContractAct(c *gin.Context) {
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	response.OK(c, gin.H{
+		"file_name":   "contract_act_БА-2024-001.pdf",
+		"contract_no": "БА-ГГ-2024-001",
+		"issued_by":   "Багануур дүүргийн Газрын алба",
+		"issued_date": "2024-03-15",
+	})
+}
+
+func (h *LandHandler) SyncValuation(c *gin.Context) {
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	response.OK(c, gin.H{
+		"valuation_zone":    "3Б",
+		"base_price_per_ha": 850000,
+		"auction_coeff":     1.2,
+		"auction_price":     1020000,
+		"valuation_date":    "2024-01-20",
+	})
+}
+
+func (h *LandHandler) SyncSettlementAct(c *gin.Context) {
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	response.OK(c, gin.H{
+		"file_name":    "settlement_act_БА-2024-001.pdf",
+		"total_amount": 12500000,
+		"settled_date": "2024-04-10",
+		"bank_account": "5000****1234",
+	})
+}
+
+func (h *LandHandler) SyncLocationValuation(c *gin.Context) {
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	response.OK(c, gin.H{
+		"zone_code":      "UB-03-B",
+		"zone_name":      "Нийслэл хотын гуравдугаар бүс",
+		"location_coeff": 1.15,
+		"adjusted_value": 1173000,
+	})
+}
+
+func (h *LandHandler) SyncMonitoring(c *gin.Context) {
+	if _, err := uuid.Parse(c.Param("id")); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	response.OK(c, gin.H{
+		"conclusion_file":  "monitoring_conclusion_БА-2024-001.pdf",
+		"inspector_name":   "Б. Батболд",
+		"inspection_date":  "2024-05-08",
+		"status":           "Дууссан",
+		"notes":            "Газрыг чөлөөлөх нөхцөл бүрдсэн байна",
+	})
 }
 
 // GetParcelByID godoc
