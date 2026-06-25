@@ -159,8 +159,8 @@ func (m *MockLandAcquisitionRepository) UpdateDecree(ctx context.Context, id uui
 	return m.Called(ctx, id, number, date).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
-	return m.Called(ctx, parcelID, dbChanged, changedParcelID).Error(0)
+func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
+	return m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {

@@ -18,10 +18,12 @@ func NewDocumentTypeRepo(db *pgxpool.Pool) *DocumentTypeRepo {
 	return &DocumentTypeRepo{db: db}
 }
 
-func (r *DocumentTypeRepo) List(ctx context.Context) ([]*domain.DocumentType, error) {
+func (r *DocumentTypeRepo) List(ctx context.Context, target string) ([]*domain.DocumentType, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, type, name, description, created_at, updated_at, created_by, updated_by
-		 FROM document_type ORDER BY id`)
+		`SELECT id, type, name, target, description, created_at, updated_at, created_by, updated_by
+		 FROM document_type
+		 WHERE ($1 = '' OR target = $1 OR target = 'both')
+		 ORDER BY id`, target)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +33,7 @@ func (r *DocumentTypeRepo) List(ctx context.Context) ([]*domain.DocumentType, er
 	for rows.Next() {
 		dt := &domain.DocumentType{}
 		if err := rows.Scan(
-			&dt.ID, &dt.Type, &dt.Name, &dt.Description,
+			&dt.ID, &dt.Type, &dt.Name, &dt.Target, &dt.Description,
 			&dt.CreatedAt, &dt.UpdatedAt, &dt.CreatedBy, &dt.UpdatedBy,
 		); err != nil {
 			return nil, err
@@ -44,9 +46,9 @@ func (r *DocumentTypeRepo) List(ctx context.Context) ([]*domain.DocumentType, er
 func (r *DocumentTypeRepo) GetByID(ctx context.Context, id int) (*domain.DocumentType, error) {
 	dt := &domain.DocumentType{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, type, name, description, created_at, updated_at, created_by, updated_by
+		`SELECT id, type, name, target, description, created_at, updated_at, created_by, updated_by
 		 FROM document_type WHERE id = $1`, id).
-		Scan(&dt.ID, &dt.Type, &dt.Name, &dt.Description,
+		Scan(&dt.ID, &dt.Type, &dt.Name, &dt.Target, &dt.Description,
 			&dt.CreatedAt, &dt.UpdatedAt, &dt.CreatedBy, &dt.UpdatedBy)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -61,18 +63,21 @@ func (r *DocumentTypeRepo) Create(ctx context.Context, dt *domain.DocumentType) 
 	now := time.Now()
 	dt.CreatedAt = now
 	dt.UpdatedAt = now
+	if dt.Target == "" {
+		dt.Target = "both"
+	}
 	return r.db.QueryRow(ctx,
-		`INSERT INTO document_type (type, name, description, created_at, updated_at, created_by, updated_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		dt.Type, dt.Name, dt.Description, dt.CreatedAt, dt.UpdatedAt, dt.CreatedBy, dt.UpdatedBy,
+		`INSERT INTO document_type (type, name, target, description, created_at, updated_at, created_by, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+		dt.Type, dt.Name, dt.Target, dt.Description, dt.CreatedAt, dt.UpdatedAt, dt.CreatedBy, dt.UpdatedBy,
 	).Scan(&dt.ID)
 }
 
 func (r *DocumentTypeRepo) Update(ctx context.Context, dt *domain.DocumentType) error {
 	dt.UpdatedAt = time.Now()
 	res, err := r.db.Exec(ctx,
-		`UPDATE document_type SET type=$1, name=$2, description=$3, updated_at=$4, updated_by=$5 WHERE id=$6`,
-		dt.Type, dt.Name, dt.Description, dt.UpdatedAt, dt.UpdatedBy, dt.ID)
+		`UPDATE document_type SET type=$1, name=$2, target=$3, description=$4, updated_at=$5, updated_by=$6 WHERE id=$7`,
+		dt.Type, dt.Name, dt.Target, dt.Description, dt.UpdatedAt, dt.UpdatedBy, dt.ID)
 	if err != nil {
 		return err
 	}

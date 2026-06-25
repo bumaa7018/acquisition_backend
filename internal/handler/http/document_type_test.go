@@ -35,7 +35,7 @@ func TestDocumentTypeHandler_List(t *testing.T) {
 	h := handler.NewDocumentTypeHandler(mockSvc)
 
 	list := []*domain.DocumentType{sampleDocumentType()}
-	mockSvc.On("List", mock.Anything).Return(list, nil)
+	mockSvc.On("List", mock.Anything, "").Return(list, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

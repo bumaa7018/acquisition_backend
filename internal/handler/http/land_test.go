@@ -700,3 +700,187 @@ func TestLandHandler_SyncParcel_InvalidParcelUUID(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// ── Acquisition Documents ─────────────────────────────────────
+
+func TestLandHandler_ListAcquisitionDocuments_Success(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	acqID := uuid.New()
+	docs := []*domain.Document{
+		{
+			ID:             uuid.New(),
+			Name:           "contract.pdf",
+			FileType:       "application/pdf",
+			FileURL:        "https://example.com/contract.pdf",
+			SizeBytes:      1024,
+			Note:           "",
+			UploadedBy:     "user-1",
+			UploadedAt:     time.Now(),
+			DocumentTypeID: 2,
+		},
+	}
+	mockSvc.On("ListAcquisitionDocuments", mock.Anything, acqID).Return(docs, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/land-acquisitions/"+acqID.String()+"/documents", nil)
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
+
+	h.ListAcquisitionDocuments(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].([]any)
+	assert.Len(t, data, 1)
+	doc := data[0].(map[string]any)
+	assert.Equal(t, "contract.pdf", doc["name"])
+	assert.Equal(t, float64(2), doc["document_type_id"])
+	mockSvc.AssertExpectations(t)
+}
+
+func TestLandHandler_ListAcquisitionDocuments_InvalidUUID(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/land-acquisitions/bad/documents", nil)
+	c.Params = gin.Params{{Key: "id", Value: "bad-uuid"}}
+
+	h.ListAcquisitionDocuments(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestLandHandler_UploadAcquisitionDocument_Success(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	acqID := uuid.New()
+	fileContent := []byte("%PDF-1.4 test content")
+	body, contentType := buildMultipartForm(t,
+		map[string]string{"document_type_id": "3"},
+		"file", fileContent,
+	)
+
+	doc := &domain.Document{
+		ID:             uuid.New(),
+		Name:           "boundary.zip",
+		FileType:       "application/zip",
+		FileURL:        "https://example.com/file.zip",
+		SizeBytes:      int64(len(fileContent)),
+		UploadedBy:     "",
+		UploadedAt:     time.Now(),
+		DocumentTypeID: 3,
+	}
+	mockSvc.On("UploadAcquisitionDocument",
+		mock.Anything, acqID,
+		mock.AnythingOfType("string"),
+		mock.AnythingOfType("string"),
+		mock.Anything,
+		mock.AnythingOfType("string"),
+		3,
+	).Return(doc, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+acqID.String()+"/documents", body)
+	req.Header.Set("Content-Type", contentType)
+	c.Request = req
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
+
+	h.UploadAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	d := resp["data"].(map[string]any)
+	assert.Equal(t, float64(3), d["document_type_id"])
+	mockSvc.AssertExpectations(t)
+}
+
+func TestLandHandler_UploadAcquisitionDocument_MissingFile(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	acqID := uuid.New()
+	body, contentType := buildMultipartForm(t, map[string]string{"document_type_id": "1"}, "", nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+acqID.String()+"/documents", body)
+	req.Header.Set("Content-Type", contentType)
+	c.Request = req
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
+
+	h.UploadAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestLandHandler_UploadAcquisitionDocument_InvalidUUID(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/land-acquisitions/bad/documents", nil)
+	c.Params = gin.Params{{Key: "id", Value: "bad-uuid"}}
+
+	h.UploadAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestLandHandler_DeleteAcquisitionDocument_Success(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	docID := uuid.New()
+	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, docID).Return(nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/"+docID.String(), nil)
+	c.Params = gin.Params{{Key: "doc_id", Value: docID.String()}}
+
+	h.DeleteAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestLandHandler_DeleteAcquisitionDocument_NotFound(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	docID := uuid.New()
+	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, docID).Return(domain.ErrNotFound)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/"+docID.String(), nil)
+	c.Params = gin.Params{{Key: "doc_id", Value: docID.String()}}
+
+	h.DeleteAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestLandHandler_DeleteAcquisitionDocument_InvalidUUID(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/bad", nil)
+	c.Params = gin.Params{{Key: "doc_id", Value: "bad-uuid"}}
+
+	h.DeleteAcquisitionDocument(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}

@@ -78,7 +78,7 @@ type LandAcquisitionRepository interface {
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
 	UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error
-	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
@@ -131,7 +131,7 @@ type ParcelStatusRepository interface {
 }
 
 type DocumentTypeRepository interface {
-	List(ctx context.Context) ([]*domain.DocumentType, error)
+	List(ctx context.Context, target string) ([]*domain.DocumentType, error)
 	GetByID(ctx context.Context, id int) (*domain.DocumentType, error)
 	Create(ctx context.Context, dt *domain.DocumentType) error
 	Update(ctx context.Context, dt *domain.DocumentType) error

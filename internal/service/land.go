@@ -26,7 +26,7 @@ type LandService interface {
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
-	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
@@ -48,7 +48,7 @@ type LandService interface {
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
-	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error)
+	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteAcquisitionDocument(ctx context.Context, documentID uuid.UUID) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error)
@@ -242,6 +242,10 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	acq.FundingSource = req.FundingSource
 	acq.ConstructionTypeID = req.ConstructionTypeID
 	acq.UpdatedBy = req.UpdatedBy
+	// Shapefile байхгүй үед гараас оруулсан талбайн утгыг хэрэглэнэ
+	if len(req.ShapefileData) == 0 && req.AreaM2 != nil {
+		acq.AreaM2 = *req.AreaM2
+	}
 
 	if err := s.landRepo.Update(ctx, acq); err != nil {
 		return nil, false, domain.ErrInternalServer
@@ -402,8 +406,8 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 }
 
 // UpdateParcelMeta — нэгж талбарын мэдээллийн сангийн өөрчлөлтийн мэдээллийг шинэчлэнэ
-func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
-	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID)
+func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
+	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2)
 }
 
 // SetParcelCompensation — нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэнэ
@@ -528,19 +532,20 @@ func (s *landService) ListAcquisitionDocuments(ctx context.Context, acquisitionI
 	return s.landRepo.ListAcquisitionDocuments(ctx, acquisitionID)
 }
 
-func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
+func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
 	stored, err := s.files.Save(ctx, "acquisition", acquisitionID.String(), filename, contentType, data)
 	if err != nil {
 		return nil, err
 	}
 	doc := &domain.Document{
-		ID:         uuid.New(),
-		Name:       stored.Name,
-		FileType:   stored.Type,
-		FileURL:    stored.URL,
-		SizeBytes:  stored.SizeBytes,
-		UploadedBy: uploadedBy,
-		UploadedAt: time.Now(),
+		ID:             uuid.New(),
+		Name:           stored.Name,
+		FileType:       stored.Type,
+		FileURL:        stored.URL,
+		SizeBytes:      stored.SizeBytes,
+		UploadedBy:     uploadedBy,
+		UploadedAt:     time.Now(),
+		DocumentTypeID: documentTypeID,
 	}
 	if err := s.landRepo.AddAcquisitionDocument(ctx, acquisitionID, doc); err != nil {
 		_ = s.files.Delete(ctx, stored.URL)

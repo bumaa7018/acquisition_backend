@@ -776,7 +776,17 @@ func (r *landAcqRepo) UpdateDecree(ctx context.Context, id uuid.UUID, number str
 	return err
 }
 
-func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
+func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
+	if acquisitionAreaM2 != nil {
+		_, err := r.db.Exec(ctx,
+			`UPDATE parcel SET db_changed = $2, changed_parcel_id = $3,
+			 acquisition_area_m2 = $4,
+			 remaining_area_m2 = area_m2 - $4
+			 WHERE id = $1`,
+			parcelID, dbChanged, changedParcelID, *acquisitionAreaM2,
+		)
+		return err
+	}
 	_, err := r.db.Exec(ctx,
 		"UPDATE parcel SET db_changed = $2, changed_parcel_id = $3 WHERE id = $1",
 		parcelID, dbChanged, changedParcelID,
@@ -1134,10 +1144,10 @@ func (r *landAcqRepo) AddParcelPayment(ctx context.Context, p *domain.ParcelPaym
 
 func (r *landAcqRepo) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at, lad.file_type
 		FROM document d
-		JOIN acquisition_document ad ON ad.document_id = d.id
-		WHERE ad.acquisition_id = $1
+		JOIN land_acquisition_document lad ON lad.document_id = d.id
+		WHERE lad.land_acquisition_id = $1
 		ORDER BY d.uploaded_at DESC
 	`, acquisitionID)
 	if err != nil {
@@ -1147,7 +1157,7 @@ func (r *landAcqRepo) ListAcquisitionDocuments(ctx context.Context, acquisitionI
 	var result []*domain.Document
 	for rows.Next() {
 		d := &domain.Document{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID); err != nil {
 			return nil, err
 		}
 		result = append(result, d)
@@ -1162,9 +1172,9 @@ func (r *landAcqRepo) AddAcquisitionDocument(ctx context.Context, acquisitionID 
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			RETURNING id
 		)
-		INSERT INTO acquisition_document (acquisition_id, document_id)
-		SELECT $9, id FROM ins
-	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, acquisitionID)
+		INSERT INTO land_acquisition_document (land_acquisition_id, document_id, file_type)
+		SELECT $9, id, $10 FROM ins
+	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, acquisitionID, doc.DocumentTypeID)
 	return err
 }
 
@@ -1561,20 +1571,20 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		err   error
 	}
 
-	acqCh       := make(chan acqRes, 1)
-	statusCh    := make(chan statusRes, 1)
-	statsCh     := make(chan statsRes, 1)
+	acqCh := make(chan acqRes, 1)
+	statusCh := make(chan statusRes, 1)
+	statsCh := make(chan statsRes, 1)
 	breakdownCh := make(chan breakdownRes, 1)
-	timelineCh  := make(chan timelineRes, 1)
-	compCh      := make(chan compRes, 1)
+	timelineCh := make(chan timelineRes, 1)
+	compCh := make(chan compRes, 1)
 
 	// 1. Шүүлтэд тохирох чөлөөлөлтүүд
 	go func() {
 		list, _, err := r.List(ctx, domain.LandAcquisitionFilter{
-			PlanCode:      filter.PlanCode,
-			Years:         filter.Years,
-			Page:          1,
-			PageSize:      1000,
+			PlanCode: filter.PlanCode,
+			Years:    filter.Years,
+			Page:     1,
+			PageSize: 1000,
 		})
 		// acquisition_id шүүлтүүр байвал нэг л acquisition авна
 		if err == nil && filter.AcquisitionID != "" {
@@ -1679,12 +1689,12 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	}()
 
 	// ── үр дүн цуглуулах ─────────────────────────────────────────────────────
-	acqR    := <-acqCh
+	acqR := <-acqCh
 	statusR := <-statusCh
-	statsR  := <-statsCh
-	bkR     := <-breakdownCh
-	tlR     := <-timelineCh
-	compR   := <-compCh
+	statsR := <-statsCh
+	bkR := <-breakdownCh
+	tlR := <-timelineCh
+	compR := <-compCh
 
 	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err} {
 		if e != nil {

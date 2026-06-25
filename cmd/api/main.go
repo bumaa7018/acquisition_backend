@@ -160,6 +160,12 @@ func main() {
 				return NewMainSeeder(mainDB).seedCompensations(ctx, acqID)
 			},
 		},
+		{
+			name: "000006_document_types",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
 	})
 
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc)

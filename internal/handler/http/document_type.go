@@ -27,7 +27,7 @@ func currentUserEmail(c *gin.Context) *string {
 }
 
 func (h *DocumentTypeHandler) List(c *gin.Context) {
-	list, err := h.svc.List(c.Request.Context())
+	list, err := h.svc.List(c.Request.Context(), c.Query("target"))
 	if err != nil {
 		response.Error(c, err)
 		return

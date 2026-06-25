@@ -22,6 +22,7 @@ type UpdateLandAcquisitionRequest struct {
 	EndDate            *time.Time // nil бол өөрчлөхгүй
 	ClearEndDate       bool       // true = end_date-г NULL болгоно
 	ShapefileData      []byte     // nil бол геометр өөрчлөхгүй
+	AreaM2             *float64   // nil бол өөрчлөхгүй; shapefile байвал shapefile-аас тооцоолно
 	UpdatedBy          string
 	AcquisitionName    string
 	ImplementingOrg    string

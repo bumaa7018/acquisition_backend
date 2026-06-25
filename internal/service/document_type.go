@@ -8,7 +8,7 @@ import (
 )
 
 type DocumentTypeService interface {
-	List(ctx context.Context) ([]*domain.DocumentType, error)
+	List(ctx context.Context, target string) ([]*domain.DocumentType, error)
 	GetByID(ctx context.Context, id int) (*domain.DocumentType, error)
 	Create(ctx context.Context, req CreateDocumentTypeRequest) (*domain.DocumentType, error)
 	Update(ctx context.Context, id int, req UpdateDocumentTypeRequest) (*domain.DocumentType, error)
@@ -18,6 +18,7 @@ type DocumentTypeService interface {
 type CreateDocumentTypeRequest struct {
 	Type        string  `json:"type"        validate:"required"`
 	Name        string  `json:"name"        validate:"required"`
+	Target      string  `json:"target"`
 	Description *string `json:"description"`
 	CreatedBy   *string `json:"created_by"`
 }
@@ -25,6 +26,7 @@ type CreateDocumentTypeRequest struct {
 type UpdateDocumentTypeRequest struct {
 	Type        string  `json:"type"`
 	Name        string  `json:"name"`
+	Target      string  `json:"target"`
 	Description *string `json:"description"`
 	UpdatedBy   *string `json:"updated_by"`
 }
@@ -37,8 +39,8 @@ func NewDocumentTypeService(repo repository.DocumentTypeRepository) DocumentType
 	return &documentTypeService{repo: repo}
 }
 
-func (s *documentTypeService) List(ctx context.Context) ([]*domain.DocumentType, error) {
-	return s.repo.List(ctx)
+func (s *documentTypeService) List(ctx context.Context, target string) ([]*domain.DocumentType, error) {
+	return s.repo.List(ctx, target)
 }
 
 func (s *documentTypeService) GetByID(ctx context.Context, id int) (*domain.DocumentType, error) {
@@ -49,6 +51,7 @@ func (s *documentTypeService) Create(ctx context.Context, req CreateDocumentType
 	dt := &domain.DocumentType{
 		Type:        req.Type,
 		Name:        req.Name,
+		Target:      req.Target,
 		Description: req.Description,
 		CreatedBy:   req.CreatedBy,
 		UpdatedBy:   req.CreatedBy,
@@ -69,6 +72,9 @@ func (s *documentTypeService) Update(ctx context.Context, id int, req UpdateDocu
 	}
 	if req.Name != "" {
 		dt.Name = req.Name
+	}
+	if req.Target != "" {
+		dt.Target = req.Target
 	}
 	dt.Description = req.Description
 	dt.UpdatedBy = req.UpdatedBy

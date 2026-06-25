@@ -153,8 +153,8 @@ func (m *MockLandService) AdvanceStatus(ctx context.Context, acquisitionID uuid.
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string) error {
-	args := m.Called(ctx, parcelID, dbChanged, changedParcelID)
+func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
+	args := m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2)
 	return args.Error(0)
 }
 
@@ -166,8 +166,8 @@ func (m *MockLandService) ListAcquisitionDocuments(ctx context.Context, acquisit
 	return args.Get(0).([]*domain.Document), args.Error(1)
 }
 
-func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
-	args := m.Called(ctx, acquisitionID, filename, contentType, data, uploadedBy)
+func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	args := m.Called(ctx, acquisitionID, filename, contentType, data, uploadedBy, documentTypeID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -529,8 +529,8 @@ func (m *MockParcelStatusService) Delete(ctx context.Context, id int) error {
 
 type MockDocumentTypeService struct{ mock.Mock }
 
-func (m *MockDocumentTypeService) List(ctx context.Context) ([]*domain.DocumentType, error) {
-	args := m.Called(ctx)
+func (m *MockDocumentTypeService) List(ctx context.Context, target string) ([]*domain.DocumentType, error) {
+	args := m.Called(ctx, target)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

@@ -56,6 +56,47 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 	return s.seedAssets(ctx, acqID)
 }
 
+func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO document_type (type, name, target) VALUES
+		  ('photo_valuation',        'Эд хөрөнгийн үнэлгээний ажил хийсэн Фото зураг',                          'parcel'),
+		  ('tax_receipt',            'Бизнесийн үйл ажиллагаатай холбоотой татвар төлсөн баримт',                'parcel'),
+		  ('engineering_blueprint',  'Инженерийн бүтээн байгуулалт хийсэн зураг төсөл, баримт нотолгоо',         'parcel'),
+		  ('id_card',                'Иргэний үнэмлэх',                                                          'parcel'),
+		  ('company_certificate',    'ААНБ-ын гэрчилгээ',                                                        'parcel'),
+		  ('land_certificate',       'Газар гэрчилгээ',                                                          'parcel'),
+		  ('cadastral_map',          'Кадастрын зураг',                                                          'parcel'),
+		  ('bank_statement',         'Банкны тодорхойлолт /хамтран өмчлөгч тус бүр хувь авах тохиолдолд/',      'parcel'),
+		  ('power_of_attorney',      'Итгэмжлэл',                                                                'parcel'),
+		  ('inheritance_agreement',  'Өв залгамжлах гэрээ',                                                      'parcel'),
+		  ('death_certificate',      'Нас барсны гэрчилгээ',                                                     'parcel'),
+		  ('control_card',           'Хяналтын карт',                                                            'parcel'),
+		  ('land_handover_act',      'Чөлөөлсөн газрын хүлээлцсэн акт',                                         'parcel'),
+		  ('payment_table',          'Төлбөрийн гүйцэтгэлийн хүснэгт',                                          'parcel'),
+		  ('decree_draft',           'Захирамжийн төсөл',                                                        'both'),
+		  ('settlement_act',         'Тооцоо нийлсэн акт',                                                      'parcel'),
+		  ('monitoring_report',      'Мониторингийн дүгнэлт',                                                    'parcel'),
+		  ('contract_closing_act',   'Гэрээ дүгнэсэн акт',                                                      'parcel'),
+		  ('disability_certificate', 'Хөгжлийн бэрхшээлтэй иргэний тодорхойлолт',                              'parcel'),
+		  ('signature_guarantee',    'Гарын үсгийн баталгаа',                                                   'parcel'),
+		  ('topographic_map',        'Трас зураг',                                                              'parcel'),
+		  ('prior_notice',           'Урьдчилан мэдэгдэх хуудас',                                              'parcel'),
+		  ('survey_form',            'Санал асуулгын хуудас',                                                   'parcel'),
+		  ('socioeconomic_study',    'Нийгэм эдийн засгийн судалгаа',                                          'parcel'),
+		  ('checklist',              'Шалгах хуудас',                                                           'parcel'),
+		  ('meeting_minutes',        'Хурлын тэмдэглэл',                                                       'parcel'),
+		  ('contract',               'Гэрээ',                                                                   'parcel'),
+		  ('consent_note',           'Зөвшилцлөлийн тэмдэглэл',                                               'parcel'),
+		  ('other',                  'БУСАД',                                                                   'both')
+		ON CONFLICT (type) DO NOTHING
+	`)
+	if err != nil {
+		return err
+	}
+	slog.Info("document types seeded")
+	return nil
+}
+
 func (s *MainSeeder) seedDefaultAssets(ctx context.Context) error {
 	acqID, err := s.seedLandAcquisition(ctx)
 	if err != nil {

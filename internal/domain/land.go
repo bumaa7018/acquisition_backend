@@ -241,14 +241,15 @@ type AcquisitionProgress struct {
 
 // Document — үндсэн баримт бичиг (URL-аар хадгалагдана)
 type Document struct {
-	ID         uuid.UUID
-	Name       string
-	FileType   string
-	FileURL    string
-	SizeBytes  int64
-	Note       string
-	UploadedBy string
-	UploadedAt time.Time
+	ID             uuid.UUID
+	Name           string
+	FileType       string
+	FileURL        string
+	SizeBytes      int64
+	Note           string
+	UploadedBy     string
+	UploadedAt     time.Time
+	DocumentTypeID int
 }
 
 // GlobalParcel — parcel joined with acquisition info

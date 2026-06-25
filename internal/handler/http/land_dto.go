@@ -113,25 +113,27 @@ type progressResponse struct {
 }
 
 type documentResponse struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	FileType   string `json:"file_type"`
-	FileURL    string `json:"file_url"`
-	SizeBytes  int64  `json:"size_bytes"`
-	Note       string `json:"note"`
-	UploadedBy string `json:"uploaded_by"`
-	UploadedAt string `json:"uploaded_at"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	FileType       string `json:"file_type"`
+	FileURL        string `json:"file_url"`
+	SizeBytes      int64  `json:"size_bytes"`
+	Note           string `json:"note"`
+	UploadedBy     string `json:"uploaded_by"`
+	UploadedAt     string `json:"uploaded_at"`
+	DocumentTypeID int    `json:"document_type_id,omitempty"`
 }
 
 func toDocumentResponse(d *domain.Document) documentResponse {
 	return documentResponse{
-		ID:         d.ID.String(),
-		Name:       d.Name,
-		FileType:   d.FileType,
-		FileURL:    d.FileURL,
-		SizeBytes:  d.SizeBytes,
-		Note:       d.Note,
-		UploadedBy: d.UploadedBy,
+		ID:             d.ID.String(),
+		Name:           d.Name,
+		FileType:       d.FileType,
+		FileURL:        d.FileURL,
+		SizeBytes:      d.SizeBytes,
+		Note:           d.Note,
+		UploadedBy:     d.UploadedBy,
+		DocumentTypeID: d.DocumentTypeID,
 		UploadedAt: d.UploadedAt.Format(time.RFC3339),
 	}
 }

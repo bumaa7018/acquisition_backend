@@ -353,6 +353,11 @@ func (h *LandHandler) Update(c *gin.Context) {
 			req.ConstructionTypeID = &n
 		}
 	}
+	if s := c.PostForm("area_m2"); s != "" {
+		if v, err := strconv.ParseFloat(s, 64); err == nil && v > 0 {
+			req.AreaM2 = &v
+		}
+	}
 
 	if uid, ok := c.Get("userID"); ok {
 		req.UpdatedBy = uid.(uuid.UUID).String()
@@ -676,15 +681,16 @@ func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
 	}
 
 	var body struct {
-		DbChanged       bool   `json:"db_changed"`
-		ChangedParcelID string `json:"changed_parcel_id"`
+		DbChanged         bool     `json:"db_changed"`
+		ChangedParcelID   string   `json:"changed_parcel_id"`
+		AcquisitionAreaM2 *float64 `json:"acquisition_area_m2"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, "invalid body")
 		return
 	}
 
-	if err := h.svc.UpdateParcelMeta(c.Request.Context(), parcelID, body.DbChanged, body.ChangedParcelID); err != nil {
+	if err := h.svc.UpdateParcelMeta(c.Request.Context(), parcelID, body.DbChanged, body.ChangedParcelID, body.AcquisitionAreaM2); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -745,7 +751,12 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	doc, err := h.svc.UploadAcquisitionDocument(c.Request.Context(), id, fh.Filename, contentType, data, uploadedBy)
+	documentTypeID, _ := strconv.Atoi(c.PostForm("document_type_id"))
+	filename := fh.Filename
+	if n := c.PostForm("name"); n != "" {
+		filename = n
+	}
+	doc, err := h.svc.UploadAcquisitionDocument(c.Request.Context(), id, filename, contentType, data, uploadedBy, documentTypeID)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -1539,7 +1550,11 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, fh.Filename, contentType, data, uploadedBy)
+	parcelFilename := fh.Filename
+	if n := c.PostForm("name"); n != "" {
+		parcelFilename = n
+	}
+	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, parcelFilename, contentType, data, uploadedBy)
 	if err != nil {
 		response.Error(c, err)
 		return
