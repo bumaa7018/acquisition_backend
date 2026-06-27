@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	CtxUserID      = "userID"
-	CtxRoles       = "roles"
-	CtxPermissions = "permissions"
+	CtxUserID       = "userID"
+	CtxUserName     = "userName"
+	CtxUserPosition = "userPosition"
+	CtxRoles        = "roles"
+	CtxPermissions  = "permissions"
 )
 
 func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
@@ -34,6 +36,12 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		}
 
 		c.Set(CtxUserID, claims.UserID)
+		userName := claims.FullName
+		if userName == "" {
+			userName = strings.TrimSpace(claims.FirstName + " " + claims.LastName)
+		}
+		c.Set(CtxUserName, userName)
+		c.Set(CtxUserPosition, claims.Position)
 		c.Set(CtxRoles, claims.Roles)
 		c.Set(CtxPermissions, claims.Permissions)
 		c.Next()

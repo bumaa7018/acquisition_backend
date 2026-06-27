@@ -113,6 +113,10 @@ type LandAcquisitionRepository interface {
 	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
 	DeleteDocument(ctx context.Context, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
+	// Assignee methods
+	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
+	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
+	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 }
 
 type AcquisitionProgressStatusRepository interface {

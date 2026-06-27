@@ -66,6 +66,7 @@ const (
 	// Status errors
 	ErrStatusRequired Key = "status_required"
 	ErrInvalidStatus  Key = "invalid_status"
+	ErrNotAssigned    Key = "not_assigned"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
@@ -118,6 +119,7 @@ var messages = map[Key][2]string{
 
 	ErrStatusRequired: {"to_status шаардлагатай", "to_status is required"},
 	ErrInvalidStatus:  {"Буруу статус", "Invalid status"},
+	ErrNotAssigned:    {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},

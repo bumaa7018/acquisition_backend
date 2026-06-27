@@ -22,11 +22,11 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 }
 
 func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
-	query := `INSERT INTO users (id, username, email, password, first_name, last_name, is_active, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	query := `INSERT INTO users (id, username, email, password, first_name, last_name, position, is_active, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 	_, err := r.db.Exec(ctx, query,
 		u.ID, u.Username, u.Email, u.Password, u.FirstName, u.LastName,
-		u.IsActive, u.CreatedAt, u.UpdatedAt)
+		u.Position, u.IsActive, u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			return domain.ErrAlreadyExists
@@ -37,12 +37,12 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 }
 
 func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE id = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -53,12 +53,12 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE email = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -69,12 +69,12 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 }
 
 func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE username = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, username).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -85,10 +85,10 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 }
 
 func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
-	query := `UPDATE users SET username=$1, email=$2, first_name=$3, last_name=$4, is_active=$5, updated_at=$6
-	          WHERE id=$7 AND deleted_at IS NULL`
+	query := `UPDATE users SET username=$1, email=$2, first_name=$3, last_name=$4, position=$5, is_active=$6, updated_at=$7
+	          WHERE id=$8 AND deleted_at IS NULL`
 	res, err := r.db.Exec(ctx, query,
-		u.Username, u.Email, u.FirstName, u.LastName, u.IsActive, u.UpdatedAt, u.ID)
+		u.Username, u.Email, u.FirstName, u.LastName, u.Position, u.IsActive, u.UpdatedAt, u.ID)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	where := "WHERE deleted_at IS NULL"
 
 	if f.Search != "" {
-		where += fmt.Sprintf(" AND (username ILIKE $%d OR email ILIKE $%d OR first_name ILIKE $%d OR last_name ILIKE $%d)", argIdx, argIdx, argIdx, argIdx)
+		where += fmt.Sprintf(" AND (username ILIKE $%d OR email ILIKE $%d OR first_name ILIKE $%d OR last_name ILIKE $%d OR position ILIKE $%d)", argIdx, argIdx, argIdx, argIdx, argIdx)
 		args = append(args, "%"+f.Search+"%")
 		argIdx++
 	}
@@ -134,7 +134,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 
 	offset := (f.Page - 1) * f.PageSize
 	args = append(args, f.PageSize, offset)
-	query := fmt.Sprintf(`SELECT id, username, email, password, first_name, last_name, is_active, created_at, updated_at, deleted_at
+	query := fmt.Sprintf(`SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
 	                       FROM users %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
 		where, argIdx, argIdx+1)
 
@@ -148,7 +148,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	for rows.Next() {
 		u := &domain.User{}
 		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-			&u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt); err != nil {
+			&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, u)

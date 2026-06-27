@@ -326,6 +326,23 @@ func (m *MockLandService) GetDashboard(ctx context.Context, filter domain.Dashbo
 	return args.Get(0).(*domain.DashboardSummary), args.Error(1)
 }
 
+func (m *MockLandService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {
+	return m.Called(ctx, acquisitionID, assignees).Error(0)
+}
+
+func (m *MockLandService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
+}
+
+func (m *MockLandService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, acquisitionID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
 type MockUserService struct {
 	mock.Mock
 }

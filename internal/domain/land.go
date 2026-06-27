@@ -100,6 +100,16 @@ type ParcelStatus struct {
 	SortOrder int    `json:"sort_order"`
 }
 
+// AcquisitionAssignee — чөлөөлөлтэд хуваарилагдсан ажилтан
+type AcquisitionAssignee struct {
+	UserID         uuid.UUID `json:"user_id"`
+	UserName       string    `json:"user_name"`
+	UserPosition   string    `json:"user_position"`
+	AssignedBy     uuid.UUID `json:"assigned_by"`
+	AssignedByName string    `json:"assigned_by_name"`
+	AssignedAt     time.Time `json:"assigned_at"`
+}
+
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
 	ID                   uuid.UUID
@@ -129,6 +139,7 @@ type LandAcquisition struct {
 	AUs                  []LandAcquisitionAU
 	Parcels              []*Parcel
 	ParcelCount          int64
+	AssignedUsers        []AcquisitionAssignee
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос

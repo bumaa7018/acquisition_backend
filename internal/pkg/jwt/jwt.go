@@ -13,8 +13,10 @@ type Claims struct {
 	UserID      uuid.UUID `json:"user_id"`
 	Username    string    `json:"username"`
 	Email       string    `json:"email"`
+	FullName    string    `json:"full_name"`
 	FirstName   string    `json:"first_name"`
 	LastName    string    `json:"last_name"`
+	Position    string    `json:"position"`
 	Roles       []string  `json:"roles"`
 	Permissions []string  `json:"permissions"`
 	jwt.RegisteredClaims
@@ -45,8 +47,10 @@ type UserInfo struct {
 	ID          uuid.UUID
 	Username    string
 	Email       string
+	FullName    string
 	FirstName   string
 	LastName    string
+	Position    string
 	Roles       []string
 	Permissions []string
 }
@@ -68,8 +72,10 @@ func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (s
 		UserID:      u.ID,
 		Username:    u.Username,
 		Email:       u.Email,
+		FullName:    u.FullName,
 		FirstName:   u.FirstName,
 		LastName:    u.LastName,
+		Position:    u.Position,
 		Roles:       u.Roles,
 		Permissions: u.Permissions,
 		RegisteredClaims: jwt.RegisteredClaims{

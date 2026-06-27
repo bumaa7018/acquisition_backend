@@ -335,3 +335,20 @@ func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string) (
 	}
 	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
 }
+
+func (m *MockLandAcquisitionRepository) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {
+	return m.Called(ctx, acquisitionID, assignees).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, acquisitionID, userID)
+	return args.Bool(0), args.Error(1)
+}

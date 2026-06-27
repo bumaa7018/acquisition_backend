@@ -14,6 +14,7 @@ type Config struct {
 	AuthDB     DBConfig `envPrefix:"AUTH_DB_"`
 	JWT        JWTConfig
 	Admin      AdminConfig
+	Employee   EmployeeConfig
 	Email      EmailConfig
 	FileServer FileServerConfig
 }
@@ -45,6 +46,12 @@ type JWTConfig struct {
 type AdminConfig struct {
 	Email    string `env:"ADMIN_EMAIL" envDefault:"admin@example.com"`
 	Password string `env:"ADMIN_PASSWORD" envDefault:"Admin123!"`
+}
+
+type EmployeeConfig struct {
+	Username string `env:"EMPLOYEE_USERNAME" envDefault:"employee"`
+	Email    string `env:"EMPLOYEE_EMAIL" envDefault:"employee@example.com"`
+	Password string `env:"EMPLOYEE_PASSWORD" envDefault:"Employee123!"`
 }
 
 type EmailConfig struct {

@@ -55,6 +55,10 @@ type LandService interface {
 	DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
+	// Assignee
+	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
+	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
+	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 }
 
 type landService struct {
@@ -639,4 +643,19 @@ func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardF
 
 func (s *landService) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
 	return s.landRepo.Suggest(ctx, q)
+}
+
+func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {
+	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return domain.ErrNotFound
+	}
+	return s.landRepo.SetAssignees(ctx, acquisitionID, assignees)
+}
+
+func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error) {
+	return s.landRepo.GetAssignees(ctx, acquisitionID)
+}
+
+func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	return s.landRepo.IsAssigned(ctx, acquisitionID, userID)
 }

@@ -1,1 +1,1 @@
-DELETE FROM roles WHERE name = 'senior_specialist';
+DELETE FROM roles WHERE name IN ('senior_specialist', 'employee');

@@ -24,6 +24,7 @@ type CreateUserRequest struct {
 	Password  string `validate:"required,min=8"`
 	FirstName string `validate:"required"`
 	LastName  string `validate:"required"`
+	Position  string
 	IsActive  bool
 }
 
@@ -32,6 +33,7 @@ type UpdateUserRequest struct {
 	Email     string `validate:"omitempty"`
 	FirstName string
 	LastName  string
+	Position  string
 	IsActive  *bool
 }
 
@@ -91,6 +93,7 @@ func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domai
 		Password:  hashed,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Position:  req.Position,
 		IsActive:  req.IsActive,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -118,6 +121,9 @@ func (s *userService) Update(ctx context.Context, id uuid.UUID, req UpdateUserRe
 	}
 	if req.LastName != "" {
 		user.LastName = req.LastName
+	}
+	if req.Position != "" {
+		user.Position = req.Position
 	}
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive

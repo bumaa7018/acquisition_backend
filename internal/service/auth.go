@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,7 @@ type RegisterRequest struct {
 	Password  string `validate:"required,min=8"`
 	FirstName string `validate:"required"`
 	LastName  string `validate:"required"`
+	Position  string
 }
 
 type LoginRequest struct {
@@ -81,6 +83,7 @@ func (s *authService) Register(ctx context.Context, req RegisterRequest) (*domai
 		Password:  hashed,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Position:  req.Position,
 		IsActive:  true,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -122,8 +125,10 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 		ID:          user.ID,
 		Username:    user.Username,
 		Email:       user.Email,
+		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
 		FirstName:   user.FirstName,
 		LastName:    user.LastName,
+		Position:    user.Position,
 		Roles:       roles,
 		Permissions: perms,
 	})
@@ -150,8 +155,10 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 		ID:          user.ID,
 		Username:    user.Username,
 		Email:       user.Email,
+		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
 		FirstName:   user.FirstName,
 		LastName:    user.LastName,
+		Position:    user.Position,
 		Roles:       roles,
 		Permissions: perms,
 	})

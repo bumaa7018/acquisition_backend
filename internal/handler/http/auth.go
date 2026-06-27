@@ -25,6 +25,7 @@ type registerRequest struct {
 	Password  string `json:"password" validate:"required,min=8"`
 	FirstName string `json:"first_name" validate:"required"`
 	LastName  string `json:"last_name" validate:"required"`
+	Position  string `json:"position"`
 }
 
 type loginRequest struct {
@@ -71,6 +72,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Password:  req.Password,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Position:  req.Position,
 	})
 	if err != nil {
 		response.Error(c, err)

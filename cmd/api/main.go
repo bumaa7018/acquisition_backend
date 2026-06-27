@@ -125,7 +125,7 @@ func main() {
 			name:    "000001_auth",
 			aliases: []string{"auth_seeder"},
 			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin)
+				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin, cfg.Employee)
 			},
 		},
 		{
@@ -164,6 +164,12 @@ func main() {
 			name: "000006_document_types",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
+		{
+			name: "000007_auth_access_users",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin, cfg.Employee)
 			},
 		},
 	})

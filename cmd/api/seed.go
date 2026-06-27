@@ -42,7 +42,7 @@ func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo re
 	return &Seeder{db: db, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
 }
 
-func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig) error {
+func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig, employeeCfg config.EmployeeConfig) error {
 	permIDs, err := s.seedPermissions(ctx)
 	if err != nil {
 		return err
@@ -51,10 +51,18 @@ func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig) error {
 	if err != nil {
 		return err
 	}
-	if err := s.seedSeniorSpecialistRole(ctx); err != nil {
+	seniorRole, err := s.seedSeniorSpecialistRole(ctx)
+	if err != nil {
 		return err
 	}
-	return s.seedAdminUser(ctx, adminCfg, adminRole.ID)
+	employeeRole, err := s.seedEmployeeRole(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.seedAdminUser(ctx, adminCfg, adminRole.ID, seniorRole.ID); err != nil {
+		return err
+	}
+	return s.seedEmployeeUser(ctx, employeeCfg, employeeRole.ID)
 }
 
 func (s *Seeder) seedPermissions(ctx context.Context) ([]uuid.UUID, error) {
@@ -105,13 +113,13 @@ func (s *Seeder) seedAdminRole(ctx context.Context, permIDs []uuid.UUID) (*domai
 	return role, nil
 }
 
-func (s *Seeder) seedSeniorSpecialistRole(ctx context.Context) error {
+func (s *Seeder) seedSeniorSpecialistRole(ctx context.Context) (*domain.Role, error) {
 	permNames := []string{"land:read", "land:create", "land:update"}
 	var permIDs []uuid.UUID
 	for _, name := range permNames {
 		perm, err := s.permRepo.GetByName(ctx, name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		permIDs = append(permIDs, perm.ID)
 	}
@@ -127,23 +135,58 @@ func (s *Seeder) seedSeniorSpecialistRole(ctx context.Context) error {
 			UpdatedAt:   now,
 		}
 		if err := s.roleRepo.Create(ctx, role); err != nil {
-			return err
+			return nil, err
 		}
 		slog.Info("senior specialist role created")
 	}
 
 	for _, pid := range permIDs {
 		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return role, nil
 }
 
-func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, roleID uuid.UUID) error {
+func (s *Seeder) seedEmployeeRole(ctx context.Context) (*domain.Role, error) {
+	perm, err := s.permRepo.GetByName(ctx, "land:read")
+	if err != nil {
+		return nil, err
+	}
+
+	role, err := s.roleRepo.GetByName(ctx, "employee")
+	if err != nil {
+		now := time.Now()
+		role = &domain.Role{
+			ID:          uuid.New(),
+			Name:        "employee",
+			Description: "Энгийн ажилтан",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := s.roleRepo.Create(ctx, role); err != nil {
+			return nil, err
+		}
+		slog.Info("employee role created")
+	}
+
+	if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
+		return nil, err
+	}
+	return role, nil
+}
+
+func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, roleIDs ...uuid.UUID) error {
 	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
 	if err == nil {
-		_ = s.roleRepo.AssignToUser(ctx, existing.ID, roleID)
+		for _, roleID := range roleIDs {
+			_ = s.roleRepo.AssignToUser(ctx, existing.ID, roleID)
+		}
+		if existing.Position == "" {
+			existing.Position = "Ахлах мэргэжилтэн"
+			existing.UpdatedAt = time.Now()
+			_ = s.userRepo.Update(ctx, existing)
+		}
 		return nil
 	}
 
@@ -160,6 +203,49 @@ func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, role
 		Password:  hashed,
 		FirstName: "Admin",
 		LastName:  "User",
+		Position:  "Ахлах мэргэжилтэн",
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return err
+	}
+	for _, roleID := range roleIDs {
+		if err := s.roleRepo.AssignToUser(ctx, user.ID, roleID); err != nil {
+			return err
+		}
+	}
+	slog.Info("admin user created", "email", cfg.Email)
+	return nil
+}
+
+func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig, roleID uuid.UUID) error {
+	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
+	if err == nil {
+		_ = s.roleRepo.AssignToUser(ctx, existing.ID, roleID)
+		if existing.Position == "" {
+			existing.Position = "Ажилтан"
+			existing.UpdatedAt = time.Now()
+			_ = s.userRepo.Update(ctx, existing)
+		}
+		return nil
+	}
+
+	hashed, err := hash.Password(cfg.Password)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	user := &domain.User{
+		ID:        uuid.New(),
+		Username:  cfg.Username,
+		Email:     cfg.Email,
+		Password:  hashed,
+		FirstName: "Энгийн",
+		LastName:  "Ажилтан",
+		Position:  "Ажилтан",
 		IsActive:  true,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -170,6 +256,6 @@ func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, role
 	if err := s.roleRepo.AssignToUser(ctx, user.ID, roleID); err != nil {
 		return err
 	}
-	slog.Info("admin user created", "email", cfg.Email)
+	slog.Info("employee user created", "email", cfg.Email)
 	return nil
 }

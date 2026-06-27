@@ -127,6 +127,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Password  string `json:"password" validate:"required,min=8"`
 		FirstName string `json:"first_name" validate:"required"`
 		LastName  string `json:"last_name" validate:"required"`
+		Position  string `json:"position"`
 		IsActive  bool   `json:"is_active"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -143,6 +144,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		Password:  req.Password,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Position:  req.Position,
 		IsActive:  req.IsActive,
 	})
 	if err != nil {
@@ -178,6 +180,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Email     string `json:"email"`
 		FirstName string `json:"first_name"`
 		LastName  string `json:"last_name"`
+		Position  string `json:"position"`
 		IsActive  *bool  `json:"is_active"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -189,6 +192,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		Email:     req.Email,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
+		Position:  req.Position,
 		IsActive:  req.IsActive,
 	})
 	if err != nil {

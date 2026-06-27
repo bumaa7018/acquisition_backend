@@ -232,6 +232,12 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	acq.Parcels = parcels
 	acq.ParcelCount = total
 
+	assignees, err := r.GetAssignees(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	acq.AssignedUsers = assignees
+
 	return acq, nil
 }
 
@@ -1764,6 +1770,67 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		StatusBreakdown:   bkR.rows,
 		Timeline:          tlR.points,
 	}, nil
+}
+
+// ── Assignee methods ──────────────────────────────────────────────────────────
+
+func (r *landAcqRepo) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err := tx.Exec(ctx, `DELETE FROM land_acquisition_assignee WHERE acquisition_id = $1`, acquisitionID); err != nil {
+		return err
+	}
+	for _, a := range assignees {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO land_acquisition_assignee (acquisition_id, user_id, user_name, user_position, assigned_by, assigned_by_name)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, acquisitionID, a.UserID, a.UserName, a.UserPosition, a.AssignedBy, a.AssignedByName); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *landAcqRepo) GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT user_id, COALESCE(user_name,''), COALESCE(user_position,''), assigned_by, COALESCE(assigned_by_name,''), assigned_at
+		FROM land_acquisition_assignee
+		WHERE acquisition_id = $1
+		ORDER BY assigned_at
+	`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.AcquisitionAssignee
+	for rows.Next() {
+		var a domain.AcquisitionAssignee
+		if err := rows.Scan(&a.UserID, &a.UserName, &a.UserPosition, &a.AssignedBy, &a.AssignedByName, &a.AssignedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, a)
+	}
+	if result == nil {
+		result = []domain.AcquisitionAssignee{}
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM land_acquisition_assignee
+			WHERE acquisition_id = $1 AND user_id = $2
+		)
+	`, acquisitionID, userID).Scan(&exists)
+	return exists, err
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)

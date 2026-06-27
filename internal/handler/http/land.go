@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/middleware"
 	"github.com/your-org/go-api-template/internal/pkg/i18n"
 	"github.com/your-org/go-api-template/internal/pkg/response"
 	"github.com/your-org/go-api-template/internal/service"
@@ -535,6 +536,66 @@ func (h *LandHandler) SyncMonitoring(c *gin.Context) {
 		"status":          "Дууссан",
 		"notes":           "Газрыг чөлөөлөх нөхцөл бүрдсэн байна",
 	})
+}
+
+// GetAssignees godoc
+func (h *LandHandler) GetAssignees(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	assignees, err := h.svc.GetAssignees(c.Request.Context(), acqID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, assignees)
+}
+
+// SetAssignees godoc
+func (h *LandHandler) SetAssignees(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+
+	var req struct {
+		Users []struct {
+			UserID       string `json:"user_id"`
+			UserName     string `json:"user_name"`
+			UserPosition string `json:"user_position"`
+		} `json:"users"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+
+	callerID, _ := middleware.GetCallerID(c)
+	callerName := middleware.GetCallerName(c)
+
+	assignees := make([]domain.AcquisitionAssignee, 0, len(req.Users))
+	for _, u := range req.Users {
+		uid, err := uuid.Parse(u.UserID)
+		if err != nil {
+			continue
+		}
+		assignees = append(assignees, domain.AcquisitionAssignee{
+			UserID:         uid,
+			UserName:       u.UserName,
+			UserPosition:   u.UserPosition,
+			AssignedBy:     callerID,
+			AssignedByName: callerName,
+		})
+	}
+
+	if err := h.svc.SetAssignees(c.Request.Context(), acqID, assignees); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, assignees)
 }
 
 // GetParcelByID godoc

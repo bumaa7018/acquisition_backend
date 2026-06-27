@@ -9,7 +9,9 @@ ON CONFLICT (name) DO UPDATE SET
     action = EXCLUDED.action;
 
 INSERT INTO roles (id, name, description, created_at, updated_at)
-VALUES (uuid_generate_v4(), 'senior_specialist', 'Ахлах мэргэжилтэн', NOW(), NOW())
+VALUES
+    (uuid_generate_v4(), 'senior_specialist', 'Ахлах мэргэжилтэн', NOW(), NOW()),
+    (uuid_generate_v4(), 'employee', 'Энгийн ажилтан', NOW(), NOW())
 ON CONFLICT (name) DO UPDATE SET
     description = EXCLUDED.description,
     updated_at = NOW();
@@ -19,4 +21,11 @@ SELECT r.id, p.id
 FROM roles r
 JOIN permissions p ON p.name IN ('land:read', 'land:create', 'land:update')
 WHERE r.name = 'senior_specialist'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.name = 'land:read'
+WHERE r.name = 'employee'
 ON CONFLICT DO NOTHING;
