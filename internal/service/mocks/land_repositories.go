@@ -77,8 +77,8 @@ func (m *MockLandAcquisitionRepository) GetByID(ctx context.Context, id uuid.UUI
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error) {
-	args := m.Called(ctx, innerWKT, outerWKT)
+func (m *MockLandAcquisitionRepository) ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error) {
+	args := m.Called(ctx, geomWKT, planWKT)
 	return args.Bool(0), args.Error(1)
 }
 

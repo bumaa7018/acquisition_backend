@@ -51,6 +51,9 @@ func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig) error {
 	if err != nil {
 		return err
 	}
+	if err := s.seedSeniorSpecialistRole(ctx); err != nil {
+		return err
+	}
 	return s.seedAdminUser(ctx, adminCfg, adminRole.ID)
 }
 
@@ -100,6 +103,41 @@ func (s *Seeder) seedAdminRole(ctx context.Context, permIDs []uuid.UUID) (*domai
 	}
 	slog.Info("admin role created")
 	return role, nil
+}
+
+func (s *Seeder) seedSeniorSpecialistRole(ctx context.Context) error {
+	permNames := []string{"land:read", "land:create", "land:update"}
+	var permIDs []uuid.UUID
+	for _, name := range permNames {
+		perm, err := s.permRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		permIDs = append(permIDs, perm.ID)
+	}
+
+	role, err := s.roleRepo.GetByName(ctx, "senior_specialist")
+	if err != nil {
+		now := time.Now()
+		role = &domain.Role{
+			ID:          uuid.New(),
+			Name:        "senior_specialist",
+			Description: "Ахлах мэргэжилтэн",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := s.roleRepo.Create(ctx, role); err != nil {
+			return err
+		}
+		slog.Info("senior specialist role created")
+	}
+
+	for _, pid := range permIDs {
+		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, roleID uuid.UUID) error {

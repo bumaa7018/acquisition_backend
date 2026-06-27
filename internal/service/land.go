@@ -88,7 +88,7 @@ func (s *landService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelS
 	return s.landRepo.ListParcelStatuses(ctx)
 }
 
-// 3. PostGIS-аар чөлөөлөх хилийг төлөвлөгөөний хилтэй шалгана
+// 3. PostGIS-аар чөлөөлөх хил төлөвлөгөөний хилтэй давхцаж байгааг шалгана
 // 4. land_acquisition үүсгэнэ
 // 5. Огтлолцох баг (au3) олж холбоно
 // 6. auth DB-аас нэгж талбар татаж, давхцахыг шалгаж main DB-д хадгална
@@ -105,12 +105,12 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		return nil, domain.ErrInvalidInput
 	}
 
-	// 3. Хилийн шалгалт: чөлөөлөх хил ⊂ төлөвлөгөөний хил
-	within, err := s.landRepo.ValidateWithin(ctx, acqWKT, plan.BoundaryWKT)
+	// 3. Хилийн шалгалт: төлөвлөгөөний хилээс илүү гарч болно, гэхдээ бодит талбайгаар давхцах ёстой
+	overlaps, err := s.landRepo.ValidateOverlap(ctx, acqWKT, plan.BoundaryWKT)
 	if err != nil {
 		return nil, domain.ErrInternalServer
 	}
-	if !within {
+	if !overlaps {
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -201,11 +201,11 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			return nil, false, domain.ErrInvalidInput
 		}
 
-		within, err := s.landRepo.ValidateWithin(ctx, newWKT, plan.BoundaryWKT)
+		overlaps, err := s.landRepo.ValidateOverlap(ctx, newWKT, plan.BoundaryWKT)
 		if err != nil {
 			return nil, false, domain.ErrInternalServer
 		}
-		if !within {
+		if !overlaps {
 			return nil, false, domain.ErrInvalidInput
 		}
 

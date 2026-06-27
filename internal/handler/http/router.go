@@ -97,7 +97,7 @@ func NewRouter(
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
 			land.GET("/suggest", middleware.RequirePermission("land:read"), landH.Suggest)
-			land.POST("", middleware.RequirePermission("land:create"), landH.Create)
+			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			land.GET("/:id", middleware.RequirePermission("land:read"), landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), landH.ListParcels)
 			land.GET("/:id/assets", middleware.RequirePermission("land:read"), landH.ListAssets)
@@ -112,7 +112,7 @@ func NewRouter(
 			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), landH.UpdateCompensationGrant)
 			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), landH.DeleteCompensationGrant)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequirePermission("land:read"), landH.GetParcelByID)
-			land.PUT("/:id", middleware.RequirePermission("land:update"), landH.Update)
+			land.PUT("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.Update)
 			land.DELETE("/:id", middleware.RequirePermission("land:delete"), landH.Delete)
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), landH.SyncParcel)
 			land.POST("/:id/parcels/:parcel_id/sync/contract-act", middleware.RequirePermission("land:create"), landH.SyncContractAct)

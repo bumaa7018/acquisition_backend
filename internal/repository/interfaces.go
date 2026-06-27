@@ -64,7 +64,7 @@ type LandAcquisitionRepository interface {
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
-	ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error)
+	ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
 	CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error
 	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error

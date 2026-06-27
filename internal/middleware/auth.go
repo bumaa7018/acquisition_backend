@@ -10,6 +10,7 @@ import (
 
 const (
 	CtxUserID      = "userID"
+	CtxRoles       = "roles"
 	CtxPermissions = "permissions"
 )
 
@@ -33,6 +34,7 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		}
 
 		c.Set(CtxUserID, claims.UserID)
+		c.Set(CtxRoles, claims.Roles)
 		c.Set(CtxPermissions, claims.Permissions)
 		c.Next()
 	}
@@ -54,6 +56,30 @@ func RequirePermission(permission string) gin.HandlerFunc {
 			if p == permission {
 				c.Next()
 				return
+			}
+		}
+		response.Error(c, ErrForbidden)
+	}
+}
+
+func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rolesAny, exists := c.Get(CtxRoles)
+		if !exists {
+			response.Error(c, ErrForbidden)
+			return
+		}
+		roles, ok := rolesAny.([]string)
+		if !ok {
+			response.Error(c, ErrForbidden)
+			return
+		}
+		for _, r := range roles {
+			for _, allowed := range allowedRoles {
+				if r == allowed {
+					c.Next()
+					return
+				}
 			}
 		}
 		response.Error(c, ErrForbidden)

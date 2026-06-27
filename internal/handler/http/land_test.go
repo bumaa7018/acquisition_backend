@@ -624,16 +624,16 @@ func TestLandHandler_SyncParcel_Success(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	acqID := uuid.New()
-	parcelID := uuid.New()
-	mockSvc.On("SyncParcel", mock.Anything, acqID, parcelID).Return(nil)
+	parcelCode := "010101000001"
+	mockSvc.On("SyncParcel", mock.Anything, acqID, parcelCode).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost,
-		"/land-acquisitions/"+acqID.String()+"/parcels/"+parcelID.String()+"/sync", nil)
+		"/land-acquisitions/"+acqID.String()+"/parcels/"+parcelCode+"/sync", nil)
 	c.Params = gin.Params{
 		{Key: "id", Value: acqID.String()},
-		{Key: "parcel_id", Value: parcelID.String()},
+		{Key: "parcel_id", Value: parcelCode},
 	}
 
 	h.SyncParcel(c)
@@ -650,16 +650,16 @@ func TestLandHandler_SyncParcel_NotFound(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	acqID := uuid.New()
-	parcelID := uuid.New()
-	mockSvc.On("SyncParcel", mock.Anything, acqID, parcelID).Return(domain.ErrNotFound)
+	parcelCode := "010101000001"
+	mockSvc.On("SyncParcel", mock.Anything, acqID, parcelCode).Return(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost,
-		"/land-acquisitions/"+acqID.String()+"/parcels/"+parcelID.String()+"/sync", nil)
+		"/land-acquisitions/"+acqID.String()+"/parcels/"+parcelCode+"/sync", nil)
 	c.Params = gin.Params{
 		{Key: "id", Value: acqID.String()},
-		{Key: "parcel_id", Value: parcelID.String()},
+		{Key: "parcel_id", Value: parcelCode},
 	}
 
 	h.SyncParcel(c)
@@ -684,21 +684,26 @@ func TestLandHandler_SyncParcel_InvalidAcqUUID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestLandHandler_SyncParcel_InvalidParcelUUID(t *testing.T) {
+func TestLandHandler_SyncParcel_AllowsParcelCode(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
+	acqID := uuid.New()
+	parcelCode := "not-a-uuid"
+	mockSvc.On("SyncParcel", mock.Anything, acqID, parcelCode).Return(nil)
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+uuid.New().String()+"/parcels/bad/sync", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+acqID.String()+"/parcels/"+parcelCode+"/sync", nil)
 	c.Params = gin.Params{
-		{Key: "id", Value: uuid.New().String()},
-		{Key: "parcel_id", Value: "not-a-uuid"},
+		{Key: "id", Value: acqID.String()},
+		{Key: "parcel_id", Value: parcelCode},
 	}
 
 	h.SyncParcel(c)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 // ── Acquisition Documents ─────────────────────────────────────

@@ -529,11 +529,11 @@ func (h *LandHandler) SyncMonitoring(c *gin.Context) {
 		return
 	}
 	response.OK(c, gin.H{
-		"conclusion_file":  "monitoring_conclusion_БА-2024-001.pdf",
-		"inspector_name":   "Б. Батболд",
-		"inspection_date":  "2024-05-08",
-		"status":           "Дууссан",
-		"notes":            "Газрыг чөлөөлөх нөхцөл бүрдсэн байна",
+		"conclusion_file": "monitoring_conclusion_БА-2024-001.pdf",
+		"inspector_name":  "Б. Батболд",
+		"inspection_date": "2024-05-08",
+		"status":          "Дууссан",
+		"notes":           "Газрыг чөлөөлөх нөхцөл бүрдсэн байна",
 	})
 }
 

@@ -83,7 +83,7 @@ func TestLandService_Create_Success(t *testing.T) {
 	zip := buildSimpleShp()
 
 	planRepo.On("GetByCode", ctx, testPlanCode).Return(plan, nil)
-	landRepo.On("ValidateWithin", ctx, mock.AnythingOfType("string"), testBoundary).Return(true, nil)
+	landRepo.On("ValidateOverlap", ctx, mock.AnythingOfType("string"), testBoundary).Return(true, nil)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{
 		{AU1Code: "01", AU2Code: "0101", AU3Code: "010101"},
@@ -127,7 +127,7 @@ func TestLandService_Create_PlanNotFound(t *testing.T) {
 
 	assert.Equal(t, domain.ErrNotFound, err)
 	planRepo.AssertExpectations(t)
-	landRepo.AssertNotCalled(t, "ValidateWithin")
+	landRepo.AssertNotCalled(t, "ValidateOverlap")
 }
 
 func TestLandService_Create_InvalidShapefile(t *testing.T) {
@@ -154,7 +154,7 @@ func TestLandService_Create_GeometryOutsideBoundary(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	planRepo.On("GetByCode", ctx, testPlanCode).Return(testPlan(), nil)
-	landRepo.On("ValidateWithin", ctx, mock.AnythingOfType("string"), testBoundary).Return(false, nil)
+	landRepo.On("ValidateOverlap", ctx, mock.AnythingOfType("string"), testBoundary).Return(false, nil)
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
@@ -166,13 +166,13 @@ func TestLandService_Create_GeometryOutsideBoundary(t *testing.T) {
 	assert.Equal(t, domain.ErrInvalidInput, err)
 }
 
-func TestLandService_Create_ValidateWithinError(t *testing.T) {
+func TestLandService_Create_ValidateOverlapError(t *testing.T) {
 	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	svc := newLandSvc(planRepo, landRepo)
 
 	planRepo.On("GetByCode", ctx, testPlanCode).Return(testPlan(), nil)
-	landRepo.On("ValidateWithin", ctx, mock.Anything, mock.Anything).Return(false, assert.AnError)
+	landRepo.On("ValidateOverlap", ctx, mock.Anything, mock.Anything).Return(false, assert.AnError)
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
@@ -247,7 +247,7 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
 	planRepo.On("GetByCode", ctx, testPlanCode).Return(plan, nil)
-	landRepo.On("ValidateWithin", ctx, mock.AnythingOfType("string"), testBoundary).Return(true, nil)
+	landRepo.On("ValidateOverlap", ctx, mock.AnythingOfType("string"), testBoundary).Return(true, nil)
 	landRepo.On("DeleteParcelsAndAUs", ctx, id).Return(nil)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
@@ -339,21 +339,22 @@ func TestLandService_SyncParcel_Success(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	acqID := uuid.New()
+	parcelCode := "010101000001"
 	parcelID := uuid.New()
 	holderID := uuid.New()
 
 	acq := &domain.LandAcquisition{ID: acqID, PlanCode: testPlanCode}
-	parcel := &domain.Parcel{ID: parcelID, ParcelID: "010101000001"}
-	srcParcel := &domain.SourceParcel{ID: uuid.New(), ParcelID: "010101000001"}
+	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode}
+	srcParcel := &domain.SourceParcel{ID: uuid.New(), ParcelID: parcelCode}
 
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
-	landRepo.On("GetParcelByID", ctx, parcelID).Return(parcel, nil)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(parcel, nil)
 	landRepo.On("UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string")).Return(nil)
-	planRepo.On("GetSourceParcelByID", ctx, "010101000001").Return(srcParcel, nil)
+	planRepo.On("GetSourceParcelByID", ctx, parcelCode).Return(srcParcel, nil)
 	landRepo.On("UpsertHolder", ctx, srcParcel).Return(holderID, nil)
 	landRepo.On("UpsertParcelRight", ctx, parcelID, acqID, holderID, srcParcel).Return(nil)
 
-	err := svc.SyncParcel(ctx, acqID, parcelID)
+	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	require.NoError(t, err)
 	planRepo.AssertExpectations(t)
 	landRepo.AssertExpectations(t)
@@ -365,12 +366,12 @@ func TestLandService_SyncParcel_AcquisitionNotFound(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	acqID := uuid.New()
-	parcelID := uuid.New()
+	parcelCode := "010101000001"
 	landRepo.On("GetByID", ctx, acqID).Return(nil, domain.ErrNotFound)
 
-	err := svc.SyncParcel(ctx, acqID, parcelID)
+	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	assert.Equal(t, domain.ErrNotFound, err)
-	landRepo.AssertNotCalled(t, "GetParcelByID")
+	landRepo.AssertNotCalled(t, "GetParcelByCode")
 }
 
 func TestLandService_SyncParcel_ParcelNotFound(t *testing.T) {
@@ -379,13 +380,13 @@ func TestLandService_SyncParcel_ParcelNotFound(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	acqID := uuid.New()
-	parcelID := uuid.New()
+	parcelCode := "010101000001"
 	acq := &domain.LandAcquisition{ID: acqID}
 
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
-	landRepo.On("GetParcelByID", ctx, parcelID).Return(nil, domain.ErrNotFound)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(nil, domain.ErrNotFound)
 
-	err := svc.SyncParcel(ctx, acqID, parcelID)
+	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	assert.Equal(t, domain.ErrNotFound, err)
 	planRepo.AssertNotCalled(t, "GetSourceParcelByID")
 }
@@ -396,16 +397,17 @@ func TestLandService_SyncParcel_SourceNotFound(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	acqID := uuid.New()
+	parcelCode := "MISSING"
 	parcelID := uuid.New()
 	acq := &domain.LandAcquisition{ID: acqID}
-	parcel := &domain.Parcel{ID: parcelID, ParcelID: "MISSING"}
+	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode}
 
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
-	landRepo.On("GetParcelByID", ctx, parcelID).Return(parcel, nil)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(parcel, nil)
 	landRepo.On("UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string")).Return(nil)
-	planRepo.On("GetSourceParcelByID", ctx, "MISSING").Return(nil, domain.ErrNotFound)
+	planRepo.On("GetSourceParcelByID", ctx, parcelCode).Return(nil, domain.ErrNotFound)
 
-	err := svc.SyncParcel(ctx, acqID, parcelID)
+	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	assert.Equal(t, domain.ErrNotFound, err)
 	landRepo.AssertNotCalled(t, "UpsertHolder")
 }

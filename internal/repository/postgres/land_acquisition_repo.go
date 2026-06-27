@@ -265,15 +265,18 @@ func (r *landAcqRepo) getAUs(ctx context.Context, acqID uuid.UUID) ([]domain.Lan
 	return aus, rows.Err()
 }
 
-// ValidateWithin uses PostGIS to check inner ⊂ outer.
-func (r *landAcqRepo) ValidateWithin(ctx context.Context, innerWKT, outerWKT string) (bool, error) {
+// ValidateOverlap checks that the acquisition geometry has a real area overlap with the plan.
+func (r *landAcqRepo) ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error) {
 	var ok bool
 	err := r.db.QueryRow(ctx, `
-			SELECT ST_Within(
-				ST_GeomFromText($1, 4326)::geometry(Polygon, 4326),
-				ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)
+			WITH g AS (
+				SELECT
+					ST_MakeValid(ST_GeomFromText($1, 4326))::geometry AS acquisition_geom,
+					ST_MakeValid(ST_GeomFromText($2, 4326))::geometry AS plan_geom
 			)
-		`, innerWKT, outerWKT).Scan(&ok)
+			SELECT ST_Area(ST_CollectionExtract(ST_Intersection(acquisition_geom, plan_geom), 3)) > 0
+			FROM g
+		`, geomWKT, planWKT).Scan(&ok)
 	return ok, err
 }
 

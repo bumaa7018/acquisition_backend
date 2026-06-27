@@ -10,8 +10,9 @@ const (
 )
 
 // Detect reads Accept-Language header; default is MN.
+// Browser defaults such as en-GB/en-US should not switch the Mongolian UI to English.
 func Detect(header string) Lang {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(header)), "en") {
+	if strings.EqualFold(strings.TrimSpace(header), string(EN)) {
 		return EN
 	}
 	return MN
