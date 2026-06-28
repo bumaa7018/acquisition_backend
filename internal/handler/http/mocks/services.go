@@ -402,6 +402,78 @@ func (m *MockLandService) ListParcelStatusHistory(ctx context.Context, parcelID 
 	return args.Get(0).([]*domain.ParcelStatusHistory), args.Error(1)
 }
 
+func (m *MockLandService) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+	return m.Called(ctx, id, note, reviewedBy).Error(0)
+}
+
+func (m *MockLandService) RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+	return m.Called(ctx, id, note, reviewedBy).Error(0)
+}
+
+func (m *MockLandService) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
+	args := m.Called(ctx, compensationID)
+	return args.Get(0).([]*domain.CompensationHistory), args.Error(1)
+}
+
+func (m *MockLandService) ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error) {
+	args := m.Called(ctx, acquisitionID)
+	return args.Get(0).([]*domain.FundingSource), args.Error(1)
+}
+
+func (m *MockLandService) CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
+	args := m.Called(ctx, fs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.FundingSource), args.Error(1)
+}
+
+func (m *MockLandService) UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
+	args := m.Called(ctx, fs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.FundingSource), args.Error(1)
+}
+
+func (m *MockLandService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
+	args := m.Called(ctx, acquisitionID, parcelID)
+	return args.Get(0).([]*domain.AuthorizedRepresentative), args.Error(1)
+}
+
+func (m *MockLandService) CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error) {
+	args := m.Called(ctx, rep)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AuthorizedRepresentative), args.Error(1)
+}
+
+func (m *MockLandService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*domain.AcquisitionWorkflow), args.Error(1)
+}
+
+func (m *MockLandService) CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error) {
+	args := m.Called(ctx, fromStatusID, toStatusID, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionWorkflow), args.Error(1)
+}
+
+func (m *MockLandService) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
 type MockUserService struct {
 	mock.Mock
 }

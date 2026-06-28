@@ -154,20 +154,20 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 }
 
 type dashboardResponse struct {
-	Acquisitions       []landAcquisitionResponse `json:"acquisitions"`
-	ParcelStatuses     []*domain.ParcelStatus    `json:"parcel_statuses"`
-	TotalParcels       int64                     `json:"total_parcels"`
-	FreedParcels       int64                     `json:"freed_parcels"`
-	FreedAreaM2        float64                   `json:"freed_area_m2"`
-	PlanAreaM2         float64                   `json:"plan_area_m2"`
-	TotalOrders        int64                     `json:"total_orders"`
-	TotalCompensation  float64                   `json:"total_compensation"`
-	StatusBreakdown    []domain.ParcelStatusStat `json:"status_breakdown"`
-	Timeline           []domain.TimelinePoint    `json:"timeline"`
-	FilteredParcelIDs  []string                  `json:"filtered_parcel_ids"`
-	FilteredAU1Codes   []string                  `json:"filtered_au1_codes"`
-	FilteredAU2Codes   []string                  `json:"filtered_au2_codes"`
-	FilteredAU3Codes   []string                  `json:"filtered_au3_codes"`
+	Acquisitions      []landAcquisitionResponse `json:"acquisitions"`
+	ParcelStatuses    []*domain.ParcelStatus    `json:"parcel_statuses"`
+	TotalParcels      int64                     `json:"total_parcels"`
+	FreedParcels      int64                     `json:"freed_parcels"`
+	FreedAreaM2       float64                   `json:"freed_area_m2"`
+	PlanAreaM2        float64                   `json:"plan_area_m2"`
+	TotalOrders       int64                     `json:"total_orders"`
+	TotalCompensation float64                   `json:"total_compensation"`
+	StatusBreakdown   []domain.ParcelStatusStat `json:"status_breakdown"`
+	Timeline          []domain.TimelinePoint    `json:"timeline"`
+	FilteredParcelIDs []string                  `json:"filtered_parcel_ids"`
+	FilteredAU1Codes  []string                  `json:"filtered_au1_codes"`
+	FilteredAU2Codes  []string                  `json:"filtered_au2_codes"`
+	FilteredAU3Codes  []string                  `json:"filtered_au3_codes"`
 }
 
 type globalParcelResponse struct {
@@ -182,12 +182,17 @@ type globalParcelResponse struct {
 	AcquisitionAreaM2 float64 `json:"acquisition_area_m2"`
 	CompensationPaid  bool    `json:"compensation_paid"`
 	Status            int     `json:"status"`
+	StatusID          int     `json:"status_id"`
+	StatusName        string  `json:"status_name"`
 	AcquisitionID     string  `json:"acquisition_id"`
 	AcquisitionName   string  `json:"acquisition_name"`
 	PlanCode          string  `json:"plan_code"`
 	AcquisitionStatus int     `json:"acquisition_status"`
 	StartDate         *string `json:"start_date"`
 	EndDate           *string `json:"end_date"`
+	CashAmount        float64 `json:"cash_amount"`
+	LandGrantAmount   float64 `json:"land_grant_amount"`
+	LandGrantCount    int     `json:"land_grant_count"`
 }
 
 type parcelPaymentResponse struct {
@@ -387,11 +392,16 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 		AreaM2:            p.AreaM2,
 		AcquisitionAreaM2: p.AcquisitionAreaM2,
 		CompensationPaid:  p.CompensationPaid,
-		Status:            p.Status,
+		Status:            p.StatusID,
+		StatusID:          p.StatusID,
+		StatusName:        p.StatusName,
 		AcquisitionID:     p.AcquisitionID.String(),
 		AcquisitionName:   p.AcquisitionName,
 		PlanCode:          p.PlanCode,
 		AcquisitionStatus: p.AcquisitionStatus,
+		CashAmount:        p.CashAmount,
+		LandGrantAmount:   p.LandGrantAmount,
+		LandGrantCount:    p.LandGrantCount,
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format("2006-01-02")

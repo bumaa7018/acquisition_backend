@@ -46,6 +46,7 @@ func NewRouter(
 	parcelStatusH := NewParcelStatusHandler(parcelStatusSvc)
 	documentTypeH := NewDocumentTypeHandler(documentTypeSvc)
 	parcelWorkflowH := NewParcelWorkflowHandler(landSvc)
+	acquisitionWorkflowH := NewAcquisitionWorkflowHandler(landSvc)
 	acquisitionCategoryH := NewAcquisitionCategoryHandler(landSvc)
 
 	v1 := r.Group("/api/v1")
@@ -104,13 +105,13 @@ func NewRouter(
 		}
 
 		// Газар чөлөөлөлт
+		assignedOrSenior := middleware.RequireAssignedOrSenior(landSvc)
 		land := protected.Group("/land-acquisitions")
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
 			land.GET("/suggest", middleware.RequirePermission("land:read"), landH.Suggest)
 			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware
-			assignedOrSenior := middleware.RequireAssignedOrSenior(landSvc)
 			land.GET("/:id", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListParcels)
 			land.GET("/:id/assets", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAssets)
@@ -212,6 +213,15 @@ func NewRouter(
 			parcelWorkflow.DELETE("/:id", middleware.RequirePermission("land:delete"), parcelWorkflowH.Delete)
 		}
 
+		// Газар чөлөөлөлтийн ажлын урсгал
+		acquisitionWorkflow := protected.Group("/acquisition-workflow")
+		{
+			acquisitionWorkflow.GET("", middleware.RequirePermission("land:read"), acquisitionWorkflowH.List)
+			acquisitionWorkflow.GET("/statuses", middleware.RequirePermission("land:read"), acquisitionWorkflowH.ListStatuses)
+			acquisitionWorkflow.POST("", middleware.RequirePermission("land:create"), acquisitionWorkflowH.Create)
+			acquisitionWorkflow.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionWorkflowH.Delete)
+		}
+
 		// Глобал нэгж талбарын маршрут
 		parcels := protected.Group("/parcels")
 		{
@@ -225,11 +235,11 @@ func NewRouter(
 
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/available-statuses",
-			middleware.RequirePermission("land:read"), parcelWorkflowH.GetAvailableStatuses)
+			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.GetAvailableStatuses)
 		protected.PATCH("/land-acquisitions/:id/parcels/:parcel_id/status",
-			middleware.RequirePermission("land:update"), parcelWorkflowH.UpdateParcelStatus)
+			middleware.RequirePermission("land:update"), assignedOrSenior, parcelWorkflowH.UpdateParcelStatus)
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/status-history",
-			middleware.RequirePermission("land:read"), parcelWorkflowH.ListParcelStatusHistory)
+			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.ListParcelStatusHistory)
 	}
 
 	return r

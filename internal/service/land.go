@@ -84,6 +84,10 @@ type LandService interface {
 	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
 	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error)
 	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
+	// AcquisitionWorkflow
+	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
+	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
+	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
 }
 
 type landService struct {
@@ -401,12 +405,28 @@ func (s *landService) GetProgress(ctx context.Context, acquisitionID uuid.UUID) 
 	return list, nil
 }
 
-// GetAvailableStatuses — одоогийн статусаас шилжих боломжтой статусуудыг буцаана
+// GetAvailableStatuses — одоогийн статусаас шилжих боломжтой статусуудыг буцаана.
+// DB-д ажлын урсгал тохируулсан бол тэрийг ашиглана, эс бол hard-coded эрэмбийг ашиглана.
 func (s *landService) GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error) {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+
+	rules, _ := s.landRepo.ListAcquisitionWorkflows(ctx)
+	if len(rules) > 0 {
+		var opts []domain.StatusOption
+		for _, r := range rules {
+			if r.FromStatusID != nil && *r.FromStatusID == acq.Status {
+				opts = append(opts, domain.StatusOption{
+					ID:    r.ToStatusID,
+					Label: domain.AcquisitionStatusLabels[r.ToStatusID],
+				})
+			}
+		}
+		return opts, nil
+	}
+
 	var opts []domain.StatusOption
 	for _, st := range domain.AcquisitionStatusOrder {
 		if st > acq.Status {
@@ -419,18 +439,33 @@ func (s *landService) GetAvailableStatuses(ctx context.Context, acquisitionID uu
 	return opts, nil
 }
 
-// AdvanceStatus — сонгосон статус руу шилжүүлнэ
+// AdvanceStatus — сонгосон статус руу шилжүүлнэ.
+// DB-д ажлын урсгал тохируулсан бол тэрийг шалгана, эс бол hard-coded дүрмийг ашиглана.
 func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error) {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
 
-	if toStatus <= acq.Status {
-		return nil, domain.ErrInvalidInput
-	}
-	if _, ok := domain.AcquisitionStatusLabels[toStatus]; !ok {
-		return nil, domain.ErrInvalidInput
+	rules, _ := s.landRepo.ListAcquisitionWorkflows(ctx)
+	if len(rules) > 0 {
+		allowed := false
+		for _, r := range rules {
+			if r.FromStatusID != nil && *r.FromStatusID == acq.Status && r.ToStatusID == toStatus {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, domain.ErrInvalidInput
+		}
+	} else {
+		if toStatus <= acq.Status {
+			return nil, domain.ErrInvalidInput
+		}
+		if _, ok := domain.AcquisitionStatusLabels[toStatus]; !ok {
+			return nil, domain.ErrInvalidInput
+		}
 	}
 
 	// status=3 (Баталгаажсан) болоход НЗД-ын захирамжийн мэдээлэл заавал шаардагдана
@@ -803,4 +838,16 @@ func (s *landService) CreateAuthorizedRepresentative(ctx context.Context, rep *d
 
 func (s *landService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
 	return s.landRepo.DeleteAuthorizedRepresentative(ctx, id)
+}
+
+func (s *landService) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {
+	return s.landRepo.ListAcquisitionWorkflows(ctx)
+}
+
+func (s *landService) CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error) {
+	return s.landRepo.CreateAcquisitionWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
+}
+
+func (s *landService) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
+	return s.landRepo.DeleteAcquisitionWorkflow(ctx, id)
 }

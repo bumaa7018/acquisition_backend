@@ -147,6 +147,10 @@ type LandAcquisitionRepository interface {
 	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
 	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) error
 	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
+	// AcquisitionWorkflow methods
+	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
+	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
+	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
 }
 
 type AcquisitionProgressStatusRepository interface {

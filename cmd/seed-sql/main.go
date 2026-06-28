@@ -28,7 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	dsn := cfg.DB.DSN()
+	var dsn string
 	switch *dbName {
 	case "main":
 		dsn = cfg.DB.DSN()

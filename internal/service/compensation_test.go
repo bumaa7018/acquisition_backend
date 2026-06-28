@@ -72,6 +72,8 @@ func TestCompensation_Delete_Success(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	compID := uuid.New()
+	pending := &domain.Compensation{ID: compID, Status: "pending"}
+	landRepo.On("GetCompensation", ctx, compID).Return(pending, nil)
 	landRepo.On("DeleteCompensation", ctx, compID).Return(nil)
 
 	err := svc.DeleteCompensation(ctx, compID)

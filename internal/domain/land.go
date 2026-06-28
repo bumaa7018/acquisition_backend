@@ -129,6 +129,16 @@ type ParcelWorkflow struct {
 	SortOrder      int    `json:"sort_order"`
 }
 
+// AcquisitionWorkflow — газар чөлөөлөлтийн ажлын урсгалын шилжилт
+type AcquisitionWorkflow struct {
+	ID             int    `json:"id"`
+	FromStatusID   *int   `json:"from_status_id"`
+	ToStatusID     int    `json:"to_status_id"`
+	FromStatusName string `json:"from_status_name"`
+	ToStatusName   string `json:"to_status_name"`
+	SortOrder      int    `json:"sort_order"`
+}
+
 // AcquisitionAssignee — чөлөөлөлтэд хуваарилагдсан ажилтан
 type AcquisitionAssignee struct {
 	UserID         uuid.UUID `json:"user_id"`
@@ -319,6 +329,9 @@ type GlobalParcel struct {
 	AcquisitionStatus int
 	StartDate         *time.Time
 	EndDate           *time.Time
+	CashAmount        float64
+	LandGrantAmount   float64
+	LandGrantCount    int
 }
 
 // GlobalParcelFilter — глобал нэгж талбарын жагсаалт шүүх болон хуудаслах параметр

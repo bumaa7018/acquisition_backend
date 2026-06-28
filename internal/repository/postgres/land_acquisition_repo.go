@@ -1126,11 +1126,15 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 		       COALESCE(p.compensation_paid,false),
 		       p.created_at, COALESCE(p.created_by,''),
-		       COALESCE(p.status,0),
+		       COALESCE(p.status,0), COALESCE(ps.name,''),
 		       COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
-		       la.status, la.start_date, la.end_date
+		       la.status, la.start_date, la.end_date,
+		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash'), 0),
+		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
+		       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0)
 		FROM parcel p
 		JOIN land_acquisition la ON la.id = p.acquisition_id
+		LEFT JOIN parcel_status ps ON ps.id = p.status
 		WHERE %s
 		ORDER BY p.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -1153,9 +1157,10 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			&gp.RightType, &gp.Landuse, &gp.AreaM2,
 			&gp.CompensationPaid,
 			&gp.CreatedAt, &gp.CreatedBy,
-			&gp.Status,
+			&gp.StatusID, &gp.StatusName,
 			&gp.AcquisitionName, &gp.PlanCode,
 			&gp.AcquisitionStatus, &gp.StartDate, &gp.EndDate,
+			&gp.CashAmount, &gp.LandGrantAmount, &gp.LandGrantCount,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -2463,6 +2468,59 @@ func (r *landAcqRepo) CreateAuthorizedRepresentative(ctx context.Context, rep *d
 
 func (r *landAcqRepo) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
 	ct, err := r.db.Exec(ctx, `DELETE FROM authorized_representatives WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *landAcqRepo) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, from_status, to_status, sort_order
+		FROM acquisition_workflow
+		ORDER BY sort_order, id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []*domain.AcquisitionWorkflow
+	for rows.Next() {
+		w := &domain.AcquisitionWorkflow{}
+		if err := rows.Scan(&w.ID, &w.FromStatusID, &w.ToStatusID, &w.SortOrder); err != nil {
+			return nil, err
+		}
+		if w.FromStatusID != nil {
+			w.FromStatusName = domain.AcquisitionStatusLabels[*w.FromStatusID]
+		}
+		w.ToStatusName = domain.AcquisitionStatusLabels[w.ToStatusID]
+		list = append(list, w)
+	}
+	return list, rows.Err()
+}
+
+func (r *landAcqRepo) CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error) {
+	w := &domain.AcquisitionWorkflow{}
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO acquisition_workflow (from_status, to_status, sort_order)
+		VALUES ($1, $2, $3)
+		RETURNING id, from_status, to_status, sort_order
+	`, fromStatusID, toStatusID, sortOrder).Scan(&w.ID, &w.FromStatusID, &w.ToStatusID, &w.SortOrder)
+	if err != nil {
+		return nil, err
+	}
+	if w.FromStatusID != nil {
+		w.FromStatusName = domain.AcquisitionStatusLabels[*w.FromStatusID]
+	}
+	w.ToStatusName = domain.AcquisitionStatusLabels[w.ToStatusID]
+	return w, nil
+}
+
+func (r *landAcqRepo) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
+	ct, err := r.db.Exec(ctx, `DELETE FROM acquisition_workflow WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
