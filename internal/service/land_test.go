@@ -97,7 +97,7 @@ func TestLandService_Create_Success(t *testing.T) {
 	acq, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
 		StartDate:     testStartDate,
-		EndDate:       testEndDate,
+		EndDate:       &testEndDate,
 		ShapefileData: zip,
 		CreatedBy:     "user-1",
 	})
@@ -121,7 +121,7 @@ func TestLandService_Create_PlanNotFound(t *testing.T) {
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      "UNKNOWN",
 		StartDate:     testStartDate,
-		EndDate:       testEndDate,
+		EndDate:       &testEndDate,
 		ShapefileData: buildSimpleShp(),
 	})
 
@@ -140,7 +140,7 @@ func TestLandService_Create_InvalidShapefile(t *testing.T) {
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
 		StartDate:     testStartDate,
-		EndDate:       testEndDate,
+		EndDate:       &testEndDate,
 		ShapefileData: []byte("not-a-zip"),
 	})
 
@@ -159,7 +159,7 @@ func TestLandService_Create_GeometryOutsideBoundary(t *testing.T) {
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
 		StartDate:     testStartDate,
-		EndDate:       testEndDate,
+		EndDate:       &testEndDate,
 		ShapefileData: buildSimpleShp(),
 	})
 
@@ -177,7 +177,7 @@ func TestLandService_Create_ValidateOverlapError(t *testing.T) {
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
 		StartDate:     testStartDate,
-		EndDate:       testEndDate,
+		EndDate:       &testEndDate,
 		ShapefileData: buildSimpleShp(),
 	})
 
@@ -233,6 +233,7 @@ func TestLandService_Update_DatesOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, geomChanged)
 	assert.Equal(t, newEnd, *acq.EndDate)
+	landRepo.AssertNotCalled(t, "DeleteAUs")
 	landRepo.AssertNotCalled(t, "DeleteParcelsAndAUs")
 }
 
@@ -242,16 +243,25 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	id := uuid.New()
-	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusField}
+	oldGeometryWKT := "POLYGON((1 1,2 1,2 2,1 2,1 1))"
+	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: oldGeometryWKT, Status: domain.LandAcquisitionStatusField}
 	plan := testPlan()
 
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
 	planRepo.On("GetByCode", ctx, testPlanCode).Return(plan, nil)
 	landRepo.On("ValidateOverlap", ctx, mock.AnythingOfType("string"), testBoundary).Return(true, nil)
-	landRepo.On("DeleteParcelsAndAUs", ctx, id).Return(nil)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
+	landRepo.On("CreateBoundaryHistory", ctx, mock.MatchedBy(func(h *domain.LandAcquisitionBoundaryHistory) bool {
+		return h.LandAcquisitionID == id &&
+			h.OldGeometryWKT == oldGeometryWKT &&
+			h.NewGeometryWKT != "" &&
+			h.ID != uuid.Nil
+	})).Return(nil)
+	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	planRepo.On("GetSourceParcels", ctx, testPlanCode).Return([]*domain.SourceParcel{}, nil)
+	srcParcels := []*domain.SourceParcel{{ParcelID: "123456789012"}}
+	planRepo.On("GetSourceParcels", ctx, testPlanCode).Return(srcParcels, nil)
+	landRepo.On("BulkInsertParcels", ctx, id, srcParcels, mock.AnythingOfType("string")).Return(nil)
 
 	acq, geomChanged, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
 		ShapefileData: buildSimpleShp(),
@@ -259,7 +269,10 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, geomChanged)
 	assert.NotEmpty(t, acq.GeometryWKT)
-	landRepo.AssertCalled(t, "DeleteParcelsAndAUs", ctx, id)
+	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.AnythingOfType("*domain.LandAcquisitionBoundaryHistory"))
+	landRepo.AssertCalled(t, "DeleteAUs", ctx, id)
+	landRepo.AssertCalled(t, "BulkInsertParcels", ctx, id, srcParcels, mock.AnythingOfType("string"))
+	landRepo.AssertNotCalled(t, "DeleteParcelsAndAUs")
 }
 
 func TestLandService_Update_PlanChangedWithoutShapefile(t *testing.T) {

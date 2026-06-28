@@ -13,11 +13,16 @@ import (
 
 type LandService interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
+	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
+	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error)
+	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error)
+	DeleteAcquisitionCategory(ctx context.Context, id int) error
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 	Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error)
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error)
+	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error)
@@ -26,7 +31,7 @@ type LandService interface {
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
-	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
@@ -39,6 +44,9 @@ type LandService interface {
 	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	DeleteCompensation(ctx context.Context, id uuid.UUID) error
+	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
+	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
+	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	// CompensationGrant
 	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
 	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
@@ -59,6 +67,23 @@ type LandService interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	// Parcel workflow
+	ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error)
+	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
+	DeleteParcelWorkflow(ctx context.Context, id int) error
+	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
+	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
+	// Parcel status history
+	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
+	// FundingSource
+	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
+	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
+	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
+	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
+	// AuthorizedRepresentative
+	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
+	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error)
+	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
 }
 
 type landService struct {
@@ -86,6 +111,22 @@ func NewLandService(
 //  2. Shapefile zip задалж polygon WKT гаргана
 func (s *landService) ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error) {
 	return s.landRepo.ListConstructionTypes(ctx)
+}
+
+func (s *landService) ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error) {
+	return s.landRepo.ListAcquisitionCategories(ctx, parentID)
+}
+
+func (s *landService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
+	return s.landRepo.CreateAcquisitionCategory(ctx, name, parentID, sortOrder)
+}
+
+func (s *landService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
+	return s.landRepo.UpdateAcquisitionCategory(ctx, id, name, sortOrder)
+}
+
+func (s *landService) DeleteAcquisitionCategory(ctx context.Context, id int) error {
+	return s.landRepo.DeleteAcquisitionCategory(ctx, id)
 }
 
 func (s *landService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
@@ -122,26 +163,27 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 	now := time.Now()
 	planIDCopy := plan.ID
 	acq := &domain.LandAcquisition{
-		ID:                 uuid.New(),
-		PlanID:             &planIDCopy,
-		PlanCode:           plan.PlanCode,
-		PlanName:           plan.Name,
-		PlanGeomWKT:        plan.BoundaryWKT,
-		PlanAreaM2:         plan.AreaM2,
-		GeometryWKT:        acqWKT,
-		Status:             domain.LandAcquisitionStatusNew,
-		StartDate:          &req.StartDate,
-		EndDate:            &req.EndDate,
-		AcquisitionName:    req.AcquisitionName,
-		ImplementingOrg:    req.ImplementingOrg,
-		Reason:             req.Reason,
-		ResponsibleOrg:     req.ResponsibleOrg,
-		FundingSource:      req.FundingSource,
-		ConstructionTypeID: req.ConstructionTypeID,
-		CreatedAt:          now,
-		CreatedBy:          req.CreatedBy,
-		UpdatedAt:          now,
-		UpdatedBy:          req.CreatedBy,
+		ID:                uuid.New(),
+		PlanID:            &planIDCopy,
+		PlanCode:          plan.PlanCode,
+		PlanName:          plan.Name,
+		PlanGeomWKT:       plan.BoundaryWKT,
+		PlanAreaM2:        plan.AreaM2,
+		GeometryWKT:       acqWKT,
+		Status:            domain.LandAcquisitionStatusNew,
+		StartDate:         &req.StartDate,
+		EndDate:           req.EndDate,
+		AcquisitionName:   req.AcquisitionName,
+		ImplementingOrg:   req.ImplementingOrg,
+		Reason:            req.Reason,
+		ResponsibleOrg:    req.ResponsibleOrg,
+		FundingSource:     req.FundingSource,
+		GeneralCategoryID: req.GeneralCategoryID,
+		SubCategoryID:     req.SubCategoryID,
+		CreatedAt:         now,
+		CreatedBy:         req.CreatedBy,
+		UpdatedAt:         now,
+		UpdatedBy:         req.CreatedBy,
 	}
 
 	if err := s.landRepo.Create(ctx, acq); err != nil {
@@ -179,7 +221,7 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 
 // Update — газар чөлөөлөлтийн мэдээлэл шинэчлэх.
 // Хоёрдахь буцах утга (bool) нь геометр өөрчлөгдсөн эсэхийг илэрхийлнэ
-// (true үед хуучин нэгж талбарууд устгагдсан тухай анхааруулга харуулна).
+// (true үед шинэ хилээр дутуу нэгж талбар нэмэгдсэн тухай анхааруулга харуулна).
 func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error) {
 	acq, err := s.landRepo.GetByID(ctx, id)
 	if err != nil {
@@ -187,6 +229,7 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	}
 
 	geometryChanged := false
+	oldGeometryWKT := acq.GeometryWKT
 
 	if len(req.ShapefileData) > 0 {
 		// Шинэ план эсвэл шинэ хилийн файл өгсөн үед геометрийг шинэчилнэ
@@ -213,10 +256,6 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			return nil, false, domain.ErrInvalidInput
 		}
 
-		// Хуучин нэгж талбар болон AU мэдээллийг устгана
-		if err := s.landRepo.DeleteParcelsAndAUs(ctx, id); err != nil {
-			return nil, false, domain.ErrInternalServer
-		}
 		geometryChanged = true
 
 		planIDCopy := plan.ID
@@ -244,7 +283,8 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	acq.Reason = req.Reason
 	acq.ResponsibleOrg = req.ResponsibleOrg
 	acq.FundingSource = req.FundingSource
-	acq.ConstructionTypeID = req.ConstructionTypeID
+	acq.GeneralCategoryID = req.GeneralCategoryID
+	acq.SubCategoryID = req.SubCategoryID
 	acq.UpdatedBy = req.UpdatedBy
 	// Shapefile байхгүй үед гараас оруулсан талбайн утгыг хэрэглэнэ
 	if len(req.ShapefileData) == 0 && req.AreaM2 != nil {
@@ -256,7 +296,21 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	}
 
 	if geometryChanged {
-		// Шинэ хилтэй огтлолцох AU болон нэгж талбаруудыг дахин холбоно
+		if err := s.landRepo.CreateBoundaryHistory(ctx, &domain.LandAcquisitionBoundaryHistory{
+			ID:                uuid.New(),
+			LandAcquisitionID: acq.ID,
+			OldGeometryWKT:    oldGeometryWKT,
+			NewGeometryWKT:    acq.GeometryWKT,
+			ChangedBy:         req.UpdatedBy,
+			ChangedAt:         time.Now(),
+		}); err != nil {
+			return nil, false, domain.ErrInternalServer
+		}
+
+		// Шинэ хилтэй огтлолцох AU-г шинэчилж, зөвхөн шинээр нэмэгдэх нэгж талбаруудыг холбоно.
+		if err := s.landRepo.DeleteAUs(ctx, acq.ID); err != nil {
+			return nil, false, domain.ErrInternalServer
+		}
 		aus, err := s.landRepo.FindIntersectingAU3(ctx, acq.GeometryWKT)
 		if err == nil {
 			for i := range aus {
@@ -272,6 +326,10 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	}
 
 	return acq, geometryChanged, nil
+}
+
+func (s *landService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
+	return s.landRepo.ListBoundaryHistory(ctx, acquisitionID)
 }
 
 // Delete — зөвхөн "NEW" статустай чөлөөлөлтийг устгана.
@@ -410,8 +468,8 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 }
 
 // UpdateParcelMeta — нэгж талбарын мэдээллийн сангийн өөрчлөлтийн мэдээллийг шинэчлэнэ
-func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
-	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2)
+func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT)
 }
 
 // SetParcelCompensation — нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэнэ
@@ -479,6 +537,13 @@ func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensa
 }
 
 func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
+	existing, err := s.landRepo.GetCompensation(ctx, c.ID)
+	if err != nil {
+		return nil, err
+	}
+	if existing.Status == "approved" {
+		return nil, domain.ErrApproved
+	}
 	if err := s.landRepo.UpdateCompensation(ctx, c); err != nil {
 		return nil, err
 	}
@@ -486,7 +551,26 @@ func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensa
 }
 
 func (s *landService) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
+	existing, err := s.landRepo.GetCompensation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if existing.Status == "approved" {
+		return domain.ErrApproved
+	}
 	return s.landRepo.DeleteCompensation(ctx, id)
+}
+
+func (s *landService) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+	return s.landRepo.ApproveCompensation(ctx, id, note, reviewedBy)
+}
+
+func (s *landService) RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+	return s.landRepo.RejectCompensation(ctx, id, note, reviewedBy)
+}
+
+func (s *landService) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
+	return s.landRepo.ListCompensationHistory(ctx, compensationID)
 }
 
 func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
@@ -658,4 +742,65 @@ func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 
 func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	return s.landRepo.IsAssigned(ctx, acquisitionID, userID)
+}
+
+func (s *landService) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {
+	return s.landRepo.ListParcelWorkflows(ctx)
+}
+
+func (s *landService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
+	return s.landRepo.CreateParcelWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
+}
+
+func (s *landService) DeleteParcelWorkflow(ctx context.Context, id int) error {
+	return s.landRepo.DeleteParcelWorkflow(ctx, id)
+}
+
+func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error) {
+	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
+}
+
+func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+	return s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy)
+}
+
+func (s *landService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
+	return s.landRepo.ListParcelStatusHistory(ctx, parcelID)
+}
+
+func (s *landService) ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error) {
+	return s.landRepo.ListFundingSources(ctx, acquisitionID)
+}
+
+func (s *landService) CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
+	if err := s.landRepo.CreateFundingSource(ctx, fs); err != nil {
+		return nil, err
+	}
+	return fs, nil
+}
+
+func (s *landService) UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
+	if err := s.landRepo.UpdateFundingSource(ctx, fs); err != nil {
+		return nil, err
+	}
+	return fs, nil
+}
+
+func (s *landService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteFundingSource(ctx, id)
+}
+
+func (s *landService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
+	return s.landRepo.ListAuthorizedRepresentatives(ctx, acquisitionID, parcelID)
+}
+
+func (s *landService) CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error) {
+	if err := s.landRepo.CreateAuthorizedRepresentative(ctx, rep); err != nil {
+		return nil, err
+	}
+	return rep, nil
+}
+
+func (s *landService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
+	return s.landRepo.DeleteAuthorizedRepresentative(ctx, id)
 }

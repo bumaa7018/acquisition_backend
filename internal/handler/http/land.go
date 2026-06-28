@@ -33,6 +33,22 @@ func (h *LandHandler) ListConstructionTypes(c *gin.Context) {
 	response.OK(c, list)
 }
 
+// ListAcquisitionCategories returns acquisition categories (general or sub).
+func (h *LandHandler) ListAcquisitionCategories(c *gin.Context) {
+	var parentID *int
+	if s := c.Query("parent_id"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			parentID = &n
+		}
+	}
+	list, err := h.svc.ListAcquisitionCategories(c.Request.Context(), parentID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
 // ListParcelStatuses returns all parcel status lookup records.
 func (h *LandHandler) ListParcelStatuses(c *gin.Context) {
 	list, err := h.svc.ListParcelStatuses(c.Request.Context())
@@ -92,11 +108,13 @@ func (h *LandHandler) List(c *gin.Context) {
 	pageSize := queryInt(c, "page_size", 20)
 
 	filter := domain.LandAcquisitionFilter{
-		PlanCode: c.Query("plan_code"),
-		Status:   queryInt(c, "status", 0),
-		AU3Code:  c.Query("au3_code"),
-		Page:     page,
-		PageSize: pageSize,
+		PlanCode:          c.Query("plan_code"),
+		Status:            queryInt(c, "status", 0),
+		AU3Code:           c.Query("au3_code"),
+		GeneralCategoryID: queryInt(c, "general_category_id", 0),
+		SubCategoryID:     queryInt(c, "sub_category_id", 0),
+		Page:              page,
+		PageSize:          pageSize,
 	}
 
 	if s := c.Query("start_date_from"); s != "" {
@@ -132,7 +150,7 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Security     BearerAuth
 // @Param        plan_code  formData  string  true  "Газар зохион байгуулалтын төлөвлөгөөний дугаар"
 // @Param        start_date formData  string  true  "Эхлэх огноо (YYYY-MM-DD)"
-// @Param        end_date   formData  string  true  "Дуусах огноо (YYYY-MM-DD)"
+// @Param        end_date   formData  string  false  "Дуусах огноо (YYYY-MM-DD)"
 // @Param        shapefile  formData  file    true  "Чөлөөлөх бүсийн хил (.shp файл)"
 // @Success      201  {object}  response.Response
 // @Failure      400  {object}  response.Response
@@ -149,7 +167,7 @@ func (h *LandHandler) Create(c *gin.Context) {
 	responsibleOrg := c.PostForm("responsible_org")
 	fundingSource := c.PostForm("funding_source")
 
-	if planCode == "" || startStr == "" || endStr == "" || projectName == "" {
+	if planCode == "" || startStr == "" || projectName == "" {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
@@ -159,10 +177,14 @@ func (h *LandHandler) Create(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrStartDateFormat)
 		return
 	}
-	endDate, err := time.Parse("2006-01-02", endStr)
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrEndDateFormat)
-		return
+	var endDate *time.Time
+	if endStr != "" {
+		t, err := time.Parse("2006-01-02", endStr)
+		if err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrEndDateFormat)
+			return
+		}
+		endDate = &t
 	}
 
 	fh, err := c.FormFile("shapefile")
@@ -188,25 +210,32 @@ func (h *LandHandler) Create(c *gin.Context) {
 		createdByStr = uid.(uuid.UUID).String()
 	}
 
-	var constructionTypeID *int
-	if s := c.PostForm("construction_type_id"); s != "" {
+	var generalCategoryID *int
+	if s := c.PostForm("general_category_id"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			constructionTypeID = &n
+			generalCategoryID = &n
+		}
+	}
+	var subCategoryID *int
+	if s := c.PostForm("sub_category_id"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			subCategoryID = &n
 		}
 	}
 
 	acq, err := h.svc.Create(c.Request.Context(), service.CreateLandAcquisitionRequest{
-		PlanCode:           planCode,
-		StartDate:          startDate,
-		EndDate:            endDate,
-		ShapefileData:      zipData,
-		CreatedBy:          createdByStr,
-		AcquisitionName:    projectName,
-		ImplementingOrg:    implementingOrg,
-		Reason:             reason,
-		ResponsibleOrg:     responsibleOrg,
-		FundingSource:      fundingSource,
-		ConstructionTypeID: constructionTypeID,
+		PlanCode:          planCode,
+		StartDate:         startDate,
+		EndDate:           endDate, // nil if not provided
+		ShapefileData:     zipData,
+		CreatedBy:         createdByStr,
+		AcquisitionName:   projectName,
+		ImplementingOrg:   implementingOrg,
+		Reason:            reason,
+		ResponsibleOrg:    responsibleOrg,
+		FundingSource:     fundingSource,
+		GeneralCategoryID: generalCategoryID,
+		SubCategoryID:     subCategoryID,
 	})
 	if err != nil {
 		switch err {
@@ -257,6 +286,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 		AU3Code:   c.Query("au3_code"),
 		RightType: queryInt(c, "right_type", 0),
 		Landuse:   c.Query("landuse"),
+		StatusID:  queryInt(c, "status_id", 0),
 		Page:      page,
 		PageSize:  pageSize,
 	}
@@ -276,7 +306,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 
 // Update godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл засах
-// @Description  Геометр өөрчлөх бол shapefile заавал шаардлагатай. Геометр өөрчлөгдвөл хуучин нэгж талбарын мэдээлэл бүгд устана.
+// @Description  Геометр өөрчлөхдөө shapefile оруулна. Геометр өөрчлөгдвөл хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдэнэ.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
@@ -349,9 +379,14 @@ func (h *LandHandler) Update(c *gin.Context) {
 	req.ResponsibleOrg = c.PostForm("responsible_org")
 	req.FundingSource = c.PostForm("funding_source")
 	req.ClearEndDate = c.PostForm("clear_end_date") == "true"
-	if s := c.PostForm("construction_type_id"); s != "" {
+	if s := c.PostForm("general_category_id"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			req.ConstructionTypeID = &n
+			req.GeneralCategoryID = &n
+		}
+	}
+	if s := c.PostForm("sub_category_id"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			req.SubCategoryID = &n
 		}
 	}
 	if s := c.PostForm("area_m2"); s != "" {
@@ -707,6 +742,42 @@ func (h *LandHandler) ListProgress(c *gin.Context) {
 	response.OK(c, result)
 }
 
+// ListBoundaryHistory godoc
+// @Summary      Чөлөөлөлтийн хилийн өөрчлөлтийн түүх
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/boundary-history [get]
+func (h *LandHandler) ListBoundaryHistory(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	list, err := h.svc.ListBoundaryHistory(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	result := make([]boundaryHistoryResponse, 0, len(list))
+	for _, item := range list {
+		result = append(result, boundaryHistoryResponse{
+			ID:                item.ID.String(),
+			LandAcquisitionID: item.LandAcquisitionID.String(),
+			OldGeometryWKT:    item.OldGeometryWKT,
+			NewGeometryWKT:    item.NewGeometryWKT,
+			ChangedBy:         item.ChangedBy,
+			ChangedAt:         item.ChangedAt.Format(time.RFC3339),
+		})
+	}
+	response.OK(c, result)
+}
+
 // GetAvailableStatuses godoc
 // @Summary      Шилжих боломжтой статусуудын жагсаалт
 // @Tags         land-acquisitions
@@ -805,16 +876,17 @@ func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
 	}
 
 	var body struct {
-		DbChanged         bool     `json:"db_changed"`
-		ChangedParcelID   string   `json:"changed_parcel_id"`
-		AcquisitionAreaM2 *float64 `json:"acquisition_area_m2"`
+		DbChanged          bool     `json:"db_changed"`
+		ChangedParcelID    string   `json:"changed_parcel_id"`
+		AcquisitionAreaM2  *float64 `json:"acquisition_area_m2"`
+		AcquisitionGeomWKT *string  `json:"acquisition_geom_wkt"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, "invalid body")
 		return
 	}
 
-	if err := h.svc.UpdateParcelMeta(c.Request.Context(), parcelID, body.DbChanged, body.ChangedParcelID, body.AcquisitionAreaM2); err != nil {
+	if err := h.svc.UpdateParcelMeta(c.Request.Context(), parcelID, body.DbChanged, body.ChangedParcelID, body.AcquisitionAreaM2, body.AcquisitionGeomWKT); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -987,16 +1059,18 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 	}
 
 	filter := domain.ReportParcelFilter{
-		AcquisitionID:    c.Query("acquisition_id"),
-		PlanCode:         c.Query("plan_code"),
-		AcquisitionName:  c.Query("acquisition_name"),
-		AU3Code:          c.Query("au3_code"),
-		RightType:        queryInt(c, "right_type", 0),
-		Landuse:          c.Query("landuse"),
-		Years:            years,
-		CompensationType: c.Query("compensation_type"),
-		Page:             page,
-		PageSize:         pageSize,
+		AcquisitionID:     c.Query("acquisition_id"),
+		PlanCode:          c.Query("plan_code"),
+		AcquisitionName:   c.Query("acquisition_name"),
+		AU3Code:           c.Query("au3_code"),
+		RightType:         queryInt(c, "right_type", 0),
+		Landuse:           c.Query("landuse"),
+		Years:             years,
+		CompensationType:  c.Query("compensation_type"),
+		GeneralCategoryID: queryInt(c, "general_category_id", 0),
+		SubCategoryID:     queryInt(c, "sub_category_id", 0),
+		Page:              page,
+		PageSize:          pageSize,
 	}
 
 	rows, total, err := h.svc.ListReportParcels(c.Request.Context(), filter)
@@ -1391,6 +1465,85 @@ func (h *LandHandler) DeleteCompensation(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// ApproveCompensation godoc
+// @Summary      Үнэлгээ зөвшөөрөх
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path  string  true  "LandAcquisition UUID"
+// @Param        comp_id  path  string  true  "Compensation UUID"
+// @Router       /land-acquisitions/{id}/compensations/{comp_id}/approve [post]
+func (h *LandHandler) ApproveCompensation(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		Note string `json:"note"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	reviewedBy := c.GetString("user_id")
+	if err := h.svc.ApproveCompensation(c.Request.Context(), compID, body.Note, reviewedBy); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// RejectCompensation godoc
+// @Summary      Үнэлгээ татгалзах
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path  string  true  "LandAcquisition UUID"
+// @Param        comp_id  path  string  true  "Compensation UUID"
+// @Router       /land-acquisitions/{id}/compensations/{comp_id}/reject [post]
+func (h *LandHandler) RejectCompensation(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		Note string `json:"note"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	reviewedBy := c.GetString("user_id")
+	if err := h.svc.RejectCompensation(c.Request.Context(), compID, body.Note, reviewedBy); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ListCompensationHistory godoc
+// @Summary      Үнэлгээний татгалзсан түүх
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id       path  string  true  "LandAcquisition UUID"
+// @Param        comp_id  path  string  true  "Compensation UUID"
+// @Router       /land-acquisitions/{id}/compensations/{comp_id}/history [get]
+func (h *LandHandler) ListCompensationHistory(c *gin.Context) {
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	list, err := h.svc.ListCompensationHistory(c.Request.Context(), compID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]compensationHistoryResponse, 0, len(list))
+	for _, h := range list {
+		result = append(result, toCompensationHistoryResponse(h))
+	}
+	response.OK(c, result)
+}
+
 // CreateCompensationGrant creates a new compensation grant record
 func (h *LandHandler) CreateCompensationGrant(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
@@ -1745,8 +1898,10 @@ func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
 // @Router       /dashboard [get]
 func (h *LandHandler) Dashboard(c *gin.Context) {
 	filter := domain.DashboardFilter{
-		AcquisitionID: c.Query("acquisition_id"),
-		PlanCode:      c.Query("plan_code"),
+		AcquisitionID:     c.Query("acquisition_id"),
+		PlanCode:          c.Query("plan_code"),
+		GeneralCategoryID: queryInt(c, "general_category_id", 0),
+		SubCategoryID:     queryInt(c, "sub_category_id", 0),
 	}
 	for _, y := range c.QueryArray("year") {
 		if n, err := strconv.Atoi(y); err == nil {
@@ -1776,5 +1931,257 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		TotalCompensation: summary.TotalCompensation,
 		StatusBreakdown:   summary.StatusBreakdown,
 		Timeline:          summary.Timeline,
+		FilteredParcelIDs: summary.FilteredParcelIDs,
+		FilteredAU1Codes:  summary.FilteredAU1Codes,
+		FilteredAU2Codes:  summary.FilteredAU2Codes,
+		FilteredAU3Codes:  summary.FilteredAU3Codes,
 	})
+}
+
+// ListFundingSources godoc
+// @Summary      Санхүүжилтийн эх үүсвэрийн жагсаалт
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      200  {object}  response.Response
+// @Router       /land-acquisitions/{id}/funding-sources [get]
+func (h *LandHandler) ListFundingSources(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	list, err := h.svc.ListFundingSources(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]fundingSourceResponse, 0, len(list))
+	for _, fs := range list {
+		result = append(result, toFundingSourceResponse(fs))
+	}
+	response.OK(c, result)
+}
+
+// CreateFundingSource godoc
+// @Summary      Санхүүжилтийн эх үүсвэр нэмэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/funding-sources [post]
+func (h *LandHandler) CreateFundingSource(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		OrganizationName string   `json:"organization_name" binding:"required"`
+		SourceType       string   `json:"source_type" binding:"required"`
+		Amount           *float64 `json:"amount"`
+		Currency         string   `json:"currency"`
+		Note             string   `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	currency := body.Currency
+	if currency == "" {
+		currency = "MNT"
+	}
+	fs := &domain.FundingSource{
+		AcquisitionID:    acqID,
+		OrganizationName: body.OrganizationName,
+		SourceType:       body.SourceType,
+		Amount:           body.Amount,
+		Currency:         currency,
+		Note:             body.Note,
+		CreatedBy:        c.GetString("user_id"),
+	}
+	created, err := h.svc.CreateFundingSource(c.Request.Context(), fs)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"code": 200, "data": toFundingSourceResponse(created), "message": "success"})
+}
+
+// UpdateFundingSource godoc
+// @Summary      Санхүүжилтийн эх үүсвэр засах
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path  string  true  "LandAcquisition UUID"
+// @Param        src_id  path  string  true  "FundingSource UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/funding-sources/{src_id} [put]
+func (h *LandHandler) UpdateFundingSource(c *gin.Context) {
+	srcID, err := uuid.Parse(c.Param("src_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		OrganizationName string   `json:"organization_name" binding:"required"`
+		SourceType       string   `json:"source_type" binding:"required"`
+		Amount           *float64 `json:"amount"`
+		Currency         string   `json:"currency"`
+		Note             string   `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	currency := body.Currency
+	if currency == "" {
+		currency = "MNT"
+	}
+	fs := &domain.FundingSource{
+		ID:               srcID,
+		OrganizationName: body.OrganizationName,
+		SourceType:       body.SourceType,
+		Amount:           body.Amount,
+		Currency:         currency,
+		Note:             body.Note,
+	}
+	updated, err := h.svc.UpdateFundingSource(c.Request.Context(), fs)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toFundingSourceResponse(updated))
+}
+
+// DeleteFundingSource godoc
+// @Summary      Санхүүжилтийн эх үүсвэр устгах
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id      path  string  true  "LandAcquisition UUID"
+// @Param        src_id  path  string  true  "FundingSource UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/funding-sources/{src_id} [delete]
+func (h *LandHandler) DeleteFundingSource(c *gin.Context) {
+	srcID, err := uuid.Parse(c.Param("src_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteFundingSource(c.Request.Context(), srcID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ListAuthorizedRepresentatives godoc
+// @Summary      Итгэмжлэгдсэн төлөөлөгчийн жагсаалт
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Нэгж талбарын дугаар"
+// @Success      200  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/representatives [get]
+func (h *LandHandler) ListAuthorizedRepresentatives(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Param("parcel_id")
+	reps, err := h.svc.ListAuthorizedRepresentatives(c.Request.Context(), acqID, parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]authorizedRepresentativeResponse, 0, len(reps))
+	for _, rep := range reps {
+		result = append(result, toAuthorizedRepresentativeResponse(rep))
+	}
+	response.OK(c, result)
+}
+
+// CreateAuthorizedRepresentative godoc
+// @Summary      Итгэмжлэгдсэн төлөөлөгч нэмэх
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Нэгж талбарын дугаар"
+// @Success      201  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/representatives [post]
+func (h *LandHandler) CreateAuthorizedRepresentative(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Param("parcel_id")
+	var body struct {
+		LastName   string `json:"last_name" binding:"required"`
+		FirstName  string `json:"first_name" binding:"required"`
+		RegisterNo string `json:"register_no"`
+		Phone      string `json:"phone"`
+		Email      string `json:"email"`
+		Address    string `json:"address"`
+		Note       string `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	rep := &domain.AuthorizedRepresentative{
+		AcquisitionID: acqID,
+		ParcelID:      parcelID,
+		LastName:      body.LastName,
+		FirstName:     body.FirstName,
+		RegisterNo:    body.RegisterNo,
+		Phone:         body.Phone,
+		Email:         body.Email,
+		Address:       body.Address,
+		Note:          body.Note,
+		CreatedBy:     c.GetString("user_id"),
+	}
+	created, err := h.svc.CreateAuthorizedRepresentative(c.Request.Context(), rep)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"code": 200, "data": toAuthorizedRepresentativeResponse(created), "message": "success"})
+}
+
+// DeleteAuthorizedRepresentative godoc
+// @Summary      Итгэмжлэгдсэн төлөөлөгч устгах
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Нэгж талбарын дугаар"
+// @Param        rep_id     path  string  true  "Representative UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/representatives/{rep_id} [delete]
+func (h *LandHandler) DeleteAuthorizedRepresentative(c *gin.Context) {
+	repID, err := uuid.Parse(c.Param("rep_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteAuthorizedRepresentative(c.Request.Context(), repID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
 }

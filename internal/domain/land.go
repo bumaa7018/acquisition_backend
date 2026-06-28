@@ -84,11 +84,19 @@ type SourceParcel struct {
 	CreatedAt        time.Time
 }
 
-// ConstructionType — бүтээн байгуулалтын төрөл (lookup)
+// ConstructionType — бүтээн байгуулалтын төрөл (lookup, legacy)
 type ConstructionType struct {
 	ID        int    `json:"id"`
 	Code      string `json:"code"`
 	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// AcquisitionCategory — чөлөөлөлтийн ангилал (ерөнхий болон дэд)
+type AcquisitionCategory struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	ParentID  *int   `json:"parent_id"`
 	SortOrder int    `json:"sort_order"`
 }
 
@@ -98,6 +106,27 @@ type ParcelStatus struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
+}
+
+// ParcelStatusHistory — нэгж талбарын статус солигдсон түүх
+type ParcelStatusHistory struct {
+	ID            int       `json:"id"`
+	ParcelID      string    `json:"parcel_id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	StatusID      int       `json:"status_id"`
+	StatusName    string    `json:"status_name"`
+	StatusDate    time.Time `json:"status_date"`
+	CreatedBy     string    `json:"created_by"`
+}
+
+// ParcelWorkflow — нэгж талбарын ажлын урсгалын шилжилт
+type ParcelWorkflow struct {
+	ID             int    `json:"id"`
+	FromStatusID   *int   `json:"from_status_id"`
+	ToStatusID     int    `json:"to_status_id"`
+	FromStatusName string `json:"from_status_name"`
+	ToStatusName   string `json:"to_status_name"`
+	SortOrder      int    `json:"sort_order"`
 }
 
 // AcquisitionAssignee — чөлөөлөлтэд хуваарилагдсан ажилтан
@@ -112,34 +141,36 @@ type AcquisitionAssignee struct {
 
 // LandAcquisition — газар чөлөөлөлтын мэдээлэл (main DB-д хадгалагдана)
 type LandAcquisition struct {
-	ID                   uuid.UUID
-	PlanID               *uuid.UUID
-	PlanCode             string
-	PlanName             string
-	PlanGeomWKT          string
-	PlanAreaM2           float64
-	GeometryWKT          string
-	AreaM2               float64
-	Status               int
-	StartDate            *time.Time
-	EndDate              *time.Time
-	AcquisitionName      string
-	ImplementingOrg      string
-	Reason               string
-	ResponsibleOrg       string
-	FundingSource        string
-	ConstructionTypeID   *int
-	ConstructionTypeName string
-	DecreeNumber         string
-	DecreeDate           *time.Time
-	CreatedAt            time.Time
-	CreatedBy            string
-	UpdatedAt            time.Time
-	UpdatedBy            string
-	AUs                  []LandAcquisitionAU
-	Parcels              []*Parcel
-	ParcelCount          int64
-	AssignedUsers        []AcquisitionAssignee
+	ID                  uuid.UUID
+	PlanID              *uuid.UUID
+	PlanCode            string
+	PlanName            string
+	PlanGeomWKT         string
+	PlanAreaM2          float64
+	GeometryWKT         string
+	AreaM2              float64
+	Status              int
+	StartDate           *time.Time
+	EndDate             *time.Time
+	AcquisitionName     string
+	ImplementingOrg     string
+	Reason              string
+	ResponsibleOrg      string
+	FundingSource       string
+	GeneralCategoryID   *int
+	GeneralCategoryName string
+	SubCategoryID       *int
+	SubCategoryName     string
+	DecreeNumber        string
+	DecreeDate          *time.Time
+	CreatedAt           time.Time
+	CreatedBy           string
+	UpdatedAt           time.Time
+	UpdatedBy           string
+	AUs                 []LandAcquisitionAU
+	Parcels             []*Parcel
+	ParcelCount         int64
+	AssignedUsers       []AcquisitionAssignee
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос
@@ -153,16 +184,27 @@ type LandAcquisitionAU struct {
 	AU3Name           string
 }
 
+type LandAcquisitionBoundaryHistory struct {
+	ID                uuid.UUID
+	LandAcquisitionID uuid.UUID
+	OldGeometryWKT    string
+	NewGeometryWKT    string
+	ChangedBy         string
+	ChangedAt         time.Time
+}
+
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
 type LandAcquisitionFilter struct {
-	PlanCode      string
-	Status        int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
-	AU3Code       string
-	StartDateFrom *time.Time
-	StartDateTo   *time.Time
-	Years         []int
-	Page          int
-	PageSize      int
+	PlanCode          string
+	Status            int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	AU3Code           string
+	StartDateFrom     *time.Time
+	StartDateTo       *time.Time
+	Years             []int
+	GeneralCategoryID int
+	SubCategoryID     int
+	Page              int
+	PageSize          int
 }
 
 // ParcelFilter — нэгж талбарын жагсаалт шүүх болон хуудаслах параметр
@@ -179,6 +221,7 @@ type ParcelFilter struct {
 	AU3Code   string
 	RightType int
 	Landuse   string
+	StatusID  int
 	Page      int
 	PageSize  int
 }
@@ -204,6 +247,8 @@ type Parcel struct {
 	CompensationPaid   bool
 	DbChanged          bool
 	ChangedParcelID    string
+	StatusID           int
+	StatusName         string
 	CreatedAt          time.Time
 	CreatedBy          string
 }
@@ -236,7 +281,9 @@ type ParcelDetailInfo struct {
 // ParcelFull — нэгж талбарын дэлгэрэнгүй мэдээлэл (parcel + parcel_detail + right_holder)
 type ParcelFull struct {
 	Parcel
-	Detail *ParcelDetailInfo
+	StatusID   int
+	StatusName string
+	Detail     *ParcelDetailInfo
 }
 
 // AcquisitionProgress — газар чөлөөлөлтийн статус өөрчлөлтийн түүх
@@ -291,16 +338,18 @@ type GlobalParcelFilter struct {
 
 // ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр
 type ReportParcelFilter struct {
-	AcquisitionID    string
-	PlanCode         string
-	AcquisitionName  string
-	AU3Code          string
-	RightType        int
-	Landuse          string
-	Years            []int  // start_date-ийн он (олон утга дэмжинэ)
-	CompensationType string // 'cash' | 'land_grant' | '' (бүгд)
-	Page             int
-	PageSize         int
+	AcquisitionID     string
+	PlanCode          string
+	AcquisitionName   string
+	AU3Code           string
+	RightType         int
+	Landuse           string
+	Years             []int  // start_date-ийн он (олон утга дэмжинэ)
+	CompensationType  string // 'cash' | 'land_grant' | '' (бүгд)
+	GeneralCategoryID int
+	SubCategoryID     int
+	Page              int
+	PageSize          int
 }
 
 // ReportParcelRow — тайлангийн нэг мөрийн бүх мэдээлэл (нэг JOIN query-аас)
@@ -314,12 +363,13 @@ type ReportParcelRow struct {
 	DbChanged         bool
 	ChangedParcelID   string
 	// Чөлөөлөлт
-	AcquisitionID        uuid.UUID
-	AcquisitionName      string
-	PlanCode             string
-	ConstructionTypeName string
-	DecreeNumber         string
-	DecreeDate           *time.Time
+	AcquisitionID       uuid.UUID
+	AcquisitionName     string
+	PlanCode            string
+	GeneralCategoryName string
+	SubCategoryName     string
+	DecreeNumber        string
+	DecreeDate          *time.Time
 	// Эзэмшигч
 	HolderLastName   string
 	HolderName       string
@@ -387,9 +437,34 @@ type Compensation struct {
 	CompensationDate *time.Time         `json:"compensation_date"`
 	Note             string             `json:"note"`
 	Grant            *CompensationGrant `json:"grant,omitempty"`
-	CreatedAt        time.Time          `json:"created_at"`
-	CreatedBy        string             `json:"created_by"`
-	UpdatedAt        time.Time          `json:"updated_at"`
+	// Хянах workflow
+	Status     string     `json:"status"`      // pending | approved | rejected
+	ReviewNote string     `json:"review_note"` // татгалзсан шалтгаан
+	ReviewedBy string     `json:"reviewed_by"`
+	ReviewedAt *time.Time `json:"reviewed_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	CreatedBy  string     `json:"created_by"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// CompensationHistory — татгалзсан үнэлгээний түүх
+type CompensationHistory struct {
+	ID               uuid.UUID  `json:"id"`
+	CompensationID   uuid.UUID  `json:"compensation_id"`
+	AcquisitionID    uuid.UUID  `json:"acquisition_id"`
+	TargetType       string     `json:"target_type"`
+	ParcelID         string     `json:"parcel_id"`
+	AssetID          *uuid.UUID `json:"asset_id"`
+	CompensationType string     `json:"compensation_type"`
+	CoveragePercent  float64    `json:"coverage_percent"`
+	Amount           float64    `json:"amount"`
+	CompensationDate *time.Time `json:"compensation_date"`
+	Note             string     `json:"note"`
+	Status           string     `json:"status"`
+	ReviewNote       string     `json:"review_note"`
+	ReviewedBy       string     `json:"reviewed_by"`
+	ReviewedAt       *time.Time `json:"reviewed_at"`
+	ArchivedAt       time.Time  `json:"archived_at"`
 }
 
 // ParcelPayment — нэгж талбарт хийсэн төлбөрийн бичлэг
@@ -404,11 +479,42 @@ type ParcelPayment struct {
 	CreatedBy string
 }
 
+// FundingSource — санхүүжилтийн эх үүсвэр
+type FundingSource struct {
+	ID               uuid.UUID `json:"id"`
+	AcquisitionID    uuid.UUID `json:"acquisition_id"`
+	OrganizationName string    `json:"organization_name"`
+	SourceType       string    `json:"source_type"`
+	Amount           *float64  `json:"amount,omitempty"`
+	Currency         string    `json:"currency"`
+	Note             string    `json:"note"`
+	CreatedAt        time.Time `json:"created_at"`
+	CreatedBy        string    `json:"created_by"`
+}
+
+// AuthorizedRepresentative — нэгж талбарын итгэмжлэгдсэн төлөөлөгч
+type AuthorizedRepresentative struct {
+	ID            uuid.UUID `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	ParcelID      string    `json:"parcel_id"`
+	LastName      string    `json:"last_name"`
+	FirstName     string    `json:"first_name"`
+	RegisterNo    string    `json:"register_no"`
+	Phone         string    `json:"phone"`
+	Email         string    `json:"email"`
+	Address       string    `json:"address"`
+	Note          string    `json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedBy     string    `json:"created_by"`
+}
+
 // DashboardFilter — дашбоардын шүүлтүүрийн параметр
 type DashboardFilter struct {
-	AcquisitionID string
-	PlanCode      string
-	Years         []int
+	AcquisitionID     string
+	PlanCode          string
+	Years             []int
+	GeneralCategoryID int
+	SubCategoryID     int
 }
 
 // ParcelStatusStat — нэгж талбарын төлөвийн статистик
@@ -437,4 +543,8 @@ type DashboardSummary struct {
 	TotalCompensation float64            `json:"total_compensation"`
 	StatusBreakdown   []ParcelStatusStat `json:"status_breakdown"`
 	Timeline          []TimelinePoint    `json:"timeline"`
+	FilteredParcelIDs []string           `json:"filtered_parcel_ids"`
+	FilteredAU1Codes  []string           `json:"filtered_au1_codes"`
+	FilteredAU2Codes  []string           `json:"filtered_au2_codes"`
+	FilteredAU3Codes  []string           `json:"filtered_au3_codes"`
 }

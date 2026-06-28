@@ -32,6 +32,7 @@ type PasswordResetToken struct {
 
 type UserFilter struct {
 	Search   string
+	Role     string
 	IsActive *bool
 	Page     int
 	PageSize int

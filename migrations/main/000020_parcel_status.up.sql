@@ -6,11 +6,12 @@ CREATE TABLE IF NOT EXISTS parcel_status (
 );
 
 INSERT INTO parcel_status (id, code, name, sort_order) VALUES
-    (1, 'released',      'Чөлөөлсөн',             1),
-    (2, 'nosk',          'НОСК',                  2),
-    (3, 'affected_out',  'Нөлөөлөгдсөн гарсан',   3),
-    (4, 'rejected',      'Татгалзсан',            4),
-    (5, 'negotiating',   'Зөвшилцөх шатандаа',    5)
+    (0, 'pending',      'Хүлээгдэж буй',            0),
+    (1, 'processing',      'Зөвшилцөх шатандаа',    1),
+    (2, 'evaluating',      'Үнэлгээ хийх',          2),
+    (3, 'affected_out',  'Нөлөөлөгдсөн гарсан',     3),
+    (4, 'rejected',      'Татгалзсан',              4),
+    (5, 'released',   'Чөлөөлсөн',                  5)
 ON CONFLICT (id) DO UPDATE SET
     code = EXCLUDED.code,
     name = EXCLUDED.name,

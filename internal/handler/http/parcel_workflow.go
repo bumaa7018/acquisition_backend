@@ -1,0 +1,146 @@
+package http
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/your-org/go-api-template/internal/domain"
+	"github.com/your-org/go-api-template/internal/pkg/response"
+	"github.com/your-org/go-api-template/internal/service"
+)
+
+type ParcelWorkflowHandler struct {
+	svc service.LandService
+}
+
+func NewParcelWorkflowHandler(svc service.LandService) *ParcelWorkflowHandler {
+	return &ParcelWorkflowHandler{svc: svc}
+}
+
+func (h *ParcelWorkflowHandler) List(c *gin.Context) {
+	list, err := h.svc.ListParcelWorkflows(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if list == nil {
+		list = []*domain.ParcelWorkflow{}
+	}
+	response.OK(c, list)
+}
+
+func (h *ParcelWorkflowHandler) Create(c *gin.Context) {
+	var req struct {
+		FromStatusID *int `json:"from_status_id"`
+		ToStatusID   int  `json:"to_status_id"`
+		SortOrder    int  `json:"sort_order"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.ToStatusID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "to_status_id required"})
+		return
+	}
+	w, err := h.svc.CreateParcelWorkflow(c.Request.Context(), req.FromStatusID, req.ToStatusID, req.SortOrder)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"code": 201, "data": w})
+}
+
+func (h *ParcelWorkflowHandler) Delete(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.svc.DeleteParcelWorkflow(c.Request.Context(), id); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
+}
+
+func (h *ParcelWorkflowHandler) GetAvailableStatuses(c *gin.Context) {
+	parcelIDStr := c.Param("parcel_id")
+	parcelID, err := uuid.Parse(parcelIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	acqIDStr := c.Param("id")
+	acqID, err := uuid.Parse(acqIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquisition_id"})
+		return
+	}
+	pf, err := h.svc.GetParcelDetail(c.Request.Context(), acqID, parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	statuses, err := h.svc.GetAvailableParcelStatuses(c.Request.Context(), pf.StatusID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if statuses == nil {
+		statuses = []*domain.ParcelStatus{}
+	}
+	response.OK(c, statuses)
+}
+
+func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquisition_id"})
+		return
+	}
+	var req struct {
+		StatusID *int `json:"status_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.StatusID == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status_id required"})
+		return
+	}
+	createdBy := "system"
+	if uid, ok := c.Get("userID"); ok {
+		createdBy = uid.(uuid.UUID).String()
+	}
+	if err := h.svc.UpdateParcelStatus(c.Request.Context(), parcelID, acqID, *req.StatusID, createdBy); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"message": "ok"})
+}
+
+func (h *ParcelWorkflowHandler) ListParcelStatusHistory(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	list, err := h.svc.ListParcelStatusHistory(c.Request.Context(), parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if list == nil {
+		list = []*domain.ParcelStatusHistory{}
+	}
+	response.OK(c, list)
+}

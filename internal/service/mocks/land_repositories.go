@@ -57,6 +57,34 @@ func (m *MockLandAcquisitionRepository) ListParcelStatuses(ctx context.Context) 
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, parentID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, name, parentID, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, id, name, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteAcquisitionCategory(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) Create(ctx context.Context, acq *domain.LandAcquisition) error {
 	return m.Called(ctx, acq).Error(0)
 }
@@ -96,6 +124,18 @@ func (m *MockLandAcquisitionRepository) CreateAU(ctx context.Context, au *domain
 
 func (m *MockLandAcquisitionRepository) BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error {
 	return m.Called(ctx, acquisitionID, parcels, acqWKT).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
+	return m.Called(ctx, history).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisitionBoundaryHistory), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error) {
@@ -151,6 +191,10 @@ func (m *MockLandAcquisitionRepository) Update(ctx context.Context, acq *domain.
 	return m.Called(ctx, acq).Error(0)
 }
 
+func (m *MockLandAcquisitionRepository) DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error {
 	return m.Called(ctx, acquisitionID).Error(0)
 }
@@ -167,8 +211,8 @@ func (m *MockLandAcquisitionRepository) UpdateDecree(ctx context.Context, id uui
 	return m.Called(ctx, id, number, date).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
-	return m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2).Error(0)
+func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+	return m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
@@ -351,4 +395,48 @@ func (m *MockLandAcquisitionRepository) GetAssignees(ctx context.Context, acquis
 func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelWorkflow), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
+	args := m.Called(ctx, fromStatusID, toStatusID, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelWorkflow), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteParcelWorkflow(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error) {
+	args := m.Called(ctx, currentStatusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelStatusHistory), args.Error(1)
 }

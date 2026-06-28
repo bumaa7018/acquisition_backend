@@ -56,6 +56,26 @@ func (m *MockLandService) ListConstructionTypes(ctx context.Context) ([]*domain.
 	return args.Get(0).([]*domain.ConstructionType), args.Error(1)
 }
 
+func (m *MockLandService) ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, parentID)
+	return args.Get(0).([]*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, name, parentID, sortOrder)
+	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, id, name, sortOrder)
+	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
+}
+
+func (m *MockLandService) DeleteAcquisitionCategory(ctx context.Context, id int) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
 func (m *MockLandService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
@@ -91,6 +111,14 @@ func (m *MockLandService) Update(ctx context.Context, id uuid.UUID, req service.
 		return nil, args.Bool(1), args.Error(2)
 	}
 	return args.Get(0).(*domain.LandAcquisition), args.Bool(1), args.Error(2)
+}
+
+func (m *MockLandService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisitionBoundaryHistory), args.Error(1)
 }
 
 func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID) error {
@@ -153,8 +181,8 @@ func (m *MockLandService) AdvanceStatus(ctx context.Context, acquisitionID uuid.
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64) error {
-	args := m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2)
+func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+	args := m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT)
 	return args.Error(0)
 }
 
@@ -341,6 +369,37 @@ func (m *MockLandService) GetAssignees(ctx context.Context, acquisitionID uuid.U
 func (m *MockLandService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockLandService) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]*domain.ParcelWorkflow), args.Error(1)
+}
+
+func (m *MockLandService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
+	args := m.Called(ctx, fromStatusID, toStatusID, sortOrder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelWorkflow), args.Error(1)
+}
+
+func (m *MockLandService) DeleteParcelWorkflow(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandService) GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error) {
+	args := m.Called(ctx, currentStatusID)
+	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
+}
+
+func (m *MockLandService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+}
+
+func (m *MockLandService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
+	args := m.Called(ctx, parcelID)
+	return args.Get(0).([]*domain.ParcelStatusHistory), args.Error(1)
 }
 
 type MockUserService struct {

@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-external-users seed-compensation-samples seed-valuation-samples seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
@@ -90,6 +90,15 @@ logs:
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
+
+seed-external-users:
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db auth scripts/seed_external_access_users.sql
+
+seed-compensation-samples:
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db main scripts/seed_compensation_samples.sql
+
+seed-valuation-samples:
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db main scripts/seed_valuation_samples.sql
 
 # seed_mock_data.sql + geometry нөхөлт (дараалан ажиллана)
 seed-mock:

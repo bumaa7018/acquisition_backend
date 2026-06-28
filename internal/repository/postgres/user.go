@@ -121,6 +121,16 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 		args = append(args, "%"+f.Search+"%")
 		argIdx++
 	}
+	if f.Role != "" {
+		where += fmt.Sprintf(` AND EXISTS (
+			SELECT 1
+			FROM user_roles ur
+			JOIN roles r ON r.id = ur.role_id
+			WHERE ur.user_id = users.id AND r.name = $%d
+		)`, argIdx)
+		args = append(args, f.Role)
+		argIdx++
+	}
 	if f.IsActive != nil {
 		where += fmt.Sprintf(" AND is_active = $%d", argIdx)
 		args = append(args, *f.IsActive)

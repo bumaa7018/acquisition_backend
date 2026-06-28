@@ -53,6 +53,7 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 // @Param        page      query  int     false  "Page number"       default(1)
 // @Param        page_size query  int     false  "Items per page"    default(20)
 // @Param        search    query  string  false  "Search by email/name"
+// @Param        role      query  string  false  "Filter by role name"
 // @Param        is_active query  bool    false  "Filter by active status"
 // @Success      200  {object}  paginatedUsersResponse
 // @Failure      401  {object}  errorResponse
@@ -63,6 +64,7 @@ func (h *UserHandler) List(c *gin.Context) {
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	filter := domain.UserFilter{
 		Search:   c.Query("search"),
+		Role:     c.Query("role"),
 		Page:     page,
 		PageSize: pageSize,
 	}

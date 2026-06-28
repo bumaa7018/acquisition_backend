@@ -67,6 +67,7 @@ const (
 	ErrStatusRequired Key = "status_required"
 	ErrInvalidStatus  Key = "invalid_status"
 	ErrNotAssigned    Key = "not_assigned"
+	ErrApproved       Key = "approved_locked"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
@@ -114,12 +115,13 @@ var messages = map[Key][2]string{
 	ErrNewBoundaryExceeds:       {"Шинэ хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу", "New boundary exceeds plan boundary or invalid shapefile"},
 	ErrShapefileRequiredForPlan: {"Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай", "Shapefile is required when changing plan"},
 	ErrDeleteNotNew:             {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
-	WarnGeomChanged:             {"Хуучин бүсийн хилтэй давхцах нэгж талбарын бүх мэдээлэл устгагдаж шинэчлэгдлээ", "All parcels overlapping the old boundary have been removed and updated"},
+	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдлээ", "The acquisition boundary was updated. Existing linked parcels were kept, and missing parcels intersecting the new boundary were added"},
 	ErrCodeRequired:             {"code параметр шаардлагатай", "code parameter is required"},
 
 	ErrStatusRequired: {"to_status шаардлагатай", "to_status is required"},
 	ErrInvalidStatus:  {"Буруу статус", "Invalid status"},
 	ErrNotAssigned:    {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
+	ErrApproved:       {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},

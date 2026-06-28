@@ -7,28 +7,30 @@ import (
 )
 
 type landAcquisitionResponse struct {
-	ID                   string           `json:"id"`
-	PlanCode             string           `json:"plan_code"`
-	PlanName             string           `json:"plan_name"`
-	GeometryWKT          string           `json:"geometry_wkt"`
-	AreaM2               float64          `json:"area_m2"`
-	Status               int              `json:"status"`
-	StartDate            *string          `json:"start_date"`
-	EndDate              *string          `json:"end_date"`
-	AcquisitionName      string           `json:"acquisition_name"`
-	ImplementingOrg      string           `json:"implementing_org"`
-	Reason               string           `json:"reason"`
-	ResponsibleOrg       string           `json:"responsible_org"`
-	FundingSource        string           `json:"funding_source"`
-	ConstructionTypeID   *int             `json:"construction_type_id"`
-	ConstructionTypeName string           `json:"construction_type_name"`
-	DecreeNumber         string           `json:"decree_number"`
-	DecreeDate           *string          `json:"decree_date"`
-	CreatedAt            string           `json:"created_at"`
-	CreatedBy            string           `json:"created_by"`
-	ParcelCount          int64            `json:"parcel_count"`
-	AUs                  []auResponse     `json:"aus"`
-	Parcels              []parcelResponse `json:"parcels"`
+	ID                  string           `json:"id"`
+	PlanCode            string           `json:"plan_code"`
+	PlanName            string           `json:"plan_name"`
+	GeometryWKT         string           `json:"geometry_wkt"`
+	AreaM2              float64          `json:"area_m2"`
+	Status              int              `json:"status"`
+	StartDate           *string          `json:"start_date"`
+	EndDate             *string          `json:"end_date"`
+	AcquisitionName     string           `json:"acquisition_name"`
+	ImplementingOrg     string           `json:"implementing_org"`
+	Reason              string           `json:"reason"`
+	ResponsibleOrg      string           `json:"responsible_org"`
+	FundingSource       string           `json:"funding_source"`
+	GeneralCategoryID   *int             `json:"general_category_id"`
+	GeneralCategoryName string           `json:"general_category_name"`
+	SubCategoryID       *int             `json:"sub_category_id"`
+	SubCategoryName     string           `json:"sub_category_name"`
+	DecreeNumber        string           `json:"decree_number"`
+	DecreeDate          *string          `json:"decree_date"`
+	CreatedAt           string           `json:"created_at"`
+	CreatedBy           string           `json:"created_by"`
+	ParcelCount         int64            `json:"parcel_count"`
+	AUs                 []auResponse     `json:"aus"`
+	Parcels             []parcelResponse `json:"parcels"`
 }
 
 type auResponse struct {
@@ -54,6 +56,8 @@ type parcelResponse struct {
 	CompensationPaid  bool     `json:"compensation_paid"`
 	DbChanged         bool     `json:"db_changed"`
 	ChangedParcelID   string   `json:"changed_parcel_id"`
+	StatusID          int      `json:"status_id"`
+	StatusName        string   `json:"status_name"`
 	GeometryWKT       string   `json:"geometry_wkt,omitempty"`
 }
 
@@ -76,6 +80,8 @@ type parcelFullResponse struct {
 	AreaM2             float64           `json:"area_m2"`
 	DbChanged          bool              `json:"db_changed"`
 	ChangedParcelID    string            `json:"changed_parcel_id"`
+	StatusID           int               `json:"status_id"`
+	StatusName         string            `json:"status_name"`
 	CreatedAt          string            `json:"created_at"`
 	CreatedBy          string            `json:"created_by"`
 	Detail             *parcelDetailInfo `json:"detail,omitempty"`
@@ -112,6 +118,15 @@ type progressResponse struct {
 	ChangedAt  string `json:"changed_at"`
 }
 
+type boundaryHistoryResponse struct {
+	ID                string `json:"id"`
+	LandAcquisitionID string `json:"land_acquisition_id"`
+	OldGeometryWKT    string `json:"old_geometry_wkt"`
+	NewGeometryWKT    string `json:"new_geometry_wkt"`
+	ChangedBy         string `json:"changed_by"`
+	ChangedAt         string `json:"changed_at"`
+}
+
 type documentResponse struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -139,16 +154,20 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 }
 
 type dashboardResponse struct {
-	Acquisitions      []landAcquisitionResponse `json:"acquisitions"`
-	ParcelStatuses    []*domain.ParcelStatus    `json:"parcel_statuses"`
-	TotalParcels      int64                     `json:"total_parcels"`
-	FreedParcels      int64                     `json:"freed_parcels"`
-	FreedAreaM2       float64                   `json:"freed_area_m2"`
-	PlanAreaM2        float64                   `json:"plan_area_m2"`
-	TotalOrders       int64                     `json:"total_orders"`
-	TotalCompensation float64                   `json:"total_compensation"`
-	StatusBreakdown   []domain.ParcelStatusStat `json:"status_breakdown"`
-	Timeline          []domain.TimelinePoint    `json:"timeline"`
+	Acquisitions       []landAcquisitionResponse `json:"acquisitions"`
+	ParcelStatuses     []*domain.ParcelStatus    `json:"parcel_statuses"`
+	TotalParcels       int64                     `json:"total_parcels"`
+	FreedParcels       int64                     `json:"freed_parcels"`
+	FreedAreaM2        float64                   `json:"freed_area_m2"`
+	PlanAreaM2         float64                   `json:"plan_area_m2"`
+	TotalOrders        int64                     `json:"total_orders"`
+	TotalCompensation  float64                   `json:"total_compensation"`
+	StatusBreakdown    []domain.ParcelStatusStat `json:"status_breakdown"`
+	Timeline           []domain.TimelinePoint    `json:"timeline"`
+	FilteredParcelIDs  []string                  `json:"filtered_parcel_ids"`
+	FilteredAU1Codes   []string                  `json:"filtered_au1_codes"`
+	FilteredAU2Codes   []string                  `json:"filtered_au2_codes"`
+	FilteredAU3Codes   []string                  `json:"filtered_au3_codes"`
 }
 
 type globalParcelResponse struct {
@@ -272,6 +291,10 @@ type compensationResponse struct {
 	CompensationDate *string                    `json:"compensation_date"`
 	Note             string                     `json:"note"`
 	Grant            *compensationGrantResponse `json:"grant,omitempty"`
+	Status           string                     `json:"status"`
+	ReviewNote       string                     `json:"review_note"`
+	ReviewedBy       string                     `json:"reviewed_by"`
+	ReviewedAt       *string                    `json:"reviewed_at"`
 	CreatedAt        string                     `json:"created_at"`
 	CreatedBy        string                     `json:"created_by"`
 	UpdatedAt        string                     `json:"updated_at"`
@@ -287,6 +310,9 @@ func toCompensationResponse(c *domain.Compensation) compensationResponse {
 		CoveragePercent:  c.CoveragePercent,
 		Amount:           c.Amount,
 		Note:             c.Note,
+		Status:           c.Status,
+		ReviewNote:       c.ReviewNote,
+		ReviewedBy:       c.ReviewedBy,
 		CreatedAt:        c.CreatedAt.Format(time.RFC3339),
 		CreatedBy:        c.CreatedBy,
 		UpdatedAt:        c.UpdatedAt.Format(time.RFC3339),
@@ -299,9 +325,52 @@ func toCompensationResponse(c *domain.Compensation) compensationResponse {
 		s := c.CompensationDate.Format("2006-01-02")
 		r.CompensationDate = &s
 	}
+	if c.ReviewedAt != nil {
+		s := c.ReviewedAt.Format(time.RFC3339)
+		r.ReviewedAt = &s
+	}
 	if c.Grant != nil {
 		gr := toCompensationGrantResponse(c.Grant)
 		r.Grant = &gr
+	}
+	return r
+}
+
+type compensationHistoryResponse struct {
+	ID               string  `json:"id"`
+	CompensationID   string  `json:"compensation_id"`
+	CompensationType string  `json:"compensation_type"`
+	CoveragePercent  float64 `json:"coverage_percent"`
+	Amount           float64 `json:"amount"`
+	CompensationDate *string `json:"compensation_date"`
+	Note             string  `json:"note"`
+	Status           string  `json:"status"`
+	ReviewNote       string  `json:"review_note"`
+	ReviewedBy       string  `json:"reviewed_by"`
+	ReviewedAt       *string `json:"reviewed_at"`
+	ArchivedAt       string  `json:"archived_at"`
+}
+
+func toCompensationHistoryResponse(h *domain.CompensationHistory) compensationHistoryResponse {
+	r := compensationHistoryResponse{
+		ID:               h.ID.String(),
+		CompensationID:   h.CompensationID.String(),
+		CompensationType: h.CompensationType,
+		CoveragePercent:  h.CoveragePercent,
+		Amount:           h.Amount,
+		Note:             h.Note,
+		Status:           h.Status,
+		ReviewNote:       h.ReviewNote,
+		ReviewedBy:       h.ReviewedBy,
+		ArchivedAt:       h.ArchivedAt.Format(time.RFC3339),
+	}
+	if h.CompensationDate != nil {
+		s := h.CompensationDate.Format("2006-01-02")
+		r.CompensationDate = &s
+	}
+	if h.ReviewedAt != nil {
+		s := h.ReviewedAt.Format(time.RFC3339)
+		r.ReviewedAt = &s
 	}
 	return r
 }
@@ -337,23 +406,25 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 
 func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 	r := landAcquisitionResponse{
-		ID:                   acq.ID.String(),
-		PlanCode:             acq.PlanCode,
-		PlanName:             acq.PlanName,
-		GeometryWKT:          acq.GeometryWKT,
-		AreaM2:               acq.AreaM2,
-		Status:               acq.Status,
-		AcquisitionName:      acq.AcquisitionName,
-		ImplementingOrg:      acq.ImplementingOrg,
-		Reason:               acq.Reason,
-		ResponsibleOrg:       acq.ResponsibleOrg,
-		FundingSource:        acq.FundingSource,
-		ConstructionTypeID:   acq.ConstructionTypeID,
-		ConstructionTypeName: acq.ConstructionTypeName,
-		DecreeNumber:         acq.DecreeNumber,
-		CreatedAt:            acq.CreatedAt.Format(time.RFC3339),
-		CreatedBy:            acq.CreatedBy,
-		ParcelCount:          acq.ParcelCount,
+		ID:                  acq.ID.String(),
+		PlanCode:            acq.PlanCode,
+		PlanName:            acq.PlanName,
+		GeometryWKT:         acq.GeometryWKT,
+		AreaM2:              acq.AreaM2,
+		Status:              acq.Status,
+		AcquisitionName:     acq.AcquisitionName,
+		ImplementingOrg:     acq.ImplementingOrg,
+		Reason:              acq.Reason,
+		ResponsibleOrg:      acq.ResponsibleOrg,
+		FundingSource:       acq.FundingSource,
+		GeneralCategoryID:   acq.GeneralCategoryID,
+		GeneralCategoryName: acq.GeneralCategoryName,
+		SubCategoryID:       acq.SubCategoryID,
+		SubCategoryName:     acq.SubCategoryName,
+		DecreeNumber:        acq.DecreeNumber,
+		CreatedAt:           acq.CreatedAt.Format(time.RFC3339),
+		CreatedBy:           acq.CreatedBy,
+		ParcelCount:         acq.ParcelCount,
 	}
 	if acq.StartDate != nil {
 		s := acq.StartDate.Format("2006-01-02")
@@ -402,6 +473,8 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 		CompensationPaid:  p.CompensationPaid,
 		DbChanged:         p.DbChanged,
 		ChangedParcelID:   p.ChangedParcelID,
+		StatusID:          p.StatusID,
+		StatusName:        p.StatusName,
 		GeometryWKT:       p.GeometryWKT,
 	}
 }
@@ -424,6 +497,8 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		AreaM2:             pf.AreaM2,
 		DbChanged:          pf.DbChanged,
 		ChangedParcelID:    pf.ChangedParcelID,
+		StatusID:           pf.StatusID,
+		StatusName:         pf.StatusName,
 		CreatedAt:          pf.CreatedAt.Format(time.RFC3339),
 		CreatedBy:          pf.CreatedBy,
 	}
@@ -473,49 +548,109 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 }
 
 type reportParcelRowResponse struct {
-	ParcelID             string  `json:"parcel_id"`
-	AreaM2               float64 `json:"area_m2"`
-	AcquisitionAreaM2    float64 `json:"acquisition_area_m2"`
-	RemainingAreaM2      float64 `json:"remaining_area_m2"`
-	RightType            int     `json:"right_type"`
-	DbChanged            bool    `json:"db_changed"`
-	ChangedParcelID      string  `json:"changed_parcel_id"`
-	AcquisitionID        string  `json:"acquisition_id"`
-	AcquisitionName      string  `json:"acquisition_name"`
-	PlanCode             string  `json:"plan_code"`
-	ConstructionTypeName string  `json:"construction_type_name"`
-	DecreeNumber         string  `json:"decree_number"`
-	DecreeDate           *string `json:"decree_date"`
-	HolderLastName       string  `json:"holder_last_name"`
-	HolderName           string  `json:"holder_name"`
-	HolderRegisterNo     string  `json:"holder_register_no"`
-	LandComp             float64 `json:"land_comp"`
-	RealStateComp        float64 `json:"real_state_comp"`
-	PropertyComp         float64 `json:"property_comp"`
-	TotalComp            float64 `json:"total_comp"`
+	ParcelID            string  `json:"parcel_id"`
+	AreaM2              float64 `json:"area_m2"`
+	AcquisitionAreaM2   float64 `json:"acquisition_area_m2"`
+	RemainingAreaM2     float64 `json:"remaining_area_m2"`
+	RightType           int     `json:"right_type"`
+	DbChanged           bool    `json:"db_changed"`
+	ChangedParcelID     string  `json:"changed_parcel_id"`
+	AcquisitionID       string  `json:"acquisition_id"`
+	AcquisitionName     string  `json:"acquisition_name"`
+	PlanCode            string  `json:"plan_code"`
+	GeneralCategoryName string  `json:"general_category_name"`
+	SubCategoryName     string  `json:"sub_category_name"`
+	DecreeNumber        string  `json:"decree_number"`
+	DecreeDate          *string `json:"decree_date"`
+	HolderLastName      string  `json:"holder_last_name"`
+	HolderName          string  `json:"holder_name"`
+	HolderRegisterNo    string  `json:"holder_register_no"`
+	LandComp            float64 `json:"land_comp"`
+	RealStateComp       float64 `json:"real_state_comp"`
+	PropertyComp        float64 `json:"property_comp"`
+	TotalComp           float64 `json:"total_comp"`
+}
+
+type fundingSourceResponse struct {
+	ID               string   `json:"id"`
+	AcquisitionID    string   `json:"acquisition_id"`
+	OrganizationName string   `json:"organization_name"`
+	SourceType       string   `json:"source_type"`
+	Amount           *float64 `json:"amount,omitempty"`
+	Currency         string   `json:"currency"`
+	Note             string   `json:"note"`
+	CreatedAt        string   `json:"created_at"`
+	CreatedBy        string   `json:"created_by"`
+}
+
+func toFundingSourceResponse(fs *domain.FundingSource) fundingSourceResponse {
+	return fundingSourceResponse{
+		ID:               fs.ID.String(),
+		AcquisitionID:    fs.AcquisitionID.String(),
+		OrganizationName: fs.OrganizationName,
+		SourceType:       fs.SourceType,
+		Amount:           fs.Amount,
+		Currency:         fs.Currency,
+		Note:             fs.Note,
+		CreatedAt:        fs.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		CreatedBy:        fs.CreatedBy,
+	}
+}
+
+type authorizedRepresentativeResponse struct {
+	ID            string `json:"id"`
+	AcquisitionID string `json:"acquisition_id"`
+	ParcelID      string `json:"parcel_id"`
+	LastName      string `json:"last_name"`
+	FirstName     string `json:"first_name"`
+	RegisterNo    string `json:"register_no"`
+	Phone         string `json:"phone"`
+	Email         string `json:"email"`
+	Address       string `json:"address"`
+	Note          string `json:"note"`
+	CreatedAt     string `json:"created_at"`
+	CreatedBy     string `json:"created_by"`
+}
+
+func toAuthorizedRepresentativeResponse(rep *domain.AuthorizedRepresentative) authorizedRepresentativeResponse {
+	return authorizedRepresentativeResponse{
+		ID:            rep.ID.String(),
+		AcquisitionID: rep.AcquisitionID.String(),
+		ParcelID:      rep.ParcelID,
+		LastName:      rep.LastName,
+		FirstName:     rep.FirstName,
+		RegisterNo:    rep.RegisterNo,
+		Phone:         rep.Phone,
+		Email:         rep.Email,
+		Address:       rep.Address,
+		Note:          rep.Note,
+		CreatedAt:     rep.CreatedAt.Format(time.RFC3339),
+		CreatedBy:     rep.CreatedBy,
+	}
 }
 
 func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowResponse {
 	resp := reportParcelRowResponse{
-		ParcelID:             r.ParcelID,
-		AreaM2:               r.AreaM2,
-		AcquisitionAreaM2:    r.AcquisitionAreaM2,
-		RemainingAreaM2:      r.RemainingAreaM2,
-		RightType:            r.RightType,
-		DbChanged:            r.DbChanged,
-		ChangedParcelID:      r.ChangedParcelID,
-		AcquisitionID:        r.AcquisitionID.String(),
-		AcquisitionName:      r.AcquisitionName,
-		PlanCode:             r.PlanCode,
-		ConstructionTypeName: r.ConstructionTypeName,
-		DecreeNumber:         r.DecreeNumber,
-		HolderLastName:       r.HolderLastName,
-		HolderName:           r.HolderName,
-		HolderRegisterNo:     r.HolderRegisterNo,
-		LandComp:             r.LandComp,
-		RealStateComp:        r.RealStateComp,
-		PropertyComp:         r.PropertyComp,
-		TotalComp:            r.LandComp + r.RealStateComp + r.PropertyComp,
+		ParcelID:            r.ParcelID,
+		AreaM2:              r.AreaM2,
+		AcquisitionAreaM2:   r.AcquisitionAreaM2,
+		RemainingAreaM2:     r.RemainingAreaM2,
+		RightType:           r.RightType,
+		DbChanged:           r.DbChanged,
+		ChangedParcelID:     r.ChangedParcelID,
+		AcquisitionID:       r.AcquisitionID.String(),
+		AcquisitionName:     r.AcquisitionName,
+		PlanCode:            r.PlanCode,
+		GeneralCategoryName: r.GeneralCategoryName,
+		SubCategoryName:     r.SubCategoryName,
+		DecreeNumber:        r.DecreeNumber,
+		HolderLastName:      r.HolderLastName,
+		HolderName:          r.HolderName,
+		HolderRegisterNo:    r.HolderRegisterNo,
+		LandComp:            r.LandComp,
+		RealStateComp:       r.RealStateComp,
+		PropertyComp:        r.PropertyComp,
+		TotalComp:           r.LandComp + r.RealStateComp + r.PropertyComp,
 	}
 	if r.DecreeDate != nil {
 		s := r.DecreeDate.Format("2006-01-02")

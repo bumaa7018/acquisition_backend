@@ -114,11 +114,16 @@ func TestUserHandler_List(t *testing.T) {
 	h := handler.NewUserHandler(mockSvc)
 
 	users := []*domain.User{{ID: uuid.New(), Username: "user1"}}
-	mockSvc.On("List", mock.Anything, mock.AnythingOfType("domain.UserFilter")).Return(users, int64(1), nil)
+	mockSvc.On("List", mock.Anything, domain.UserFilter{
+		Search:   "",
+		Role:     "professional_org",
+		Page:     2,
+		PageSize: 25,
+	}).Return(users, int64(1), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/users", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/users?role=professional_org&page=2&page_size=25", nil)
 
 	h.List(c)
 

@@ -210,6 +210,40 @@ BEGIN
     INSERT INTO parcel_detail (parcel_id, acquisition_id, right_type, holder_id)
     VALUES (prow_id, acq_id, (i % 3) + 1, hld_id);
 
+    -- 4b.1. Нэгж талбарын статусын түүх
+    INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by)
+    SELECT
+      p_id,
+      acq_id,
+      s.status_id,
+      make_timestamptz(
+        2020 + ((i - 1) % 5),
+        ((i * 3 - 1) % 12) + 1,
+        ((i * 7 - 1) % 28) + 1,
+        9,
+        0,
+        0
+      ) + (s.step_order * INTERVAL '1 day'),
+      'mock-seed'
+    FROM (
+      VALUES
+        (0, 0),
+        (1, 1),
+        (2, 2),
+        (CASE i % 3 WHEN 0 THEN 5 WHEN 1 THEN 3 ELSE 4 END, 3)
+    ) AS s(status_id, step_order)
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM parcel_status_history h
+      WHERE h.parcel_id = p_id
+        AND h.acquisition_id = acq_id
+        AND h.status_id = s.status_id
+    );
+
+    UPDATE parcel
+    SET status = CASE i % 3 WHEN 0 THEN 5 WHEN 1 THEN 3 ELSE 4 END
+    WHERE id = prow_id;
+
     -- 4c. Газрын нөхөн төлбөр (target_type='parcel' — бүх 2000-д байна)
     lcomp := 1000000 + ((i * 53) % 499000000)::NUMERIC;
     INSERT INTO compensation (
