@@ -110,7 +110,10 @@ type LandAcquisitionRepository interface {
 	GetCompensation(ctx context.Context, id uuid.UUID) (*domain.Compensation, error)
 	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
+	UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error
 	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
+	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
+	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
 	// CompensationGrant methods
 	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
 	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error

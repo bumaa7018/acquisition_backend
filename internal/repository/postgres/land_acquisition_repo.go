@@ -1530,6 +1530,7 @@ func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.
 		       c.compensation_date, COALESCE(c.note,''),
 		       COALESCE(c.status,'pending'), COALESCE(c.review_note,''),
 		       COALESCE(c.reviewed_by,''), c.reviewed_at,
+		       COALESCE(c.valuation_report_url,''), COALESCE(c.valuation_report_name,''),
 		       c.created_at, COALESCE(c.created_by,''), c.updated_at,
 		       cg.id, cg.acquisition_id, cg.compensation_id, COALESCE(cg.amount,0), cg.grant_date, COALESCE(cg.note,''),
 		       COALESCE(cg.land_area_m2,0), COALESCE(cg.land_price,0), COALESCE(cg.land_location,''),
@@ -1563,6 +1564,7 @@ func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.
 			&c.CoveragePercent, &c.Amount,
 			&c.CompensationDate, &c.Note,
 			&c.Status, &c.ReviewNote, &c.ReviewedBy, &c.ReviewedAt,
+			&c.ValuationReportURL, &c.ValuationReportName,
 			&c.CreatedAt, &c.CreatedBy, &c.UpdatedAt,
 			&gID, &gAcqID, &gCompID, &gAmount, &gGrantDate, &gNote,
 			&gLandAreaM2, &gLandPrice, &gLandLocation,
@@ -2215,6 +2217,25 @@ func (r *landAcqRepo) GetAvailableParcelStatuses(ctx context.Context, currentSta
 }
 
 func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+	// "Чөлөөлсөн" болгохын өмнө үнэлгээний тайлан байгаа эсэхийг шалгана
+	var statusName string
+	_ = r.db.QueryRow(ctx, `SELECT COALESCE(name,'') FROM parcel_status WHERE id=$1`, statusID).Scan(&statusName)
+	if statusName == "Чөлөөлсөн" {
+		var parcelCode string
+		if err := r.db.QueryRow(ctx, `SELECT parcel_id FROM parcel WHERE id=$1`, parcelID).Scan(&parcelCode); err != nil {
+			return domain.ErrNotFound
+		}
+		var hasReport bool
+		_ = r.db.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM compensation
+				WHERE acquisition_id=$1 AND parcel_id=$2
+				AND status='approved' AND valuation_report_url<>''
+			)`, acquisitionID, parcelCode).Scan(&hasReport)
+		if !hasReport {
+			return domain.ErrValuationReportRequired
+		}
+	}
 	ct, err := r.db.Exec(ctx, `UPDATE parcel SET status = $1 WHERE id = $2`, statusID, parcelID)
 	if err != nil {
 		return err
@@ -2269,6 +2290,7 @@ func (r *landAcqRepo) GetCompensation(ctx context.Context, id uuid.UUID) (*domai
 		       compensation_date, COALESCE(note,''),
 		       COALESCE(status,'pending'), COALESCE(review_note,''),
 		       COALESCE(reviewed_by,''), reviewed_at,
+		       COALESCE(valuation_report_url,''), COALESCE(valuation_report_name,''),
 		       created_at, COALESCE(created_by,''), updated_at
 		FROM compensation WHERE id=$1
 	`, id).Scan(
@@ -2277,12 +2299,26 @@ func (r *landAcqRepo) GetCompensation(ctx context.Context, id uuid.UUID) (*domai
 		&c.CoveragePercent, &c.Amount,
 		&c.CompensationDate, &c.Note,
 		&c.Status, &c.ReviewNote, &c.ReviewedBy, &c.ReviewedAt,
+		&c.ValuationReportURL, &c.ValuationReportName,
 		&c.CreatedAt, &c.CreatedBy, &c.UpdatedAt,
 	)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
 	return c, nil
+}
+
+func (r *landAcqRepo) UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error {
+	ct, err := r.db.Exec(ctx,
+		`UPDATE compensation SET valuation_report_url=$1, valuation_report_name=$2, updated_at=NOW() WHERE id=$3`,
+		reportURL, reportName, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *landAcqRepo) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
@@ -2528,6 +2564,136 @@ func (r *landAcqRepo) DeleteAcquisitionWorkflow(ctx context.Context, id int) err
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+func (r *landAcqRepo) ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error) {
+	args := []any{}
+	conditions := []string{}
+	i := 1
+
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("c.status = $%d", i))
+		args = append(args, filter.Status)
+		i++
+	}
+	if filter.AcquisitionID != "" {
+		conditions = append(conditions, fmt.Sprintf("c.acquisition_id = $%d", i))
+		args = append(args, filter.AcquisitionID)
+		i++
+	}
+	if filter.Search != "" {
+		conditions = append(conditions, fmt.Sprintf("(c.parcel_id ILIKE $%d OR COALESCE(rh.name,'') || ' ' || COALESCE(rh.last_name,'') ILIKE $%d)", i, i))
+		args = append(args, "%"+filter.Search+"%")
+		i++
+	}
+
+	where := "1=1"
+	if len(conditions) > 0 {
+		where = strings.Join(conditions, " AND ")
+	}
+
+	joinSQL := `
+		FROM compensation c
+		JOIN land_acquisition a ON a.id = c.acquisition_id
+		LEFT JOIN parcel p ON p.acquisition_id = c.acquisition_id AND p.parcel_id = c.parcel_id
+		LEFT JOIN parcel_detail pd ON pd.parcel_id = p.id
+		LEFT JOIN right_holder rh ON rh.id = pd.holder_id
+		WHERE ` + where
+
+	var total int64
+	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) "+joinSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	page := filter.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT c.id, c.acquisition_id, COALESCE(c.target_type,'asset'), COALESCE(c.parcel_id,''),
+		       c.asset_id, COALESCE(c.compensation_type,'cash'),
+		       COALESCE(c.coverage_percent,100), COALESCE(c.amount,0),
+		       c.compensation_date, COALESCE(c.note,''),
+		       COALESCE(c.status,'pending'), COALESCE(c.review_note,''),
+		       COALESCE(c.reviewed_by,''), c.reviewed_at,
+		       COALESCE(c.valuation_report_url,''), COALESCE(c.valuation_report_name,''),
+		       c.created_at, COALESCE(c.created_by,''), c.updated_at,
+		       COALESCE(a.acquisition_name,''),
+		       COALESCE(rh.name,''), COALESCE(rh.last_name,''),
+		       COALESCE(rh.register_no,''), COALESCE(rh.phone,'')
+		%s
+		ORDER BY c.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, joinSQL, i, i+1), append(args, pageSize, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var result []*domain.GlobalCompensation
+	for rows.Next() {
+		gc := &domain.GlobalCompensation{}
+		if err := rows.Scan(
+			&gc.ID, &gc.AcquisitionID, &gc.TargetType, &gc.ParcelID,
+			&gc.AssetID, &gc.CompensationType,
+			&gc.CoveragePercent, &gc.Amount,
+			&gc.CompensationDate, &gc.Note,
+			&gc.Status, &gc.ReviewNote, &gc.ReviewedBy, &gc.ReviewedAt,
+			&gc.ValuationReportURL, &gc.ValuationReportName,
+			&gc.CreatedAt, &gc.CreatedBy, &gc.UpdatedAt,
+			&gc.AcquisitionName,
+			&gc.HolderName, &gc.HolderLastName,
+			&gc.HolderRegisterNo, &gc.HolderPhone,
+		); err != nil {
+			return nil, 0, err
+		}
+		result = append(result, gc)
+	}
+	return result, total, rows.Err()
+}
+
+func (r *landAcqRepo) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
+	gc := &domain.GlobalCompensation{}
+	err := r.db.QueryRow(ctx, `
+		SELECT c.id, c.acquisition_id, COALESCE(c.target_type,'asset'), COALESCE(c.parcel_id,''),
+		       c.asset_id, COALESCE(c.compensation_type,'cash'),
+		       COALESCE(c.coverage_percent,100), COALESCE(c.amount,0),
+		       c.compensation_date, COALESCE(c.note,''),
+		       COALESCE(c.status,'pending'), COALESCE(c.review_note,''),
+		       COALESCE(c.reviewed_by,''), c.reviewed_at,
+		       COALESCE(c.valuation_report_url,''), COALESCE(c.valuation_report_name,''),
+		       c.created_at, COALESCE(c.created_by,''), c.updated_at,
+		       COALESCE(a.acquisition_name,''),
+		       COALESCE(rh.name,''), COALESCE(rh.last_name,''),
+		       COALESCE(rh.register_no,''), COALESCE(rh.phone,'')
+		FROM compensation c
+		JOIN land_acquisition a ON a.id = c.acquisition_id
+		LEFT JOIN parcel p ON p.acquisition_id = c.acquisition_id AND p.parcel_id = c.parcel_id
+		LEFT JOIN parcel_detail pd ON pd.parcel_id = p.id
+		LEFT JOIN right_holder rh ON rh.id = pd.holder_id
+		WHERE c.id = $1
+	`, id).Scan(
+		&gc.ID, &gc.AcquisitionID, &gc.TargetType, &gc.ParcelID,
+		&gc.AssetID, &gc.CompensationType,
+		&gc.CoveragePercent, &gc.Amount,
+		&gc.CompensationDate, &gc.Note,
+		&gc.Status, &gc.ReviewNote, &gc.ReviewedBy, &gc.ReviewedAt,
+		&gc.ValuationReportURL, &gc.ValuationReportName,
+		&gc.CreatedAt, &gc.CreatedBy, &gc.UpdatedAt,
+		&gc.AcquisitionName,
+		&gc.HolderName, &gc.HolderLastName,
+		&gc.HolderRegisterNo, &gc.HolderPhone,
+	)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	return gc, nil
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)

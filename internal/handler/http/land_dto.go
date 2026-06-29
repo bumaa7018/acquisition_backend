@@ -300,6 +300,8 @@ type compensationResponse struct {
 	ReviewNote       string                     `json:"review_note"`
 	ReviewedBy       string                     `json:"reviewed_by"`
 	ReviewedAt       *string                    `json:"reviewed_at"`
+	ValuationReportURL  string                  `json:"valuation_report_url"`
+	ValuationReportName string                  `json:"valuation_report_name"`
 	CreatedAt        string                     `json:"created_at"`
 	CreatedBy        string                     `json:"created_by"`
 	UpdatedAt        string                     `json:"updated_at"`
@@ -314,13 +316,15 @@ func toCompensationResponse(c *domain.Compensation) compensationResponse {
 		CompensationType: c.CompensationType,
 		CoveragePercent:  c.CoveragePercent,
 		Amount:           c.Amount,
-		Note:             c.Note,
-		Status:           c.Status,
-		ReviewNote:       c.ReviewNote,
-		ReviewedBy:       c.ReviewedBy,
-		CreatedAt:        c.CreatedAt.Format(time.RFC3339),
-		CreatedBy:        c.CreatedBy,
-		UpdatedAt:        c.UpdatedAt.Format(time.RFC3339),
+		Note:                c.Note,
+		Status:              c.Status,
+		ReviewNote:          c.ReviewNote,
+		ReviewedBy:          c.ReviewedBy,
+		ValuationReportURL:  c.ValuationReportURL,
+		ValuationReportName: c.ValuationReportName,
+		CreatedAt:           c.CreatedAt.Format(time.RFC3339),
+		CreatedBy:           c.CreatedBy,
+		UpdatedAt:           c.UpdatedAt.Format(time.RFC3339),
 	}
 	if c.AssetID != nil {
 		s := c.AssetID.String()
@@ -667,4 +671,24 @@ func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowRespons
 		resp.DecreeDate = &s
 	}
 	return resp
+}
+
+type globalCompensationResponse struct {
+	compensationResponse
+	AcquisitionName  string `json:"acquisition_name"`
+	HolderName       string `json:"holder_name"`
+	HolderLastName   string `json:"holder_last_name"`
+	HolderRegisterNo string `json:"holder_register_no"`
+	HolderPhone      string `json:"holder_phone"`
+}
+
+func toGlobalCompensationResponse(gc *domain.GlobalCompensation) globalCompensationResponse {
+	return globalCompensationResponse{
+		compensationResponse: toCompensationResponse(&gc.Compensation),
+		AcquisitionName:      gc.AcquisitionName,
+		HolderName:           gc.HolderName,
+		HolderLastName:       gc.HolderLastName,
+		HolderRegisterNo:     gc.HolderRegisterNo,
+		HolderPhone:          gc.HolderPhone,
+	}
 }

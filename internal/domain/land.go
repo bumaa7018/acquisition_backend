@@ -455,9 +455,31 @@ type Compensation struct {
 	ReviewNote string     `json:"review_note"` // татгалзсан шалтгаан
 	ReviewedBy string     `json:"reviewed_by"`
 	ReviewedAt *time.Time `json:"reviewed_at"`
+	// Үнэлгээний тайлан (санхүүгийн ажилтан зөвшөөрсний дараа мэргэжлийн байгууллага оруулна)
+	ValuationReportURL  string `json:"valuation_report_url"`
+	ValuationReportName string `json:"valuation_report_name"`
 	CreatedAt  time.Time  `json:"created_at"`
 	CreatedBy  string     `json:"created_by"`
 	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+// GlobalCompensation — нөхөн төлбөр + acquisition_name + парцелийн эзэмшигчийн мэдээлэл
+type GlobalCompensation struct {
+	Compensation
+	AcquisitionName  string `json:"acquisition_name"`
+	HolderName       string `json:"holder_name"`
+	HolderLastName   string `json:"holder_last_name"`
+	HolderRegisterNo string `json:"holder_register_no"`
+	HolderPhone      string `json:"holder_phone"`
+}
+
+// GlobalCompensationFilter — глобал нөхөн төлбөрийн жагсаалт шүүлт
+type GlobalCompensationFilter struct {
+	Status        string // pending | approved | rejected | ""
+	Search        string // parcel_id эсвэл holder_name
+	AcquisitionID string
+	Page          int
+	PageSize      int
 }
 
 // CompensationHistory — татгалзсан үнэлгээний түүх

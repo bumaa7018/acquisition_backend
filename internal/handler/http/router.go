@@ -131,6 +131,7 @@ func NewRouter(
 			land.GET("/:id/compensations/:comp_id/history", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListCompensationHistory)
 			land.POST("/:id/compensations/:comp_id/approve", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequirePermission("land:update"), landH.ApproveCompensation)
 			land.POST("/:id/compensations/:comp_id/reject", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequirePermission("land:update"), landH.RejectCompensation)
+			land.POST("/:id/compensations/:comp_id/report", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadCompensationReport)
 			land.POST("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateCompensationGrant)
 			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensationGrant)
 			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteCompensationGrant)
@@ -221,6 +222,10 @@ func NewRouter(
 			acquisitionWorkflow.POST("", middleware.RequirePermission("land:create"), acquisitionWorkflowH.Create)
 			acquisitionWorkflow.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionWorkflowH.Delete)
 		}
+
+		// Глобал нөхөн төлбөрийн маршрут
+		protected.GET("/compensations", middleware.RequirePermission("land:read"), landH.ListAllCompensations)
+		protected.GET("/compensations/:id", middleware.RequirePermission("land:read"), landH.GetGlobalCompensation)
 
 		// Глобал нэгж талбарын маршрут
 		parcels := protected.Group("/parcels")

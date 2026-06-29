@@ -46,6 +46,7 @@ type LandService interface {
 	DeleteCompensation(ctx context.Context, id uuid.UUID) error
 	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
+	UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error)
 	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	// CompensationGrant
 	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
@@ -88,6 +89,9 @@ type LandService interface {
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
+	// GlobalCompensation
+	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
+	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
 }
 
 type landService struct {
@@ -604,6 +608,24 @@ func (s *landService) RejectCompensation(ctx context.Context, id uuid.UUID, note
 	return s.landRepo.RejectCompensation(ctx, id, note, reviewedBy)
 }
 
+func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error) {
+	comp, err := s.landRepo.GetCompensation(ctx, compID)
+	if err != nil || comp.AcquisitionID != acqID {
+		return nil, domain.ErrNotFound
+	}
+	stored, err := s.files.Save(ctx, "compensation-report", compID.String(), filename, contentType, data)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.landRepo.UpdateCompensationReport(ctx, compID, stored.URL, stored.Name); err != nil {
+		_ = s.files.Delete(ctx, stored.URL)
+		return nil, err
+	}
+	comp.ValuationReportURL = stored.URL
+	comp.ValuationReportName = stored.Name
+	return comp, nil
+}
+
 func (s *landService) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
 	return s.landRepo.ListCompensationHistory(ctx, compensationID)
 }
@@ -850,4 +872,12 @@ func (s *landService) CreateAcquisitionWorkflow(ctx context.Context, fromStatusI
 
 func (s *landService) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
 	return s.landRepo.DeleteAcquisitionWorkflow(ctx, id)
+}
+
+func (s *landService) ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error) {
+	return s.landRepo.ListAllCompensations(ctx, filter)
+}
+
+func (s *landService) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
+	return s.landRepo.GetGlobalCompensation(ctx, id)
 }

@@ -64,10 +64,11 @@ const (
 	ErrCodeRequired             Key = "code_required"
 
 	// Status errors
-	ErrStatusRequired Key = "status_required"
-	ErrInvalidStatus  Key = "invalid_status"
-	ErrNotAssigned    Key = "not_assigned"
-	ErrApproved       Key = "approved_locked"
+	ErrStatusRequired              Key = "status_required"
+	ErrInvalidStatus               Key = "invalid_status"
+	ErrNotAssigned                 Key = "not_assigned"
+	ErrApproved                    Key = "approved_locked"
+	ErrValuationReportRequired     Key = "valuation_report_required"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
@@ -121,7 +122,8 @@ var messages = map[Key][2]string{
 	ErrStatusRequired: {"to_status шаардлагатай", "to_status is required"},
 	ErrInvalidStatus:  {"Буруу статус", "Invalid status"},
 	ErrNotAssigned:    {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
-	ErrApproved:       {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
+	ErrApproved:                    {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
+	ErrValuationReportRequired:     {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},

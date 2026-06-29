@@ -1518,6 +1518,55 @@ func (h *LandHandler) RejectCompensation(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	compID, err := uuid.Parse(c.Param("comp_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	const maxSize = 10 * 1024 * 1024
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	fh, err := c.FormFile("file")
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
+		return
+	}
+	if fh.Size > maxSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	f, err := fh.Open()
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
+		return
+	}
+	uploadedBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		uploadedBy = uid.(uuid.UUID).String()
+	}
+	contentType := fh.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	comp, err := h.svc.UploadCompensationReport(c.Request.Context(), acqID, compID, fh.Filename, contentType, data, uploadedBy)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toCompensationResponse(comp))
+}
+
 // ListCompensationHistory godoc
 // @Summary      Үнэлгээний татгалзсан түүх
 // @Tags         land-acquisitions
@@ -2160,6 +2209,64 @@ func (h *LandHandler) CreateAuthorizedRepresentative(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"code": 200, "data": toAuthorizedRepresentativeResponse(created), "message": "success"})
+}
+
+// ListAllCompensations godoc
+// @Summary      Глобал нөхөн төлбөрийн жагсаалт
+// @Tags         compensations
+// @Produce      json
+// @Security     BearerAuth
+// @Param        status          query  string  false  "Статус (pending|approved|rejected)"
+// @Param        search          query  string  false  "Хайлт (parcel_id эсвэл эзэмшигчийн нэр)"
+// @Param        acquisition_id  query  string  false  "Чөлөөлөлтийн ID"
+// @Param        page            query  int     false  "Хуудасны дугаар (default: 1)"
+// @Param        page_size       query  int     false  "Хуудасны хэмжээ (default: 20)"
+// @Success      200  {object}  response.PaginatedResponse
+// @Router       /compensations [get]
+func (h *LandHandler) ListAllCompensations(c *gin.Context) {
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	filter := domain.GlobalCompensationFilter{
+		Status:        c.Query("status"),
+		Search:        c.Query("search"),
+		AcquisitionID: c.Query("acquisition_id"),
+		Page:          page,
+		PageSize:      pageSize,
+	}
+	list, total, err := h.svc.ListAllCompensations(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]globalCompensationResponse, 0, len(list))
+	for _, gc := range list {
+		result = append(result, toGlobalCompensationResponse(gc))
+	}
+	response.Paginated(c, result, total, page, pageSize)
+}
+
+// GetGlobalCompensation godoc
+// @Summary      Глобал нөхөн төлбөр дэлгэрэнгүй
+// @Tags         compensations
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "Нөхөн төлбөрийн UUID"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Router       /compensations/{id} [get]
+func (h *LandHandler) GetGlobalCompensation(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	gc, err := h.svc.GetGlobalCompensation(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toGlobalCompensationResponse(gc))
 }
 
 // DeleteAuthorizedRepresentative godoc
