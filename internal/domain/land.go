@@ -458,11 +458,11 @@ type Compensation struct {
 	ReviewedBy string     `json:"reviewed_by"`
 	ReviewedAt *time.Time `json:"reviewed_at"`
 	// Үнэлгээний тайлан (санхүүгийн ажилтан зөвшөөрсний дараа мэргэжлийн байгууллага оруулна)
-	ValuationReportURL  string `json:"valuation_report_url"`
-	ValuationReportName string `json:"valuation_report_name"`
-	CreatedAt  time.Time  `json:"created_at"`
-	CreatedBy  string     `json:"created_by"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ValuationReportURL  string    `json:"valuation_report_url"`
+	ValuationReportName string    `json:"valuation_report_name"`
+	CreatedAt           time.Time `json:"created_at"`
+	CreatedBy           string    `json:"created_by"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 // GlobalCompensation — нөхөн төлбөр + acquisition_name + парцелийн эзэмшигчийн мэдээлэл

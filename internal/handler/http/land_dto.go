@@ -285,37 +285,37 @@ func toCompensationGrantResponse(g *domain.CompensationGrant) compensationGrantR
 }
 
 type compensationResponse struct {
-	ID               string                     `json:"id"`
-	AcquisitionID    string                     `json:"acquisition_id"`
-	TargetType       string                     `json:"target_type"`
-	ParcelID         string                     `json:"parcel_id"`
-	AssetID          *string                    `json:"asset_id"`
-	CompensationType string                     `json:"compensation_type"`
-	CoveragePercent  float64                    `json:"coverage_percent"`
-	Amount           float64                    `json:"amount"`
-	CompensationDate *string                    `json:"compensation_date"`
-	Note             string                     `json:"note"`
-	Grant            *compensationGrantResponse `json:"grant,omitempty"`
-	Status           string                     `json:"status"`
-	ReviewNote       string                     `json:"review_note"`
-	ReviewedBy       string                     `json:"reviewed_by"`
-	ReviewedAt       *string                    `json:"reviewed_at"`
-	ValuationReportURL  string                  `json:"valuation_report_url"`
-	ValuationReportName string                  `json:"valuation_report_name"`
-	CreatedAt        string                     `json:"created_at"`
-	CreatedBy        string                     `json:"created_by"`
-	UpdatedAt        string                     `json:"updated_at"`
+	ID                  string                     `json:"id"`
+	AcquisitionID       string                     `json:"acquisition_id"`
+	TargetType          string                     `json:"target_type"`
+	ParcelID            string                     `json:"parcel_id"`
+	AssetID             *string                    `json:"asset_id"`
+	CompensationType    string                     `json:"compensation_type"`
+	CoveragePercent     float64                    `json:"coverage_percent"`
+	Amount              float64                    `json:"amount"`
+	CompensationDate    *string                    `json:"compensation_date"`
+	Note                string                     `json:"note"`
+	Grant               *compensationGrantResponse `json:"grant,omitempty"`
+	Status              string                     `json:"status"`
+	ReviewNote          string                     `json:"review_note"`
+	ReviewedBy          string                     `json:"reviewed_by"`
+	ReviewedAt          *string                    `json:"reviewed_at"`
+	ValuationReportURL  string                     `json:"valuation_report_url"`
+	ValuationReportName string                     `json:"valuation_report_name"`
+	CreatedAt           string                     `json:"created_at"`
+	CreatedBy           string                     `json:"created_by"`
+	UpdatedAt           string                     `json:"updated_at"`
 }
 
 func toCompensationResponse(c *domain.Compensation) compensationResponse {
 	r := compensationResponse{
-		ID:               c.ID.String(),
-		AcquisitionID:    c.AcquisitionID.String(),
-		TargetType:       c.TargetType,
-		ParcelID:         c.ParcelID,
-		CompensationType: c.CompensationType,
-		CoveragePercent:  c.CoveragePercent,
-		Amount:           c.Amount,
+		ID:                  c.ID.String(),
+		AcquisitionID:       c.AcquisitionID.String(),
+		TargetType:          c.TargetType,
+		ParcelID:            c.ParcelID,
+		CompensationType:    c.CompensationType,
+		CoveragePercent:     c.CoveragePercent,
+		Amount:              c.Amount,
 		Note:                c.Note,
 		Status:              c.Status,
 		ReviewNote:          c.ReviewNote,
