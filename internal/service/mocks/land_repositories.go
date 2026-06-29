@@ -316,6 +316,10 @@ func (m *MockLandAcquisitionRepository) ListCompensationHistory(ctx context.Cont
 	return args.Get(0).([]*domain.CompensationHistory), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error {
+	return m.Called(ctx, id, reportURL, reportName).Error(0)
+}
+
 func (m *MockLandAcquisitionRepository) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error {
 	return m.Called(ctx, g).Error(0)
 }
@@ -527,4 +531,20 @@ func (m *MockLandAcquisitionRepository) CreateAcquisitionWorkflow(ctx context.Co
 
 func (m *MockLandAcquisitionRepository) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
 	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*domain.GlobalCompensation), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockLandAcquisitionRepository) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.GlobalCompensation), args.Error(1)
 }

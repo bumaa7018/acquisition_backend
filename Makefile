@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
@@ -90,6 +90,9 @@ logs:
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
+
+seed-admin-example:
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db auth scripts/seed_admin_example_admin_role.sql
 
 seed-external-users:
 	CGO_ENABLED=0 go run ./cmd/seed-sql -db auth scripts/seed_external_access_users.sql

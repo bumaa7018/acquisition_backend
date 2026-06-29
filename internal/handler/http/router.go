@@ -98,10 +98,10 @@ func NewRouter(
 		// Ангилал CRUD
 		acquisitionCategories := protected.Group("/acquisition-categories")
 		{
-			acquisitionCategories.GET("", middleware.RequirePermission("land:read"), acquisitionCategoryH.List)
-			acquisitionCategories.POST("", middleware.RequirePermission("land:create"), acquisitionCategoryH.Create)
-			acquisitionCategories.PUT("/:id", middleware.RequirePermission("land:update"), acquisitionCategoryH.Update)
-			acquisitionCategories.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionCategoryH.Delete)
+			acquisitionCategories.GET("", acquisitionCategoryH.List)
+			acquisitionCategories.POST("", middleware.RequirePermission("admin:create"), acquisitionCategoryH.Create)
+			acquisitionCategories.PUT("/:id", middleware.RequirePermission("admin:update"), acquisitionCategoryH.Update)
+			acquisitionCategories.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionCategoryH.Delete)
 		}
 
 		// Газар чөлөөлөлт
@@ -170,31 +170,31 @@ func NewRouter(
 		// Чөлөөлөлтийн явцын статус
 		acquisitionProgressStatuses := protected.Group("/acquisition-progress-statuses")
 		{
-			acquisitionProgressStatuses.GET("", middleware.RequirePermission("land:read"), acquisitionProgressStatusH.List)
-			acquisitionProgressStatuses.GET("/:id", middleware.RequirePermission("land:read"), acquisitionProgressStatusH.GetByID)
-			acquisitionProgressStatuses.POST("", middleware.RequirePermission("land:create"), acquisitionProgressStatusH.Create)
-			acquisitionProgressStatuses.PUT("/:id", middleware.RequirePermission("land:update"), acquisitionProgressStatusH.Update)
-			acquisitionProgressStatuses.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionProgressStatusH.Delete)
+			acquisitionProgressStatuses.GET("", middleware.RequirePermission("admin:read"), acquisitionProgressStatusH.List)
+			acquisitionProgressStatuses.GET("/:id", middleware.RequirePermission("admin:read"), acquisitionProgressStatusH.GetByID)
+			acquisitionProgressStatuses.POST("", middleware.RequirePermission("admin:create"), acquisitionProgressStatusH.Create)
+			acquisitionProgressStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), acquisitionProgressStatusH.Update)
+			acquisitionProgressStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionProgressStatusH.Delete)
 		}
 
 		// Нэгж талбарын статус
 		parcelStatuses := protected.Group("/parcel-statuses")
 		{
-			parcelStatuses.GET("", middleware.RequirePermission("land:read"), parcelStatusH.List)
-			parcelStatuses.GET("/:id", middleware.RequirePermission("land:read"), parcelStatusH.GetByID)
-			parcelStatuses.POST("", middleware.RequirePermission("land:create"), parcelStatusH.Create)
-			parcelStatuses.PUT("/:id", middleware.RequirePermission("land:update"), parcelStatusH.Update)
-			parcelStatuses.DELETE("/:id", middleware.RequirePermission("land:delete"), parcelStatusH.Delete)
+			parcelStatuses.GET("", middleware.RequirePermission("admin:read"), parcelStatusH.List)
+			parcelStatuses.GET("/:id", middleware.RequirePermission("admin:read"), parcelStatusH.GetByID)
+			parcelStatuses.POST("", middleware.RequirePermission("admin:create"), parcelStatusH.Create)
+			parcelStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), parcelStatusH.Update)
+			parcelStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelStatusH.Delete)
 		}
 
 		// Баримт бичгийн төрөл
 		documentTypes := protected.Group("/document-types")
 		{
-			documentTypes.GET("", middleware.RequirePermission("land:read"), documentTypeH.List)
-			documentTypes.GET("/:id", middleware.RequirePermission("land:read"), documentTypeH.GetByID)
-			documentTypes.POST("", middleware.RequirePermission("land:create"), documentTypeH.Create)
-			documentTypes.PUT("/:id", middleware.RequirePermission("land:update"), documentTypeH.Update)
-			documentTypes.DELETE("/:id", middleware.RequirePermission("land:delete"), documentTypeH.Delete)
+			documentTypes.GET("", middleware.RequirePermission("admin:read"), documentTypeH.List)
+			documentTypes.GET("/:id", middleware.RequirePermission("admin:read"), documentTypeH.GetByID)
+			documentTypes.POST("", middleware.RequirePermission("admin:create"), documentTypeH.Create)
+			documentTypes.PUT("/:id", middleware.RequirePermission("admin:update"), documentTypeH.Update)
+			documentTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), documentTypeH.Delete)
 		}
 
 		// Дашбоард
@@ -209,18 +209,18 @@ func NewRouter(
 		// Нэгж талбарын ажлын урсгал
 		parcelWorkflow := protected.Group("/parcel-workflow")
 		{
-			parcelWorkflow.GET("", middleware.RequirePermission("land:read"), parcelWorkflowH.List)
-			parcelWorkflow.POST("", middleware.RequirePermission("land:create"), parcelWorkflowH.Create)
-			parcelWorkflow.DELETE("/:id", middleware.RequirePermission("land:delete"), parcelWorkflowH.Delete)
+			parcelWorkflow.GET("", middleware.RequirePermission("admin:read"), parcelWorkflowH.List)
+			parcelWorkflow.POST("", middleware.RequirePermission("admin:create"), parcelWorkflowH.Create)
+			parcelWorkflow.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelWorkflowH.Delete)
 		}
 
 		// Газар чөлөөлөлтийн ажлын урсгал
 		acquisitionWorkflow := protected.Group("/acquisition-workflow")
 		{
-			acquisitionWorkflow.GET("", middleware.RequirePermission("land:read"), acquisitionWorkflowH.List)
-			acquisitionWorkflow.GET("/statuses", middleware.RequirePermission("land:read"), acquisitionWorkflowH.ListStatuses)
-			acquisitionWorkflow.POST("", middleware.RequirePermission("land:create"), acquisitionWorkflowH.Create)
-			acquisitionWorkflow.DELETE("/:id", middleware.RequirePermission("land:delete"), acquisitionWorkflowH.Delete)
+			acquisitionWorkflow.GET("", middleware.RequirePermission("admin:read"), acquisitionWorkflowH.List)
+			acquisitionWorkflow.GET("/statuses", middleware.RequirePermission("admin:read"), acquisitionWorkflowH.ListStatuses)
+			acquisitionWorkflow.POST("", middleware.RequirePermission("admin:create"), acquisitionWorkflowH.Create)
+			acquisitionWorkflow.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionWorkflowH.Delete)
 		}
 
 		// Глобал нөхөн төлбөрийн маршрут

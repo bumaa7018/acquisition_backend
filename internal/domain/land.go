@@ -206,6 +206,7 @@ type LandAcquisitionBoundaryHistory struct {
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
 type LandAcquisitionFilter struct {
 	PlanCode          string
+	AcquisitionName   string
 	Status            int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
 	AU3Code           string
 	StartDateFrom     *time.Time
@@ -213,6 +214,7 @@ type LandAcquisitionFilter struct {
 	Years             []int
 	GeneralCategoryID int
 	SubCategoryID     int
+	AssignedUserID    string
 	Page              int
 	PageSize          int
 }
@@ -550,6 +552,7 @@ type DashboardFilter struct {
 	Years             []int
 	GeneralCategoryID int
 	SubCategoryID     int
+	AssignedUserID    string
 }
 
 // ParcelStatusStat — нэгж талбарын төлөвийн статистик

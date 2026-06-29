@@ -474,6 +474,30 @@ func (m *MockLandService) DeleteAcquisitionWorkflow(ctx context.Context, id int)
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *MockLandService) ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(int64), args.Error(2)
+	}
+	return args.Get(0).([]*domain.GlobalCompensation), args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockLandService) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.GlobalCompensation), args.Error(1)
+}
+
+func (m *MockLandService) UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error) {
+	args := m.Called(ctx, acqID, compID, filename, contentType, data, uploadedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Compensation), args.Error(1)
+}
+
 type MockUserService struct {
 	mock.Mock
 }

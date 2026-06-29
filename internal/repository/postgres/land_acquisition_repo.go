@@ -140,6 +140,11 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, "%"+filter.PlanCode+"%")
 		i++
 	}
+	if filter.AcquisitionName != "" {
+		where += fmt.Sprintf(" AND acquisition_name ILIKE $%d", i)
+		args = append(args, "%"+filter.AcquisitionName+"%")
+		i++
+	}
 	if filter.Status != 0 {
 		where += fmt.Sprintf(" AND status = $%d", i)
 		args = append(args, filter.Status)
@@ -187,6 +192,14 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 				SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p_yr.parcel_id
 			)) IN (%s)
 		)`, strings.Join(placeholders, ","))
+	}
+	if filter.AssignedUserID != "" {
+		where += fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM land_acquisition_assignee
+			WHERE acquisition_id = la.id AND user_id = $%d::uuid
+		)`, i)
+		args = append(args, filter.AssignedUserID)
+		i++
 	}
 
 	var total int64
@@ -1791,6 +1804,13 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		args = append(args, filter.SubCategoryID)
 		i++
 	}
+	if filter.AssignedUserID != "" {
+		where += fmt.Sprintf(` AND id IN (
+			SELECT acquisition_id FROM land_acquisition_assignee WHERE user_id = $%d::uuid
+		)`, i)
+		args = append(args, filter.AssignedUserID)
+		i++
+	}
 	_ = i // suppress unused warning after last condition
 
 	acqSubquery := fmt.Sprintf("SELECT id FROM land_acquisition WHERE %s", where)
@@ -1845,6 +1865,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			Years:             filter.Years,
 			GeneralCategoryID: filter.GeneralCategoryID,
 			SubCategoryID:     filter.SubCategoryID,
+			AssignedUserID:    filter.AssignedUserID,
 			Page:              1,
 			PageSize:          1000,
 		})
@@ -1918,10 +1939,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			FROM parcel p
 			JOIN land_acquisition la ON la.id = p.acquisition_id
 			WHERE p.acquisition_id IN (%s)
-			  AND la.start_date IS NOT NULL
+			  AND la.start_date IS NOT NULL%s
 			GROUP BY la.start_date
 			ORDER BY la.start_date
-		`, acqSubquery), args...)
+		`, acqSubquery, parcelYearCond), args...)
 		if err != nil {
 			timelineCh <- timelineRes{nil, err}
 			return
@@ -1942,11 +1963,23 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	// 6. Нийт нөхөн олговорын дүн
 	go func() {
 		var total float64
-		err := r.db.QueryRow(ctx, fmt.Sprintf(`
-			SELECT COALESCE(SUM(c.amount), 0)
-			FROM compensation c
-			WHERE c.acquisition_id IN (%s)
-		`, acqSubquery), args...).Scan(&total)
+		var compSQL string
+		if parcelYearCond != "" {
+			// on шүүлтүүр байвал зөвхөн тухайн оны parcel-уудын олговорыг нийлүүлнэ
+			compSQL = fmt.Sprintf(`
+				SELECT COALESCE(SUM(c.amount), 0)
+				FROM compensation c
+				JOIN parcel p ON p.parcel_id = c.parcel_id
+				WHERE c.acquisition_id IN (%s)%s
+			`, acqSubquery, parcelYearCond)
+		} else {
+			compSQL = fmt.Sprintf(`
+				SELECT COALESCE(SUM(c.amount), 0)
+				FROM compensation c
+				WHERE c.acquisition_id IN (%s)
+			`, acqSubquery)
+		}
+		err := r.db.QueryRow(ctx, compSQL, args...).Scan(&total)
 		compCh <- compRes{total, err}
 	}()
 

@@ -109,12 +109,19 @@ func (h *LandHandler) List(c *gin.Context) {
 
 	filter := domain.LandAcquisitionFilter{
 		PlanCode:          c.Query("plan_code"),
+		AcquisitionName:   c.Query("acquisition_name"),
 		Status:            queryInt(c, "status", 0),
 		AU3Code:           c.Query("au3_code"),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
+		AssignedUserID:    c.Query("assigned_user_id"),
 		Page:              page,
 		PageSize:          pageSize,
+	}
+	for _, y := range c.QueryArray("year") {
+		if n, err := strconv.Atoi(y); err == nil {
+			filter.Years = append(filter.Years, n)
+		}
 	}
 
 	if s := c.Query("start_date_from"); s != "" {
@@ -1951,6 +1958,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		PlanCode:          c.Query("plan_code"),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
+		AssignedUserID:    c.Query("assigned_user_id"),
 	}
 	for _, y := range c.QueryArray("year") {
 		if n, err := strconv.Atoi(y); err == nil {
