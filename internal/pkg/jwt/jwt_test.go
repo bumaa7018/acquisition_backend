@@ -4,11 +4,12 @@ import (
 	"testing"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
 )
 
 func newManager() *jwtpkg.Manager {

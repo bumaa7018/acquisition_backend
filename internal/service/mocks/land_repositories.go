@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 // MockPlanRepository — PlanRepository-ийн mock

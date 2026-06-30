@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 type AcquisitionProgressStatusRepo struct {

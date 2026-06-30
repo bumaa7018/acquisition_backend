@@ -1,19 +1,24 @@
 package http
 
 import (
+	"context"
 	"net/http"
 
+	"acquisition_backend/internal/pkg/i18n"
+	"acquisition_backend/internal/pkg/response"
+
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/go-api-template/internal/pkg/i18n"
-	"github.com/your-org/go-api-template/internal/pkg/response"
 )
 
-type HealthHandler struct {
-	db *pgxpool.Pool
+type HealthChecker interface {
+	Ping(ctx context.Context) error
 }
 
-func NewHealthHandler(db *pgxpool.Pool) *HealthHandler {
+type HealthHandler struct {
+	db HealthChecker
+}
+
+func NewHealthHandler(db HealthChecker) *HealthHandler {
 	return &HealthHandler{db: db}
 }
 

@@ -3,9 +3,10 @@ package middleware
 import (
 	"net/http"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/response"
+
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/response"
 )
 
 var (

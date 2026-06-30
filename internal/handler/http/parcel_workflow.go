@@ -4,11 +4,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/response"
+	"acquisition_backend/internal/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/response"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 type ParcelWorkflowHandler struct {

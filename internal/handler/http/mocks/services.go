@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/service"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
-	"github.com/your-org/go-api-template/internal/domain"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 type MockAuthService struct {

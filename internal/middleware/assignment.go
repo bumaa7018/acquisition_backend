@@ -3,11 +3,12 @@ package middleware
 import (
 	"context"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/i18n"
+	"acquisition_backend/internal/pkg/response"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/i18n"
-	"github.com/your-org/go-api-template/internal/pkg/response"
 )
 
 // AssignmentChecker — IsAssigned шалгах интерфейс (LandService-ийг тойруулан дамжуулахад ашиглана)

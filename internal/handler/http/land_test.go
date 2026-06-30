@@ -11,15 +11,16 @@ import (
 	"testing"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/handler/http/mocks"
+	"acquisition_backend/internal/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
-	"github.com/your-org/go-api-template/internal/handler/http/mocks"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 // buildTestShp — тест зориулсан raw .shp файлын байт

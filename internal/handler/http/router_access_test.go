@@ -7,15 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/handler/http/mocks"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
-	"github.com/your-org/go-api-template/internal/handler/http/mocks"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
 )
 
 func TestRouter_AcquisitionCategoriesList_AllowsAuthenticatedUserWithoutPermissions(t *testing.T) {

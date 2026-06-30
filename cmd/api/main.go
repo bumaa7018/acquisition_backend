@@ -28,16 +28,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/go-api-template/internal/config"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
-	"github.com/your-org/go-api-template/internal/pkg/email"
-	"github.com/your-org/go-api-template/internal/pkg/filestorage"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/repository/postgres"
-	"github.com/your-org/go-api-template/internal/service"
+	"acquisition_backend/internal/config"
+	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/pkg/email"
+	"acquisition_backend/internal/pkg/filestorage"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/repository/postgres"
+	"acquisition_backend/internal/seed"
+	"acquisition_backend/internal/service"
 
-	_ "github.com/your-org/go-api-template/docs"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	_ "acquisition_backend/docs"
 )
 
 func main() {
@@ -115,64 +117,16 @@ func main() {
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)
 
-	if err := ensureSeedHistory(ctx, mainDB); err != nil {
+	if err := seed.RunStartup(ctx, mainDB, authDB, seed.StartupOptions{
+		Admin:    cfg.Admin,
+		Employee: cfg.Employee,
+		UserRepo: userRepo,
+		RoleRepo: roleRepo,
+		PermRepo: permRepo,
+	}); err != nil {
 		slog.Error("failed to create seed_history", "error", err)
 		os.Exit(1)
 	}
-
-	runSeedSteps(ctx, mainDB, []seedStep{
-		{
-			name:    "000001_auth",
-			aliases: []string{"auth_seeder"},
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin, cfg.Employee)
-			},
-		},
-		{
-			name:    "000002_main",
-			aliases: []string{"main_seeder"},
-			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).Seed(ctx)
-			},
-		},
-		{
-			name:    "000003_assets_backfill",
-			aliases: []string{"assets_seeder", "buildings_seeder"},
-			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).seedDefaultAssets(ctx)
-			},
-		},
-		{
-			name:    "000004_plans",
-			aliases: []string{"plans_seeder"},
-			run: func(ctx context.Context) error {
-				return NewPlansSeeder(authDB).Seed(ctx)
-			},
-		},
-		{
-			name:    "000005_compensations",
-			aliases: []string{"compensation_seeder"},
-			run: func(ctx context.Context) error {
-				acqID, err := findSeedLandAcquisitionID(ctx, mainDB)
-				if err != nil {
-					return seedError("land_acquisition LA-2024-001 not found", err)
-				}
-				return NewMainSeeder(mainDB).seedCompensations(ctx, acqID)
-			},
-		},
-		{
-			name: "000006_document_types",
-			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
-			},
-		},
-		{
-			name: "000007_auth_access_users",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, userRepo, roleRepo, permRepo).Seed(ctx, cfg.Admin, cfg.Employee)
-			},
-		},
-	})
 
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc)
 

@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/repository"
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/repository"
 )
 
 type PlanService interface {

@@ -1,4 +1,4 @@
-module github.com/your-org/go-api-template
+module acquisition_backend
 
 go 1.23.0
 

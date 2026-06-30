@@ -5,9 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	handler "acquisition_backend/internal/handler/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
 )
 
 func TestHealthHandler_Live(t *testing.T) {

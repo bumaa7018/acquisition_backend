@@ -3,11 +3,12 @@ package service_test
 import (
 	"testing"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/service/mocks"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/service/mocks"
 )
 
 // TestCompensation_List_Success tests successful listing of compensations

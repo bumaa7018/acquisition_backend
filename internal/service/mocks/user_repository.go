@@ -3,9 +3,10 @@ package mocks
 import (
 	"context"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 type MockUserRepository struct {

@@ -5,14 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/service"
+	"acquisition_backend/internal/service/mocks"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/service"
-	"github.com/your-org/go-api-template/internal/service/mocks"
 )
 
 // mockEmailSender — email.Sender interface-ийн mock

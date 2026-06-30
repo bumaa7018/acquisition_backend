@@ -1,4 +1,4 @@
-# Go REST API Template
+# Acquisition Backend
 
 Production-ready Go REST API with Clean Architecture — Gin, PostgreSQL, JWT, RBAC.
 
@@ -6,7 +6,7 @@ Production-ready Go REST API with Clean Architecture — Gin, PostgreSQL, JWT, R
 
 ```bash
 git clone <repo>
-cd go-api-template
+cd acquisition_backend
 cp .env.example .env
 make up
 ```

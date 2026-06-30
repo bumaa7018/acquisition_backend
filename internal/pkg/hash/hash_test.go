@@ -3,9 +3,10 @@ package hash_test
 import (
 	"testing"
 
+	"acquisition_backend/internal/pkg/hash"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/pkg/hash"
 )
 
 func TestHashPassword(t *testing.T) {

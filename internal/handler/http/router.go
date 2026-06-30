@@ -1,18 +1,18 @@
 package http
 
 import (
+	"acquisition_backend/internal/middleware"
+	"acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/service"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
-	"github.com/your-org/go-api-template/internal/middleware"
-	"github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 func NewRouter(
-	db *pgxpool.Pool,
+	healthChecker HealthChecker,
 	jwtManager *jwt.Manager,
 	authSvc service.AuthService,
 	userSvc service.UserService,
@@ -32,7 +32,7 @@ func NewRouter(
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.Static("/mock-files", "uploads/mock-file-server")
 
-	healthH := NewHealthHandler(db)
+	healthH := NewHealthHandler(healthChecker)
 	r.GET("/health", healthH.Live)
 	r.GET("/health/ready", healthH.Ready)
 

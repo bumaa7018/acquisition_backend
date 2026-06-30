@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/service"
+	"acquisition_backend/internal/service/mocks"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/service"
-	"github.com/your-org/go-api-template/internal/service/mocks"
 )
 
 func TestUserService_GetByID_Success(t *testing.T) {

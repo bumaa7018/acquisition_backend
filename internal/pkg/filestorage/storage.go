@@ -24,6 +24,20 @@ type Storage interface {
 	Delete(ctx context.Context, fileURL string) error
 }
 
+type DisabledStorage struct{}
+
+func (DisabledStorage) Save(context.Context, string, string, string, string, []byte) (*StoredFile, error) {
+	return nil, errors.New("file storage is not configured")
+}
+
+func (DisabledStorage) Read(context.Context, string) ([]byte, error) {
+	return nil, errors.New("file storage is not configured")
+}
+
+func (DisabledStorage) Delete(context.Context, string) error {
+	return nil
+}
+
 type MockStorage struct {
 	BaseURL  string
 	LocalDir string

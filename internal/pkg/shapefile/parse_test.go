@@ -6,9 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"acquisition_backend/internal/pkg/shapefile"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/pkg/shapefile"
 )
 
 // buildShp нь заасан цэгүүдээр хялбар .shp файлын байт буцаана.

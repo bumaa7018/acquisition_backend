@@ -3,7 +3,7 @@ package http
 import (
 	"time"
 
-	"github.com/your-org/go-api-template/internal/domain"
+	"acquisition_backend/internal/domain"
 )
 
 type landAcquisitionResponse struct {

@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/google/uuid"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 type UserRepository interface {
@@ -56,14 +57,16 @@ type PlanRepository interface {
 	Suggest(ctx context.Context, q string) ([]*domain.Plan, error)
 }
 
-// LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ
-type LandAcquisitionRepository interface {
+type LandLookupRepository interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
 	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error)
 	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error)
 	DeleteAcquisitionCategory(ctx context.Context, id int) error
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
+}
+
+type LandAcquisitionWriteRepository interface {
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
@@ -89,20 +92,30 @@ type LandAcquisitionRepository interface {
 	DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+type LandProgressRepository interface {
 	ListProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	CreateProgress(ctx context.Context, p *domain.AcquisitionProgress) error
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
-	// Asset methods
+}
+
+type LandAssetRepository interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error
 	UpdateAsset(ctx context.Context, b *domain.Asset) error
 	DeleteAsset(ctx context.Context, id uuid.UUID) error
+}
+
+type LandPaymentRepository interface {
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
-	// Compensation methods
+}
+
+type LandCompensationRepository interface {
 	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) error
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) error
@@ -114,46 +127,72 @@ type LandAcquisitionRepository interface {
 	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
 	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
-	// CompensationGrant methods
+}
+
+type LandCompensationGrantRepository interface {
 	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
 	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
 	GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error)
 	DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error
 	DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error
-	// Document methods
+}
+
+type LandDocumentRepository interface {
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
 	DeleteDocument(ctx context.Context, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
-	// Assignee methods
+}
+
+type LandAssigneeRepository interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	// Parcel workflow methods
+}
+
+type LandWorkflowRepository interface {
 	ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error)
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
 	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
-	// Parcel status history methods
 	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
-	// FundingSource methods
+	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
+	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
+	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
+}
+
+type LandFundingRepository interface {
 	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
 	GetFundingSource(ctx context.Context, id uuid.UUID) (*domain.FundingSource, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) error
 	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) error
 	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
-	// AuthorizedRepresentative methods
+}
+
+type LandAuthorizedRepresentativeRepository interface {
 	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
 	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) error
 	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
-	// AcquisitionWorkflow methods
-	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
-	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
-	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
+}
+
+// LandAcquisitionRepository — main DB-д газар чөлөөлөлтын мэдээлэл бичнэ.
+type LandAcquisitionRepository interface {
+	LandLookupRepository
+	LandAcquisitionWriteRepository
+	LandProgressRepository
+	LandAssetRepository
+	LandPaymentRepository
+	LandCompensationRepository
+	LandCompensationGrantRepository
+	LandDocumentRepository
+	LandAssigneeRepository
+	LandWorkflowRepository
+	LandFundingRepository
+	LandAuthorizedRepresentativeRepository
 }
 
 type AcquisitionProgressStatusRepository interface {

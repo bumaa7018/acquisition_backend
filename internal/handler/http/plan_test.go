@@ -6,14 +6,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"acquisition_backend/internal/domain"
+	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/handler/http/mocks"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
-	"github.com/your-org/go-api-template/internal/handler/http/mocks"
 )
 
 func TestPlanHandler_Search_Success(t *testing.T) {

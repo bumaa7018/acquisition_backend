@@ -4,20 +4,24 @@ import (
 	"context"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/filestorage"
+	"acquisition_backend/internal/pkg/shapefile"
+	"acquisition_backend/internal/repository"
+
 	"github.com/google/uuid"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/filestorage"
-	"github.com/your-org/go-api-template/internal/pkg/shapefile"
-	"github.com/your-org/go-api-template/internal/repository"
 )
 
-type LandService interface {
+type LandLookupService interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
 	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error)
 	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error)
 	DeleteAcquisitionCategory(ctx context.Context, id int) error
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
+}
+
+type LandAcquisitionService interface {
 	Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error)
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
@@ -35,11 +39,18 @@ type LandService interface {
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
+	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
+	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
+}
+
+type LandAssetService interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	DeleteAsset(ctx context.Context, id uuid.UUID) error
-	// Compensation
+}
+
+type LandCompensationService interface {
 	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
@@ -48,50 +59,71 @@ type LandService interface {
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error)
 	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
-	// CompensationGrant
 	CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
 	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error)
 	GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error)
 	DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error
 	DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error
+	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
+	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
+}
+
+type LandPaymentService interface {
 	ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error)
 	AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error
+}
+
+type LandDocumentService interface {
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteAcquisitionDocument(ctx context.Context, documentID uuid.UUID) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error
-	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
-	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
-	// Assignee
+}
+
+type LandAssigneeService interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	// Parcel workflow
+}
+
+type LandWorkflowService interface {
 	ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error)
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
 	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
-	// Parcel status history
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
-	// FundingSource
+	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
+	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
+	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
+}
+
+type LandFundingService interface {
 	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
 	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
 	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
-	// AuthorizedRepresentative
+}
+
+type LandAuthorizedRepresentativeService interface {
 	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
 	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error)
 	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
-	// AcquisitionWorkflow
-	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
-	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
-	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
-	// GlobalCompensation
-	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
-	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
+}
+
+type LandService interface {
+	LandLookupService
+	LandAcquisitionService
+	LandAssetService
+	LandCompensationService
+	LandPaymentService
+	LandDocumentService
+	LandAssigneeService
+	LandWorkflowService
+	LandFundingService
+	LandAuthorizedRepresentativeService
 }
 
 type landService struct {
@@ -103,11 +135,10 @@ type landService struct {
 func NewLandService(
 	planRepo repository.PlanRepository,
 	landRepo repository.LandAcquisitionRepository,
-	storages ...filestorage.Storage,
+	files filestorage.Storage,
 ) LandService {
-	var files filestorage.Storage = filestorage.NewMockStorage("http://localhost:8080/mock-files", "uploads/mock-file-server")
-	if len(storages) > 0 && storages[0] != nil {
-		files = storages[0]
+	if files == nil {
+		files = filestorage.DisabledStorage{}
 	}
 	return &landService{planRepo: planRepo, landRepo: landRepo, files: files}
 }
@@ -534,220 +565,6 @@ func (s *landService) ListReportParcels(ctx context.Context, filter domain.Repor
 	return list, total, nil
 }
 
-// ListAssets — чөлөөлөлтөд хамаарах барилгын мэдээллийн жагсаалт
-func (s *landService) ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error) {
-	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
-		return nil, 0, domain.ErrNotFound
-	}
-	list, total, err := s.landRepo.ListAssets(ctx, acquisitionID, filter)
-	if err != nil {
-		return nil, 0, domain.ErrInternalServer
-	}
-	return list, total, nil
-}
-
-func (s *landService) CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
-	if err := s.landRepo.CreateAsset(ctx, b); err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
-	if err := s.landRepo.UpdateAsset(ctx, b); err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func (s *landService) DeleteAsset(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteAsset(ctx, id)
-}
-
-func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
-	return s.landRepo.ListCompensations(ctx, acquisitionID, parcelID)
-}
-
-func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
-	if err := s.landRepo.CreateCompensation(ctx, c); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
-	existing, err := s.landRepo.GetCompensation(ctx, c.ID)
-	if err != nil {
-		return nil, err
-	}
-	if existing.Status == "approved" {
-		return nil, domain.ErrApproved
-	}
-	if err := s.landRepo.UpdateCompensation(ctx, c); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-func (s *landService) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
-	existing, err := s.landRepo.GetCompensation(ctx, id)
-	if err != nil {
-		return err
-	}
-	if existing.Status == "approved" {
-		return domain.ErrApproved
-	}
-	return s.landRepo.DeleteCompensation(ctx, id)
-}
-
-func (s *landService) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
-	return s.landRepo.ApproveCompensation(ctx, id, note, reviewedBy)
-}
-
-func (s *landService) RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
-	return s.landRepo.RejectCompensation(ctx, id, note, reviewedBy)
-}
-
-func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error) {
-	comp, err := s.landRepo.GetCompensation(ctx, compID)
-	if err != nil || comp.AcquisitionID != acqID {
-		return nil, domain.ErrNotFound
-	}
-	stored, err := s.files.Save(ctx, "compensation-report", compID.String(), filename, contentType, data)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.landRepo.UpdateCompensationReport(ctx, compID, stored.URL, stored.Name); err != nil {
-		_ = s.files.Delete(ctx, stored.URL)
-		return nil, err
-	}
-	comp.ValuationReportURL = stored.URL
-	comp.ValuationReportName = stored.Name
-	return comp, nil
-}
-
-func (s *landService) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
-	return s.landRepo.ListCompensationHistory(ctx, compensationID)
-}
-
-func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
-	if err := s.landRepo.CreateCompensationGrant(ctx, g); err != nil {
-		return nil, err
-	}
-	return g, nil
-}
-
-func (s *landService) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
-	if err := s.landRepo.UpdateCompensationGrant(ctx, g); err != nil {
-		return nil, err
-	}
-	return g, nil
-}
-
-func (s *landService) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error) {
-	return s.landRepo.GetCompensationGrant(ctx, id)
-}
-
-func (s *landService) DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteCompensationGrant(ctx, id)
-}
-
-func (s *landService) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
-	return s.landRepo.DeleteCompensationGrantByCompensationID(ctx, compensationID)
-}
-
-// ListParcelPayments — нэгж талбарын төлбөрийн бичлэгүүд
-func (s *landService) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
-	list, err := s.landRepo.ListParcelPayments(ctx, parcelID)
-	if err != nil {
-		return nil, domain.ErrInternalServer
-	}
-	return list, nil
-}
-
-// AddParcelPayment — нэгж талбарт шинэ төлбөрийн бичлэг нэмэх
-func (s *landService) AddParcelPayment(ctx context.Context, p *domain.ParcelPayment) error {
-	if err := s.landRepo.AddParcelPayment(ctx, p); err != nil {
-		return domain.ErrInternalServer
-	}
-	return nil
-}
-
-func (s *landService) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
-	return s.landRepo.ListAcquisitionDocuments(ctx, acquisitionID)
-}
-
-func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
-	stored, err := s.files.Save(ctx, "acquisition", acquisitionID.String(), filename, contentType, data)
-	if err != nil {
-		return nil, err
-	}
-	doc := &domain.Document{
-		ID:             uuid.New(),
-		Name:           stored.Name,
-		FileType:       stored.Type,
-		FileURL:        stored.URL,
-		SizeBytes:      stored.SizeBytes,
-		UploadedBy:     uploadedBy,
-		UploadedAt:     time.Now(),
-		DocumentTypeID: documentTypeID,
-	}
-	if err := s.landRepo.AddAcquisitionDocument(ctx, acquisitionID, doc); err != nil {
-		_ = s.files.Delete(ctx, stored.URL)
-		return nil, err
-	}
-	return doc, nil
-}
-
-func (s *landService) DeleteAcquisitionDocument(ctx context.Context, documentID uuid.UUID) error {
-	doc, err := s.landRepo.GetDocument(ctx, documentID)
-	if err != nil {
-		return domain.ErrNotFound
-	}
-	if err := s.landRepo.DeleteDocument(ctx, documentID); err != nil {
-		return err
-	}
-	_ = s.files.Delete(ctx, doc.FileURL)
-	return nil
-}
-
-func (s *landService) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
-	return s.landRepo.ListParcelDocuments(ctx, parcelID)
-}
-
-func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
-	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), filename, contentType, data)
-	if err != nil {
-		return nil, err
-	}
-	doc := &domain.Document{
-		ID:         uuid.New(),
-		Name:       stored.Name,
-		FileType:   stored.Type,
-		FileURL:    stored.URL,
-		SizeBytes:  stored.SizeBytes,
-		UploadedBy: uploadedBy,
-		UploadedAt: time.Now(),
-	}
-	if err := s.landRepo.AddParcelDocument(ctx, parcelID, doc); err != nil {
-		_ = s.files.Delete(ctx, stored.URL)
-		return nil, err
-	}
-	return doc, nil
-}
-
-func (s *landService) DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error {
-	doc, err := s.landRepo.GetDocument(ctx, documentID)
-	if err != nil {
-		return domain.ErrNotFound
-	}
-	if err := s.landRepo.DeleteDocument(ctx, documentID); err != nil {
-		return err
-	}
-	_ = s.files.Delete(ctx, doc.FileURL)
-	return nil
-}
-
 // SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг auth DB-аас татаж хадгална.
 // Чөлөөлөлтийн бүстэй давхцах геометрийг PostGIS-р тооцоолж парцел дээр хадгална.
 func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error {
@@ -799,85 +616,4 @@ func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 
 func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	return s.landRepo.IsAssigned(ctx, acquisitionID, userID)
-}
-
-func (s *landService) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {
-	return s.landRepo.ListParcelWorkflows(ctx)
-}
-
-func (s *landService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
-	return s.landRepo.CreateParcelWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
-}
-
-func (s *landService) DeleteParcelWorkflow(ctx context.Context, id int) error {
-	return s.landRepo.DeleteParcelWorkflow(ctx, id)
-}
-
-func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error) {
-	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
-}
-
-func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	return s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy)
-}
-
-func (s *landService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
-	return s.landRepo.ListParcelStatusHistory(ctx, parcelID)
-}
-
-func (s *landService) ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error) {
-	return s.landRepo.ListFundingSources(ctx, acquisitionID)
-}
-
-func (s *landService) CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
-	if err := s.landRepo.CreateFundingSource(ctx, fs); err != nil {
-		return nil, err
-	}
-	return fs, nil
-}
-
-func (s *landService) UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
-	if err := s.landRepo.UpdateFundingSource(ctx, fs); err != nil {
-		return nil, err
-	}
-	return fs, nil
-}
-
-func (s *landService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteFundingSource(ctx, id)
-}
-
-func (s *landService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
-	return s.landRepo.ListAuthorizedRepresentatives(ctx, acquisitionID, parcelID)
-}
-
-func (s *landService) CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error) {
-	if err := s.landRepo.CreateAuthorizedRepresentative(ctx, rep); err != nil {
-		return nil, err
-	}
-	return rep, nil
-}
-
-func (s *landService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteAuthorizedRepresentative(ctx, id)
-}
-
-func (s *landService) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {
-	return s.landRepo.ListAcquisitionWorkflows(ctx)
-}
-
-func (s *landService) CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error) {
-	return s.landRepo.CreateAcquisitionWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
-}
-
-func (s *landService) DeleteAcquisitionWorkflow(ctx context.Context, id int) error {
-	return s.landRepo.DeleteAcquisitionWorkflow(ctx, id)
-}
-
-func (s *landService) ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error) {
-	return s.landRepo.ListAllCompensations(ctx, filter)
-}
-
-func (s *landService) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
-	return s.landRepo.GetGlobalCompensation(ctx, id)
 }

@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 type UserRepo struct {

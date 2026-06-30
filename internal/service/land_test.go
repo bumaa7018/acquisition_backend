@@ -7,13 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/filestorage"
+	"acquisition_backend/internal/service"
+	"acquisition_backend/internal/service/mocks"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/service"
-	"github.com/your-org/go-api-template/internal/service/mocks"
 )
 
 // buildSimpleShp нь нэг хэлбэр бүхий polygon .shp файлын байт буцаана.
@@ -50,7 +52,7 @@ func buildSimpleShp() []byte {
 }
 
 func newLandSvc(planRepo *mocks.MockPlanRepository, landRepo *mocks.MockLandAcquisitionRepository) service.LandService {
-	return service.NewLandService(planRepo, landRepo)
+	return service.NewLandService(planRepo, landRepo, filestorage.DisabledStorage{})
 }
 
 var (

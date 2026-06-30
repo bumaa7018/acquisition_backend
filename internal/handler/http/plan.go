@@ -3,11 +3,12 @@ package http
 import (
 	"net/http"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/i18n"
+	"acquisition_backend/internal/pkg/response"
+	"acquisition_backend/internal/service"
+
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/i18n"
-	"github.com/your-org/go-api-template/internal/pkg/response"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 type PlanHandler struct {

@@ -7,16 +7,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"acquisition_backend/internal/domain"
+	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/handler/http/mocks"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/your-org/go-api-template/internal/domain"
-	handler "github.com/your-org/go-api-template/internal/handler/http"
-	"github.com/your-org/go-api-template/internal/handler/http/mocks"
-	jwtpkg "github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/service"
 )
 
 func init() {

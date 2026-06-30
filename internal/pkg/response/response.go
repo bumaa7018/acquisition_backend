@@ -4,9 +4,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/i18n"
+
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/pkg/i18n"
 )
 
 type Response struct {

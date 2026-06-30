@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/repository"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/your-org/go-api-template/internal/domain"
-	"github.com/your-org/go-api-template/internal/repository"
 )
 
 type landAcqRepo struct{ db *pgxpool.Pool }

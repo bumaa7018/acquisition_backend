@@ -4,9 +4,10 @@ import (
 	"errors"
 	"time"
 
+	"acquisition_backend/internal/domain"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/your-org/go-api-template/internal/domain"
 )
 
 type Claims struct {

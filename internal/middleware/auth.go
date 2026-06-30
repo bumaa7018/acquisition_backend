@@ -3,9 +3,10 @@ package middleware
 import (
 	"strings"
 
+	"acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/pkg/response"
+
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/go-api-template/internal/pkg/jwt"
-	"github.com/your-org/go-api-template/internal/pkg/response"
 )
 
 const (
