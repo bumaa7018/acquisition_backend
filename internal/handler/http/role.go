@@ -34,24 +34,7 @@ func (h *RoleHandler) List(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	type item struct {
-		ID        string `json:"id"`
-		Key       string `json:"key"`
-		Name      string `json:"name"`
-		CreatedAt string `json:"created_at"`
-		UpdatedAt string `json:"updated_at"`
-	}
-	result := make([]item, len(roles))
-	for i, r := range roles {
-		result[i] = item{
-			ID:        r.ID.String(),
-			Key:       r.Name,
-			Name:      r.Description,
-			CreatedAt: r.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			UpdatedAt: r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		}
-	}
-	response.OK(c, result)
+	response.OK(c, roles)
 }
 
 // GetByID godoc
