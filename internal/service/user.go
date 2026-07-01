@@ -26,7 +26,7 @@ type CreateUserRequest struct {
 	FirstName string `validate:"required"`
 	LastName  string `validate:"required"`
 	Position  string
-	IsActive  bool
+	IsActive  *bool
 }
 
 type UpdateUserRequest struct {
@@ -95,7 +95,7 @@ func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domai
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
 		Position:  req.Position,
-		IsActive:  req.IsActive,
+		IsActive:  req.IsActive == nil || *req.IsActive,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
