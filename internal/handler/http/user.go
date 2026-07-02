@@ -131,7 +131,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		FirstName string `json:"first_name" validate:"required"`
 		LastName  string `json:"last_name" validate:"required"`
 		Position  string `json:"position"`
-		IsActive  bool   `json:"is_active"`
+		IsActive  *bool  `json:"is_active"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.AbortValidation(c, err)
