@@ -45,12 +45,13 @@ func TestUserService_Create_Success(t *testing.T) {
 	repo.On("Create", context.Background(), mock_any_user()).Return(nil)
 
 	svc := service.NewUserService(repo)
+	active := true
 	user, err := svc.Create(context.Background(), service.CreateUserRequest{
 		Email:     "new@example.com",
 		Password:  "Password123!",
 		FirstName: "New",
 		LastName:  "User",
-		IsActive:  true,
+		IsActive:  &active,
 	})
 
 	require.NoError(t, err)

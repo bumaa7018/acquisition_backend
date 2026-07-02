@@ -137,12 +137,13 @@ func TestUserHandler_Create_Success(t *testing.T) {
 	h := handler.NewUserHandler(mockSvc)
 
 	user := &domain.User{ID: uuid.New(), Username: "newuser"}
+	active := true
 	mockSvc.On("Create", mock.Anything, service.CreateUserRequest{
 		Username:  "newuser",
 		Password:  "Password123!",
 		FirstName: "New",
 		LastName:  "User",
-		IsActive:  true,
+		IsActive:  &active,
 	}).Return(user, nil)
 
 	w := httptest.NewRecorder()
