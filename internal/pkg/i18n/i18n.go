@@ -69,6 +69,7 @@ const (
 	ErrNotAssigned             Key = "not_assigned"
 	ErrApproved                Key = "approved_locked"
 	ErrValuationReportRequired Key = "valuation_report_required"
+	ErrAcqLocked               Key = "acq_locked"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
@@ -124,6 +125,7 @@ var messages = map[Key][2]string{
 	ErrNotAssigned:             {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
 	ErrApproved:                {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
 	ErrValuationReportRequired: {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
+	ErrAcqLocked:               {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},

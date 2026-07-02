@@ -278,6 +278,14 @@ func (h *LandHandler) Create(c *gin.Context) {
 // @Failure      404  {object}  response.Response
 // @Router       /land-acquisitions/{id}/parcels [get]
 func (h *LandHandler) ListParcels(c *gin.Context) {
+	h.listParcels(c, 0)
+}
+
+func (h *LandHandler) ListEvaluationParcels(c *gin.Context) {
+	h.listParcels(c, domain.ParcelStatusEvaluating)
+}
+
+func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -286,6 +294,10 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
+	statusID := queryInt(c, "status_id", 0)
+	if forcedStatusID != 0 {
+		statusID = forcedStatusID
+	}
 
 	filter := domain.ParcelFilter{
 		ParcelID:  c.Query("parcel_id"),
@@ -294,7 +306,7 @@ func (h *LandHandler) ListParcels(c *gin.Context) {
 		AU3Code:   c.Query("au3_code"),
 		RightType: queryInt(c, "right_type", 0),
 		Landuse:   c.Query("landuse"),
-		StatusID:  queryInt(c, "status_id", 0),
+		StatusID:  statusID,
 		Page:      page,
 		PageSize:  pageSize,
 	}
@@ -485,7 +497,9 @@ func (h *LandHandler) GetByID(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, toLandAcqResponse(acq))
+	detail := *acq
+	detail.Parcels = nil
+	response.OK(c, toLandAcqResponse(&detail))
 }
 
 // SyncParcel godoc
@@ -969,12 +983,17 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 }
 
 func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	docID, err := uuid.Parse(c.Param("doc_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteAcquisitionDocument(c.Request.Context(), docID); err != nil {
+	if err := h.svc.DeleteAcquisitionDocument(c.Request.Context(), acqID, docID); err != nil {
 		if err == domain.ErrNotFound {
 			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
 			return
@@ -1163,6 +1182,9 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 		OwnerName            string  `json:"owner_name"`
 		Address              string  `json:"address"`
 		Notes                string  `json:"notes"`
+		Unit                 string  `json:"unit"`
+		Capacity             string  `json:"capacity"`
+		Description          string  `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -1187,6 +1209,9 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 		OwnerName:     body.OwnerName,
 		Address:       body.Address,
 		Notes:         body.Notes,
+		Unit:          body.Unit,
+		Capacity:      body.Capacity,
+		Description:   body.Description,
 	}
 
 	created, err := h.svc.CreateAsset(c.Request.Context(), b)
@@ -1233,6 +1258,9 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		OwnerName            string  `json:"owner_name"`
 		Address              string  `json:"address"`
 		Notes                string  `json:"notes"`
+		Unit                 string  `json:"unit"`
+		Capacity             string  `json:"capacity"`
+		Description          string  `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -1258,6 +1286,9 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		OwnerName:     body.OwnerName,
 		Address:       body.Address,
 		Notes:         body.Notes,
+		Unit:          body.Unit,
+		Capacity:      body.Capacity,
+		Description:   body.Description,
 	}
 
 	updated, err := h.svc.UpdateAsset(c.Request.Context(), b)
@@ -1279,17 +1310,187 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 // @Failure      400  {object}  response.Response
 // @Router       /land-acquisitions/{id}/assets/{asset_id} [delete]
 func (h *LandHandler) DeleteAsset(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	assetID, err := uuid.Parse(c.Param("asset_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
 
-	if err := h.svc.DeleteAsset(c.Request.Context(), assetID); err != nil {
+	if err := h.svc.DeleteAsset(c.Request.Context(), acqID, assetID); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.OK(c, nil)
+}
+
+// ListAssetSpecs returns building spec values for an asset
+func (h *LandHandler) ListAssetSpecs(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	assetID, err := uuid.Parse(c.Param("asset_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	specs, err := h.svc.ListAssetSpecs(c.Request.Context(), acqID, assetID)
+	if err != nil {
+		response.OK(c, []assetSpecResponse{})
+		return
+	}
+	out := make([]assetSpecResponse, len(specs))
+	for i, s := range specs {
+		out[i] = toAssetSpecResponse(s)
+	}
+	response.OK(c, out)
+}
+
+// UpsertAssetSpecs saves building spec values for an asset
+func (h *LandHandler) UpsertAssetSpecs(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	assetID, err := uuid.Parse(c.Param("asset_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		Specs []struct {
+			SpecTypeID int    `json:"spec_type_id"`
+			Value      string `json:"value"`
+		} `json:"specs"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	specs := make([]domain.AssetSpec, len(body.Specs))
+	for i, s := range body.Specs {
+		specs[i] = domain.AssetSpec{AssetID: assetID, SpecTypeID: s.SpecTypeID, Value: s.Value}
+	}
+	if err := h.svc.UpsertAssetSpecs(c.Request.Context(), acqID, assetID, specs); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ListAssetCalculations returns calculation values for an asset
+func (h *LandHandler) ListAssetCalculations(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	assetID, err := uuid.Parse(c.Param("asset_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	calcs, err := h.svc.ListAssetCalculations(c.Request.Context(), acqID, assetID)
+	if err != nil {
+		response.OK(c, []assetCalcResponse{})
+		return
+	}
+	out := make([]assetCalcResponse, len(calcs))
+	for i, c := range calcs {
+		out[i] = toAssetCalcResponse(c)
+	}
+	response.OK(c, out)
+}
+
+// UpsertAssetCalculations saves calculation values for an asset
+func (h *LandHandler) UpsertAssetCalculations(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	assetID, err := uuid.Parse(c.Param("asset_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		Calculations []struct {
+			CalcTypeID int     `json:"calc_type_id"`
+			Unit       string  `json:"unit"`
+			Value      float64 `json:"value"`
+		} `json:"calculations"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	calcs := make([]domain.AssetCalculation, len(body.Calculations))
+	for i, c := range body.Calculations {
+		calcs[i] = domain.AssetCalculation{AssetID: assetID, CalcTypeID: c.CalcTypeID, Unit: c.Unit, Value: c.Value}
+	}
+	if err := h.svc.UpsertAssetCalculations(c.Request.Context(), acqID, assetID, calcs); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// UpsertLandValuation creates or updates the land valuation for a parcel
+func (h *LandHandler) UpsertLandValuation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		ParcelID       string  `json:"parcel_id" binding:"required"`
+		LandAreaM2     float64 `json:"land_area_m2"`
+		BasePricePerM2 float64 `json:"base_price_per_m2"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	v := &domain.LandValuation{
+		AcquisitionID:  acqID,
+		ParcelID:       body.ParcelID,
+		LandAreaM2:     body.LandAreaM2,
+		BasePricePerM2: body.BasePricePerM2,
+	}
+	saved, err := h.svc.UpsertLandValuation(c.Request.Context(), v)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toLandValuationResponse(saved))
+}
+
+// GetLandValuation returns the land valuation for a parcel within an acquisition
+func (h *LandHandler) GetLandValuation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Query("parcel_id")
+	if parcelID == "" {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	v, err := h.svc.GetLandValuation(c.Request.Context(), acqID, parcelID)
+	if err != nil {
+		response.OK(c, nil)
+		return
+	}
+	response.OK(c, toLandValuationResponse(v))
 }
 
 // ListCompensations lists compensations for an acquisition
@@ -1461,12 +1662,17 @@ func normalizeAssetRecordType(assetType string) string {
 
 // DeleteCompensation deletes a compensation record
 func (h *LandHandler) DeleteCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteCompensation(c.Request.Context(), compID); err != nil {
+	if err := h.svc.DeleteCompensation(c.Request.Context(), acqID, compID); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1482,6 +1688,11 @@ func (h *LandHandler) DeleteCompensation(c *gin.Context) {
 // @Param        comp_id  path  string  true  "Compensation UUID"
 // @Router       /land-acquisitions/{id}/compensations/{comp_id}/approve [post]
 func (h *LandHandler) ApproveCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -1492,7 +1703,7 @@ func (h *LandHandler) ApproveCompensation(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&body)
 	reviewedBy := c.GetString("user_id")
-	if err := h.svc.ApproveCompensation(c.Request.Context(), compID, body.Note, reviewedBy); err != nil {
+	if err := h.svc.ApproveCompensation(c.Request.Context(), acqID, compID, body.Note, reviewedBy); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1509,6 +1720,11 @@ func (h *LandHandler) ApproveCompensation(c *gin.Context) {
 // @Param        comp_id  path  string  true  "Compensation UUID"
 // @Router       /land-acquisitions/{id}/compensations/{comp_id}/reject [post]
 func (h *LandHandler) RejectCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -1519,7 +1735,7 @@ func (h *LandHandler) RejectCompensation(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&body)
 	reviewedBy := c.GetString("user_id")
-	if err := h.svc.RejectCompensation(c.Request.Context(), compID, body.Note, reviewedBy); err != nil {
+	if err := h.svc.RejectCompensation(c.Request.Context(), acqID, compID, body.Note, reviewedBy); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1584,12 +1800,17 @@ func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
 // @Param        comp_id  path  string  true  "Compensation UUID"
 // @Router       /land-acquisitions/{id}/compensations/{comp_id}/history [get]
 func (h *LandHandler) ListCompensationHistory(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	list, err := h.svc.ListCompensationHistory(c.Request.Context(), compID)
+	list, err := h.svc.ListCompensationHistory(c.Request.Context(), acqID, compID)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -1666,6 +1887,11 @@ func (h *LandHandler) CreateCompensationGrant(c *gin.Context) {
 
 // UpdateCompensationGrant updates a compensation grant record
 func (h *LandHandler) UpdateCompensationGrant(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -1690,6 +1916,7 @@ func (h *LandHandler) UpdateCompensationGrant(c *gin.Context) {
 	}
 
 	g := &domain.CompensationGrant{
+		AcquisitionID:  acqID,
 		CompensationID: compID,
 		Amount:         body.Amount,
 		Note:           body.Note,
@@ -1717,12 +1944,17 @@ func (h *LandHandler) UpdateCompensationGrant(c *gin.Context) {
 
 // DeleteCompensationGrant deletes a compensation grant record by compensation ID
 func (h *LandHandler) DeleteCompensationGrant(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteCompensationGrantByCompensationID(c.Request.Context(), compID); err != nil {
+	if err := h.svc.DeleteCompensationGrantByCompensationID(c.Request.Context(), acqID, compID); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1897,12 +2129,17 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 }
 
 func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	docID, err := uuid.Parse(c.Param("doc_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteParcelDocument(c.Request.Context(), docID); err != nil {
+	if err := h.svc.DeleteParcelDocument(c.Request.Context(), parcelID, docID); err != nil {
 		if err == domain.ErrNotFound {
 			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
 			return
@@ -2296,6 +2533,120 @@ func (h *LandHandler) DeleteAuthorizedRepresentative(c *gin.Context) {
 		return
 	}
 	if err := h.svc.DeleteAuthorizedRepresentative(c.Request.Context(), repID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ListMyAcquisitions — professional_org хэрэглэгчид зориулсан endpoint.
+// JWT-ийн userID-г ProfessionalOrgUserID filter болгон ашиглана.
+func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
+	// Зөвхөн professional_org role-той хэрэглэгч дуудах боломжтой
+	rolesAny, _ := c.Get(middleware.CtxRoles)
+	isProfOrg := false
+	if roles, ok := rolesAny.([]string); ok {
+		for _, r := range roles {
+			if r == "professional_org" {
+				isProfOrg = true
+				break
+			}
+		}
+	}
+	if !isProfOrg {
+		response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
+		return
+	}
+
+	userUUID, ok := middleware.GetCallerID(c)
+	if !ok {
+		response.Abort(c, http.StatusUnauthorized, i18n.ErrUnauthorized)
+		return
+	}
+	userIDStr := userUUID.String()
+
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+
+	filter := domain.LandAcquisitionFilter{
+		PlanCode:              c.Query("plan_code"),
+		AcquisitionName:       c.Query("acquisition_name"),
+		Status:                queryInt(c, "status", 0),
+		AU3Code:               c.Query("au3_code"),
+		ProfessionalOrgUserID: userIDStr,
+		Page:                  page,
+		PageSize:              pageSize,
+	}
+
+	list, total, err := h.svc.List(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	items := make([]landAcquisitionResponse, len(list))
+	for i, a := range list {
+		items[i] = toLandAcqResponse(a)
+	}
+	response.Paginated(c, items, total, page, pageSize)
+}
+
+func (h *LandHandler) SetAcquisitionProfessionalOrg(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		OrgUserID *string `json:"org_user_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
+		return
+	}
+	var orgUID *uuid.UUID
+	if body.OrgUserID != nil && *body.OrgUserID != "" {
+		parsed, err := uuid.Parse(*body.OrgUserID)
+		if err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+			return
+		}
+		orgUID = &parsed
+	}
+	if err := h.svc.SetAcquisitionProfessionalOrg(c.Request.Context(), acqID, orgUID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+func (h *LandHandler) SetParcelIndependentOrg(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		OrgUserID *string `json:"org_user_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
+		return
+	}
+	var orgUID *uuid.UUID
+	if body.OrgUserID != nil && *body.OrgUserID != "" {
+		parsed, err := uuid.Parse(*body.OrgUserID)
+		if err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+			return
+		}
+		orgUID = &parsed
+	}
+	if err := h.svc.SetParcelIndependentOrg(c.Request.Context(), acqID, parcelID, orgUID); err != nil {
 		response.Error(c, err)
 		return
 	}

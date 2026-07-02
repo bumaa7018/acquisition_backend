@@ -325,6 +325,7 @@ func TestLandHandler_GetByID_Success(t *testing.T) {
 	data := resp["data"].(map[string]any)
 	assert.Equal(t, acq.ID.String(), data["id"])
 	assert.Equal(t, "PLAN-2024-001", data["plan_code"])
+	assert.Empty(t, data["parcels"])
 	mockSvc.AssertExpectations(t)
 }
 
@@ -409,6 +410,32 @@ func TestLandHandler_ListParcels_WithFilter(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
 
 	h.ListParcels(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestLandHandler_ListEvaluationParcels_ForcesEvaluatingStatus(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+
+	acqID := uuid.New()
+	filter := domain.ParcelFilter{
+		StatusID: domain.ParcelStatusEvaluating,
+		Page:     1,
+		PageSize: 20,
+	}
+	mockSvc.On("GetParcels", mock.Anything, acqID, filter).Return([]*domain.Parcel{
+		{ID: uuid.New(), ParcelID: "010101000001", StatusID: domain.ParcelStatusEvaluating},
+	}, int64(1), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet,
+		"/prof/land-acquisitions/"+acqID.String()+"/parcels?status_id=5", nil)
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}}
+
+	h.ListEvaluationParcels(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSvc.AssertExpectations(t)
@@ -845,13 +872,14 @@ func TestLandHandler_DeleteAcquisitionDocument_Success(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
+	acqID := uuid.New()
 	docID := uuid.New()
-	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, docID).Return(nil)
+	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, acqID, docID).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/"+docID.String(), nil)
-	c.Params = gin.Params{{Key: "doc_id", Value: docID.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+acqID.String()+"/documents/"+docID.String(), nil)
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}, {Key: "doc_id", Value: docID.String()}}
 
 	h.DeleteAcquisitionDocument(c)
 
@@ -863,13 +891,14 @@ func TestLandHandler_DeleteAcquisitionDocument_NotFound(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
+	acqID := uuid.New()
 	docID := uuid.New()
-	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, docID).Return(domain.ErrNotFound)
+	mockSvc.On("DeleteAcquisitionDocument", mock.Anything, acqID, docID).Return(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/"+docID.String(), nil)
-	c.Params = gin.Params{{Key: "doc_id", Value: docID.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+acqID.String()+"/documents/"+docID.String(), nil)
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}, {Key: "doc_id", Value: docID.String()}}
 
 	h.DeleteAcquisitionDocument(c)
 
@@ -884,7 +913,7 @@ func TestLandHandler_DeleteAcquisitionDocument_InvalidUUID(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+uuid.New().String()+"/documents/bad", nil)
-	c.Params = gin.Params{{Key: "doc_id", Value: "bad-uuid"}}
+	c.Params = gin.Params{{Key: "id", Value: uuid.New().String()}, {Key: "doc_id", Value: "bad-uuid"}}
 
 	h.DeleteAcquisitionDocument(c)
 

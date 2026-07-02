@@ -29,6 +29,8 @@ type landAcquisitionResponse struct {
 	CreatedAt           string           `json:"created_at"`
 	CreatedBy           string           `json:"created_by"`
 	ParcelCount         int64            `json:"parcel_count"`
+	ProfessionalOrgID   *string          `json:"professional_org_id,omitempty"`
+	ProfessionalOrgName string           `json:"professional_org_name,omitempty"`
 	AUs                 []auResponse     `json:"aus"`
 	Parcels             []parcelResponse `json:"parcels"`
 }
@@ -43,22 +45,24 @@ type auResponse struct {
 }
 
 type parcelResponse struct {
-	ID                string   `json:"id"`
-	ParcelID          string   `json:"parcel_id"`
-	AU1Code           string   `json:"au1_code"`
-	AU2Code           string   `json:"au2_code"`
-	AU3Code           string   `json:"au3_code"`
-	RightType         int      `json:"right_type"`
-	Landuse           string   `json:"landuse"`
-	AreaM2            float64  `json:"area_m2"`
-	AcquisitionAreaM2 float64  `json:"acquisition_area_m2"`
-	RemainingAreaM2   *float64 `json:"remaining_area_m2"`
-	CompensationPaid  bool     `json:"compensation_paid"`
-	DbChanged         bool     `json:"db_changed"`
-	ChangedParcelID   string   `json:"changed_parcel_id"`
-	StatusID          int      `json:"status_id"`
-	StatusName        string   `json:"status_name"`
-	GeometryWKT       string   `json:"geometry_wkt,omitempty"`
+	ID                 string   `json:"id"`
+	ParcelID           string   `json:"parcel_id"`
+	AU1Code            string   `json:"au1_code"`
+	AU2Code            string   `json:"au2_code"`
+	AU3Code            string   `json:"au3_code"`
+	RightType          int      `json:"right_type"`
+	Landuse            string   `json:"landuse"`
+	AreaM2             float64  `json:"area_m2"`
+	AcquisitionAreaM2  float64  `json:"acquisition_area_m2"`
+	RemainingAreaM2    *float64 `json:"remaining_area_m2"`
+	CompensationPaid   bool     `json:"compensation_paid"`
+	DbChanged          bool     `json:"db_changed"`
+	ChangedParcelID    string   `json:"changed_parcel_id"`
+	StatusID           int      `json:"status_id"`
+	StatusName         string   `json:"status_name"`
+	IndependentOrgID   *string  `json:"independent_org_id,omitempty"`
+	IndependentOrgName string   `json:"independent_org_name,omitempty"`
+	GeometryWKT        string   `json:"geometry_wkt,omitempty"`
 }
 
 type parcelFullResponse struct {
@@ -218,6 +222,9 @@ type assetResponse struct {
 	OwnerName     string  `json:"owner_name"`
 	Address       string  `json:"address"`
 	Notes         string  `json:"notes"`
+	Unit          string  `json:"unit"`
+	Capacity      string  `json:"capacity"`
+	Description   string  `json:"description"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
 }
@@ -235,8 +242,69 @@ func toAssetResponse(b *domain.Asset) assetResponse {
 		OwnerName:     b.OwnerName,
 		Address:       b.Address,
 		Notes:         b.Notes,
+		Unit:          b.Unit,
+		Capacity:      b.Capacity,
+		Description:   b.Description,
 		CreatedAt:     b.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     b.UpdatedAt.Format(time.RFC3339),
+	}
+}
+
+type assetSpecResponse struct {
+	ID         string `json:"id"`
+	AssetID    string `json:"asset_id"`
+	SpecTypeID int    `json:"spec_type_id"`
+	SpecCode   string `json:"spec_code"`
+	SpecName   string `json:"spec_name"`
+	Value      string `json:"value"`
+}
+
+type assetCalcResponse struct {
+	ID         string  `json:"id"`
+	AssetID    string  `json:"asset_id"`
+	CalcTypeID int     `json:"calc_type_id"`
+	CalcCode   string  `json:"calc_code"`
+	CalcName   string  `json:"calc_name"`
+	Unit       string  `json:"unit"`
+	Value      float64 `json:"value"`
+}
+
+func toAssetSpecResponse(s *domain.AssetSpec) assetSpecResponse {
+	return assetSpecResponse{
+		ID: s.ID.String(), AssetID: s.AssetID.String(),
+		SpecTypeID: s.SpecTypeID, SpecCode: s.SpecCode, SpecName: s.SpecName, Value: s.Value,
+	}
+}
+
+func toAssetCalcResponse(c *domain.AssetCalculation) assetCalcResponse {
+	return assetCalcResponse{
+		ID: c.ID.String(), AssetID: c.AssetID.String(),
+		CalcTypeID: c.CalcTypeID, CalcCode: c.CalcCode, CalcName: c.CalcName,
+		Unit: c.Unit, Value: c.Value,
+	}
+}
+
+type landValuationResponse struct {
+	ID             string  `json:"id"`
+	AcquisitionID  string  `json:"acquisition_id"`
+	ParcelID       string  `json:"parcel_id"`
+	LandAreaM2     float64 `json:"land_area_m2"`
+	BasePricePerM2 float64 `json:"base_price_per_m2"`
+	TotalValue     float64 `json:"total_value"`
+	CreatedAt      string  `json:"created_at"`
+	UpdatedAt      string  `json:"updated_at"`
+}
+
+func toLandValuationResponse(v *domain.LandValuation) landValuationResponse {
+	return landValuationResponse{
+		ID:             v.ID.String(),
+		AcquisitionID:  v.AcquisitionID.String(),
+		ParcelID:       v.ParcelID,
+		LandAreaM2:     v.LandAreaM2,
+		BasePricePerM2: v.BasePricePerM2,
+		TotalValue:     v.LandAreaM2 * v.BasePricePerM2,
+		CreatedAt:      v.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      v.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -452,6 +520,11 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		s := acq.DecreeDate.Format("2006-01-02")
 		r.DecreeDate = &s
 	}
+	if acq.ProfessionalOrgID != nil {
+		s := acq.ProfessionalOrgID.String()
+		r.ProfessionalOrgID = &s
+	}
+	r.ProfessionalOrgName = acq.ProfessionalOrgName
 	for _, au := range acq.AUs {
 		r.AUs = append(r.AUs, auResponse{
 			AU1Code: au.AU1Code, AU1Name: au.AU1Name,
@@ -473,24 +546,30 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 }
 
 func toParcelResponse(p *domain.Parcel) parcelResponse {
-	return parcelResponse{
-		ID:                p.ID.String(),
-		ParcelID:          p.ParcelID,
-		AU1Code:           p.AU1Code,
-		AU2Code:           p.AU2Code,
-		AU3Code:           p.AU3Code,
-		RightType:         p.RightType,
-		Landuse:           p.Landuse,
-		AreaM2:            p.AreaM2,
-		AcquisitionAreaM2: p.AcquisitionAreaM2,
-		RemainingAreaM2:   p.RemainingAreaM2,
-		CompensationPaid:  p.CompensationPaid,
-		DbChanged:         p.DbChanged,
-		ChangedParcelID:   p.ChangedParcelID,
-		StatusID:          p.StatusID,
-		StatusName:        p.StatusName,
-		GeometryWKT:       p.GeometryWKT,
+	r := parcelResponse{
+		ID:                 p.ID.String(),
+		ParcelID:           p.ParcelID,
+		AU1Code:            p.AU1Code,
+		AU2Code:            p.AU2Code,
+		AU3Code:            p.AU3Code,
+		RightType:          p.RightType,
+		Landuse:            p.Landuse,
+		AreaM2:             p.AreaM2,
+		AcquisitionAreaM2:  p.AcquisitionAreaM2,
+		RemainingAreaM2:    p.RemainingAreaM2,
+		CompensationPaid:   p.CompensationPaid,
+		DbChanged:          p.DbChanged,
+		ChangedParcelID:    p.ChangedParcelID,
+		StatusID:           p.StatusID,
+		StatusName:         p.StatusName,
+		GeometryWKT:        p.GeometryWKT,
+		IndependentOrgName: p.IndependentOrgName,
 	}
+	if p.IndependentOrgID != nil {
+		s := p.IndependentOrgID.String()
+		r.IndependentOrgID = &s
+	}
+	return r
 }
 
 func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {

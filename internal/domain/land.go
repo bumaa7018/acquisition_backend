@@ -21,6 +21,16 @@ const (
 	LandAcquisitionStatusCancelled = 4 // Цуцлагдсан
 )
 
+// Parcel статус (main DB)
+const (
+	ParcelStatusPending     = 0 // Хүлээгдэж буй
+	ParcelStatusProcessing  = 1 // Зөвшилцөх шатандаа
+	ParcelStatusEvaluating  = 2 // Үнэлгээ хийх
+	ParcelStatusAffectedOut = 3 // Нөлөөлөгдсөн гарсан
+	ParcelStatusRejected    = 4 // Татгалзсан
+	ParcelStatusReleased    = 5 // Чөлөөлсөн
+)
+
 // AcquisitionStatusLabels — статусын монгол нэрс
 var AcquisitionStatusLabels = map[int]string{
 	LandAcquisitionStatusNew:       "Шинэ",
@@ -181,6 +191,8 @@ type LandAcquisition struct {
 	Parcels             []*Parcel
 	ParcelCount         int64
 	AssignedUsers       []AcquisitionAssignee
+	ProfessionalOrgID   *uuid.UUID
+	ProfessionalOrgName string
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос
@@ -205,18 +217,19 @@ type LandAcquisitionBoundaryHistory struct {
 
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
 type LandAcquisitionFilter struct {
-	PlanCode          string
-	AcquisitionName   string
-	Status            int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
-	AU3Code           string
-	StartDateFrom     *time.Time
-	StartDateTo       *time.Time
-	Years             []int
-	GeneralCategoryID int
-	SubCategoryID     int
-	AssignedUserID    string
-	Page              int
-	PageSize          int
+	PlanCode              string
+	AcquisitionName       string
+	Status                int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	AU3Code               string
+	StartDateFrom         *time.Time
+	StartDateTo           *time.Time
+	Years                 []int
+	GeneralCategoryID     int
+	SubCategoryID         int
+	AssignedUserID        string
+	ProfessionalOrgUserID string // empty = no filter; set = only acquisitions accessible by this user
+	Page                  int
+	PageSize              int
 }
 
 // ParcelFilter — нэгж талбарын жагсаалт шүүх болон хуудаслах параметр
@@ -261,6 +274,8 @@ type Parcel struct {
 	ChangedParcelID    string
 	StatusID           int
 	StatusName         string
+	IndependentOrgID   *uuid.UUID
+	IndependentOrgName string
 	CreatedAt          time.Time
 	CreatedBy          string
 }
@@ -402,7 +417,7 @@ type AssetFilter struct {
 	PageSize int
 }
 
-// Asset — хөрөнгийн мэдээлэл
+// Asset — хөрөнгийн үндсэн мэдээлэл
 type Asset struct {
 	ID            uuid.UUID `json:"id"`
 	AcquisitionID uuid.UUID `json:"acquisition_id"`
@@ -415,8 +430,60 @@ type Asset struct {
 	OwnerName     string    `json:"owner_name"`
 	Address       string    `json:"address"`
 	Notes         string    `json:"notes"`
+	Unit          string    `json:"unit"`
+	Capacity      string    `json:"capacity"`
+	Description   string    `json:"description"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// AssetSpecType — барилгын үзүүлэлтийн төрөл (asset_spec_type хүснэгт)
+type AssetSpecType struct {
+	ID        int    `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// AssetCalcType — тооцооллын мэдээллийн төрөл (asset_calc_type хүснэгт)
+type AssetCalcType struct {
+	ID          int    `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	DefaultUnit string `json:"default_unit"`
+	SortOrder   int    `json:"sort_order"`
+}
+
+// AssetSpec — барилгын нэг үзүүлэлтийн утга (asset_spec хүснэгт)
+type AssetSpec struct {
+	ID         uuid.UUID `json:"id"`
+	AssetID    uuid.UUID `json:"asset_id"`
+	SpecTypeID int       `json:"spec_type_id"`
+	SpecCode   string    `json:"spec_code"`
+	SpecName   string    `json:"spec_name"`
+	Value      string    `json:"value"`
+}
+
+// AssetCalculation — барилгын нэг тооцооллын утга (asset_calculation хүснэгт)
+type AssetCalculation struct {
+	ID         uuid.UUID `json:"id"`
+	AssetID    uuid.UUID `json:"asset_id"`
+	CalcTypeID int       `json:"calc_type_id"`
+	CalcCode   string    `json:"calc_code"`
+	CalcName   string    `json:"calc_name"`
+	Unit       string    `json:"unit"`
+	Value      float64   `json:"value"`
+}
+
+// LandValuation — газрын үнэлгээ (мэргэжлийн байгуулгын үнэлгээчин оруулна)
+type LandValuation struct {
+	ID             uuid.UUID `json:"id"`
+	AcquisitionID  uuid.UUID `json:"acquisition_id"`
+	ParcelID       string    `json:"parcel_id"`
+	LandAreaM2     float64   `json:"land_area_m2"`
+	BasePricePerM2 float64   `json:"base_price_per_m2"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // CompensationGrant — газар олгох олговрын бичлэг

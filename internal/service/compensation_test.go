@@ -72,12 +72,13 @@ func TestCompensation_Delete_Success(t *testing.T) {
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	svc := newLandSvc(planRepo, landRepo)
 
+	acqID := uuid.New()
 	compID := uuid.New()
-	pending := &domain.Compensation{ID: compID, Status: "pending"}
+	pending := &domain.Compensation{ID: compID, AcquisitionID: acqID, Status: "pending"}
 	landRepo.On("GetCompensation", ctx, compID).Return(pending, nil)
-	landRepo.On("DeleteCompensation", ctx, compID).Return(nil)
+	landRepo.On("DeleteCompensation", ctx, acqID, compID).Return(nil)
 
-	err := svc.DeleteCompensation(ctx, compID)
+	err := svc.DeleteCompensation(ctx, acqID, compID)
 	require.NoError(t, err)
 	landRepo.AssertExpectations(t)
 }
@@ -89,20 +90,23 @@ func TestCompensationGrant_Create_Success(t *testing.T) {
 	svc := newLandSvc(planRepo, landRepo)
 
 	acqID := uuid.New()
+	compID := uuid.New()
 	grant := &domain.CompensationGrant{
-		AcquisitionID: acqID,
-		Amount:        10000000,
-		Note:          "Land grant for parcel PC-001",
-		LandAreaM2:    500,
-		LandPrice:     20000,
-		LandLocation:  "Баянзүрх дүүрэг",
-		LandPurpose:   "Орон сууцны газар",
-		LandUseType:   "Өмчийн",
-		ParcelNumber:  "PC-GRANT-001",
-		DecreeNumber:  "DECREE-2024-001",
-		CreatedBy:     "test-user",
+		AcquisitionID:  acqID,
+		CompensationID: compID,
+		Amount:         10000000,
+		Note:           "Land grant for parcel PC-001",
+		LandAreaM2:     500,
+		LandPrice:      20000,
+		LandLocation:   "Баянзүрх дүүрэг",
+		LandPurpose:    "Орон сууцны газар",
+		LandUseType:    "Өмчийн",
+		ParcelNumber:   "PC-GRANT-001",
+		DecreeNumber:   "DECREE-2024-001",
+		CreatedBy:      "test-user",
 	}
 
+	landRepo.On("GetCompensation", ctx, compID).Return(&domain.Compensation{ID: compID, AcquisitionID: acqID}, nil)
 	landRepo.On("CreateCompensationGrant", ctx, grant).Return(nil)
 
 	created, err := svc.CreateCompensationGrant(ctx, grant)

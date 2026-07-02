@@ -35,8 +35,67 @@ func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain
 	return b, nil
 }
 
-func (s *landService) DeleteAsset(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteAsset(ctx, id)
+func (s *landService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	return s.landRepo.DeleteAsset(ctx, acquisitionID, id)
+}
+
+func (s *landService) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
+	return s.landRepo.UpsertAssetSpecs(ctx, acquisitionID, assetID, specs)
+}
+
+func (s *landService) ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error) {
+	return s.landRepo.ListAssetSpecs(ctx, acquisitionID, assetID)
+}
+
+func (s *landService) UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error {
+	return s.landRepo.UpsertAssetCalculations(ctx, acquisitionID, assetID, calcs)
+}
+
+func (s *landService) ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error) {
+	return s.landRepo.ListAssetCalculations(ctx, acquisitionID, assetID)
+}
+
+func (s *landService) ListAssetSpecTypes(ctx context.Context) ([]*domain.AssetSpecType, error) {
+	return s.landRepo.ListAssetSpecTypes(ctx)
+}
+
+func (s *landService) CreateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	return s.landRepo.CreateAssetSpecType(ctx, t)
+}
+
+func (s *landService) UpdateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	return s.landRepo.UpdateAssetSpecType(ctx, t)
+}
+
+func (s *landService) DeleteAssetSpecType(ctx context.Context, id int) error {
+	return s.landRepo.DeleteAssetSpecType(ctx, id)
+}
+
+func (s *landService) ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCalcType, error) {
+	return s.landRepo.ListAssetCalcTypes(ctx)
+}
+
+func (s *landService) CreateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	return s.landRepo.CreateAssetCalcType(ctx, t)
+}
+
+func (s *landService) UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	return s.landRepo.UpdateAssetCalcType(ctx, t)
+}
+
+func (s *landService) DeleteAssetCalcType(ctx context.Context, id int) error {
+	return s.landRepo.DeleteAssetCalcType(ctx, id)
+}
+
+func (s *landService) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) (*domain.LandValuation, error) {
+	if err := s.landRepo.UpsertLandValuation(ctx, v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func (s *landService) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
+	return s.landRepo.GetLandValuation(ctx, acquisitionID, parcelID)
 }
 
 func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
@@ -55,6 +114,9 @@ func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensa
 	if err != nil {
 		return nil, err
 	}
+	if existing.AcquisitionID != c.AcquisitionID {
+		return nil, domain.ErrNotFound
+	}
 	if existing.Status == "approved" {
 		return nil, domain.ErrApproved
 	}
@@ -64,22 +126,31 @@ func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensa
 	return c, nil
 }
 
-func (s *landService) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
+func (s *landService) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
 	existing, err := s.landRepo.GetCompensation(ctx, id)
 	if err != nil {
 		return err
 	}
+	if existing.AcquisitionID != acquisitionID {
+		return domain.ErrNotFound
+	}
 	if existing.Status == "approved" {
 		return domain.ErrApproved
 	}
-	return s.landRepo.DeleteCompensation(ctx, id)
+	return s.landRepo.DeleteCompensation(ctx, acquisitionID, id)
 }
 
-func (s *landService) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+func (s *landService) ApproveCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error {
+	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, id); err != nil {
+		return err
+	}
 	return s.landRepo.ApproveCompensation(ctx, id, note, reviewedBy)
 }
 
-func (s *landService) RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {
+func (s *landService) RejectCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error {
+	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, id); err != nil {
+		return err
+	}
 	return s.landRepo.RejectCompensation(ctx, id, note, reviewedBy)
 }
 
@@ -101,11 +172,17 @@ func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compI
 	return comp, nil
 }
 
-func (s *landService) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
-	return s.landRepo.ListCompensationHistory(ctx, compensationID)
+func (s *landService) ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
+	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, compensationID); err != nil {
+		return nil, err
+	}
+	return s.landRepo.ListCompensationHistory(ctx, acquisitionID, compensationID)
 }
 
 func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	if err := s.ensureCompensationInAcquisition(ctx, g.AcquisitionID, g.CompensationID); err != nil {
+		return nil, err
+	}
 	if err := s.landRepo.CreateCompensationGrant(ctx, g); err != nil {
 		return nil, err
 	}
@@ -113,6 +190,9 @@ func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.Com
 }
 
 func (s *landService) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {
+	if err := s.ensureCompensationInAcquisition(ctx, g.AcquisitionID, g.CompensationID); err != nil {
+		return nil, err
+	}
 	if err := s.landRepo.UpdateCompensationGrant(ctx, g); err != nil {
 		return nil, err
 	}
@@ -127,8 +207,11 @@ func (s *landService) DeleteCompensationGrant(ctx context.Context, id uuid.UUID)
 	return s.landRepo.DeleteCompensationGrant(ctx, id)
 }
 
-func (s *landService) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
-	return s.landRepo.DeleteCompensationGrantByCompensationID(ctx, compensationID)
+func (s *landService) DeleteCompensationGrantByCompensationID(ctx context.Context, acquisitionID, compensationID uuid.UUID) error {
+	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, compensationID); err != nil {
+		return err
+	}
+	return s.landRepo.DeleteCompensationGrantByCompensationID(ctx, acquisitionID, compensationID)
 }
 
 // ListParcelPayments — нэгж талбарын төлбөрийн бичлэгүүд
@@ -174,12 +257,12 @@ func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisition
 	return doc, nil
 }
 
-func (s *landService) DeleteAcquisitionDocument(ctx context.Context, documentID uuid.UUID) error {
+func (s *landService) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
 	doc, err := s.landRepo.GetDocument(ctx, documentID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	if err := s.landRepo.DeleteDocument(ctx, documentID); err != nil {
+	if err := s.landRepo.DeleteAcquisitionDocument(ctx, acquisitionID, documentID); err != nil {
 		return err
 	}
 	_ = s.files.Delete(ctx, doc.FileURL)
@@ -211,14 +294,25 @@ func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UU
 	return doc, nil
 }
 
-func (s *landService) DeleteParcelDocument(ctx context.Context, documentID uuid.UUID) error {
+func (s *landService) DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error {
 	doc, err := s.landRepo.GetDocument(ctx, documentID)
 	if err != nil {
 		return domain.ErrNotFound
 	}
-	if err := s.landRepo.DeleteDocument(ctx, documentID); err != nil {
+	if err := s.landRepo.DeleteParcelDocument(ctx, parcelID, documentID); err != nil {
 		return err
 	}
 	_ = s.files.Delete(ctx, doc.FileURL)
+	return nil
+}
+
+func (s *landService) ensureCompensationInAcquisition(ctx context.Context, acquisitionID, compensationID uuid.UUID) error {
+	comp, err := s.landRepo.GetCompensation(ctx, compensationID)
+	if err != nil {
+		return err
+	}
+	if comp.AcquisitionID != acquisitionID {
+		return domain.ErrNotFound
+	}
 	return nil
 }

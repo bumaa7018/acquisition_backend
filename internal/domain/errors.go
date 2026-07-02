@@ -15,4 +15,5 @@ var (
 	ErrDecreeRequired          = errors.New("decree number and date are required")
 	ErrApproved                = errors.New("approved record cannot be modified")
 	ErrValuationReportRequired = errors.New("valuation report required before releasing parcel")
+	ErrAcquisitionLocked       = errors.New("acquisition is locked")
 )

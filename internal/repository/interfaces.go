@@ -83,6 +83,8 @@ type LandAcquisitionWriteRepository interface {
 	GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error)
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error
+	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
+	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
 	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
@@ -107,7 +109,21 @@ type LandAssetRepository interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error
 	UpdateAsset(ctx context.Context, b *domain.Asset) error
-	DeleteAsset(ctx context.Context, id uuid.UUID) error
+	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error
+	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
+	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
+	UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error
+	ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error)
+	ListAssetSpecTypes(ctx context.Context) ([]*domain.AssetSpecType, error)
+	CreateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error
+	UpdateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error
+	DeleteAssetSpecType(ctx context.Context, id int) error
+	ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCalcType, error)
+	CreateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error
+	UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error
+	DeleteAssetCalcType(ctx context.Context, id int) error
+	UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error
+	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error)
 }
 
 type LandPaymentRepository interface {
@@ -119,12 +135,12 @@ type LandCompensationRepository interface {
 	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) error
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) error
-	DeleteCompensation(ctx context.Context, id uuid.UUID) error
+	DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error
 	GetCompensation(ctx context.Context, id uuid.UUID) (*domain.Compensation, error)
 	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error
-	ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
+	ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
 	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
 }
@@ -134,7 +150,7 @@ type LandCompensationGrantRepository interface {
 	UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error
 	GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error)
 	DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error
-	DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error
+	DeleteCompensationGrantByCompensationID(ctx context.Context, acquisitionID, compensationID uuid.UUID) error
 }
 
 type LandDocumentRepository interface {
@@ -142,7 +158,8 @@ type LandDocumentRepository interface {
 	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
-	DeleteDocument(ctx context.Context, documentID uuid.UUID) error
+	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error
+	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
 }
 
@@ -150,6 +167,8 @@ type LandAssigneeRepository interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 }
 
 type LandWorkflowRepository interface {

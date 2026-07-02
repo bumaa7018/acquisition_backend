@@ -269,8 +269,8 @@ func (m *MockLandAcquisitionRepository) UpdateAsset(ctx context.Context, b *doma
 	return m.Called(ctx, b).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteAsset(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandAcquisitionRepository) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, id).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.Compensation, error) {
@@ -289,8 +289,8 @@ func (m *MockLandAcquisitionRepository) UpdateCompensation(ctx context.Context, 
 	return m.Called(ctx, c).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandAcquisitionRepository) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, id).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) GetCompensation(ctx context.Context, id uuid.UUID) (*domain.Compensation, error) {
@@ -309,8 +309,8 @@ func (m *MockLandAcquisitionRepository) RejectCompensation(ctx context.Context, 
 	return m.Called(ctx, id, note, reviewedBy).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
-	args := m.Called(ctx, compensationID)
+func (m *MockLandAcquisitionRepository) ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
+	args := m.Called(ctx, acquisitionID, compensationID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -341,8 +341,8 @@ func (m *MockLandAcquisitionRepository) DeleteCompensationGrant(ctx context.Cont
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
-	return m.Called(ctx, compensationID).Error(0)
+func (m *MockLandAcquisitionRepository) DeleteCompensationGrantByCompensationID(ctx context.Context, acquisitionID, compensationID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, compensationID).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) ListParcelPayments(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelPayment, error) {
@@ -381,8 +381,12 @@ func (m *MockLandAcquisitionRepository) AddParcelDocument(ctx context.Context, p
 	return m.Called(ctx, parcelID, doc).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteDocument(ctx context.Context, documentID uuid.UUID) error {
-	return m.Called(ctx, documentID).Error(0)
+func (m *MockLandAcquisitionRepository) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, documentID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error {
+	return m.Called(ctx, parcelID, documentID).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error) {
@@ -423,6 +427,16 @@ func (m *MockLandAcquisitionRepository) GetAssignees(ctx context.Context, acquis
 
 func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, acquisitionID, userID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
@@ -548,4 +562,88 @@ func (m *MockLandAcquisitionRepository) GetGlobalCompensation(ctx context.Contex
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.GlobalCompensation), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
+	return m.Called(ctx, acquisitionID, assetID, specs).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error) {
+	args := m.Called(ctx, acquisitionID, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AssetSpec), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error {
+	return m.Called(ctx, acquisitionID, assetID, calcs).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error) {
+	args := m.Called(ctx, acquisitionID, assetID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AssetCalculation), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, orgUserID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+	return m.Called(ctx, acqID, parcelID, orgUserID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAssetSpecTypes(ctx context.Context) ([]*domain.AssetSpecType, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AssetSpecType), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	return m.Called(ctx, t).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	return m.Called(ctx, t).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteAssetSpecType(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCalcType, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.AssetCalcType), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	return m.Called(ctx, t).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	return m.Called(ctx, t).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteAssetCalcType(ctx context.Context, id int) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error {
+	return m.Called(ctx, v).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
+	args := m.Called(ctx, acquisitionID, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.LandValuation), args.Error(1)
 }

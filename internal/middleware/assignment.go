@@ -16,11 +16,35 @@ type AssignmentChecker interface {
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 }
 
-// RequireAssignedOrSenior — ахлах мэргэжилтэн эсвэл тухайн чөлөөлөлтэд хуваарилагдсан ажилтан
-// байвал зөвшөөрнө, эс бөгөөс 403 буцаана.
+// AcquisitionLockChecker — баталгаажсан чөлөөлөлтийн хаалтыг шалгах интерфейс
+// (routes where :id = acquisition_id)
+type AcquisitionLockChecker interface {
+	IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error)
+}
+
+// ParcelLockChecker — нэгж талбарын чөлөөлөлтийн хаалтыг шалгах интерфейс
+// (routes where :id = parcel_id)
+type ParcelLockChecker interface {
+	IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
+}
+
+// ProfMemberChecker — professional_org хэрэглэгч тухайн чөлөөлөлтийн
+// үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгах интерфейс
+type ProfMemberChecker interface {
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+}
+
+// ProfParcelMemberChecker — professional_org хэрэглэгч parcel-ээр дамжуулан тухайн
+// чөлөөлөлтийн үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгана.
+type ProfParcelMemberChecker interface {
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+}
+
+// RequireAssignedOrSenior — ахлах мэргэжилтэн эсвэл
+// тухайн чөлөөлөлтэд хуваарилагдсан ажилтан байвал зөвшөөрнө, эс бөгөөс 403 буцаана.
 func RequireAssignedOrSenior(svc AssignmentChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Ахлах мэргэжилтэн бол шалгуур шаардахгүй
+		// Ахлах мэргэжилтэн бол шалгуур шаардахгүй.
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
@@ -81,6 +105,193 @@ func GetCallerName(c *gin.Context) string {
 	raw, _ := c.Get(CtxUserName)
 	name, _ := raw.(string)
 	return name
+}
+
+// RequireAcquisitionNotLocked — баталгаажсан (status=3) чөлөөлөлтийн бичих
+// хүсэлтийг 423 Locked-ээр буцаана. GET/HEAD/OPTIONS болон `:id`-гүй замуудад
+// шалгуур хэрэглэхгүй.
+func RequireAcquisitionNotLocked(svc AcquisitionLockChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		if method == "GET" || method == "HEAD" || method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		idStr := c.Param("id")
+		if idStr == "" {
+			c.Next()
+			return
+		}
+		acqID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+		locked, err := svc.IsAcquisitionLocked(c.Request.Context(), acqID)
+		if err != nil {
+			// Олдоогүй эсвэл DB алдаа — handler-д шилжүүлнэ
+			c.Next()
+			return
+		}
+		if locked {
+			response.Abort(c, 423, i18n.ErrAcqLocked)
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireParcelAcquisitionNotLocked — /parcels/:id/* маршрутад ашиглана.
+// `:id` нь parcel_id — харгалзах чөлөөлөлтийн статусыг шалгана.
+func RequireParcelAcquisitionNotLocked(svc ParcelLockChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		if method == "GET" || method == "HEAD" || method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		idStr := c.Param("id")
+		if idStr == "" {
+			c.Next()
+			return
+		}
+		parcelID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+		locked, err := svc.IsParcelAcquisitionLocked(c.Request.Context(), parcelID)
+		if err != nil {
+			c.Next()
+			return
+		}
+		if locked {
+			response.Abort(c, 423, i18n.ErrAcqLocked)
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireProfAcquisitionNotLocked — /prof/land-acquisitions/:id/* маршрутуудад ашиглана.
+// GET-г оролцуулан БҮРТГЭЛ HTTP method-ийг шалгана: баталгаажсан (status=3)
+// чөлөөлөлтийн бүх хүсэлтийг 423-аар буцаана.
+func RequireProfAcquisitionNotLocked(svc AcquisitionLockChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		idStr := c.Param("id")
+		if idStr == "" {
+			c.Next()
+			return
+		}
+		acqID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+		locked, err := svc.IsAcquisitionLocked(c.Request.Context(), acqID)
+		if err != nil {
+			c.Next()
+			return
+		}
+		if locked {
+			response.Abort(c, 423, i18n.ErrAcqLocked)
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireProfParcelAcquisitionNotLocked — /prof/parcels/:id/* маршрутуудад ашиглана.
+// GET-г оролцуулан БҮРТГЭЛ HTTP method-ийг шалгана: парцелийн харгалзах
+// чөлөөлөлт баталгаажсан бол 423-аар буцаана.
+func RequireProfParcelAcquisitionNotLocked(svc ParcelLockChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		idStr := c.Param("id")
+		if idStr == "" {
+			c.Next()
+			return
+		}
+		parcelID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+		locked, err := svc.IsParcelAcquisitionLocked(c.Request.Context(), parcelID)
+		if err != nil {
+			c.Next()
+			return
+		}
+		if locked {
+			response.Abort(c, 423, i18n.ErrAcqLocked)
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireProfOrgMember — /prof/land-acquisitions/:id/* маршрутуудад ашиглана.
+// professional_org хэрэглэгч тухайн чөлөөлөлтийн үндсэн байгуулга
+// (professional_org_id) эсвэл аль нэгэн нэгж талбарын хөндлөнгийн байгуулга
+// (independent_org_id) мөн эсэхийг шалгана. Таарахгүй бол 403 буцаана.
+func RequireProfOrgMember(svc ProfMemberChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acqID, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		userIDRaw, _ := c.Get(CtxUserID)
+		userID, ok := userIDRaw.(uuid.UUID)
+		if !ok {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		member, err := svc.IsProfMemberOfAcquisition(c.Request.Context(), acqID, userID)
+		if err != nil || !member {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireProfParcelMember — /prof/parcels/:id/* маршрутуудад ашиглана.
+// `:id` нь parcel UUID бөгөөд professional_org хэрэглэгч тухайн parcel-ийн
+// чөлөөлөлтөд хамаарах эсэхийг шалгана.
+func RequireProfParcelMember(svc ProfParcelMemberChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		parcelID, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		userIDRaw, _ := c.Get(CtxUserID)
+		userID, ok := userIDRaw.(uuid.UUID)
+		if !ok {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		member, err := svc.IsProfMemberOfParcel(c.Request.Context(), parcelID, userID)
+		if err != nil || !member {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+
+		c.Next()
+	}
 }
 
 var _ = domain.ErrForbidden // ensure domain import used

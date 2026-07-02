@@ -10,7 +10,10 @@ INSERT INTO permissions (id, name, description, resource, action, created_at)
 VALUES
   (uuid_generate_v4(), 'land:read',   'Read land acquisitions',   'land', 'read',   NOW()),
   (uuid_generate_v4(), 'land:create', 'Create land acquisitions', 'land', 'create', NOW()),
-  (uuid_generate_v4(), 'land:update', 'Update land acquisitions', 'land', 'update', NOW())
+  (uuid_generate_v4(), 'land:update', 'Update land acquisitions', 'land', 'update', NOW()),
+  -- Хөрөнгийн үнэлгээний хэсэгт зориулсан нарийн эрх (зөвхөн үнэлгээ бичихэд)
+  (uuid_generate_v4(), 'valuation:create', 'Create asset valuation', 'valuation', 'create', NOW()),
+  (uuid_generate_v4(), 'valuation:update', 'Update asset valuation', 'valuation', 'update', NOW())
 ON CONFLICT (name) DO UPDATE SET
   description = EXCLUDED.description,
   resource = EXCLUDED.resource,
@@ -34,6 +37,26 @@ FROM roles r
 JOIN permissions p ON p.name = 'land:read'
 WHERE r.name IN ('professional_org', 'mika', 'finance_specialist')
 ON CONFLICT DO NOTHING;
+
+-- Мэргэжлийн байгууллага нь ЗӨВХӨН хөрөнгийн үнэлгээний хэсэгт (asset, spec,
+-- calculation, compensation, land-valuation, хөрөнгийн зураг) бичнэ. Иймд ерөнхий
+-- land:create/land:update биш, нарийн valuation:create/valuation:update эрх олгоно.
+-- /prof дэх үнэлгээний бичих маршрутууд эдгээр эрхийг шаардана; бусад бичих
+-- маршрут (төлөөлөгч, статус, independent-org, баримт) land:update шаарддаг тул
+-- professional_org хийж чадахгүй (зөвхөн харах эрхтэй).
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p ON p.name IN ('valuation:create', 'valuation:update')
+WHERE r.name = 'professional_org'
+ON CONFLICT DO NOTHING;
+
+-- Хэрэв өмнө нь land:create/land:update олгосон бол буцаан авна (зөвхөн үнэлгээ).
+DELETE FROM role_permissions rp
+USING roles r, permissions p
+WHERE rp.role_id = r.id AND rp.permission_id = p.id
+  AND r.name = 'professional_org'
+  AND p.name IN ('land:create', 'land:update');
 
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id

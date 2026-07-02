@@ -1,0 +1,25 @@
+DROP TABLE IF EXISTS land_valuation;
+
+ALTER TABLE assets DROP COLUMN IF EXISTS net_replacement_cost;
+ALTER TABLE assets DROP COLUMN IF EXISTS depreciation_amount;
+ALTER TABLE assets DROP COLUMN IF EXISTS depreciation_percent;
+ALTER TABLE assets DROP COLUMN IF EXISTS full_replacement_cost;
+ALTER TABLE assets DROP COLUMN IF EXISTS height_unit;
+ALTER TABLE assets DROP COLUMN IF EXISTS height;
+ALTER TABLE assets DROP COLUMN IF EXISTS coeff_brick;
+ALTER TABLE assets DROP COLUMN IF EXISTS coeff_casting;
+ALTER TABLE assets DROP COLUMN IF EXISTS coeff_interior;
+ALTER TABLE assets DROP COLUMN IF EXISTS coeff_price_increase;
+ALTER TABLE assets DROP COLUMN IF EXISTS unit_cost_unit;
+ALTER TABLE assets DROP COLUMN IF EXISTS unit_cost;
+ALTER TABLE assets DROP COLUMN IF EXISTS quality;
+ALTER TABLE assets DROP COLUMN IF EXISTS heating;
+ALTER TABLE assets DROP COLUMN IF EXISTS window_type;
+ALTER TABLE assets DROP COLUMN IF EXISTS door_type;
+ALTER TABLE assets DROP COLUMN IF EXISTS roof;
+ALTER TABLE assets DROP COLUMN IF EXISTS walls;
+ALTER TABLE assets DROP COLUMN IF EXISTS foundation;
+ALTER TABLE assets DROP COLUMN IF EXISTS construction_type;
+ALTER TABLE assets DROP COLUMN IF EXISTS description;
+ALTER TABLE assets DROP COLUMN IF EXISTS capacity;
+ALTER TABLE assets DROP COLUMN IF EXISTS unit;

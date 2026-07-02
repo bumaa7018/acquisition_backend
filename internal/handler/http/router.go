@@ -48,6 +48,7 @@ func NewRouter(
 	parcelWorkflowH := NewParcelWorkflowHandler(landSvc)
 	acquisitionWorkflowH := NewAcquisitionWorkflowHandler(landSvc)
 	acquisitionCategoryH := NewAcquisitionCategoryHandler(landSvc)
+	assetTypeConfigH := NewAssetTypeConfigHandler(landSvc)
 
 	v1 := r.Group("/api/v1")
 
@@ -106,7 +107,15 @@ func NewRouter(
 
 		// Газар чөлөөлөлт
 		assignedOrSenior := middleware.RequireAssignedOrSenior(landSvc)
+		notLocked := middleware.RequireAcquisitionNotLocked(landSvc)
+		notParcelLocked := middleware.RequireParcelAcquisitionNotLocked(landSvc)
+		profOrgMember := middleware.RequireProfOrgMember(landSvc)
+		profParcelMember := middleware.RequireProfParcelMember(landSvc)
+		// /prof routes: GET-г оролцуулан бүх хүсэлтийг хаадаг хаалтууд
+		profNotLocked := middleware.RequireProfAcquisitionNotLocked(landSvc)
+		profNotParcelLocked := middleware.RequireProfParcelAcquisitionNotLocked(landSvc)
 		land := protected.Group("/land-acquisitions")
+		land.Use(notLocked)
 		{
 			land.GET("", middleware.RequirePermission("land:read"), landH.List)
 			land.GET("/suggest", middleware.RequirePermission("land:read"), landH.Suggest)
@@ -125,6 +134,12 @@ func NewRouter(
 			land.POST("/:id/assets", middleware.RequirePermission("land:create"), assignedOrSenior, landH.CreateAsset)
 			land.PUT("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateAsset)
 			land.DELETE("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAsset)
+			land.GET("/:id/assets/:asset_id/specs", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAssetSpecs)
+			land.POST("/:id/assets/:asset_id/specs", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpsertAssetSpecs)
+			land.GET("/:id/assets/:asset_id/calculations", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAssetCalculations)
+			land.POST("/:id/assets/:asset_id/calculations", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpsertAssetCalculations)
+			land.GET("/:id/land-valuation", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetLandValuation)
+			land.POST("/:id/land-valuation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpsertLandValuation)
 			land.POST("/:id/compensations", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateCompensation)
 			land.PUT("/:id/compensations/:comp_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensation)
 			land.DELETE("/:id/compensations/:comp_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteCompensation)
@@ -158,6 +173,79 @@ func NewRouter(
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAcquisitionDocuments)
 			land.POST("/:id/documents", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadAcquisitionDocument)
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
+			land.PUT("/:id/professional-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAcquisitionProfessionalOrg)
+			land.PATCH("/:id/parcels/:parcel_id/independent-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "professional_org"), middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
+		}
+
+		// Мэргэжлийн байгууллагын өөрийн чөлөөлөлтийн жагсаалт
+		protected.GET("/land-acquisitions/my", landH.ListMyAcquisitions)
+
+		prof := protected.Group("/prof")
+		prof.Use(middleware.RequireOnlyRole("professional_org"))
+		{
+			prof.GET("/construction-types", middleware.RequirePermission("land:read"), landH.ListConstructionTypes)
+			prof.GET("/asset-spec-types", middleware.RequirePermission("land:read"), assetTypeConfigH.ListSpecTypes)
+			prof.GET("/asset-calc-types", middleware.RequirePermission("land:read"), assetTypeConfigH.ListCalcTypes)
+
+			profLand := prof.Group("/land-acquisitions")
+			{
+				profLand.GET("", middleware.RequirePermission("land:read"), landH.ListMyAcquisitions)
+
+				// /:id/* — тухайн чөлөөлөлтийн гишүүн мөн эсэхийг шалгана
+				profLandItem := profLand.Group("/:id")
+				profLandItem.Use(profNotLocked)
+				profLandItem.Use(profOrgMember)
+				{
+					profLandItem.GET("", middleware.RequirePermission("land:read"), landH.GetByID)
+					profLandItem.GET("/parcels", middleware.RequirePermission("land:read"), landH.ListEvaluationParcels)
+					profLandItem.GET("/parcels/:parcel_id", middleware.RequirePermission("land:read"), landH.GetParcelByID)
+					profLandItem.PATCH("/parcels/:parcel_id/independent-org", middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
+					// Нэгж талбарын статус
+					profLandItem.GET("/parcels/:parcel_id/available-statuses", middleware.RequirePermission("land:read"), parcelWorkflowH.GetAvailableStatuses)
+					profLandItem.PATCH("/parcels/:parcel_id/status", middleware.RequirePermission("land:update"), parcelWorkflowH.UpdateParcelStatus)
+					profLandItem.GET("/parcels/:parcel_id/status-history", middleware.RequirePermission("land:read"), parcelWorkflowH.ListParcelStatusHistory)
+					// Эрх эзэмшигч төлөөлөгч
+					profLandItem.GET("/parcels/:parcel_id/representatives", middleware.RequirePermission("land:read"), landH.ListAuthorizedRepresentatives)
+					profLandItem.POST("/parcels/:parcel_id/representatives", middleware.RequirePermission("land:update"), landH.CreateAuthorizedRepresentative)
+					profLandItem.DELETE("/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("land:update"), landH.DeleteAuthorizedRepresentative)
+					// Байгааламж — үнэлгээ (valuation:create/update)
+					profLandItem.GET("/assets", middleware.RequirePermission("land:read"), landH.ListAssets)
+					profLandItem.POST("/assets", middleware.RequirePermission("valuation:create"), landH.CreateAsset)
+					profLandItem.DELETE("/assets/:asset_id", middleware.RequirePermission("valuation:update"), landH.DeleteAsset)
+					profLandItem.GET("/assets/:asset_id/specs", middleware.RequirePermission("land:read"), landH.ListAssetSpecs)
+					profLandItem.POST("/assets/:asset_id/specs", middleware.RequirePermission("valuation:update"), landH.UpsertAssetSpecs)
+					profLandItem.GET("/assets/:asset_id/calculations", middleware.RequirePermission("land:read"), landH.ListAssetCalculations)
+					profLandItem.POST("/assets/:asset_id/calculations", middleware.RequirePermission("valuation:update"), landH.UpsertAssetCalculations)
+					// Газрын үнэлгээ (valuation:update)
+					profLandItem.GET("/land-valuation", middleware.RequirePermission("land:read"), landH.GetLandValuation)
+					profLandItem.POST("/land-valuation", middleware.RequirePermission("valuation:update"), landH.UpsertLandValuation)
+					// Нөхөх олговор — үнэлгээ (valuation:create/update)
+					profLandItem.GET("/compensations", middleware.RequirePermission("land:read"), landH.ListCompensations)
+					profLandItem.POST("/compensations", middleware.RequirePermission("valuation:create"), landH.CreateCompensation)
+					profLandItem.DELETE("/compensations/:comp_id", middleware.RequirePermission("valuation:update"), landH.DeleteCompensation)
+					profLandItem.GET("/compensations/:comp_id/history", middleware.RequirePermission("land:read"), landH.ListCompensationHistory)
+					profLandItem.POST("/compensations/:comp_id/report", middleware.RequirePermission("valuation:update"), landH.UploadCompensationReport)
+					profLandItem.POST("/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), landH.CreateCompensationGrant)
+					profLandItem.PUT("/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), landH.UpdateCompensationGrant)
+					profLandItem.DELETE("/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), landH.DeleteCompensationGrant)
+					// Баримт бичиг (чөлөөлөлт)
+					profLandItem.GET("/documents", middleware.RequirePermission("land:read"), landH.ListAcquisitionDocuments)
+					profLandItem.POST("/documents", middleware.RequirePermission("land:update"), landH.UploadAcquisitionDocument)
+					profLandItem.DELETE("/documents/:doc_id", middleware.RequirePermission("land:update"), landH.DeleteAcquisitionDocument)
+					// Санхүүжилтийн эх үүсвэр (зөвхөн унших)
+					profLandItem.GET("/funding-sources", middleware.RequirePermission("land:read"), landH.ListFundingSources)
+				}
+			}
+
+			// Нэгж талбарын баримт бичиг — хөрөнгийн зураг (үнэлгээний хэсэг)
+			profParcels := prof.Group("/parcels")
+			profParcels.Use(profNotParcelLocked)
+			profParcels.Use(profParcelMember)
+			{
+				profParcels.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListParcelDocuments)
+				profParcels.POST("/:id/documents", middleware.RequirePermission("valuation:update"), landH.UploadParcelDocument)
+				profParcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("valuation:update"), landH.DeleteParcelDocument)
+			}
 		}
 
 		// Газар зохион байгуулалтын төлөвлөвлөгөө
@@ -170,8 +258,8 @@ func NewRouter(
 		// Чөлөөлөлтийн явцын статус
 		acquisitionProgressStatuses := protected.Group("/acquisition-progress-statuses")
 		{
-			acquisitionProgressStatuses.GET("", middleware.RequirePermission("admin:read"), acquisitionProgressStatusH.List)
-			acquisitionProgressStatuses.GET("/:id", middleware.RequirePermission("admin:read"), acquisitionProgressStatusH.GetByID)
+			acquisitionProgressStatuses.GET("", acquisitionProgressStatusH.List)
+			acquisitionProgressStatuses.GET("/:id", acquisitionProgressStatusH.GetByID)
 			acquisitionProgressStatuses.POST("", middleware.RequirePermission("admin:create"), acquisitionProgressStatusH.Create)
 			acquisitionProgressStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), acquisitionProgressStatusH.Update)
 			acquisitionProgressStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionProgressStatusH.Delete)
@@ -180,8 +268,8 @@ func NewRouter(
 		// Нэгж талбарын статус
 		parcelStatuses := protected.Group("/parcel-statuses")
 		{
-			parcelStatuses.GET("", middleware.RequirePermission("admin:read"), parcelStatusH.List)
-			parcelStatuses.GET("/:id", middleware.RequirePermission("admin:read"), parcelStatusH.GetByID)
+			parcelStatuses.GET("", parcelStatusH.List)
+			parcelStatuses.GET("/:id", parcelStatusH.GetByID)
 			parcelStatuses.POST("", middleware.RequirePermission("admin:create"), parcelStatusH.Create)
 			parcelStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), parcelStatusH.Update)
 			parcelStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelStatusH.Delete)
@@ -190,8 +278,8 @@ func NewRouter(
 		// Баримт бичгийн төрөл
 		documentTypes := protected.Group("/document-types")
 		{
-			documentTypes.GET("", middleware.RequirePermission("admin:read"), documentTypeH.List)
-			documentTypes.GET("/:id", middleware.RequirePermission("admin:read"), documentTypeH.GetByID)
+			documentTypes.GET("", documentTypeH.List)
+			documentTypes.GET("/:id", documentTypeH.GetByID)
 			documentTypes.POST("", middleware.RequirePermission("admin:create"), documentTypeH.Create)
 			documentTypes.PUT("/:id", middleware.RequirePermission("admin:update"), documentTypeH.Update)
 			documentTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), documentTypeH.Delete)
@@ -209,7 +297,7 @@ func NewRouter(
 		// Нэгж талбарын ажлын урсгал
 		parcelWorkflow := protected.Group("/parcel-workflow")
 		{
-			parcelWorkflow.GET("", middleware.RequirePermission("admin:read"), parcelWorkflowH.List)
+			parcelWorkflow.GET("", parcelWorkflowH.List)
 			parcelWorkflow.POST("", middleware.RequirePermission("admin:create"), parcelWorkflowH.Create)
 			parcelWorkflow.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelWorkflowH.Delete)
 		}
@@ -217,10 +305,27 @@ func NewRouter(
 		// Газар чөлөөлөлтийн ажлын урсгал
 		acquisitionWorkflow := protected.Group("/acquisition-workflow")
 		{
-			acquisitionWorkflow.GET("", middleware.RequirePermission("admin:read"), acquisitionWorkflowH.List)
-			acquisitionWorkflow.GET("/statuses", middleware.RequirePermission("admin:read"), acquisitionWorkflowH.ListStatuses)
+			acquisitionWorkflow.GET("", acquisitionWorkflowH.List)
+			acquisitionWorkflow.GET("/statuses", acquisitionWorkflowH.ListStatuses)
 			acquisitionWorkflow.POST("", middleware.RequirePermission("admin:create"), acquisitionWorkflowH.Create)
 			acquisitionWorkflow.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionWorkflowH.Delete)
+		}
+
+		// Байгааламжийн тооцоолол / чанарын мэдээллийн төрлүүд
+		assetSpecTypes := protected.Group("/asset-spec-types")
+		{
+			assetSpecTypes.GET("", assetTypeConfigH.ListSpecTypes)
+			assetSpecTypes.POST("", middleware.RequirePermission("admin:create"), assetTypeConfigH.CreateSpecType)
+			assetSpecTypes.PUT("/:id", middleware.RequirePermission("admin:update"), assetTypeConfigH.UpdateSpecType)
+			assetSpecTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), assetTypeConfigH.DeleteSpecType)
+		}
+
+		assetCalcTypes := protected.Group("/asset-calc-types")
+		{
+			assetCalcTypes.GET("", assetTypeConfigH.ListCalcTypes)
+			assetCalcTypes.POST("", middleware.RequirePermission("admin:create"), assetTypeConfigH.CreateCalcType)
+			assetCalcTypes.PUT("/:id", middleware.RequirePermission("admin:update"), assetTypeConfigH.UpdateCalcType)
+			assetCalcTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), assetTypeConfigH.DeleteCalcType)
 		}
 
 		// Глобал нөхөн төлбөрийн маршрут
@@ -229,6 +334,7 @@ func NewRouter(
 
 		// Глобал нэгж талбарын маршрут
 		parcels := protected.Group("/parcels")
+		parcels.Use(notParcelLocked)
 		{
 			parcels.GET("", middleware.RequirePermission("land:read"), landH.ListGlobalParcels)
 			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), landH.ListParcelPayments)
@@ -242,7 +348,7 @@ func NewRouter(
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/available-statuses",
 			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.GetAvailableStatuses)
 		protected.PATCH("/land-acquisitions/:id/parcels/:parcel_id/status",
-			middleware.RequirePermission("land:update"), assignedOrSenior, parcelWorkflowH.UpdateParcelStatus)
+			middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, parcelWorkflowH.UpdateParcelStatus)
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/status-history",
 			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.ListParcelStatusHistory)
 	}

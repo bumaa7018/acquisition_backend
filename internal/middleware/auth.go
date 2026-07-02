@@ -71,7 +71,27 @@ func RequirePermission(permission string) gin.HandlerFunc {
 	}
 }
 
+func RequirePermissionOrRole(permission string, allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hasPermission(c, permission) || hasAnyRole(c, allowedRoles...) {
+			c.Next()
+			return
+		}
+		response.Error(c, ErrForbidden)
+	}
+}
+
 func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hasAnyRole(c, allowedRoles...) {
+			c.Next()
+			return
+		}
+		response.Error(c, ErrForbidden)
+	}
+}
+
+func RequireOnlyRole(allowedRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rolesAny, exists := c.Get(CtxRoles)
 		if !exists {
@@ -79,18 +99,52 @@ func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
 			return
 		}
 		roles, ok := rolesAny.([]string)
-		if !ok {
+		if !ok || len(roles) == 0 {
 			response.Error(c, ErrForbidden)
 			return
 		}
 		for _, r := range roles {
-			for _, allowed := range allowedRoles {
-				if r == allowed {
-					c.Next()
-					return
-				}
+			if r != allowedRole {
+				response.Error(c, ErrForbidden)
+				return
 			}
 		}
-		response.Error(c, ErrForbidden)
+		c.Next()
 	}
+}
+
+func hasPermission(c *gin.Context, permission string) bool {
+	permsAny, exists := c.Get(CtxPermissions)
+	if !exists {
+		return false
+	}
+	perms, ok := permsAny.([]string)
+	if !ok {
+		return false
+	}
+	for _, p := range perms {
+		if p == permission {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyRole(c *gin.Context, allowedRoles ...string) bool {
+	rolesAny, exists := c.Get(CtxRoles)
+	if !exists {
+		return false
+	}
+	roles, ok := rolesAny.([]string)
+	if !ok {
+		return false
+	}
+	for _, r := range roles {
+		for _, allowed := range allowedRoles {
+			if r == allowed {
+				return true
+			}
+		}
+	}
+	return false
 }

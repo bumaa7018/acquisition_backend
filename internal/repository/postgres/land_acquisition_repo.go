@@ -202,6 +202,17 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, filter.AssignedUserID)
 		i++
 	}
+	if filter.ProfessionalOrgUserID != "" {
+		where += fmt.Sprintf(` AND (
+			la.professional_org_id = $%d::uuid
+			OR EXISTS (
+				SELECT 1 FROM parcel p_org
+				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::uuid
+			)
+		)`, i, i)
+		args = append(args, filter.ProfessionalOrgUserID)
+		i++
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx,
@@ -231,7 +242,9 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       COALESCE(la.reason,''), COALESCE(la.responsible_org,''), COALESCE(la.funding_source,''),
 			       la.general_category_id, COALESCE(gc.name,''),
 			       la.sub_category_id, COALESCE(sc.name,''),
-			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id)
+			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
+			       la.professional_org_id,
+			       ''
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
@@ -259,6 +272,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 			&acq.SubCategoryID, &acq.SubCategoryName,
 			&acq.ParcelCount,
+			&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -280,7 +294,10 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(la.reason,''), COALESCE(la.responsible_org,''), COALESCE(la.funding_source,''),
 			       la.general_category_id, COALESCE(gc.name,''),
 			       la.sub_category_id, COALESCE(sc.name,''),
-			       COALESCE(la.decree_number,''), la.decree_date
+			       COALESCE(la.decree_number,''), la.decree_date,
+			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
+			       la.professional_org_id,
+			       ''
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
@@ -297,6 +314,8 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 		&acq.SubCategoryID, &acq.SubCategoryName,
 		&acq.DecreeNumber, &acq.DecreeDate,
+		&acq.ParcelCount,
+		&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 	)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -307,13 +326,6 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		return nil, err
 	}
 	acq.AUs = aus
-
-	parcels, total, err := r.GetParcels(ctx, id, domain.ParcelFilter{Page: 1, PageSize: 1000})
-	if err != nil {
-		return nil, err
-	}
-	acq.Parcels = parcels
-	acq.ParcelCount = total
 
 	assignees, err := r.GetAssignees(ctx, id)
 	if err != nil {
@@ -612,7 +624,9 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       p.created_at, COALESCE(p.created_by,''),
 				       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
 				       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
-				       COALESCE(p.status,0), COALESCE(ps.name,'')
+				       COALESCE(p.status,0), COALESCE(ps.name,''),
+				       p.independent_org_id,
+				       ''
 			FROM parcel p
 			LEFT JOIN parcel_status ps ON ps.id = p.status
 			WHERE %s
@@ -642,6 +656,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&remainingAreaM2,
 			&p.DbChanged, &p.ChangedParcelID,
 			&p.StatusID, &p.StatusName,
+			&p.IndependentOrgID, &p.IndependentOrgName,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -1453,10 +1468,40 @@ func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID,
 	return err
 }
 
-func (r *landAcqRepo) DeleteDocument(ctx context.Context, documentID uuid.UUID) error {
-	// deleting from document cascades to mapping tables via FK
-	_, err := r.db.Exec(ctx, "DELETE FROM document WHERE id = $1", documentID)
-	return err
+func (r *landAcqRepo) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, `
+		DELETE FROM document d
+		WHERE d.id = $1
+		  AND EXISTS (
+		      SELECT 1 FROM land_acquisition_document lad
+		      WHERE lad.document_id = d.id AND lad.land_acquisition_id = $2
+		  )
+	`, documentID, acquisitionID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *landAcqRepo) DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, `
+		DELETE FROM document d
+		WHERE d.id = $1
+		  AND EXISTS (
+		      SELECT 1 FROM parcel_document pd
+		      WHERE pd.document_id = d.id AND pd.parcel_id = $2
+		  )
+	`, documentID, parcelID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 func (r *landAcqRepo) GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error) {
@@ -1483,7 +1528,8 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT id, acquisition_id, parcel_id, asset_number, asset_type, asset_name,
-		       floor_count, area_m2, owner_name, address, notes, created_at, updated_at
+		       floor_count, area_m2, owner_name, address, notes,
+		       unit, capacity, description, created_at, updated_at
 		FROM assets `+where+` ORDER BY created_at DESC
 	`, args...)
 	if err != nil {
@@ -1493,8 +1539,11 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 	var list []*domain.Asset
 	for rows.Next() {
 		b := &domain.Asset{}
-		if err := rows.Scan(&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber, &b.AssetType, &b.AssetName,
-			&b.FloorCount, &b.AreaM2, &b.OwnerName, &b.Address, &b.Notes, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber, &b.AssetType, &b.AssetName,
+			&b.FloorCount, &b.AreaM2, &b.OwnerName, &b.Address, &b.Notes,
+			&b.Unit, &b.Capacity, &b.Description, &b.CreatedAt, &b.UpdatedAt,
+		); err != nil {
 			return nil, 0, err
 		}
 		list = append(list, b)
@@ -1503,29 +1552,168 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 }
 
 func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
-	return r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
-		                      floor_count, area_m2, owner_name, address, notes)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+		WHERE EXISTS (
+			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
+		)
 		RETURNING id, created_at, updated_at
-	`, b.AcquisitionID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
+	`,
+		b.AcquisitionID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
 		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
+		b.Unit, b.Capacity, b.Description,
 	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *landAcqRepo) UpdateAsset(ctx context.Context, b *domain.Asset) error {
-	return r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		UPDATE assets SET parcel_id=$2, asset_number=$3, asset_type=$4, asset_name=$5,
-		    floor_count=$6, area_m2=$7, owner_name=$8, address=$9, notes=$10, updated_at=NOW()
-		WHERE id=$1 RETURNING updated_at
+		    floor_count=$6, area_m2=$7, owner_name=$8, address=$9, notes=$10,
+		    unit=$11, capacity=$12, description=$13, updated_at=NOW()
+		WHERE id=$1 AND acquisition_id=$14
+		  AND EXISTS (
+		      SELECT 1 FROM parcel WHERE acquisition_id=$14 AND parcel_id=$2
+		  )
+		RETURNING updated_at
 	`, b.ID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
 		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
+		b.Unit, b.Capacity, b.Description, b.AcquisitionID,
 	).Scan(&b.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
-func (r *landAcqRepo) DeleteAsset(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM assets WHERE id=$1", id)
+func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, "DELETE FROM assets WHERE id=$1 AND acquisition_id=$2", id, acquisitionID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
+}
+
+func (r *landAcqRepo) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
+	if err := r.ensureAssetInAcquisition(ctx, acquisitionID, assetID); err != nil {
+		return err
+	}
+	for _, s := range specs {
+		_, err := r.db.Exec(ctx, `
+			INSERT INTO asset_spec (asset_id, spec_type_id, value)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (asset_id, spec_type_id) DO UPDATE SET value=$3
+		`, assetID, s.SpecTypeID, s.Value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *landAcqRepo) ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT s.id, s.asset_id, s.spec_type_id, t.code, t.name, s.value
+		FROM asset_spec s
+		JOIN asset_spec_type t ON t.id = s.spec_type_id
+		JOIN assets a ON a.id = s.asset_id
+		WHERE s.asset_id = $1 AND a.acquisition_id = $2
+		ORDER BY t.sort_order
+	`, assetID, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.AssetSpec
+	for rows.Next() {
+		s := &domain.AssetSpec{}
+		if err := rows.Scan(&s.ID, &s.AssetID, &s.SpecTypeID, &s.SpecCode, &s.SpecName, &s.Value); err != nil {
+			return nil, err
+		}
+		result = append(result, s)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error {
+	if err := r.ensureAssetInAcquisition(ctx, acquisitionID, assetID); err != nil {
+		return err
+	}
+	for _, c := range calcs {
+		_, err := r.db.Exec(ctx, `
+			INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (asset_id, calc_type_id) DO UPDATE SET unit=$3, value=$4
+		`, assetID, c.CalcTypeID, c.Unit, c.Value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT c.id, c.asset_id, c.calc_type_id, t.code, t.name, c.unit, c.value
+		FROM asset_calculation c
+		JOIN asset_calc_type t ON t.id = c.calc_type_id
+		JOIN assets a ON a.id = c.asset_id
+		WHERE c.asset_id = $1 AND a.acquisition_id = $2
+		ORDER BY t.sort_order
+	`, assetID, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.AssetCalculation
+	for rows.Next() {
+		c := &domain.AssetCalculation{}
+		if err := rows.Scan(&c.ID, &c.AssetID, &c.CalcTypeID, &c.CalcCode, &c.CalcName, &c.Unit, &c.Value); err != nil {
+			return nil, err
+		}
+		result = append(result, c)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error {
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2)
+		SELECT $1, $2, $3, $4
+		WHERE EXISTS (
+			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
+		)
+		ON CONFLICT (acquisition_id, parcel_id) DO UPDATE
+		SET land_area_m2=$3, base_price_per_m2=$4, updated_at=NOW()
+		RETURNING id, created_at, updated_at
+	`, v.AcquisitionID, v.ParcelID, v.LandAreaM2, v.BasePricePerM2,
+	).Scan(&v.ID, &v.CreatedAt, &v.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
+}
+
+func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
+	v := &domain.LandValuation{}
+	err := r.db.QueryRow(ctx, `
+		SELECT id, acquisition_id, parcel_id, land_area_m2, base_price_per_m2, created_at, updated_at
+		FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2
+	`, acquisitionID, parcelID).Scan(
+		&v.ID, &v.AcquisitionID, &v.ParcelID, &v.LandAreaM2, &v.BasePricePerM2, &v.CreatedAt, &v.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return v, nil
 }
 
 // ── Compensation CRUD ─────────────────────────────────────────────────────────
@@ -1641,22 +1829,33 @@ func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.
 }
 
 func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensation) error {
-	return r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO compensation (
 			acquisition_id, target_type, parcel_id, asset_id,
 			compensation_type, coverage_percent, amount, compensation_date,
 			note, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		)
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+		WHERE ($3 = '' OR EXISTS (
+			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$3
+		))
+		AND ($4::uuid IS NULL OR EXISTS (
+			SELECT 1 FROM assets WHERE acquisition_id=$1 AND id=$4
+		))
 		RETURNING id, created_at, updated_at
 	`, c.AcquisitionID, c.TargetType, c.ParcelID, c.AssetID,
 		c.CompensationType, c.CoveragePercent, c.Amount, c.CompensationDate,
 		c.Note, c.CreatedBy,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *landAcqRepo) UpdateCompensation(ctx context.Context, c *domain.Compensation) error {
 	// Татгалзсан үнэлгээг засварлахад автоматаар 'pending' болгоно
-	return r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		UPDATE compensation SET
 			target_type=$2, parcel_id=$3, asset_id=$4,
 			compensation_type=$5, coverage_percent=$6, amount=$7,
@@ -1666,15 +1865,32 @@ func (r *landAcqRepo) UpdateCompensation(ctx context.Context, c *domain.Compensa
 			reviewed_by = CASE WHEN status='rejected' THEN '' ELSE reviewed_by END,
 			reviewed_at = CASE WHEN status='rejected' THEN NULL ELSE reviewed_at END,
 			updated_at=NOW()
-		WHERE id=$1 RETURNING updated_at
+		WHERE id=$1 AND acquisition_id=$10
+		  AND ($3 = '' OR EXISTS (
+		      SELECT 1 FROM parcel WHERE acquisition_id=$10 AND parcel_id=$3
+		  ))
+		  AND ($4::uuid IS NULL OR EXISTS (
+		      SELECT 1 FROM assets WHERE acquisition_id=$10 AND id=$4
+		  ))
+		RETURNING updated_at
 	`, c.ID, c.TargetType, c.ParcelID, c.AssetID,
 		c.CompensationType, c.CoveragePercent, c.Amount,
-		c.CompensationDate, c.Note,
+		c.CompensationDate, c.Note, c.AcquisitionID,
 	).Scan(&c.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
-func (r *landAcqRepo) DeleteCompensation(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM compensation WHERE id=$1", id)
+func (r *landAcqRepo) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, "DELETE FROM compensation WHERE id=$1 AND acquisition_id=$2", id, acquisitionID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
 }
 
@@ -1695,18 +1911,23 @@ func (r *landAcqRepo) CreateCompensationGrant(ctx context.Context, g *domain.Com
 }
 
 func (r *landAcqRepo) UpdateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error {
-	return r.db.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		UPDATE compensation_grant SET
 			amount=$2, grant_date=$3, note=$4,
 			land_area_m2=$5, land_price=$6, land_location=$7,
 			land_purpose=$8, land_use_type=$9, parcel_number=$10,
 			decree_number=$11, updated_at=NOW()
-		WHERE compensation_id=$1 RETURNING updated_at
+		WHERE compensation_id=$1 AND acquisition_id=$12
+		RETURNING updated_at
 	`, g.CompensationID, g.Amount, g.GrantDate, g.Note,
 		g.LandAreaM2, g.LandPrice, g.LandLocation,
 		g.LandPurpose, g.LandUseType, g.ParcelNumber,
-		g.DecreeNumber,
+		g.DecreeNumber, g.AcquisitionID,
 	).Scan(&g.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return domain.ErrNotFound
+	}
+	return err
 }
 
 func (r *landAcqRepo) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*domain.CompensationGrant, error) {
@@ -1736,8 +1957,14 @@ func (r *landAcqRepo) DeleteCompensationGrant(ctx context.Context, id uuid.UUID)
 	return err
 }
 
-func (r *landAcqRepo) DeleteCompensationGrantByCompensationID(ctx context.Context, compensationID uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM compensation_grant WHERE compensation_id=$1", compensationID)
+func (r *landAcqRepo) DeleteCompensationGrantByCompensationID(ctx context.Context, acquisitionID, compensationID uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, "DELETE FROM compensation_grant WHERE compensation_id=$1 AND acquisition_id=$2", compensationID, acquisitionID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
 	return err
 }
 
@@ -2172,6 +2399,53 @@ func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, u
 	return exists, err
 }
 
+// IsProfMemberOfAcquisition — professional_org хэрэглэгч тухайн чөлөөлөлтийн
+// үндсэн байгуулга (professional_org_id) эсвэл аль нэгэн нэгж талбарын
+// хөндлөнгийн байгуулга (independent_org_id) мөн эсэхийг шалгана.
+func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM land_acquisition WHERE id = $1 AND professional_org_id = $2
+			UNION
+			SELECT 1 FROM parcel WHERE acquisition_id = $1 AND independent_org_id = $2
+		)
+	`, acquisitionID, userID).Scan(&exists)
+	return exists, err
+}
+
+// IsProfMemberOfParcel — professional_org хэрэглэгч parcel-ийн чөлөөлөлтийн
+// үндсэн байгуулга эсвэл тухайн parcel-ийн хөндлөнгийн байгуулга мөн эсэхийг шалгана.
+func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM parcel p
+			JOIN land_acquisition la ON la.id = p.acquisition_id
+			WHERE p.id = $1
+			  AND (la.professional_org_id = $2 OR p.independent_org_id = $2)
+		)
+	`, parcelID, userID).Scan(&exists)
+	return exists, err
+}
+
+func (r *landAcqRepo) ensureAssetInAcquisition(ctx context.Context, acquisitionID, assetID uuid.UUID) error {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM assets WHERE acquisition_id = $1 AND id = $2
+		)
+	`, acquisitionID, assetID).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 // ── Parcel Workflow ────────────────────────────────────────────────────────────
 
 func (r *landAcqRepo) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {
@@ -2403,7 +2677,7 @@ func (r *landAcqRepo) RejectCompensation(ctx context.Context, id uuid.UUID, note
 	return nil
 }
 
-func (r *landAcqRepo) ListCompensationHistory(ctx context.Context, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
+func (r *landAcqRepo) ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, compensation_id, acquisition_id, COALESCE(target_type,'asset'), COALESCE(parcel_id,''),
 		       asset_id, COALESCE(compensation_type,'cash'),
@@ -2412,9 +2686,9 @@ func (r *landAcqRepo) ListCompensationHistory(ctx context.Context, compensationI
 		       COALESCE(status,'rejected'), COALESCE(review_note,''),
 		       COALESCE(reviewed_by,''), reviewed_at, archived_at
 		FROM compensation_history
-		WHERE compensation_id=$1
+		WHERE compensation_id=$1 AND acquisition_id=$2
 		ORDER BY archived_at DESC
-	`, compensationID)
+	`, compensationID, acquisitionID)
 	if err != nil {
 		return nil, err
 	}
@@ -2728,6 +3002,92 @@ func (r *landAcqRepo) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (
 		return nil, domain.ErrNotFound
 	}
 	return gc, nil
+}
+
+func (r *landAcqRepo) ListAssetSpecTypes(ctx context.Context) ([]*domain.AssetSpecType, error) {
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order FROM asset_spec_type ORDER BY sort_order`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.AssetSpecType
+	for rows.Next() {
+		t := &domain.AssetSpecType{}
+		if err := rows.Scan(&t.ID, &t.Code, &t.Name, &t.SortOrder); err != nil {
+			return nil, err
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) CreateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO asset_spec_type (code, name, sort_order) VALUES ($1,$2,$3) RETURNING id
+	`, t.Code, t.Name, t.SortOrder).Scan(&t.ID)
+}
+
+func (r *landAcqRepo) UpdateAssetSpecType(ctx context.Context, t *domain.AssetSpecType) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE asset_spec_type SET code=$1, name=$2, sort_order=$3 WHERE id=$4
+	`, t.Code, t.Name, t.SortOrder, t.ID)
+	return err
+}
+
+func (r *landAcqRepo) DeleteAssetSpecType(ctx context.Context, id int) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM asset_spec_type WHERE id=$1`, id)
+	return err
+}
+
+func (r *landAcqRepo) ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCalcType, error) {
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, default_unit, sort_order FROM asset_calc_type ORDER BY sort_order`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.AssetCalcType
+	for rows.Next() {
+		t := &domain.AssetCalcType{}
+		if err := rows.Scan(&t.ID, &t.Code, &t.Name, &t.DefaultUnit, &t.SortOrder); err != nil {
+			return nil, err
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) CreateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	return r.db.QueryRow(ctx, `
+		INSERT INTO asset_calc_type (code, name, default_unit, sort_order) VALUES ($1,$2,$3,$4) RETURNING id
+	`, t.Code, t.Name, t.DefaultUnit, t.SortOrder).Scan(&t.ID)
+}
+
+func (r *landAcqRepo) UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE asset_calc_type SET code=$1, name=$2, default_unit=$3, sort_order=$4 WHERE id=$5
+	`, t.Code, t.Name, t.DefaultUnit, t.SortOrder, t.ID)
+	return err
+}
+
+func (r *landAcqRepo) DeleteAssetCalcType(ctx context.Context, id int) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM asset_calc_type WHERE id=$1`, id)
+	return err
+}
+
+func (r *landAcqRepo) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE land_acquisition SET professional_org_id = $2, updated_at = NOW() WHERE id = $1`,
+		acquisitionID, orgUserID,
+	)
+	return err
+}
+
+func (r *landAcqRepo) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE parcel SET independent_org_id = $3 WHERE id = $2 AND acquisition_id = $1`,
+		acqID, parcelID, orgUserID,
+	)
+	return err
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)
