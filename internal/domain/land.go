@@ -276,6 +276,9 @@ type Parcel struct {
 	StatusName         string
 	IndependentOrgID   *uuid.UUID
 	IndependentOrgName string
+	CashAmount         float64
+	LandGrantAmount    float64
+	LandGrantCount     int
 	CreatedAt          time.Time
 	CreatedBy          string
 }

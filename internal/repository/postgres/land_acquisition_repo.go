@@ -626,10 +626,13 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
-				       ''
-			FROM parcel p
-			LEFT JOIN parcel_status ps ON ps.id = p.status
-			WHERE %s
+				       '',
+				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash'), 0),
+				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
+				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0)
+				FROM parcel p
+				LEFT JOIN parcel_status ps ON ps.id = p.status
+				WHERE %s
 			ORDER BY p.parcel_id
 			LIMIT $%d OFFSET $%d
 		`, where, i, i+1),
@@ -657,6 +660,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.DbChanged, &p.ChangedParcelID,
 			&p.StatusID, &p.StatusName,
 			&p.IndependentOrgID, &p.IndependentOrgName,
+			&p.CashAmount, &p.LandGrantAmount, &p.LandGrantCount,
 		); err != nil {
 			return nil, 0, err
 		}

@@ -91,6 +91,16 @@ func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
 	}
 }
 
+func DenyAnyRole(blockedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hasAnyRole(c, blockedRoles...) {
+			response.Error(c, ErrForbidden)
+			return
+		}
+		c.Next()
+	}
+}
+
 func RequireOnlyRole(allowedRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rolesAny, exists := c.Get(CtxRoles)

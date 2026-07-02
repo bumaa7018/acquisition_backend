@@ -62,6 +62,9 @@ type parcelResponse struct {
 	StatusName         string   `json:"status_name"`
 	IndependentOrgID   *string  `json:"independent_org_id,omitempty"`
 	IndependentOrgName string   `json:"independent_org_name,omitempty"`
+	CashAmount         float64  `json:"cash_amount"`
+	LandGrantAmount    float64  `json:"land_grant_amount"`
+	LandGrantCount     int      `json:"land_grant_count"`
 	GeometryWKT        string   `json:"geometry_wkt,omitempty"`
 }
 
@@ -540,6 +543,8 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 			AcquisitionAreaM2: p.AcquisitionAreaM2, RemainingAreaM2: p.RemainingAreaM2,
 			CompensationPaid: p.CompensationPaid, DbChanged: p.DbChanged,
 			ChangedParcelID: p.ChangedParcelID,
+			CashAmount:      p.CashAmount, LandGrantAmount: p.LandGrantAmount,
+			LandGrantCount: p.LandGrantCount,
 		})
 	}
 	return r
@@ -564,6 +569,9 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 		StatusName:         p.StatusName,
 		GeometryWKT:        p.GeometryWKT,
 		IndependentOrgName: p.IndependentOrgName,
+		CashAmount:         p.CashAmount,
+		LandGrantAmount:    p.LandGrantAmount,
+		LandGrantCount:     p.LandGrantCount,
 	}
 	if p.IndependentOrgID != nil {
 		s := p.IndependentOrgID.String()

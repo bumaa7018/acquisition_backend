@@ -117,7 +117,7 @@ func NewRouter(
 		land := protected.Group("/land-acquisitions")
 		land.Use(notLocked)
 		{
-			land.GET("", middleware.RequirePermission("land:read"), landH.List)
+			land.GET("", middleware.DenyAnyRole("professional_org"), middleware.RequirePermission("land:read"), landH.List)
 			land.GET("/suggest", middleware.RequirePermission("land:read"), landH.Suggest)
 			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware

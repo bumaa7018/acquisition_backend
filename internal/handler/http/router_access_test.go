@@ -188,6 +188,43 @@ func TestRouter_GeneralLandAcquisition_DeniesProfessionalOrgWhenNotAssigned(t *t
 	landSvc.AssertNotCalled(t, "GetByID", mock.Anything, mock.Anything)
 }
 
+func TestRouter_GeneralLandAcquisitionList_DeniesProfessionalOrg(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
+		ID:          uuid.New(),
+		Username:    "professional_primary",
+		Roles:       []string{"professional_org"},
+		Permissions: []string{"land:read"},
+	})
+	require.NoError(t, err)
+
+	landSvc := &mocks.MockLandService{}
+	router := handler.NewRouter(
+		nil,
+		jwtManager,
+		nil,
+		nil,
+		nil,
+		nil,
+		landSvc,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions?status=1&page=1&page_size=15", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenPair.AccessToken)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	landSvc.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
+}
+
 func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
