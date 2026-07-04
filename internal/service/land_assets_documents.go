@@ -98,6 +98,14 @@ func (s *landService) GetLandValuation(ctx context.Context, acquisitionID uuid.U
 	return s.landRepo.GetLandValuation(ctx, acquisitionID, parcelID)
 }
 
+func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
+	return s.landRepo.DeleteLandValuation(ctx, acquisitionID, parcelID)
+}
+
+func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
+	return s.landRepo.ImportValuation(ctx, acquisitionID, imp)
+}
+
 func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
 	return s.landRepo.ListCompensations(ctx, acquisitionID, parcelID)
 }

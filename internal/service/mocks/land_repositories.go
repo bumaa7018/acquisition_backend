@@ -647,3 +647,15 @@ func (m *MockLandAcquisitionRepository) GetLandValuation(ctx context.Context, ac
 	}
 	return args.Get(0).(*domain.LandValuation), args.Error(1)
 }
+
+func (m *MockLandAcquisitionRepository) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
+	return m.Called(ctx, acquisitionID, parcelID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
+	args := m.Called(ctx, acquisitionID, imp)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ValuationImportResult), args.Error(1)
+}

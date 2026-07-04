@@ -66,6 +66,8 @@ type LandAssetService interface {
 	DeleteAssetCalcType(ctx context.Context, id int) error
 	UpsertLandValuation(ctx context.Context, v *domain.LandValuation) (*domain.LandValuation, error)
 	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error)
+	DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error
+	ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error)
 }
 
 type LandCompensationService interface {

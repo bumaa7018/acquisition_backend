@@ -228,6 +228,7 @@ type assetResponse struct {
 	Unit          string  `json:"unit"`
 	Capacity      string  `json:"capacity"`
 	Description   string  `json:"description"`
+	UnitPrice     float64 `json:"unit_price"`
 	CreatedAt     string  `json:"created_at"`
 	UpdatedAt     string  `json:"updated_at"`
 }
@@ -248,6 +249,7 @@ func toAssetResponse(b *domain.Asset) assetResponse {
 		Unit:          b.Unit,
 		Capacity:      b.Capacity,
 		Description:   b.Description,
+		UnitPrice:     b.UnitPrice,
 		CreatedAt:     b.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:     b.UpdatedAt.Format(time.RFC3339),
 	}
@@ -268,6 +270,7 @@ type assetCalcResponse struct {
 	CalcTypeID int     `json:"calc_type_id"`
 	CalcCode   string  `json:"calc_code"`
 	CalcName   string  `json:"calc_name"`
+	CalcGroup  string  `json:"calc_group"`
 	Unit       string  `json:"unit"`
 	Value      float64 `json:"value"`
 }
@@ -282,32 +285,52 @@ func toAssetSpecResponse(s *domain.AssetSpec) assetSpecResponse {
 func toAssetCalcResponse(c *domain.AssetCalculation) assetCalcResponse {
 	return assetCalcResponse{
 		ID: c.ID.String(), AssetID: c.AssetID.String(),
-		CalcTypeID: c.CalcTypeID, CalcCode: c.CalcCode, CalcName: c.CalcName,
+		CalcTypeID: c.CalcTypeID, CalcCode: c.CalcCode, CalcName: c.CalcName, CalcGroup: c.CalcGroup,
 		Unit: c.Unit, Value: c.Value,
 	}
 }
 
 type landValuationResponse struct {
-	ID             string  `json:"id"`
-	AcquisitionID  string  `json:"acquisition_id"`
-	ParcelID       string  `json:"parcel_id"`
-	LandAreaM2     float64 `json:"land_area_m2"`
-	BasePricePerM2 float64 `json:"base_price_per_m2"`
-	TotalValue     float64 `json:"total_value"`
-	CreatedAt      string  `json:"created_at"`
-	UpdatedAt      string  `json:"updated_at"`
+	ID                  string  `json:"id"`
+	AcquisitionID       string  `json:"acquisition_id"`
+	ParcelID            string  `json:"parcel_id"`
+	LandAreaM2          float64 `json:"land_area_m2"`
+	BasePricePerM2      float64 `json:"base_price_per_m2"`
+	TotalValue          float64 `json:"total_value"`
+	OwnershipCertNo     string  `json:"ownership_cert_no"`
+	AppraiserOrgName    string  `json:"appraiser_org_name"`
+	AppraiserRegNo      string  `json:"appraiser_reg_no"`
+	AppraiserStateRegNo string  `json:"appraiser_state_reg_no"`
+	AppraiserDirector   string  `json:"appraiser_director"`
+	AppraiserLicense    string  `json:"appraiser_license"`
+	AppraiserAddress    string  `json:"appraiser_address"`
+	AppraiserContact    string  `json:"appraiser_contact"`
+	SourceFileName      string  `json:"source_file_name"`
+	SourceFileHash      string  `json:"source_file_hash"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
 }
 
 func toLandValuationResponse(v *domain.LandValuation) landValuationResponse {
 	return landValuationResponse{
-		ID:             v.ID.String(),
-		AcquisitionID:  v.AcquisitionID.String(),
-		ParcelID:       v.ParcelID,
-		LandAreaM2:     v.LandAreaM2,
-		BasePricePerM2: v.BasePricePerM2,
-		TotalValue:     v.LandAreaM2 * v.BasePricePerM2,
-		CreatedAt:      v.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:      v.UpdatedAt.Format(time.RFC3339),
+		ID:                  v.ID.String(),
+		AcquisitionID:       v.AcquisitionID.String(),
+		ParcelID:            v.ParcelID,
+		LandAreaM2:          v.LandAreaM2,
+		BasePricePerM2:      v.BasePricePerM2,
+		TotalValue:          v.LandAreaM2 * v.BasePricePerM2,
+		OwnershipCertNo:     v.OwnershipCertNo,
+		AppraiserOrgName:    v.AppraiserOrgName,
+		AppraiserRegNo:      v.AppraiserRegNo,
+		AppraiserStateRegNo: v.AppraiserStateRegNo,
+		AppraiserDirector:   v.AppraiserDirector,
+		AppraiserLicense:    v.AppraiserLicense,
+		AppraiserAddress:    v.AppraiserAddress,
+		AppraiserContact:    v.AppraiserContact,
+		SourceFileName:      v.SourceFileName,
+		SourceFileHash:      v.SourceFileHash,
+		CreatedAt:           v.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:           v.UpdatedAt.Format(time.RFC3339),
 	}
 }
 

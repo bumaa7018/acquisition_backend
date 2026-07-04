@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -1533,7 +1534,7 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 	rows, err := r.db.Query(ctx, `
 		SELECT id, acquisition_id, parcel_id, asset_number, asset_type, asset_name,
 		       floor_count, area_m2, owner_name, address, notes,
-		       unit, capacity, description, created_at, updated_at
+		       unit, capacity, description, unit_price, created_at, updated_at
 		FROM assets `+where+` ORDER BY created_at DESC
 	`, args...)
 	if err != nil {
@@ -1546,7 +1547,7 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 		if err := rows.Scan(
 			&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber, &b.AssetType, &b.AssetName,
 			&b.FloorCount, &b.AreaM2, &b.OwnerName, &b.Address, &b.Notes,
-			&b.Unit, &b.Capacity, &b.Description, &b.CreatedAt, &b.UpdatedAt,
+			&b.Unit, &b.Capacity, &b.Description, &b.UnitPrice, &b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -1558,8 +1559,8 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
-		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price)
+		SELECT $1::uuid,$2::varchar,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
 		WHERE EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
 		)
@@ -1567,7 +1568,7 @@ func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	`,
 		b.AcquisitionID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
 		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
-		b.Unit, b.Capacity, b.Description,
+		b.Unit, b.Capacity, b.Description, b.UnitPrice,
 	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
@@ -1579,15 +1580,15 @@ func (r *landAcqRepo) UpdateAsset(ctx context.Context, b *domain.Asset) error {
 	err := r.db.QueryRow(ctx, `
 		UPDATE assets SET parcel_id=$2, asset_number=$3, asset_type=$4, asset_name=$5,
 		    floor_count=$6, area_m2=$7, owner_name=$8, address=$9, notes=$10,
-		    unit=$11, capacity=$12, description=$13, updated_at=NOW()
-		WHERE id=$1 AND acquisition_id=$14
+		    unit=$11, capacity=$12, description=$13, unit_price=$14, updated_at=NOW()
+		WHERE id=$1 AND acquisition_id=$15
 		  AND EXISTS (
-		      SELECT 1 FROM parcel WHERE acquisition_id=$14 AND parcel_id=$2
+		      SELECT 1 FROM parcel WHERE acquisition_id=$15 AND parcel_id=$2
 		  )
 		RETURNING updated_at
 	`, b.ID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
 		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
-		b.Unit, b.Capacity, b.Description, b.AcquisitionID,
+		b.Unit, b.Capacity, b.Description, b.UnitPrice, b.AcquisitionID,
 	).Scan(&b.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
@@ -1666,12 +1667,12 @@ func (r *landAcqRepo) UpsertAssetCalculations(ctx context.Context, acquisitionID
 
 func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.asset_id, c.calc_type_id, t.code, t.name, c.unit, c.value
+		SELECT c.id, c.asset_id, c.calc_type_id, t.code, t.name, COALESCE(t.grp,''), c.unit, c.value
 		FROM asset_calculation c
 		JOIN asset_calc_type t ON t.id = c.calc_type_id
 		JOIN assets a ON a.id = c.asset_id
 		WHERE c.asset_id = $1 AND a.acquisition_id = $2
-		ORDER BY t.sort_order
+		ORDER BY c.sort_index, t.sort_order
 	`, assetID, acquisitionID)
 	if err != nil {
 		return nil, err
@@ -1680,7 +1681,7 @@ func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, 
 	var result []*domain.AssetCalculation
 	for rows.Next() {
 		c := &domain.AssetCalculation{}
-		if err := rows.Scan(&c.ID, &c.AssetID, &c.CalcTypeID, &c.CalcCode, &c.CalcName, &c.Unit, &c.Value); err != nil {
+		if err := rows.Scan(&c.ID, &c.AssetID, &c.CalcTypeID, &c.CalcCode, &c.CalcName, &c.CalcGroup, &c.Unit, &c.Value); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
@@ -1690,15 +1691,24 @@ func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, 
 
 func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error {
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2)
-		SELECT $1, $2, $3, $4
+		INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+			ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
+			appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
+			source_file_name, source_file_hash)
+		SELECT $1::uuid,$2::varchar,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
 		WHERE EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
 		)
 		ON CONFLICT (acquisition_id, parcel_id) DO UPDATE
-		SET land_area_m2=$3, base_price_per_m2=$4, updated_at=NOW()
+		SET land_area_m2=$3, base_price_per_m2=$4,
+			ownership_cert_no=$5, appraiser_org_name=$6, appraiser_reg_no=$7, appraiser_state_reg_no=$8,
+			appraiser_director=$9, appraiser_license=$10, appraiser_address=$11, appraiser_contact=$12,
+			source_file_name=$13, source_file_hash=$14, updated_at=NOW()
 		RETURNING id, created_at, updated_at
 	`, v.AcquisitionID, v.ParcelID, v.LandAreaM2, v.BasePricePerM2,
+		v.OwnershipCertNo, v.AppraiserOrgName, v.AppraiserRegNo, v.AppraiserStateRegNo,
+		v.AppraiserDirector, v.AppraiserLicense, v.AppraiserAddress, v.AppraiserContact,
+		v.SourceFileName, v.SourceFileHash,
 	).Scan(&v.ID, &v.CreatedAt, &v.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
@@ -1709,15 +1719,180 @@ func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandVal
 func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
 	v := &domain.LandValuation{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, acquisition_id, parcel_id, land_area_m2, base_price_per_m2, created_at, updated_at
+		SELECT id, acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+			ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
+			appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
+			source_file_name, source_file_hash, created_at, updated_at
 		FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2
 	`, acquisitionID, parcelID).Scan(
-		&v.ID, &v.AcquisitionID, &v.ParcelID, &v.LandAreaM2, &v.BasePricePerM2, &v.CreatedAt, &v.UpdatedAt,
+		&v.ID, &v.AcquisitionID, &v.ParcelID, &v.LandAreaM2, &v.BasePricePerM2,
+		&v.OwnershipCertNo, &v.AppraiserOrgName, &v.AppraiserRegNo, &v.AppraiserStateRegNo,
+		&v.AppraiserDirector, &v.AppraiserLicense, &v.AppraiserAddress, &v.AppraiserContact,
+		&v.SourceFileName, &v.SourceFileHash, &v.CreatedAt, &v.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return v, nil
+}
+
+// DeleteLandValuation — нэгж талбарын газрын үнэлгээг устгана.
+func (r *landAcqRepo) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
+	ct, err := r.db.Exec(ctx,
+		"DELETE FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, parcelID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// upsertCalcTypeByName — тооцооллын төрлийг нэрээр нь олж, байхгүй бол шинээр үүсгэж id буцаана.
+// (Excel-ийн барилгын өртгийн хандлагын шинэ мөр/итгэлцүүрийг бүрэн хадгалахад ашиглана.)
+func upsertCalcTypeByName(ctx context.Context, tx pgx.Tx, name, unit, grp string) (int, error) {
+	var id int
+	err := tx.QueryRow(ctx, "SELECT id FROM asset_calc_type WHERE name=$1 LIMIT 1", name).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if err != pgx.ErrNoRows {
+		return 0, err
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	code := fmt.Sprintf("imp_%08x", h.Sum32())
+	if unit == "" {
+		unit = "коэф"
+	}
+	// sort_order 7 — итгэлцүүрүүдийн дунд (нөхөн орлуулах өртөг=10-аас өмнө) байрлуулна
+	err = tx.QueryRow(ctx, `
+		INSERT INTO asset_calc_type (code, name, default_unit, sort_order, grp) VALUES ($1,$2,$3,7,$4)
+		ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name, grp=EXCLUDED.grp
+		RETURNING id
+	`, code, name, unit, grp).Scan(&id)
+	return id, err
+}
+
+// ImportValuation — бүхэл нэгж талбарын үнэлгээг НЭГ ТРАНЗАКЦААР оруулна.
+// Replace=true бол хуучин олговор/хөрөнгийг эхлээд устгаж, дараа нь газрын үнэлгээ,
+// хөрөнгө, spec, calc, нөхөн олговрыг бүгдийг нэг дор бичнэ. Аль нэг алдвал бүгд rollback.
+func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	res := &domain.ValuationImportResult{}
+
+	// Нэгж талбар уг чөлөөлөлтөд хамаарах эсэхийг шалгах
+	var exists bool
+	if err = tx.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2)",
+		acquisitionID, imp.ParcelID,
+	).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, domain.ErrNotFound
+	}
+
+	// 0. Хуучин мэдээлэл цэвэрлэх (эхлээд олговор, дараа нь хөрөнгө)
+	if imp.Replace {
+		ct, e := tx.Exec(ctx, "DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, imp.ParcelID)
+		if e != nil {
+			return nil, e
+		}
+		res.DeletedComps = int(ct.RowsAffected())
+		ct, e = tx.Exec(ctx, "DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, imp.ParcelID)
+		if e != nil {
+			return nil, e
+		}
+		res.DeletedAssets = int(ct.RowsAffected())
+	}
+
+	// 1. Газрын үнэлгээ (утга байвал upsert)
+	l := imp.Land
+	if l.LandAreaM2 != 0 || l.BasePricePerM2 != 0 || l.OwnershipCertNo != "" || l.AppraiserOrgName != "" {
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+				ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
+				appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
+				source_file_name, source_file_hash)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			ON CONFLICT (acquisition_id, parcel_id) DO UPDATE
+			SET land_area_m2=$3, base_price_per_m2=$4,
+				ownership_cert_no=$5, appraiser_org_name=$6, appraiser_reg_no=$7, appraiser_state_reg_no=$8,
+				appraiser_director=$9, appraiser_license=$10, appraiser_address=$11, appraiser_contact=$12,
+				source_file_name=$13, source_file_hash=$14, updated_at=NOW()
+		`, acquisitionID, imp.ParcelID, l.LandAreaM2, l.BasePricePerM2,
+			l.OwnershipCertNo, l.AppraiserOrgName, l.AppraiserRegNo, l.AppraiserStateRegNo,
+			l.AppraiserDirector, l.AppraiserLicense, l.AppraiserAddress, l.AppraiserContact,
+			l.SourceFileName, l.SourceFileHash); err != nil {
+			return nil, err
+		}
+	}
+
+	// 2. Хөрөнгө бүр → asset + spec + calc + нөхөн олговор
+	for _, a := range imp.Assets {
+		var assetID uuid.UUID
+		if err = tx.QueryRow(ctx, `
+			INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
+				floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price)
+			VALUES ($1,$2,$3,$4,$5,0,$6,$7,'',$8,$9,$10,$11,$12)
+			RETURNING id
+		`, acquisitionID, imp.ParcelID, a.AssetNumber, a.AssetType, a.AssetName,
+			a.AreaM2, a.OwnerName, a.Notes, a.Unit, a.Capacity, a.Description, a.UnitPrice).Scan(&assetID); err != nil {
+			return nil, err
+		}
+		res.CreatedAssets++
+
+		for _, s := range a.Specs {
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO asset_spec (asset_id, spec_type_id, value) VALUES ($1,$2,$3)
+				ON CONFLICT (asset_id, spec_type_id) DO UPDATE SET value=$3
+			`, assetID, s.SpecTypeID, s.Value); err != nil {
+				return nil, err
+			}
+		}
+		for idx, c := range a.Calculations {
+			ctid := c.CalcTypeID
+			// calc_type_id байхгүй бол нэрээр нь олж, байхгүй бол шинээр үүсгэнэ
+			// (загварт шинэ үзүүлэлт/итгэлцүүр нэмэгдсэн ч бүрэн хадгалагдана).
+			if ctid == 0 && c.CalcName != "" {
+				if ctid, err = upsertCalcTypeByName(ctx, tx, c.CalcName, c.Unit, c.CalcGroup); err != nil {
+					return nil, err
+				}
+			}
+			if ctid == 0 {
+				continue
+			}
+			// sort_index = файл дахь мөрийн дараалал (харуулахдаа энэ дарааллыг сэргээнэ)
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value, sort_index) VALUES ($1,$2,$3,$4,$5)
+				ON CONFLICT (asset_id, calc_type_id) DO UPDATE SET unit=$3, value=$4, sort_index=$5
+			`, assetID, ctid, c.Unit, c.Value, idx); err != nil {
+				return nil, err
+			}
+		}
+		if a.CompensationAmount > 0 {
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO compensation (acquisition_id, target_type, parcel_id, asset_id,
+					compensation_type, coverage_percent, amount, note, created_by)
+				VALUES ($1,'asset',$2,$3,'cash',100,$4,'Excel-ээс импортолсон үнэлгээ',$5)
+			`, acquisitionID, imp.ParcelID, assetID, a.CompensationAmount, imp.CreatedBy); err != nil {
+				return nil, err
+			}
+			res.CreatedComps++
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // ── Compensation CRUD ─────────────────────────────────────────────────────────
@@ -1839,7 +2014,7 @@ func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensa
 			compensation_type, coverage_percent, amount, compensation_date,
 			note, created_by
 		)
-		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+		SELECT $1::uuid,$2,$3::varchar,$4::uuid,$5,$6,$7,$8,$9,$10
 		WHERE ($3 = '' OR EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$3
 		))

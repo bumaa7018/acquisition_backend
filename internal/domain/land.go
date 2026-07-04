@@ -436,6 +436,7 @@ type Asset struct {
 	Unit          string    `json:"unit"`
 	Capacity      string    `json:"capacity"`
 	Description   string    `json:"description"`
+	UnitPrice     float64   `json:"unit_price"` // нэгж үнэ (Бусад хөрөнгө хүснэгтээс)
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -455,6 +456,7 @@ type AssetCalcType struct {
 	Name        string `json:"name"`
 	DefaultUnit string `json:"default_unit"`
 	SortOrder   int    `json:"sort_order"`
+	Grp         string `json:"grp"` // бүлгийн нэр (Итгэлцүүр г.м) — байхгүй бол хоосон
 }
 
 // AssetSpec — барилгын нэг үзүүлэлтийн утга (asset_spec хүснэгт)
@@ -474,6 +476,7 @@ type AssetCalculation struct {
 	CalcTypeID int       `json:"calc_type_id"`
 	CalcCode   string    `json:"calc_code"`
 	CalcName   string    `json:"calc_name"`
+	CalcGroup  string    `json:"calc_group"` // бүлгийн нэр (asset_calc_type.grp-ээс)
 	Unit       string    `json:"unit"`
 	Value      float64   `json:"value"`
 }
@@ -485,8 +488,55 @@ type LandValuation struct {
 	ParcelID       string    `json:"parcel_id"`
 	LandAreaM2     float64   `json:"land_area_m2"`
 	BasePricePerM2 float64   `json:"base_price_per_m2"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// Excel импортоор ирдэг нэмэлт мэдээлэл (үнэлгээний тайлангийн метадата)
+	OwnershipCertNo     string    `json:"ownership_cert_no"`      // өмчлөх эрхийн гэрчилгээ
+	AppraiserOrgName    string    `json:"appraiser_org_name"`     // үнэлгээ хийсэн байгууллага
+	AppraiserRegNo      string    `json:"appraiser_reg_no"`       // регистрийн дугаар
+	AppraiserStateRegNo string    `json:"appraiser_state_reg_no"` // улсын бүртгэлийн дугаар
+	AppraiserDirector   string    `json:"appraiser_director"`     // захирал
+	AppraiserLicense    string    `json:"appraiser_license"`      // тусгай зөвшөөрөл
+	AppraiserAddress    string    `json:"appraiser_address"`
+	AppraiserContact    string    `json:"appraiser_contact"`
+	SourceFileName      string    `json:"source_file_name"` // эх Excel файлын нэр
+	SourceFileHash      string    `json:"source_file_hash"` // давхардал шалгах SHA-256
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// ── Excel-ээс бөөнөөр оруулах (нэг транзакц, олон API дуудлагыг орлоно) ──
+
+// ValuationImportAsset — импортод орох нэг хөрөнгө + түүний spec/calc/олговор
+type ValuationImportAsset struct {
+	AssetNumber        string
+	AssetType          string
+	AssetName          string
+	AreaM2             float64
+	Unit               string
+	Capacity           string
+	Description        string
+	OwnerName          string
+	Notes              string
+	UnitPrice          float64
+	Specs              []AssetSpec        // зөвхөн SpecTypeID + Value ашиглана
+	Calculations       []AssetCalculation // зөвхөн CalcTypeID + Unit + Value ашиглана
+	CompensationAmount float64            // >0 бол cash нөхөн олговор үүсгэнэ
+}
+
+// ValuationImport — бүхэл нэгж талбарын үнэлгээг нэг дор оруулах хүсэлт
+type ValuationImport struct {
+	ParcelID  string
+	Replace   bool // true бол уг талбарын хуучин хөрөнгө/олговрыг эхлээд устгана
+	Land      LandValuation
+	Assets    []ValuationImportAsset
+	CreatedBy string
+}
+
+// ValuationImportResult — импортын дүн
+type ValuationImportResult struct {
+	DeletedAssets int `json:"deleted_assets"`
+	DeletedComps  int `json:"deleted_comps"`
+	CreatedAssets int `json:"created_assets"`
+	CreatedComps  int `json:"created_comps"`
 }
 
 // CompensationGrant — газар олгох олговрын бичлэг

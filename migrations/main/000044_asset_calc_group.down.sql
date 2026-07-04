@@ -1,0 +1,1 @@
+ALTER TABLE asset_calc_type DROP COLUMN IF EXISTS grp;

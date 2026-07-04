@@ -1185,6 +1185,7 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 		Unit                 string  `json:"unit"`
 		Capacity             string  `json:"capacity"`
 		Description          string  `json:"description"`
+		UnitPrice            float64 `json:"unit_price"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -1212,6 +1213,7 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 		Unit:          body.Unit,
 		Capacity:      body.Capacity,
 		Description:   body.Description,
+		UnitPrice:     body.UnitPrice,
 	}
 
 	created, err := h.svc.CreateAsset(c.Request.Context(), b)
@@ -1261,6 +1263,7 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		Unit                 string  `json:"unit"`
 		Capacity             string  `json:"capacity"`
 		Description          string  `json:"description"`
+		UnitPrice            float64 `json:"unit_price"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -1289,6 +1292,7 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		Unit:          body.Unit,
 		Capacity:      body.Capacity,
 		Description:   body.Description,
+		UnitPrice:     body.UnitPrice,
 	}
 
 	updated, err := h.svc.UpdateAsset(c.Request.Context(), b)
@@ -1454,16 +1458,37 @@ func (h *LandHandler) UpsertLandValuation(c *gin.Context) {
 		ParcelID       string  `json:"parcel_id" binding:"required"`
 		LandAreaM2     float64 `json:"land_area_m2"`
 		BasePricePerM2 float64 `json:"base_price_per_m2"`
+		// Excel импортоор ирдэг нэмэлт талбарууд (заавал биш)
+		OwnershipCertNo     string `json:"ownership_cert_no"`
+		AppraiserOrgName    string `json:"appraiser_org_name"`
+		AppraiserRegNo      string `json:"appraiser_reg_no"`
+		AppraiserStateRegNo string `json:"appraiser_state_reg_no"`
+		AppraiserDirector   string `json:"appraiser_director"`
+		AppraiserLicense    string `json:"appraiser_license"`
+		AppraiserAddress    string `json:"appraiser_address"`
+		AppraiserContact    string `json:"appraiser_contact"`
+		SourceFileName      string `json:"source_file_name"`
+		SourceFileHash      string `json:"source_file_hash"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 	v := &domain.LandValuation{
-		AcquisitionID:  acqID,
-		ParcelID:       body.ParcelID,
-		LandAreaM2:     body.LandAreaM2,
-		BasePricePerM2: body.BasePricePerM2,
+		AcquisitionID:       acqID,
+		ParcelID:            body.ParcelID,
+		LandAreaM2:          body.LandAreaM2,
+		BasePricePerM2:      body.BasePricePerM2,
+		OwnershipCertNo:     body.OwnershipCertNo,
+		AppraiserOrgName:    body.AppraiserOrgName,
+		AppraiserRegNo:      body.AppraiserRegNo,
+		AppraiserStateRegNo: body.AppraiserStateRegNo,
+		AppraiserDirector:   body.AppraiserDirector,
+		AppraiserLicense:    body.AppraiserLicense,
+		AppraiserAddress:    body.AppraiserAddress,
+		AppraiserContact:    body.AppraiserContact,
+		SourceFileName:      body.SourceFileName,
+		SourceFileHash:      body.SourceFileHash,
 	}
 	saved, err := h.svc.UpsertLandValuation(c.Request.Context(), v)
 	if err != nil {
@@ -1491,6 +1516,134 @@ func (h *LandHandler) GetLandValuation(c *gin.Context) {
 		return
 	}
 	response.OK(c, toLandValuationResponse(v))
+}
+
+// DeleteLandValuation — нэгж талбарын газрын үнэлгээг устгана.
+func (h *LandHandler) DeleteLandValuation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Query("parcel_id")
+	if parcelID == "" {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	if err := h.svc.DeleteLandValuation(c.Request.Context(), acqID, parcelID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
+}
+
+// ImportValuation — Excel-ээс задлан авсан бүхэл үнэлгээг НЭГ хүсэлтээр (нэг транзакц) оруулна.
+func (h *LandHandler) ImportValuation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		ParcelID string `json:"parcel_id" binding:"required"`
+		Replace  bool   `json:"replace"`
+		Land     struct {
+			LandAreaM2          float64 `json:"land_area_m2"`
+			BasePricePerM2      float64 `json:"base_price_per_m2"`
+			OwnershipCertNo     string  `json:"ownership_cert_no"`
+			AppraiserOrgName    string  `json:"appraiser_org_name"`
+			AppraiserRegNo      string  `json:"appraiser_reg_no"`
+			AppraiserStateRegNo string  `json:"appraiser_state_reg_no"`
+			AppraiserDirector   string  `json:"appraiser_director"`
+			AppraiserLicense    string  `json:"appraiser_license"`
+			AppraiserAddress    string  `json:"appraiser_address"`
+			AppraiserContact    string  `json:"appraiser_contact"`
+			SourceFileName      string  `json:"source_file_name"`
+			SourceFileHash      string  `json:"source_file_hash"`
+		} `json:"land"`
+		Assets []struct {
+			AssetNumber        string  `json:"asset_number"`
+			AssetType          string  `json:"asset_type"`
+			AssetName          string  `json:"asset_name"`
+			AreaM2             float64 `json:"area_m2"`
+			Unit               string  `json:"unit"`
+			Capacity           string  `json:"capacity"`
+			Description        string  `json:"description"`
+			OwnerName          string  `json:"owner_name"`
+			Notes              string  `json:"notes"`
+			UnitPrice          float64 `json:"unit_price"`
+			CompensationAmount float64 `json:"compensation_amount"`
+			Specs              []struct {
+				SpecTypeID int    `json:"spec_type_id"`
+				Value      string `json:"value"`
+			} `json:"specs"`
+			Calculations []struct {
+				CalcTypeID int     `json:"calc_type_id"`
+				Name       string  `json:"name"`  // calc_type_id байхгүй бол нэрээр нь олж/үүсгэнэ
+				Group      string  `json:"group"` // бүлгийн нэр (Итгэлцүүр г.м)
+				Unit       string  `json:"unit"`
+				Value      float64 `json:"value"`
+			} `json:"calculations"`
+		} `json:"assets"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+
+	createdBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		createdBy = uid.(uuid.UUID).String()
+	}
+
+	imp := &domain.ValuationImport{
+		ParcelID:  body.ParcelID,
+		Replace:   body.Replace,
+		CreatedBy: createdBy,
+		Land: domain.LandValuation{
+			LandAreaM2:          body.Land.LandAreaM2,
+			BasePricePerM2:      body.Land.BasePricePerM2,
+			OwnershipCertNo:     body.Land.OwnershipCertNo,
+			AppraiserOrgName:    body.Land.AppraiserOrgName,
+			AppraiserRegNo:      body.Land.AppraiserRegNo,
+			AppraiserStateRegNo: body.Land.AppraiserStateRegNo,
+			AppraiserDirector:   body.Land.AppraiserDirector,
+			AppraiserLicense:    body.Land.AppraiserLicense,
+			AppraiserAddress:    body.Land.AppraiserAddress,
+			AppraiserContact:    body.Land.AppraiserContact,
+			SourceFileName:      body.Land.SourceFileName,
+			SourceFileHash:      body.Land.SourceFileHash,
+		},
+	}
+	for _, a := range body.Assets {
+		ia := domain.ValuationImportAsset{
+			AssetNumber:        a.AssetNumber,
+			AssetType:          normalizeAssetRecordType(a.AssetType),
+			AssetName:          a.AssetName,
+			AreaM2:             a.AreaM2,
+			Unit:               a.Unit,
+			Capacity:           a.Capacity,
+			Description:        a.Description,
+			OwnerName:          a.OwnerName,
+			Notes:              a.Notes,
+			UnitPrice:          a.UnitPrice,
+			CompensationAmount: a.CompensationAmount,
+		}
+		for _, s := range a.Specs {
+			ia.Specs = append(ia.Specs, domain.AssetSpec{SpecTypeID: s.SpecTypeID, Value: s.Value})
+		}
+		for _, cc := range a.Calculations {
+			ia.Calculations = append(ia.Calculations, domain.AssetCalculation{CalcTypeID: cc.CalcTypeID, CalcName: cc.Name, CalcGroup: cc.Group, Unit: cc.Unit, Value: cc.Value})
+		}
+		imp.Assets = append(imp.Assets, ia)
+	}
+
+	res, err := h.svc.ImportValuation(c.Request.Context(), acqID, imp)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.Created(c, res)
 }
 
 // ListCompensations lists compensations for an acquisition
