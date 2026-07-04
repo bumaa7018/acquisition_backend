@@ -207,6 +207,19 @@ func (m *MockLandService) DeleteAcquisitionDocument(ctx context.Context, acquisi
 	return m.Called(ctx, acquisitionID, documentID).Error(0)
 }
 
+func (m *MockLandService) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
+	return m.Called(ctx, acquisitionID, parcelID).Error(0)
+}
+
+func (m *MockLandService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
+	args := m.Called(ctx, acquisitionID, imp)
+	var res *domain.ValuationImportResult
+	if v := args.Get(0); v != nil {
+		res = v.(*domain.ValuationImportResult)
+	}
+	return res, args.Error(1)
+}
+
 func (m *MockLandService) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
 	return m.Called(ctx, parcelID, paid).Error(0)
 }
