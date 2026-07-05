@@ -161,10 +161,21 @@ func main() {
 }
 
 func connectDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	// Dashboard зэрэг handler-ууд нэг хүсэлтэд хэд хэдэн асуулгыг зэрэг ажиллуулдаг
+	// тул pgx-ийн анхдагч MaxConns (≈CPU тоо) хурдан дүүрч, хүсэлтүүд холболт
+	// хүлээж түгжирдэг. Pool-ийг өргөн байлгаж түгжрэлээс сэргийлнэ.
+	cfg.MaxConns = 30
+	cfg.MinConns = 2
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.MaxConnLifetime = time.Hour
+
 	var db *pgxpool.Pool
-	var err error
 	for i := 0; i < 10; i++ {
-		db, err = pgxpool.New(ctx, dsn)
+		db, err = pgxpool.NewWithConfig(ctx, cfg)
 		if err == nil {
 			if pingErr := db.Ping(ctx); pingErr == nil {
 				slog.Info("database connected")

@@ -52,6 +52,7 @@ type LandAssetService interface {
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error
+	UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.UUID, filename, contentType string, data []byte) (photoURL, photoName string, err error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
 	UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error
@@ -65,13 +66,13 @@ type LandAssetService interface {
 	UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error
 	DeleteAssetCalcType(ctx context.Context, id int) error
 	UpsertLandValuation(ctx context.Context, v *domain.LandValuation) (*domain.LandValuation, error)
-	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error)
-	DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error
+	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) (*domain.LandValuation, error)
+	DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error
 	ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error)
 }
 
 type LandCompensationService interface {
-	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
+	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error
@@ -117,6 +118,9 @@ type LandWorkflowService interface {
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
 	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
+	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
+	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)
+	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
@@ -544,6 +548,15 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 	// status=3 (Баталгаажсан) болоход НЗД-ын захирамжийн мэдээлэл заавал шаардагдана
 	if toStatus == 3 && (decreeNumber == "" || decreeDate == nil) {
 		return nil, domain.ErrDecreeRequired
+	}
+	if toStatus == domain.LandAcquisitionStatusVerified {
+		hasNonFinalParcels, err := s.landRepo.HasNonFinalParcels(ctx, acquisitionID)
+		if err != nil {
+			return nil, domain.ErrInternalServer
+		}
+		if hasNonFinalParcels {
+			return nil, domain.ErrNonFinalParcels
+		}
 	}
 
 	progress := &domain.AcquisitionProgress{

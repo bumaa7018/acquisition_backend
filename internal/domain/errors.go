@@ -16,4 +16,7 @@ var (
 	ErrApproved                = errors.New("approved record cannot be modified")
 	ErrValuationReportRequired = errors.New("valuation report required before releasing parcel")
 	ErrAcquisitionLocked       = errors.New("acquisition is locked")
+	ErrInvalidTransition       = errors.New("invalid status transition")
+	ErrValuationNotApproved    = errors.New("compensation valuation is not approved yet")
+	ErrNonFinalParcels         = errors.New("all parcels must be in final status before confirming acquisition")
 )

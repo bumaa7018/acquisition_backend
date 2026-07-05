@@ -46,6 +46,7 @@ const (
 	ErrInvalidToken      Key = "invalid_token"
 	ErrExpiredToken      Key = "expired_token"
 	ErrDBUnavailable     Key = "db_unavailable"
+	ErrTooManyRequests   Key = "too_many_requests"
 
 	// Land / plan errors
 	ErrPlanNotFound             Key = "plan_not_found"
@@ -70,12 +71,14 @@ const (
 	ErrApproved                Key = "approved_locked"
 	ErrValuationReportRequired Key = "valuation_report_required"
 	ErrAcqLocked               Key = "acq_locked"
+	ErrNonFinalParcels         Key = "non_final_parcels"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
 	ErrFileTooLarge Key = "file_too_large"
 	ErrFileOpen     Key = "file_open"
 	ErrFileRead     Key = "file_read"
+	ErrFileType     Key = "file_type"
 	ErrDocNotFound  Key = "doc_not_found"
 )
 
@@ -104,6 +107,7 @@ var messages = map[Key][2]string{
 	ErrInvalidToken:      {"Токен хүчингүй", "Invalid token"},
 	ErrExpiredToken:      {"Токений хугацаа дууссан", "Token expired"},
 	ErrDBUnavailable:     {"Мэдээллийн сан давчдаж байна", "Database unavailable"},
+	ErrTooManyRequests:   {"Хэт олон хүсэлт илгээгдсэн байна", "Too many requests"},
 
 	ErrPlanNotFound:             {"Төлөвлөгөө олдсонгүй", "Plan not found"},
 	ErrAcqNotFound:              {"Чөлөөлөлт олдсонгүй", "Land acquisition not found"},
@@ -126,11 +130,13 @@ var messages = map[Key][2]string{
 	ErrApproved:                {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
 	ErrValuationReportRequired: {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
 	ErrAcqLocked:               {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
+	ErrNonFinalParcels:         {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},
 	ErrFileOpen:     {"Файл нээхэд алдаа гарлаа", "failed to open file"},
 	ErrFileRead:     {"Файл уншихад алдаа гарлаа", "failed to read file"},
+	ErrFileType:     {"Файлын төрөл зөвшөөрөгдөөгүй", "file type is not allowed"},
 	ErrDocNotFound:  {"Баримт олдсонгүй", "document not found"},
 }
 

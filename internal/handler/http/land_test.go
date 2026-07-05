@@ -311,6 +311,10 @@ func TestLandHandler_GetByID_Success(t *testing.T) {
 
 	acq := sampleAcquisition()
 	mockSvc.On("GetByID", mock.Anything, acq.ID).Return(acq, nil)
+	// Дэлгэрэнгүй хариу санхүүжилтийн эх үүсвэрийг хамт буцаана (тусдаа GET API байхгүй)
+	mockSvc.On("ListFundingSources", mock.Anything, acq.ID).Return([]*domain.FundingSource{
+		{ID: uuid.New(), AcquisitionID: acq.ID, OrganizationName: "Улсын төсөв", SourceType: "төсөв", CreatedAt: time.Now()},
+	}, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -326,6 +330,9 @@ func TestLandHandler_GetByID_Success(t *testing.T) {
 	assert.Equal(t, acq.ID.String(), data["id"])
 	assert.Equal(t, "PLAN-2024-001", data["plan_code"])
 	assert.Empty(t, data["parcels"])
+	sources := data["funding_sources"].([]any)
+	assert.Len(t, sources, 1)
+	assert.Equal(t, "Улсын төсөв", sources[0].(map[string]any)["organization_name"])
 	mockSvc.AssertExpectations(t)
 }
 

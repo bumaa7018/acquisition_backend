@@ -60,6 +60,12 @@ func NoContent(c *gin.Context) {
 }
 
 func Paginated(c *gin.Context, data any, total int64, page, pageSize int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
 	totalPages := total / int64(pageSize)
 	if total%int64(pageSize) != 0 {
 		totalPages++
@@ -134,6 +140,12 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnauthorized, i18n.ErrExpiredToken
 	case domain.ErrInvalidInput:
 		return http.StatusBadRequest, i18n.ErrInvalidInput
+	case domain.ErrInvalidTransition:
+		return http.StatusConflict, i18n.ErrConflict
+	case domain.ErrValuationNotApproved:
+		return http.StatusUnprocessableEntity, i18n.ErrValuationReportRequired
+	case domain.ErrNonFinalParcels:
+		return http.StatusUnprocessableEntity, i18n.ErrNonFinalParcels
 	default:
 		return http.StatusInternalServerError, i18n.ErrInternalServer
 	}

@@ -71,6 +71,21 @@ func RequirePermission(permission string) gin.HandlerFunc {
 	}
 }
 
+// RequireAnyPermission — өгсөн permission-уудын аль нэг нь байвал нэвтэрнэ.
+// Дотоод ажилтнууд land:*, гадаад ролиуд (мэрг.байгууллага/МИКА/санхүү)
+// compensation:* эрхээр ижил маршрутыг ашиглахад хэрэглэнэ.
+func RequireAnyPermission(permissions ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		for _, p := range permissions {
+			if hasPermission(c, p) {
+				c.Next()
+				return
+			}
+		}
+		response.Error(c, ErrForbidden)
+	}
+}
+
 func RequirePermissionOrRole(permission string, allowedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if hasPermission(c, permission) || hasAnyRole(c, allowedRoles...) {

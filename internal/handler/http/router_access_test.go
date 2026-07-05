@@ -73,7 +73,7 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 		ID:          userID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -155,7 +155,7 @@ func TestRouter_GeneralLandAcquisition_DeniesProfessionalOrgWhenNotAssigned(t *t
 		ID:          userID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -196,7 +196,7 @@ func TestRouter_GeneralLandAcquisitionList_DeniesProfessionalOrg(t *testing.T) {
 		ID:          uuid.New(),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -234,7 +234,7 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 		ID:          userID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -277,7 +277,7 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testin
 		ID:          userID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -325,7 +325,7 @@ func TestRouter_ParcelStatuses_AllowsProfessionalOrgRead(t *testing.T) {
 		ID:          uuid.New(),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read"},
+		Permissions: []string{"compensation:read"},
 	})
 	require.NoError(t, err)
 
@@ -530,7 +530,7 @@ func TestRouter_ParcelStatuses_DeniesProfessionalOrgWrite(t *testing.T) {
 		ID:          uuid.New(),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
-		Permissions: []string{"land:read", "land:update"},
+		Permissions: []string{"compensation:read", "compensation:update"},
 	})
 	require.NoError(t, err)
 

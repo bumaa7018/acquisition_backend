@@ -40,15 +40,36 @@ type ProfParcelMemberChecker interface {
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 }
 
+// хяналтын (байгууллага даяар харах эрхтэй) ролиуд — санхүүгийн мэргэжилтэн, МИКА
+var supervisoryReadRoles = map[string]bool{
+	"finance_specialist":     true,
+	"Санхүүгийн мэргэжилтэн": true,
+	"Санхүү":                 true,
+	"mika":                   true,
+	"МИКА":                   true,
+}
+
 // RequireAssignedOrSenior — ахлах мэргэжилтэн эсвэл
 // тухайн чөлөөлөлтэд хуваарилагдсан ажилтан байвал зөвшөөрнө, эс бөгөөс 403 буцаана.
-func RequireAssignedOrSenior(svc AssignmentChecker) gin.HandlerFunc {
+// Санхүүгийн мэргэжилтэн болон МИКА хяналтын үүрэгтэй тул хуваарилалтгүйгээр
+// ЗӨВХӨН унших (GET/HEAD/OPTIONS) хүсэлтэд нэвтэрнэ — бичих үйлдэл нь
+// RequirePermission/RequireAnyRole хаалтуудаараа хамгаалагдсан хэвээр.
+// extraWriteRoles — нэмэлтээр бичих эрхтэй нэвтрэх ролиуд (ж: үнэлгээний
+// маршрутуудад МИКА өөрийн урсгалдаа бичдэг).
+func RequireAssignedOrSenior(svc AssignmentChecker, extraWriteRoles ...string) gin.HandlerFunc {
+	extra := make(map[string]bool, len(extraWriteRoles))
+	for _, r := range extraWriteRoles {
+		extra[r] = true
+	}
 	return func(c *gin.Context) {
-		// Ахлах мэргэжилтэн бол шалгуур шаардахгүй.
+		method := c.Request.Method
+		isRead := method == "GET" || method == "HEAD" || method == "OPTIONS"
+
+		// Ахлах мэргэжилтэн бол шалгуур шаардахгүй; санхүү/МИКА зөвхөн унших үед.
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
-				if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+				if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || (isRead && supervisoryReadRoles[r]) || extra[r] {
 					c.Next()
 					return
 				}

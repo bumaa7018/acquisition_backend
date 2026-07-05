@@ -36,7 +36,15 @@ func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain
 }
 
 func (s *landService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
-	return s.landRepo.DeleteAsset(ctx, acquisitionID, id)
+	photoURL, err := s.landRepo.DeleteAsset(ctx, acquisitionID, id)
+	if err != nil {
+		return err
+	}
+	// Хавсаргасан зургийн PDF-ийг хадгалалтаас цэвэрлэнэ (үлдэгдэл файл үлдээхгүй).
+	if photoURL != "" {
+		_ = s.files.Delete(ctx, photoURL)
+	}
+	return nil
 }
 
 func (s *landService) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
@@ -94,20 +102,20 @@ func (s *landService) UpsertLandValuation(ctx context.Context, v *domain.LandVal
 	return v, nil
 }
 
-func (s *landService) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
-	return s.landRepo.GetLandValuation(ctx, acquisitionID, parcelID)
+func (s *landService) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) (*domain.LandValuation, error) {
+	return s.landRepo.GetLandValuation(ctx, acquisitionID, parcelID, valuationType)
 }
 
-func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
-	return s.landRepo.DeleteLandValuation(ctx, acquisitionID, parcelID)
+func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error {
+	return s.landRepo.DeleteLandValuation(ctx, acquisitionID, parcelID, valuationType)
 }
 
 func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
 	return s.landRepo.ImportValuation(ctx, acquisitionID, imp)
 }
 
-func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
-	return s.landRepo.ListCompensations(ctx, acquisitionID, parcelID)
+func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error) {
+	return s.landRepo.ListCompensations(ctx, acquisitionID, parcelID, valuationType)
 }
 
 func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error) {
@@ -178,6 +186,19 @@ func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compI
 	comp.ValuationReportURL = stored.URL
 	comp.ValuationReportName = stored.Name
 	return comp, nil
+}
+
+func (s *landService) UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.UUID, filename, contentType string, data []byte) (string, string, error) {
+	stored, err := s.files.Save(ctx, "asset-photo", assetID.String(), filename, contentType, data)
+	if err != nil {
+		return "", "", err
+	}
+	// UpdateAssetPhoto нь асеет уг чөлөөлөлтөд хамаарахыг шалгана (WHERE id AND acquisition_id).
+	if err := s.landRepo.UpdateAssetPhoto(ctx, acqID, assetID, stored.URL, stored.Name); err != nil {
+		_ = s.files.Delete(ctx, stored.URL)
+		return "", "", err
+	}
+	return stored.URL, stored.Name, nil
 }
 
 func (s *landService) ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error) {

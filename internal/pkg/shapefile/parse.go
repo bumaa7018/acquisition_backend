@@ -18,6 +18,8 @@ func Parse(data []byte) (string, error) {
 func parsePolygon(data []byte) (string, error) {
 	const fileHeaderSize = 100
 	const recordHeaderSize = 8
+	const maxParts = 4096
+	const maxPoints = 1_000_000
 
 	if len(data) < fileHeaderSize+recordHeaderSize+4 {
 		return "", fmt.Errorf("shp file too short (%d bytes)", len(data))
@@ -26,6 +28,9 @@ func parsePolygon(data []byte) (string, error) {
 	// first record content starts after file header + record header
 	pos := fileHeaderSize + recordHeaderSize
 
+	if len(data[pos:]) < 4 {
+		return "", fmt.Errorf("missing shape type")
+	}
 	shapeType := int32(binary.LittleEndian.Uint32(data[pos:]))
 	pos += 4
 
@@ -34,16 +39,35 @@ func parsePolygon(data []byte) (string, error) {
 	}
 
 	// bounding box: Xmin, Ymin, Xmax, Ymax (4 × float64)
+	if len(data[pos:]) < 32+4+4 {
+		return "", fmt.Errorf("polygon header too short")
+	}
 	pos += 32
 
 	numParts := int(int32(binary.LittleEndian.Uint32(data[pos:])))
 	pos += 4
 	numPoints := int(int32(binary.LittleEndian.Uint32(data[pos:])))
 	pos += 4
+	if numParts < 1 || numParts > maxParts {
+		return "", fmt.Errorf("invalid parts count %d", numParts)
+	}
+	if numPoints < 1 || numPoints > maxPoints {
+		return "", fmt.Errorf("invalid points count %d", numPoints)
+	}
+	requiredLen := pos + numParts*4 + numPoints*16
+	if requiredLen < pos || requiredLen > len(data) {
+		return "", fmt.Errorf("shp record truncated")
+	}
 
 	parts := make([]int, numParts)
 	for i := range parts {
 		parts[i] = int(int32(binary.LittleEndian.Uint32(data[pos:])))
+		if parts[i] < 0 || parts[i] >= numPoints {
+			return "", fmt.Errorf("invalid part offset %d", parts[i])
+		}
+		if i > 0 && parts[i] <= parts[i-1] {
+			return "", fmt.Errorf("part offsets must be increasing")
+		}
 		pos += 4
 	}
 

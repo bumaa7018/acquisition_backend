@@ -1,7 +1,6 @@
 package http
 
 import (
-	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -136,6 +135,13 @@ func (h *LandHandler) List(c *gin.Context) {
 		}
 	}
 
+	// Санхүү/МИКА (хяналтын гадаад ролиуд) зөвхөн "Хээрийн судалгаа" төлөвтэй
+	// чөлөөлөлтийг харна — query параметрээс үл хамааран сервер талд хатуу шүүнэ.
+	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
+		filter.Status = domain.LandAcquisitionStatusField
+	}
+
 	list, total, err := h.svc.List(c.Request.Context(), filter)
 	if err != nil {
 		response.Error(c, err)
@@ -166,6 +172,14 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Failure      422  {object}  response.Response
 // @Router       /land-acquisitions [post]
 func (h *LandHandler) Create(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxShapefileFormSize)
+	if c.ContentType() == "multipart/form-data" {
+		if err := c.Request.ParseMultipartForm(maxShapefileFormSize); isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+	}
+
 	planCode := c.PostForm("plan_code")
 	startStr := c.PostForm("start_date")
 	endStr := c.PostForm("end_date")
@@ -197,19 +211,24 @@ func (h *LandHandler) Create(c *gin.Context) {
 
 	fh, err := c.FormFile("shapefile")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
 		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequired)
 		return
 	}
-	f, err := fh.Open()
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
+	if fh.Size > maxShapefileSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	defer f.Close()
-
-	zipData, err := io.ReadAll(f)
+	zipData, err := readMultipartFile(fh, maxShapefileSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRead)
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
 		return
 	}
 
@@ -347,6 +366,13 @@ func (h *LandHandler) Update(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxShapefileFormSize)
+	if c.ContentType() == "multipart/form-data" {
+		if err := c.Request.ParseMultipartForm(maxShapefileFormSize); isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+	}
 
 	req := service.UpdateLandAcquisitionRequest{}
 
@@ -370,18 +396,23 @@ func (h *LandHandler) Update(c *gin.Context) {
 	}
 
 	if fh, err := c.FormFile("shapefile"); err == nil {
-		f, err := fh.Open()
+		if fh.Size > maxShapefileSize {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		data, err := readMultipartFile(fh, maxShapefileSize)
+		if err == errUploadTooLarge {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
 		if err != nil {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
 			return
 		}
-		defer f.Close()
-		data, err := io.ReadAll(f)
-		if err != nil {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRead)
-			return
-		}
 		req.ShapefileData = data
+	} else if isBodyTooLarge(err) {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
 	}
 
 	if req.PlanCode != "" && len(req.ShapefileData) == 0 {
@@ -499,7 +530,15 @@ func (h *LandHandler) GetByID(c *gin.Context) {
 	}
 	detail := *acq
 	detail.Parcels = nil
-	response.OK(c, toLandAcqResponse(&detail))
+	r := toLandAcqResponse(&detail)
+	// Санхүүжилтийн эх үүсвэрийг дэлгэрэнгүйд хамт буцаана — тусдаа GET API байхгүй
+	if sources, err := h.svc.ListFundingSources(c.Request.Context(), id); err == nil {
+		r.FundingSources = make([]fundingSourceResponse, 0, len(sources))
+		for _, fs := range sources {
+			r.FundingSources = append(r.FundingSources, toFundingSourceResponse(fs))
+		}
+	}
+	response.OK(c, r)
 }
 
 // SyncParcel godoc
@@ -939,35 +978,37 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	const maxSize = 10 * 1024 * 1024
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
-	if fh.Size > maxSize {
+	if fh.Size > maxDocumentUploadSize {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	f, err := fh.Open()
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
 	uploadedBy := ""
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	contentType := fh.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	contentType, ok := allowedDocumentContentType(data)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
 	}
 	documentTypeID, _ := strconv.Atoi(c.PostForm("document_type_id"))
 	filename := fh.Filename
@@ -1135,9 +1176,10 @@ func (h *LandHandler) ListAssets(c *gin.Context) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
 	filter := domain.AssetFilter{
-		ParcelID: c.Query("parcel_id"),
-		Page:     page,
-		PageSize: pageSize,
+		ParcelID:      c.Query("parcel_id"),
+		ValuationType: c.Query("valuation_type"),
+		Page:          page,
+		PageSize:      pageSize,
 	}
 
 	assets, total, err := h.svc.ListAssets(c.Request.Context(), id, filter)
@@ -1163,6 +1205,13 @@ func (h *LandHandler) ListAssets(c *gin.Context) {
 // @Success      201  {object}  response.Response
 // @Failure      400  {object}  response.Response
 // @Router       /land-acquisitions/{id}/assets [post]
+// mikaOnlyCaller — дуудагч МИКА роль-той бөгөөд дотоод (ахлах) эрхгүй бол true.
+// Ийм дуудагчийн үнэлгээний бичих үйлдэл ЗӨВХӨН "mika" урсгалд хязгаарлагдана —
+// valuation_type-ийг хүсэлтээс үл хамааран хатуу тогтооно.
+func mikaOnlyCaller(c *gin.Context) bool {
+	return ctxHasRole(c, "mika", "МИКА") && !ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+}
+
 func (h *LandHandler) CreateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1186,6 +1235,7 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 		Capacity             string  `json:"capacity"`
 		Description          string  `json:"description"`
 		UnitPrice            float64 `json:"unit_price"`
+		ValuationType        string  `json:"valuation_type"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -1198,10 +1248,14 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 	if body.AssetName == "" {
 		body.AssetName = body.LegacyBuildingType
 	}
+	if mikaOnlyCaller(c) {
+		body.ValuationType = domain.ValuationTypeMika
+	}
 
 	b := &domain.Asset{
 		AcquisitionID: acqID,
 		ParcelID:      body.ParcelID,
+		ValuationType: body.ValuationType,
 		AssetNumber:   body.AssetNumber,
 		AssetType:     normalizeAssetRecordType(body.AssetType),
 		AssetName:     body.AssetName,
@@ -1456,6 +1510,7 @@ func (h *LandHandler) UpsertLandValuation(c *gin.Context) {
 	}
 	var body struct {
 		ParcelID       string  `json:"parcel_id" binding:"required"`
+		ValuationType  string  `json:"valuation_type"`
 		LandAreaM2     float64 `json:"land_area_m2"`
 		BasePricePerM2 float64 `json:"base_price_per_m2"`
 		// Excel импортоор ирдэг нэмэлт талбарууд (заавал биш)
@@ -1474,9 +1529,13 @@ func (h *LandHandler) UpsertLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
+	if mikaOnlyCaller(c) {
+		body.ValuationType = domain.ValuationTypeMika
+	}
 	v := &domain.LandValuation{
 		AcquisitionID:       acqID,
 		ParcelID:            body.ParcelID,
+		ValuationType:       body.ValuationType,
 		LandAreaM2:          body.LandAreaM2,
 		BasePricePerM2:      body.BasePricePerM2,
 		OwnershipCertNo:     body.OwnershipCertNo,
@@ -1510,7 +1569,7 @@ func (h *LandHandler) GetLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	v, err := h.svc.GetLandValuation(c.Request.Context(), acqID, parcelID)
+	v, err := h.svc.GetLandValuation(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
 	if err != nil {
 		response.OK(c, nil)
 		return
@@ -1530,7 +1589,11 @@ func (h *LandHandler) DeleteLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	if err := h.svc.DeleteLandValuation(c.Request.Context(), acqID, parcelID); err != nil {
+	valuationType := c.Query("valuation_type")
+	if mikaOnlyCaller(c) {
+		valuationType = domain.ValuationTypeMika
+	}
+	if err := h.svc.DeleteLandValuation(c.Request.Context(), acqID, parcelID, valuationType); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1545,9 +1608,10 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 		return
 	}
 	var body struct {
-		ParcelID string `json:"parcel_id" binding:"required"`
-		Replace  bool   `json:"replace"`
-		Land     struct {
+		ParcelID      string `json:"parcel_id" binding:"required"`
+		ValuationType string `json:"valuation_type"`
+		Replace       bool   `json:"replace"`
+		Land          struct {
 			LandAreaM2          float64 `json:"land_area_m2"`
 			BasePricePerM2      float64 `json:"base_price_per_m2"`
 			OwnershipCertNo     string  `json:"ownership_cert_no"`
@@ -1595,12 +1659,17 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		createdBy = uid.(uuid.UUID).String()
 	}
+	if mikaOnlyCaller(c) {
+		body.ValuationType = domain.ValuationTypeMika
+	}
 
 	imp := &domain.ValuationImport{
-		ParcelID:  body.ParcelID,
-		Replace:   body.Replace,
-		CreatedBy: createdBy,
+		ParcelID:      body.ParcelID,
+		ValuationType: body.ValuationType,
+		Replace:       body.Replace,
+		CreatedBy:     createdBy,
 		Land: domain.LandValuation{
+			ValuationType:       body.ValuationType,
 			LandAreaM2:          body.Land.LandAreaM2,
 			BasePricePerM2:      body.Land.BasePricePerM2,
 			OwnershipCertNo:     body.Land.OwnershipCertNo,
@@ -1654,7 +1723,7 @@ func (h *LandHandler) ListCompensations(c *gin.Context) {
 		return
 	}
 	parcelID := c.Query("parcel_id")
-	list, err := h.svc.ListCompensations(c.Request.Context(), acqID, parcelID)
+	list, err := h.svc.ListCompensations(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -1676,6 +1745,7 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 
 	var body struct {
 		TargetType       string  `json:"target_type"`
+		ValuationType    string  `json:"valuation_type"`
 		ParcelID         string  `json:"parcel_id"`
 		AssetID          *string `json:"asset_id"`
 		LegacyBuildingID *string `json:"building_id"`
@@ -1694,10 +1764,14 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		createdBy = uid.(uuid.UUID).String()
 	}
+	if mikaOnlyCaller(c) {
+		body.ValuationType = domain.ValuationTypeMika
+	}
 
 	comp := &domain.Compensation{
 		AcquisitionID:    acqID,
 		TargetType:       normalizeTargetType(body.TargetType),
+		ValuationType:    body.ValuationType,
 		ParcelID:         body.ParcelID,
 		CompensationType: body.CompensationType,
 		CoveragePercent:  body.CoveragePercent,
@@ -1906,35 +1980,37 @@ func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	const maxSize = 10 * 1024 * 1024
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
-	if fh.Size > maxSize {
+	if fh.Size > maxDocumentUploadSize {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	f, err := fh.Open()
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
 	uploadedBy := ""
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	contentType := fh.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	contentType, ok := allowedPDFContentType(data)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
 	}
 	comp, err := h.svc.UploadCompensationReport(c.Request.Context(), acqID, compID, fh.Filename, contentType, data, uploadedBy)
 	if err != nil {
@@ -1942,6 +2018,54 @@ func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
 		return
 	}
 	response.OK(c, toCompensationResponse(comp))
+}
+
+// UploadAssetPhoto — хөрөнгийн зургуудыг нэгтгэсэн PDF-ийг хадгална.
+func (h *LandHandler) UploadAssetPhoto(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	assetID, err := uuid.Parse(c.Param("asset_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAssetPhotoSize)
+	fh, err := c.FormFile("file")
+	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
+		return
+	}
+	if fh.Size > maxAssetPhotoSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	data, err := readMultipartFile(fh, maxAssetPhotoSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+		return
+	}
+	contentType, ok := allowedPDFContentType(data)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
+	}
+	url, name, err := h.svc.UploadAssetPhoto(c.Request.Context(), acqID, assetID, fh.Filename, contentType, data)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"photo_pdf_url": url, "photo_pdf_name": name})
 }
 
 // ListCompensationHistory godoc
@@ -2239,35 +2363,37 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	const maxSize = 10 * 1024 * 1024
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
-	if fh.Size > maxSize {
+	if fh.Size > maxDocumentUploadSize {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	f, err := fh.Open()
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
 		return
 	}
-	defer f.Close()
-	data, err := io.ReadAll(f)
 	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRead)
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
 	uploadedBy := ""
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	contentType := fh.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	contentType, ok := allowedDocumentContentType(data)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
 	}
 	parcelFilename := fh.Filename
 	if n := c.PostForm("name"); n != "" {
@@ -2363,9 +2489,15 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		return
 	}
 
-	acqs := make([]landAcquisitionResponse, 0, len(summary.Acquisitions))
+	acqs := make([]dashboardAcqResponse, 0, len(summary.Acquisitions))
 	for _, a := range summary.Acquisitions {
-		acqs = append(acqs, toLandAcqResponse(a))
+		acqs = append(acqs, dashboardAcqResponse{
+			ID:              a.ID.String(),
+			AcquisitionName: a.AcquisitionName,
+			PlanCode:        a.PlanCode,
+			Status:          a.Status,
+			ParcelCount:     a.ParcelCount,
+		})
 	}
 
 	response.OK(c, dashboardResponse{
@@ -2379,37 +2511,10 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		TotalCompensation: summary.TotalCompensation,
 		StatusBreakdown:   summary.StatusBreakdown,
 		Timeline:          summary.Timeline,
-		FilteredParcelIDs: summary.FilteredParcelIDs,
 		FilteredAU1Codes:  summary.FilteredAU1Codes,
 		FilteredAU2Codes:  summary.FilteredAU2Codes,
 		FilteredAU3Codes:  summary.FilteredAU3Codes,
 	})
-}
-
-// ListFundingSources godoc
-// @Summary      Санхүүжилтийн эх үүсвэрийн жагсаалт
-// @Tags         land-acquisitions
-// @Produce      json
-// @Security     BearerAuth
-// @Param        id  path  string  true  "LandAcquisition UUID"
-// @Success      200  {object}  response.Response
-// @Router       /land-acquisitions/{id}/funding-sources [get]
-func (h *LandHandler) ListFundingSources(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
-		return
-	}
-	list, err := h.svc.ListFundingSources(c.Request.Context(), id)
-	if err != nil {
-		response.Error(c, err)
-		return
-	}
-	result := make([]fundingSourceResponse, 0, len(list))
-	for _, fs := range list {
-		result = append(result, toFundingSourceResponse(fs))
-	}
-	response.OK(c, result)
 }
 
 // CreateFundingSource godoc
@@ -2722,9 +2827,11 @@ func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 	pageSize := queryInt(c, "page_size", 20)
 
 	filter := domain.LandAcquisitionFilter{
-		PlanCode:              c.Query("plan_code"),
-		AcquisitionName:       c.Query("acquisition_name"),
-		Status:                queryInt(c, "status", 0),
+		PlanCode:        c.Query("plan_code"),
+		AcquisitionName: c.Query("acquisition_name"),
+		// Мэргэжлийн байгууллагад зөвхөн "Хээрийн судалгаа" төлөвтэй чөлөөлөлт
+		// харагдана — query-гийн status параметрийг үл хэрэгсэнэ.
+		Status:                domain.LandAcquisitionStatusField,
 		AU3Code:               c.Query("au3_code"),
 		ProfessionalOrgUserID: userIDStr,
 		Page:                  page,

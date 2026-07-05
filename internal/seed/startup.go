@@ -75,6 +75,12 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).Seed(ctx, opts.Admin, opts.Employee)
 			},
 		},
+		{
+			name: "000008_compensation_access",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedCompensationAccess(ctx)
+			},
+		},
 	})
 
 	return nil

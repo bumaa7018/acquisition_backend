@@ -30,9 +30,9 @@ func TestCompensation_List_Success(t *testing.T) {
 		},
 	}
 
-	landRepo.On("ListCompensations", ctx, acqID, "").Return(expected, nil)
+	landRepo.On("ListCompensations", ctx, acqID, "", "").Return(expected, nil)
 
-	list, err := svc.ListCompensations(ctx, acqID, "")
+	list, err := svc.ListCompensations(ctx, acqID, "", "")
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, expected[0].ParcelID, list[0].ParcelID)

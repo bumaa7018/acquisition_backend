@@ -232,10 +232,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	}
 	offset := (page - 1) * pageSize
 
+	// Геометрийг жагсаалтад буцаахгүй — ST_AsText нь олон мянган мөрөнд маш удаан
+	// бөгөөд том payload үүсгэдэг. Геометр зөвхөн GetByID хүсэлтэд буцна.
 	rows, err := r.db.Query(ctx, fmt.Sprintf(`
 			SELECT la.id, la.plan_id, la.plan_code, COALESCE(la.plan_name,''),
-			       COALESCE(ST_AsText(la.plan_geom),''), COALESCE(la.plan_area_m2,0),
-			       COALESCE(ST_AsText(la.geometry),''), COALESCE(la.area_m2,0),
+			       '', COALESCE(la.plan_area_m2,0),
+			       '', COALESCE(la.area_m2,0),
 			       la.status, la.start_date, la.end_date,
 			       la.created_at, COALESCE(la.created_by,''),
 			       la.updated_at, COALESCE(la.updated_by,''),
@@ -243,6 +245,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       COALESCE(la.reason,''), COALESCE(la.responsible_org,''), COALESCE(la.funding_source,''),
 			       la.general_category_id, COALESCE(gc.name,''),
 			       la.sub_category_id, COALESCE(sc.name,''),
+			       COALESCE(la.decree_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       la.professional_org_id,
 			       ''
@@ -272,6 +275,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.Reason, &acq.ResponsibleOrg, &acq.FundingSource,
 			&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 			&acq.SubCategoryID, &acq.SubCategoryName,
+			&acq.DecreeNumber,
 			&acq.ParcelCount,
 			&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 		); err != nil {
@@ -628,9 +632,10 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
 				       '',
-				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash'), 0),
-				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
-				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0)
+				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
+				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
+				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
+				       COALESCE((SELECT jsonb_object_agg(vs.valuation_type, vs.status) FROM parcel_valuation_submission vs WHERE vs.acquisition_id = p.acquisition_id AND vs.parcel_id = p.parcel_id), '{}'::jsonb)
 				FROM parcel p
 				LEFT JOIN parcel_status ps ON ps.id = p.status
 				WHERE %s
@@ -662,6 +667,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.StatusID, &p.StatusName,
 			&p.IndependentOrgID, &p.IndependentOrgName,
 			&p.CashAmount, &p.LandGrantAmount, &p.LandGrantCount,
+			&p.ValuationStatuses,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -763,6 +769,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
 				COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
+				p.independent_org_id, p.selected_valuation_type,
 			COALESCE(pd.right_type,0),
 			COALESCE(pd.app_no,''), pd.app_timestamps,
 			COALESCE(pd.decision_no,''), pd.decision_date,
@@ -790,6 +797,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pfRemainingAreaM2,
 		&pf.DbChanged, &pf.ChangedParcelID,
 		&pf.StatusID, &pf.StatusName,
+		&pf.IndependentOrgID, &pf.SelectedValuationType,
 		&d.RightType,
 		&d.AppNo, &d.AppTimestamps,
 		&d.DecisionNo, &d.DecisionDate,
@@ -1007,6 +1015,23 @@ func (r *landAcqRepo) UpdateDecree(ctx context.Context, id uuid.UUID, number str
 	return err
 }
 
+func (r *landAcqRepo) HasNonFinalParcels(ctx context.Context, acquisitionID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM parcel
+			WHERE acquisition_id = $1
+			  AND COALESCE(status, 0) NOT IN ($2, $3, $4)
+		)`,
+		acquisitionID,
+		domain.ParcelStatusAffectedOut,
+		domain.ParcelStatusRejected,
+		domain.ParcelStatusReleased,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE parcel SET
@@ -1163,8 +1188,8 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       COALESCE(p.status,0), COALESCE(ps.name,''),
 		       COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
 		       la.status, la.start_date, la.end_date,
-		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash'), 0),
-		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
+		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
+		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 		       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0)
 		FROM parcel p
 		JOIN land_acquisition la ON la.id = p.acquisition_id
@@ -1319,6 +1344,7 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 		LEFT JOIN parcel_detail pd ON pd.parcel_id = p.id
 		LEFT JOIN right_holder rh ON rh.id = pd.holder_id
 		LEFT JOIN compensation c ON c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id
+			AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 		LEFT JOIN assets a ON a.id = c.asset_id
 		WHERE %s
 		GROUP BY
@@ -1530,11 +1556,18 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 	if filter.ParcelID != "" {
 		where += fmt.Sprintf(" AND parcel_id = $%d", i)
 		args = append(args, filter.ParcelID)
+		i++
 	}
+	if filter.ValuationType != "" {
+		where += fmt.Sprintf(" AND valuation_type = $%d", i)
+		args = append(args, filter.ValuationType)
+		i++
+	}
+	_ = i // сүүлийн нөхцөлийн дараа ашиглагдахгүй байгаад анхааруулга гаргахаас сэргийлнэ
 	rows, err := r.db.Query(ctx, `
-		SELECT id, acquisition_id, parcel_id, asset_number, asset_type, asset_name,
+		SELECT id, acquisition_id, parcel_id, asset_number, asset_type, valuation_type, asset_name,
 		       floor_count, area_m2, owner_name, address, notes,
-		       unit, capacity, description, unit_price, created_at, updated_at
+		       unit, capacity, description, unit_price, photo_pdf_url, photo_pdf_name, created_at, updated_at
 		FROM assets `+where+` ORDER BY created_at DESC
 	`, args...)
 	if err != nil {
@@ -1545,9 +1578,9 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 	for rows.Next() {
 		b := &domain.Asset{}
 		if err := rows.Scan(
-			&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber, &b.AssetType, &b.AssetName,
+			&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber, &b.AssetType, &b.ValuationType, &b.AssetName,
 			&b.FloorCount, &b.AreaM2, &b.OwnerName, &b.Address, &b.Notes,
-			&b.Unit, &b.Capacity, &b.Description, &b.UnitPrice, &b.CreatedAt, &b.UpdatedAt,
+			&b.Unit, &b.Capacity, &b.Description, &b.UnitPrice, &b.PhotoPdfURL, &b.PhotoPdfName, &b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -1559,8 +1592,8 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
-		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price)
-		SELECT $1::uuid,$2::varchar,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price, valuation_type)
+		SELECT $1::uuid,$2::varchar,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE(NULLIF($15,''),'asset')
 		WHERE EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
 		)
@@ -1568,7 +1601,7 @@ func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	`,
 		b.AcquisitionID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
 		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
-		b.Unit, b.Capacity, b.Description, b.UnitPrice,
+		b.Unit, b.Capacity, b.Description, b.UnitPrice, b.ValuationType,
 	).Scan(&b.ID, &b.CreatedAt, &b.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
@@ -1596,15 +1629,20 @@ func (r *landAcqRepo) UpdateAsset(ctx context.Context, b *domain.Asset) error {
 	return err
 }
 
-func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
-	ct, err := r.db.Exec(ctx, "DELETE FROM assets WHERE id=$1 AND acquisition_id=$2", id, acquisitionID)
+// DeleteAsset — хөрөнгийг устгаад, хавсаргасан зургийн PDF-ийн URL-ыг буцаана
+// (service нь тухайн файлыг хадгалалтаас устгахад ашиглана).
+func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) (string, error) {
+	var photoURL string
+	err := r.db.QueryRow(ctx,
+		"DELETE FROM assets WHERE id=$1 AND acquisition_id=$2 RETURNING COALESCE(photo_pdf_url,'')",
+		id, acquisitionID).Scan(&photoURL)
+	if err == pgx.ErrNoRows {
+		return "", domain.ErrNotFound
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	if ct.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return err
+	return photoURL, nil
 }
 
 func (r *landAcqRepo) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
@@ -1690,16 +1728,26 @@ func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, 
 }
 
 func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error {
-	err := r.db.QueryRow(ctx, `
-		INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	vType := v.ValuationType
+	if vType == "" {
+		vType = domain.ValuationTypeAsset
+	}
+	err = tx.QueryRow(ctx, `
+		INSERT INTO land_valuation (acquisition_id, parcel_id, valuation_type, land_area_m2, base_price_per_m2,
 			ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
 			appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
 			source_file_name, source_file_hash)
-		SELECT $1::uuid,$2::varchar,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
+		SELECT $1::uuid,$2::varchar,$15,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14
 		WHERE EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
 		)
-		ON CONFLICT (acquisition_id, parcel_id) DO UPDATE
+		ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
 		SET land_area_m2=$3, base_price_per_m2=$4,
 			ownership_cert_no=$5, appraiser_org_name=$6, appraiser_reg_no=$7, appraiser_state_reg_no=$8,
 			appraiser_director=$9, appraiser_license=$10, appraiser_address=$11, appraiser_contact=$12,
@@ -1708,24 +1756,34 @@ func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandVal
 	`, v.AcquisitionID, v.ParcelID, v.LandAreaM2, v.BasePricePerM2,
 		v.OwnershipCertNo, v.AppraiserOrgName, v.AppraiserRegNo, v.AppraiserStateRegNo,
 		v.AppraiserDirector, v.AppraiserLicense, v.AppraiserAddress, v.AppraiserContact,
-		v.SourceFileName, v.SourceFileHash,
+		v.SourceFileName, v.SourceFileHash, vType,
 	).Scan(&v.ID, &v.CreatedAt, &v.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// Газрын үнэлгээг нөхөх олговрын нэг хэсэг болгож compensation-д тусгана (тайлан/нэгтгэлд орно).
+	if err = syncLandCompensation(ctx, tx, v.AcquisitionID, v.ParcelID, vType, v.LandAreaM2*v.BasePricePerM2, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error) {
+func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) (*domain.LandValuation, error) {
+	if valuationType == "" {
+		valuationType = domain.ValuationTypeAsset
+	}
 	v := &domain.LandValuation{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+		SELECT id, acquisition_id, parcel_id, valuation_type, land_area_m2, base_price_per_m2,
 			ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
 			appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
 			source_file_name, source_file_hash, created_at, updated_at
-		FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2
-	`, acquisitionID, parcelID).Scan(
-		&v.ID, &v.AcquisitionID, &v.ParcelID, &v.LandAreaM2, &v.BasePricePerM2,
+		FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
+	`, acquisitionID, parcelID, valuationType).Scan(
+		&v.ID, &v.AcquisitionID, &v.ParcelID, &v.ValuationType, &v.LandAreaM2, &v.BasePricePerM2,
 		&v.OwnershipCertNo, &v.AppraiserOrgName, &v.AppraiserRegNo, &v.AppraiserStateRegNo,
 		&v.AppraiserDirector, &v.AppraiserLicense, &v.AppraiserAddress, &v.AppraiserContact,
 		&v.SourceFileName, &v.SourceFileHash, &v.CreatedAt, &v.UpdatedAt,
@@ -1736,17 +1794,31 @@ func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.U
 	return v, nil
 }
 
-// DeleteLandValuation — нэгж талбарын газрын үнэлгээг устгана.
-func (r *landAcqRepo) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error {
-	ct, err := r.db.Exec(ctx,
-		"DELETE FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, parcelID)
+// DeleteLandValuation — нэгж талбарын тухайн урсгалын газрын үнэлгээг устгана.
+func (r *landAcqRepo) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error {
+	if valuationType == "" {
+		valuationType = domain.ValuationTypeAsset
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	ct, err := tx.Exec(ctx,
+		"DELETE FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3",
+		acquisitionID, parcelID, valuationType)
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	// Уг урсгалын авто-үүсгэсэн газрын олговрыг мөн цэвэрлэнэ.
+	if err = syncLandCompensation(ctx, tx, acquisitionID, parcelID, valuationType, 0, ""); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // upsertCalcTypeByName — тооцооллын төрлийг нэрээр нь олж, байхгүй бол шинээр үүсгэж id буцаана.
@@ -1775,6 +1847,32 @@ func upsertCalcTypeByName(ctx context.Context, tx pgx.Tx, name, unit, grp string
 	return id, err
 }
 
+// landCompNote — газрын үнэлгээнээс авто-үүсгэсэн parcel-түвшний нөхөх олговрын таних тэмдэг.
+const landCompNote = "Газрын үнэлгээ"
+
+// syncLandCompensation — газрын үнэлгээг (талбай×суурь үнэ) нэгж талбарын түвшний cash нөхөх
+// олговор болгож compensation-д ижилтгэнэ. Хуучин авто-мөрийг устгаж, шинийг бичнэ (давхардуулахгүй).
+func syncLandCompensation(ctx context.Context, tx pgx.Tx, acqID uuid.UUID, parcelID, valuationType string, amount float64, createdBy string) error {
+	if valuationType == "" {
+		valuationType = domain.ValuationTypeAsset
+	}
+	// ЗӨВХӨН тухайн урсгалын авто-мөрийг устгана (бусад урсгалын газрын олговрыг хадгална).
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2 AND target_type='parcel' AND note=$3 AND valuation_type=$4`,
+		acqID, parcelID, landCompNote, valuationType); err != nil {
+		return err
+	}
+	if amount <= 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO compensation (acquisition_id, target_type, parcel_id, compensation_type,
+			coverage_percent, amount, note, created_by, valuation_type)
+		VALUES ($1,'parcel',$2,'cash',100,$3,$4,$5,$6)
+	`, acqID, parcelID, amount, landCompNote, createdBy, valuationType)
+	return err
+}
+
 // ImportValuation — бүхэл нэгж талбарын үнэлгээг НЭГ ТРАНЗАКЦААР оруулна.
 // Replace=true бол хуучин олговор/хөрөнгийг эхлээд устгаж, дараа нь газрын үнэлгээ,
 // хөрөнгө, spec, calc, нөхөн олговрыг бүгдийг нэг дор бичнэ. Аль нэг алдвал бүгд rollback.
@@ -1799,14 +1897,19 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		return nil, domain.ErrNotFound
 	}
 
-	// 0. Хуучин мэдээлэл цэвэрлэх (эхлээд олговор, дараа нь хөрөнгө)
+	vType := imp.ValuationType
+	if vType == "" {
+		vType = domain.ValuationTypeAsset
+	}
+
+	// 0. Хуучин мэдээлэл цэвэрлэх — ЗӨВХӨН тухайн урсгалынхыг (бусад урсгал хэвээр үлдэнэ)
 	if imp.Replace {
-		ct, e := tx.Exec(ctx, "DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, imp.ParcelID)
+		ct, e := tx.Exec(ctx, "DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3", acquisitionID, imp.ParcelID, vType)
 		if e != nil {
 			return nil, e
 		}
 		res.DeletedComps = int(ct.RowsAffected())
-		ct, e = tx.Exec(ctx, "DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2", acquisitionID, imp.ParcelID)
+		ct, e = tx.Exec(ctx, "DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3", acquisitionID, imp.ParcelID, vType)
 		if e != nil {
 			return nil, e
 		}
@@ -1817,12 +1920,12 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 	l := imp.Land
 	if l.LandAreaM2 != 0 || l.BasePricePerM2 != 0 || l.OwnershipCertNo != "" || l.AppraiserOrgName != "" {
 		if _, err = tx.Exec(ctx, `
-			INSERT INTO land_valuation (acquisition_id, parcel_id, land_area_m2, base_price_per_m2,
+			INSERT INTO land_valuation (acquisition_id, parcel_id, valuation_type, land_area_m2, base_price_per_m2,
 				ownership_cert_no, appraiser_org_name, appraiser_reg_no, appraiser_state_reg_no,
 				appraiser_director, appraiser_license, appraiser_address, appraiser_contact,
 				source_file_name, source_file_hash)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-			ON CONFLICT (acquisition_id, parcel_id) DO UPDATE
+			VALUES ($1,$2,$15,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
 			SET land_area_m2=$3, base_price_per_m2=$4,
 				ownership_cert_no=$5, appraiser_org_name=$6, appraiser_reg_no=$7, appraiser_state_reg_no=$8,
 				appraiser_director=$9, appraiser_license=$10, appraiser_address=$11, appraiser_contact=$12,
@@ -1830,9 +1933,17 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		`, acquisitionID, imp.ParcelID, l.LandAreaM2, l.BasePricePerM2,
 			l.OwnershipCertNo, l.AppraiserOrgName, l.AppraiserRegNo, l.AppraiserStateRegNo,
 			l.AppraiserDirector, l.AppraiserLicense, l.AppraiserAddress, l.AppraiserContact,
-			l.SourceFileName, l.SourceFileHash); err != nil {
+			l.SourceFileName, l.SourceFileHash, vType); err != nil {
 			return nil, err
 		}
+	}
+	// Газрын үнэлгээг нөхөх олговрын нэг хэсэг болгож (parcel-түвшний cash) compensation-д тусгана.
+	landAmount := l.LandAreaM2 * l.BasePricePerM2
+	if err = syncLandCompensation(ctx, tx, acquisitionID, imp.ParcelID, vType, landAmount, imp.CreatedBy); err != nil {
+		return nil, err
+	}
+	if landAmount > 0 {
+		res.CreatedComps++
 	}
 
 	// 2. Хөрөнгө бүр → asset + spec + calc + нөхөн олговор
@@ -1840,11 +1951,11 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		var assetID uuid.UUID
 		if err = tx.QueryRow(ctx, `
 			INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
-				floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price)
-			VALUES ($1,$2,$3,$4,$5,0,$6,$7,'',$8,$9,$10,$11,$12)
+				floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price, valuation_type)
+			VALUES ($1,$2,$3,$4,$5,0,$6,$7,'',$8,$9,$10,$11,$12,$13)
 			RETURNING id
 		`, acquisitionID, imp.ParcelID, a.AssetNumber, a.AssetType, a.AssetName,
-			a.AreaM2, a.OwnerName, a.Notes, a.Unit, a.Capacity, a.Description, a.UnitPrice).Scan(&assetID); err != nil {
+			a.AreaM2, a.OwnerName, a.Notes, a.Unit, a.Capacity, a.Description, a.UnitPrice, vType).Scan(&assetID); err != nil {
 			return nil, err
 		}
 		res.CreatedAssets++
@@ -1880,9 +1991,9 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		if a.CompensationAmount > 0 {
 			if _, err = tx.Exec(ctx, `
 				INSERT INTO compensation (acquisition_id, target_type, parcel_id, asset_id,
-					compensation_type, coverage_percent, amount, note, created_by)
-				VALUES ($1,'asset',$2,$3,'cash',100,$4,'Excel-ээс импортолсон үнэлгээ',$5)
-			`, acquisitionID, imp.ParcelID, assetID, a.CompensationAmount, imp.CreatedBy); err != nil {
+					compensation_type, coverage_percent, amount, note, created_by, valuation_type)
+				VALUES ($1,'asset',$2,$3,'cash',100,$4,'Excel-ээс импортолсон үнэлгээ',$5,$6)
+			`, acquisitionID, imp.ParcelID, assetID, a.CompensationAmount, imp.CreatedBy, vType); err != nil {
 				return nil, err
 			}
 			res.CreatedComps++
@@ -1897,15 +2008,19 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 
 // ── Compensation CRUD ─────────────────────────────────────────────────────────
 
-func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error) {
+func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error) {
 	args := []any{acquisitionID}
 	where := "c.acquisition_id = $1"
 	if parcelID != "" {
-		where += " AND c.parcel_id = $2"
 		args = append(args, parcelID)
+		where += fmt.Sprintf(" AND c.parcel_id = $%d", len(args))
+	}
+	if valuationType != "" {
+		args = append(args, valuationType)
+		where += fmt.Sprintf(" AND c.valuation_type = $%d", len(args))
 	}
 	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.acquisition_id, COALESCE(c.target_type,'asset'), COALESCE(c.parcel_id,''),
+		SELECT c.id, c.acquisition_id, COALESCE(c.target_type,'asset'), COALESCE(c.valuation_type,'asset'), COALESCE(c.parcel_id,''),
 		       c.asset_id, COALESCE(c.compensation_type,'cash'),
 		       COALESCE(c.coverage_percent,100), COALESCE(c.amount,0),
 		       c.compensation_date, COALESCE(c.note,''),
@@ -1940,7 +2055,7 @@ func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.
 		var gCreatedBy *string
 		var gUpdatedAt *time.Time
 		if err := rows.Scan(
-			&c.ID, &c.AcquisitionID, &c.TargetType, &c.ParcelID,
+			&c.ID, &c.AcquisitionID, &c.TargetType, &c.ValuationType, &c.ParcelID,
 			&c.AssetID, &c.CompensationType,
 			&c.CoveragePercent, &c.Amount,
 			&c.CompensationDate, &c.Note,
@@ -2012,9 +2127,9 @@ func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensa
 		INSERT INTO compensation (
 			acquisition_id, target_type, parcel_id, asset_id,
 			compensation_type, coverage_percent, amount, compensation_date,
-			note, created_by
+			note, created_by, valuation_type
 		)
-		SELECT $1::uuid,$2,$3::varchar,$4::uuid,$5,$6,$7,$8,$9,$10
+		SELECT $1::uuid,$2,$3::varchar,$4::uuid,$5,$6,$7,$8,$9,$10,COALESCE(NULLIF($11,''),'asset')
 		WHERE ($3 = '' OR EXISTS (
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$3
 		))
@@ -2024,7 +2139,7 @@ func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensa
 		RETURNING id, created_at, updated_at
 	`, c.AcquisitionID, c.TargetType, c.ParcelID, c.AssetID,
 		c.CompensationType, c.CoveragePercent, c.Amount, c.CompensationDate,
-		c.Note, c.CreatedBy,
+		c.Note, c.CreatedBy, c.ValuationType,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return domain.ErrNotFound
@@ -2372,18 +2487,27 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		var total float64
 		var compSQL string
 		if parcelYearCond != "" {
-			// on шүүлтүүр байвал зөвхөн тухайн оны parcel-уудын олговорыг нийлүүлнэ
+			// Он шүүлтүүртэй үед: parcel-аас (цөөн мөр) хөтөлж, олговрыг scalar subquery-ээр
+			// нийлүүлнэ. compensation (олон мөр)-оос хөтлөвөл nested correlated subquery
+			// сая дахин ажиллаж (~11 сая), асуулга минутаар удааширдаг тул parcel-аас хөтөлнө.
 			compSQL = fmt.Sprintf(`
-				SELECT COALESCE(SUM(c.amount), 0)
-				FROM compensation c
-				JOIN parcel p ON p.parcel_id = c.parcel_id
-				WHERE c.acquisition_id IN (%s)%s
+				SELECT COALESCE(SUM(x.amt), 0) FROM (
+					SELECT (
+						SELECT COALESCE(SUM(c.amount), 0) FROM compensation c
+						WHERE c.parcel_id = p.parcel_id AND c.acquisition_id = p.acquisition_id
+						  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
+					) AS amt
+					FROM parcel p
+					WHERE p.acquisition_id IN (%s)%s
+				) x
 			`, acqSubquery, parcelYearCond)
 		} else {
 			compSQL = fmt.Sprintf(`
 				SELECT COALESCE(SUM(c.amount), 0)
 				FROM compensation c
+				JOIN parcel p ON p.parcel_id = c.parcel_id
 				WHERE c.acquisition_id IN (%s)
+				  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 			`, acqSubquery)
 		}
 		err := r.db.QueryRow(ctx, compSQL, args...).Scan(&total)
@@ -2441,38 +2565,6 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		auCodesCh <- auCodesRes{toSlice(au1Set), toSlice(au2Set), toSlice(au3Set), nil}
 	}()
 
-	// 8. Шүүлтүүрт тохирох нэгж талбарын parcel_id жагсаалт (газрын зургийн давхаргад ашиглана)
-	type parcelIDsRes struct {
-		ids []string
-		err error
-	}
-	parcelIDsCh := make(chan parcelIDsRes, 1)
-	go func() {
-		if parcelYearCond == "" {
-			parcelIDsCh <- parcelIDsRes{nil, nil}
-			return
-		}
-		rows, err := r.db.Query(ctx, fmt.Sprintf(`
-			SELECT p.parcel_id FROM parcel p
-			WHERE p.acquisition_id IN (%s)%s
-		`, acqSubquery, parcelYearCond), args...)
-		if err != nil {
-			parcelIDsCh <- parcelIDsRes{nil, err}
-			return
-		}
-		defer rows.Close()
-		var ids []string
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				parcelIDsCh <- parcelIDsRes{nil, err}
-				return
-			}
-			ids = append(ids, id)
-		}
-		parcelIDsCh <- parcelIDsRes{ids, rows.Err()}
-	}()
-
 	// ── үр дүн цуглуулах ─────────────────────────────────────────────────────
 	acqR := <-acqCh
 	statusR := <-statusCh
@@ -2481,9 +2573,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	tlR := <-timelineCh
 	compR := <-compCh
 	auCodesR := <-auCodesCh
-	parcelIDsR := <-parcelIDsCh
 
-	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, auCodesR.err, parcelIDsR.err} {
+	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, auCodesR.err} {
 		if e != nil {
 			return nil, e
 		}
@@ -2510,7 +2601,6 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		TotalCompensation: compR.total,
 		StatusBreakdown:   bkR.rows,
 		Timeline:          tlR.points,
-		FilteredParcelIDs: parcelIDsR.ids,
 		FilteredAU1Codes:  auCodesR.au1,
 		FilteredAU2Codes:  auCodesR.au2,
 		FilteredAU3Codes:  auCodesR.au3,
@@ -2713,11 +2803,14 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID
 			return domain.ErrNotFound
 		}
 		var hasReport bool
+		// Зөвхөн сонгосон (үндсэн) урсгалын зөвшөөрөгдсөн + тайлантай олговрыг шаардана.
 		_ = r.db.QueryRow(ctx, `
 			SELECT EXISTS(
-				SELECT 1 FROM compensation
-				WHERE acquisition_id=$1 AND parcel_id=$2
-				AND status='approved' AND valuation_report_url<>''
+				SELECT 1 FROM compensation c
+				JOIN parcel p ON p.parcel_id = c.parcel_id AND p.acquisition_id = c.acquisition_id
+				WHERE c.acquisition_id=$1 AND c.parcel_id=$2
+				AND c.status='approved' AND c.valuation_report_url<>''
+				AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 			)`, acquisitionID, parcelCode).Scan(&hasReport)
 		if !hasReport {
 			return domain.ErrValuationReportRequired
@@ -2768,6 +2861,212 @@ func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid
 	return result, rows.Err()
 }
 
+// ── Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв ────────────────────────────
+
+// parcelCodeByID — route дахь parcel UUID-аас parcel-ийн код (VARCHAR)-ыг олох.
+func (r *landAcqRepo) parcelCodeByID(ctx context.Context, acquisitionID, parcelID uuid.UUID) (string, error) {
+	var code string
+	err := r.db.QueryRow(ctx,
+		`SELECT parcel_id FROM parcel WHERE id=$1 AND acquisition_id=$2`, parcelID, acquisitionID).Scan(&code)
+	if err != nil {
+		return "", domain.ErrNotFound
+	}
+	return code, nil
+}
+
+func scanValuationSubmission(row pgx.Row, acqID uuid.UUID, code, vType string) (*domain.ValuationSubmission, error) {
+	s := &domain.ValuationSubmission{}
+	err := row.Scan(&s.ID, &s.AcquisitionID, &s.ParcelID, &s.ValuationType, &s.Status,
+		&s.SubmittedBy, &s.SubmittedAt, &s.ReviewedBy, &s.ReviewedAt,
+		&s.LastNote, &s.CreatedAt, &s.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		// Мөр байхгүй бол анхдагч "Ноорог" төлөвөөр буцаана
+		return &domain.ValuationSubmission{AcquisitionID: acqID, ParcelID: code, ValuationType: vType, Status: domain.ValuationStatusDraft}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func normalizeValuationType(vType string) string {
+	if vType == "" {
+		return domain.ValuationTypeAsset
+	}
+	return vType
+}
+
+func (r *landAcqRepo) GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error) {
+	code, err := r.parcelCodeByID(ctx, acquisitionID, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	vType := normalizeValuationType(valuationType)
+	row := r.db.QueryRow(ctx, `
+		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
+		       reviewed_by, reviewed_at, last_note, created_at, updated_at
+		FROM parcel_valuation_submission
+		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
+	return scanValuationSubmission(row, acquisitionID, code, vType)
+}
+
+// TransitionValuationSubmission — төлөв шилжүүлэх (submit|approve|return), түүх хадгална.
+// approve үед тухайн урсгал нэгж талбарын "үндсэн" (selected_valuation_type) болно.
+func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
+	code, err := r.parcelCodeByID(ctx, acquisitionID, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	vType := normalizeValuationType(valuationType)
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Одоогийн төлөв (мөр байхгүй бол Ноорог)
+	from := domain.ValuationStatusDraft
+	_ = tx.QueryRow(ctx,
+		`SELECT status FROM parcel_valuation_submission WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+		acquisitionID, code, vType).Scan(&from)
+
+	// Шилжилтийн дүрэм
+	var to string
+	switch action {
+	case "submit":
+		if from != domain.ValuationStatusDraft && from != domain.ValuationStatusReturned {
+			return nil, domain.ErrInvalidTransition
+		}
+		to = domain.ValuationStatusSubmitted
+	case "approve":
+		if from != domain.ValuationStatusSubmitted {
+			return nil, domain.ErrInvalidTransition
+		}
+		to = domain.ValuationStatusApproved
+	case "return":
+		if from != domain.ValuationStatusSubmitted {
+			return nil, domain.ErrInvalidTransition
+		}
+		to = domain.ValuationStatusReturned
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+
+	// Upsert төлөв. submit → submitted_by/at, approve/return → reviewed_by/at.
+	if action == "submit" {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at, last_note)
+			VALUES ($1,$2,$6,$3,$4,NOW(),$5)
+			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
+			SET status=$3, submitted_by=$4, submitted_at=NOW(), last_note=$5, updated_at=NOW()`,
+			acquisitionID, code, to, userID, note, vType)
+	} else {
+		_, err = tx.Exec(ctx, `
+			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, reviewed_by, reviewed_at, last_note)
+			VALUES ($1,$2,$6,$3,$4,NOW(),$5)
+			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
+			SET status=$3, reviewed_by=$4, reviewed_at=NOW(), last_note=$5, updated_at=NOW()`,
+			acquisitionID, code, to, userID, note, vType)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Зөвшөөрсөн урсгал нь нэгж талбарын үндсэн (selected) үнэлгээ болно.
+	if action == "approve" {
+		if _, err = tx.Exec(ctx,
+			`UPDATE parcel SET selected_valuation_type=$1 WHERE acquisition_id=$2 AND parcel_id=$3`,
+			vType, acquisitionID, code); err != nil {
+			return nil, err
+		}
+
+		// Нэгж талбарт зөвхөн НЭГ баталгаажсан үнэлгээ байна — бусад урсгалын
+		// илгээх төлөвийг ХҮЧИНГҮЙ болгож, урсгал тус бүрийн түүхэд бичнэ.
+		voidNote := "Өөр үнэлгээний урсгал (" + vType + ") баталгаажсан тул автоматаар хүчингүй болов"
+		voidRows, verr := tx.Query(ctx, `
+			UPDATE parcel_valuation_submission s
+			SET status=$4, last_note=$5, updated_at=NOW()
+			FROM parcel_valuation_submission old
+			WHERE old.id = s.id
+			  AND s.acquisition_id=$1 AND s.parcel_id=$2
+			  AND s.valuation_type<>$3 AND s.status<>$4
+			RETURNING s.valuation_type, old.status`,
+			acquisitionID, code, vType, domain.ValuationStatusVoided, voidNote)
+		if verr != nil {
+			return nil, verr
+		}
+		type voided struct{ vt, fromStatus string }
+		var voidedList []voided
+		for voidRows.Next() {
+			var v voided
+			if err := voidRows.Scan(&v.vt, &v.fromStatus); err != nil {
+				voidRows.Close()
+				return nil, err
+			}
+			voidedList = append(voidedList, v)
+		}
+		voidRows.Close()
+		if err := voidRows.Err(); err != nil {
+			return nil, err
+		}
+		for _, v := range voidedList {
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO parcel_valuation_submission_history (acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by)
+				VALUES ($1,$2,$3,'void',$4,$5,$6,$7)`,
+				acquisitionID, code, v.vt, v.fromStatus, domain.ValuationStatusVoided, voidNote, userID); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Түүх
+	if _, err = tx.Exec(ctx, `
+		INSERT INTO parcel_valuation_submission_history (acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+		acquisitionID, code, vType, action, from, to, note, userID); err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	row := r.db.QueryRow(ctx, `
+		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
+		       reviewed_by, reviewed_at, last_note, created_at, updated_at
+		FROM parcel_valuation_submission
+		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
+	return scanValuationSubmission(row, acquisitionID, code, vType)
+}
+
+func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {
+	code, err := r.parcelCodeByID(ctx, acquisitionID, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	vType := normalizeValuationType(valuationType)
+	rows, err := r.db.Query(ctx, `
+		SELECT id, acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by, created_at
+		FROM parcel_valuation_submission_history
+		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
+		ORDER BY created_at DESC, id DESC`, acquisitionID, code, vType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.ValuationSubmissionHistory
+	for rows.Next() {
+		h := &domain.ValuationSubmissionHistory{}
+		if err := rows.Scan(&h.ID, &h.AcquisitionID, &h.ParcelID, &h.ValuationType, &h.Action,
+			&h.FromStatus, &h.ToStatus, &h.Note, &h.CreatedBy, &h.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
 func (r *landAcqRepo) GetCompensation(ctx context.Context, id uuid.UUID) (*domain.Compensation, error) {
 	c := &domain.Compensation{}
 	err := r.db.QueryRow(ctx, `
@@ -2799,6 +3098,20 @@ func (r *landAcqRepo) UpdateCompensationReport(ctx context.Context, id uuid.UUID
 	ct, err := r.db.Exec(ctx,
 		`UPDATE compensation SET valuation_report_url=$1, valuation_report_name=$2, updated_at=NOW() WHERE id=$3`,
 		reportURL, reportName, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAssetPhoto — хөрөнгийн зургийн PDF-ийн URL-ийг хадгална (асеет уг чөлөөлөлтөд хамаарна).
+func (r *landAcqRepo) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) error {
+	ct, err := r.db.Exec(ctx,
+		`UPDATE assets SET photo_pdf_url=$1, photo_pdf_name=$2, updated_at=NOW() WHERE id=$3 AND acquisition_id=$4`,
+		photoURL, photoName, assetID, acquisitionID)
 	if err != nil {
 		return err
 	}

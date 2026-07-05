@@ -2,7 +2,6 @@ package http
 
 import (
 	"net/http"
-	"strconv"
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/middleware"
@@ -61,8 +60,8 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 // @Failure      403  {object}  errorResponse
 // @Router       /users [get]
 func (h *UserHandler) List(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
 	filter := domain.UserFilter{
 		Search:   c.Query("search"),
 		Role:     c.Query("role"),

@@ -32,6 +32,18 @@ func (s *landService) ListParcelStatusHistory(ctx context.Context, parcelID uuid
 	return s.landRepo.ListParcelStatusHistory(ctx, parcelID)
 }
 
+func (s *landService) GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error) {
+	return s.landRepo.GetValuationSubmission(ctx, acquisitionID, parcelID, valuationType)
+}
+
+func (s *landService) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
+	return s.landRepo.TransitionValuationSubmission(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
+}
+
+func (s *landService) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {
+	return s.landRepo.ListValuationSubmissionHistory(ctx, acquisitionID, parcelID, valuationType)
+}
+
 func (s *landService) ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error) {
 	return s.landRepo.ListFundingSources(ctx, acquisitionID)
 }

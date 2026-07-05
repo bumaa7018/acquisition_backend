@@ -81,6 +81,20 @@ func TestParse_TooShort(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestParse_TruncatedPolygonRecord(t *testing.T) {
+	data := buildShp(t, testPts, 5)
+	_, err := shapefile.Parse(data[:len(data)-4])
+	assert.Error(t, err)
+}
+
+func TestParse_InvalidPartOffset(t *testing.T) {
+	data := buildShp(t, testPts, 5)
+	// First part offset lives after the record shape type, bbox, numParts, and numPoints.
+	binary.LittleEndian.PutUint32(data[108+4+32+4+4:], uint32(len(testPts)))
+	_, err := shapefile.Parse(data)
+	assert.Error(t, err)
+}
+
 func TestParse_WrongShapeType(t *testing.T) {
 	_, err := shapefile.Parse(buildShp(t, testPts, 3)) // PolyLine
 	assert.Error(t, err)

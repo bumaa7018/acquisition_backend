@@ -90,6 +90,7 @@ type LandAcquisitionWriteRepository interface {
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
 	UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error
+	HasNonFinalParcels(ctx context.Context, acquisitionID uuid.UUID) (bool, error)
 	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
@@ -109,7 +110,7 @@ type LandAssetRepository interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error
 	UpdateAsset(ctx context.Context, b *domain.Asset) error
-	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error
+	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) (string, error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
 	UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error
@@ -123,8 +124,8 @@ type LandAssetRepository interface {
 	UpdateAssetCalcType(ctx context.Context, t *domain.AssetCalcType) error
 	DeleteAssetCalcType(ctx context.Context, id int) error
 	UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error
-	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) (*domain.LandValuation, error)
-	DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID string) error
+	GetLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) (*domain.LandValuation, error)
+	DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error
 	ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error)
 }
 
@@ -134,7 +135,7 @@ type LandPaymentRepository interface {
 }
 
 type LandCompensationRepository interface {
-	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.Compensation, error)
+	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) error
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) error
 	DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error
@@ -142,6 +143,7 @@ type LandCompensationRepository interface {
 	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error
+	UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) error
 	ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
 	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
@@ -181,6 +183,9 @@ type LandWorkflowRepository interface {
 	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
 	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
+	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
+	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)
+	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error

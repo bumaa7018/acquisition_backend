@@ -129,6 +129,52 @@ type ParcelStatusHistory struct {
 	CreatedBy     string    `json:"created_by"`
 }
 
+// Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв (нэгж талбарын статусаас тусдаа).
+const (
+	ValuationStatusDraft     = "draft"     // Ноорог — засах боломжтой
+	ValuationStatusSubmitted = "submitted" // Илгээсэн — засах хаагдсан, санхүү хянана
+	ValuationStatusApproved  = "approved"  // Баталгаажсан — эцсийн, засах хаагдсан
+	ValuationStatusReturned  = "returned"  // Буцаагдсан — засах боломжтой, дахин илгээнэ
+	ValuationStatusVoided    = "voided"    // Хүчингүй — өөр урсгал баталгаажсан үед автоматаар (эцсийн)
+)
+
+// Үнэлгээний урсгалын төрөл (нэгж талбар бүрт 3 тусдаа урсгал).
+const (
+	ValuationTypeAsset       = "asset"       // Үндсэн мэрг. байгууллагын үнэлгээ
+	ValuationTypeIndependent = "independent" // Хөндлөнгийн байгууллагын үнэлгээ
+	ValuationTypeMika        = "mika"        // МИКА-гийн үнэлгээ
+)
+
+// ValuationSubmission — нэгж талбарын нөхөх олговрын үнэлгээний илгээлтийн төлөв
+type ValuationSubmission struct {
+	ID            uuid.UUID  `json:"id"`
+	AcquisitionID uuid.UUID  `json:"acquisition_id"`
+	ParcelID      string     `json:"parcel_id"`
+	ValuationType string     `json:"valuation_type"`
+	Status        string     `json:"status"`
+	SubmittedBy   string     `json:"submitted_by"`
+	SubmittedAt   *time.Time `json:"submitted_at"`
+	ReviewedBy    string     `json:"reviewed_by"`
+	ReviewedAt    *time.Time `json:"reviewed_at"`
+	LastNote      string     `json:"last_note"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// ValuationSubmissionHistory — төлөв шилжилт бүрийн түүх (тайлбартай)
+type ValuationSubmissionHistory struct {
+	ID            int       `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	ParcelID      string    `json:"parcel_id"`
+	ValuationType string    `json:"valuation_type"`
+	Action        string    `json:"action"`
+	FromStatus    string    `json:"from_status"`
+	ToStatus      string    `json:"to_status"`
+	Note          string    `json:"note"`
+	CreatedBy     string    `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // ParcelWorkflow — нэгж талбарын ажлын урсгалын шилжилт
 type ParcelWorkflow struct {
 	ID             int    `json:"id"`
@@ -253,34 +299,36 @@ type ParcelFilter struct {
 
 // Parcel — нэгж талбар (main DB-д хадгалагдана)
 type Parcel struct {
-	ID                 uuid.UUID
-	ParcelID           string
-	OldParcelID        string
-	AcquisitionID      uuid.UUID
-	ValidFrom          *time.Time
-	ValidTill          *time.Time
-	AU1Code            string
-	AU2Code            string
-	AU3Code            string
-	GeometryWKT        string
-	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
-	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
-	RemainingAreaM2    *float64
-	RightType          int
-	Landuse            string
-	AreaM2             float64
-	CompensationPaid   bool
-	DbChanged          bool
-	ChangedParcelID    string
-	StatusID           int
-	StatusName         string
-	IndependentOrgID   *uuid.UUID
-	IndependentOrgName string
-	CashAmount         float64
-	LandGrantAmount    float64
-	LandGrantCount     int
-	CreatedAt          time.Time
-	CreatedBy          string
+	ID                    uuid.UUID
+	ParcelID              string
+	OldParcelID           string
+	AcquisitionID         uuid.UUID
+	ValidFrom             *time.Time
+	ValidTill             *time.Time
+	AU1Code               string
+	AU2Code               string
+	AU3Code               string
+	GeometryWKT           string
+	AcquisitionGeomWKT    string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
+	AcquisitionAreaM2     float64 // давхцах хэсгийн талбай (м²)
+	RemainingAreaM2       *float64
+	RightType             int
+	Landuse               string
+	AreaM2                float64
+	CompensationPaid      bool
+	DbChanged             bool
+	ChangedParcelID       string
+	StatusID              int
+	StatusName            string
+	IndependentOrgID      *uuid.UUID
+	IndependentOrgName    string
+	SelectedValuationType *string           // санхүү зөвшөөрсөн үндсэн үнэлгээний урсгал (asset/independent/mika)
+	ValuationStatuses     map[string]string // урсгал бүрийн илгээх төлөв: valuation_type → draft|submitted|approved|returned
+	CashAmount            float64
+	LandGrantAmount       float64
+	LandGrantCount        int
+	CreatedAt             time.Time
+	CreatedBy             string
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
@@ -415,9 +463,10 @@ type ReportParcelRow struct {
 
 // AssetFilter — хөрөнгийн жагсаалт шүүх болон хуудаслах параметр
 type AssetFilter struct {
-	ParcelID string
-	Page     int
-	PageSize int
+	ParcelID      string
+	ValuationType string // хоосон = бүх урсгал
+	Page          int
+	PageSize      int
 }
 
 // Asset — хөрөнгийн үндсэн мэдээлэл
@@ -427,6 +476,7 @@ type Asset struct {
 	ParcelID      string    `json:"parcel_id"`
 	AssetNumber   string    `json:"asset_number"`
 	AssetType     string    `json:"asset_type"`
+	ValuationType string    `json:"valuation_type"`
 	AssetName     string    `json:"asset_name"`
 	FloorCount    int       `json:"floor_count"`
 	AreaM2        float64   `json:"area_m2"`
@@ -436,7 +486,9 @@ type Asset struct {
 	Unit          string    `json:"unit"`
 	Capacity      string    `json:"capacity"`
 	Description   string    `json:"description"`
-	UnitPrice     float64   `json:"unit_price"` // нэгж үнэ (Бусад хөрөнгө хүснэгтээс)
+	UnitPrice     float64   `json:"unit_price"`    // нэгж үнэ (Бусад хөрөнгө хүснэгтээс)
+	PhotoPdfURL   string    `json:"photo_pdf_url"` // зургуудыг нэгтгэсэн PDF
+	PhotoPdfName  string    `json:"photo_pdf_name"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -486,6 +538,7 @@ type LandValuation struct {
 	ID             uuid.UUID `json:"id"`
 	AcquisitionID  uuid.UUID `json:"acquisition_id"`
 	ParcelID       string    `json:"parcel_id"`
+	ValuationType  string    `json:"valuation_type"`
 	LandAreaM2     float64   `json:"land_area_m2"`
 	BasePricePerM2 float64   `json:"base_price_per_m2"`
 	// Excel импортоор ирдэг нэмэлт мэдээлэл (үнэлгээний тайлангийн метадата)
@@ -524,11 +577,12 @@ type ValuationImportAsset struct {
 
 // ValuationImport — бүхэл нэгж талбарын үнэлгээг нэг дор оруулах хүсэлт
 type ValuationImport struct {
-	ParcelID  string
-	Replace   bool // true бол уг талбарын хуучин хөрөнгө/олговрыг эхлээд устгана
-	Land      LandValuation
-	Assets    []ValuationImportAsset
-	CreatedBy string
+	ParcelID      string
+	ValuationType string // asset/independent/mika — импорт орох урсгал
+	Replace       bool   // true бол уг талбар+урсгалын хуучин хөрөнгө/олговрыг эхлээд устгана
+	Land          LandValuation
+	Assets        []ValuationImportAsset
+	CreatedBy     string
 }
 
 // ValuationImportResult — импортын дүн
@@ -563,7 +617,8 @@ type CompensationGrant struct {
 type Compensation struct {
 	ID               uuid.UUID          `json:"id"`
 	AcquisitionID    uuid.UUID          `json:"acquisition_id"`
-	TargetType       string             `json:"target_type"` // 'parcel' | 'asset'
+	TargetType       string             `json:"target_type"`    // 'parcel' | 'asset'
+	ValuationType    string             `json:"valuation_type"` // asset/independent/mika урсгал
 	ParcelID         string             `json:"parcel_id"`
 	AssetID          *uuid.UUID         `json:"asset_id"`
 	CompensationType string             `json:"compensation_type"`
@@ -701,7 +756,6 @@ type DashboardSummary struct {
 	TotalCompensation float64            `json:"total_compensation"`
 	StatusBreakdown   []ParcelStatusStat `json:"status_breakdown"`
 	Timeline          []TimelinePoint    `json:"timeline"`
-	FilteredParcelIDs []string           `json:"filtered_parcel_ids"`
 	FilteredAU1Codes  []string           `json:"filtered_au1_codes"`
 	FilteredAU2Codes  []string           `json:"filtered_au2_codes"`
 	FilteredAU3Codes  []string           `json:"filtered_au3_codes"`

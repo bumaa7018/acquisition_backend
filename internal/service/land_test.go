@@ -186,6 +186,69 @@ func TestLandService_Create_ValidateOverlapError(t *testing.T) {
 	assert.Equal(t, domain.ErrInternalServer, err)
 }
 
+func TestLandService_AdvanceStatus_ConfirmedRequiresFinalParcelStatuses(t *testing.T) {
+	planRepo := &mocks.MockPlanRepository{}
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc := newLandSvc(planRepo, landRepo)
+	acqID := uuid.New()
+	decreeDate := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusField,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("HasNonFinalParcels", ctx, acqID).Return(true, nil)
+
+	_, err := svc.AdvanceStatus(
+		ctx,
+		acqID,
+		domain.LandAcquisitionStatusVerified,
+		"",
+		"user-1",
+		"А/001",
+		&decreeDate,
+	)
+
+	assert.Equal(t, domain.ErrNonFinalParcels, err)
+	landRepo.AssertNotCalled(t, "CreateProgress", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "UpdateDecree", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertExpectations(t)
+}
+
+func TestLandService_AdvanceStatus_ConfirmedAllowsFinalParcelStatuses(t *testing.T) {
+	planRepo := &mocks.MockPlanRepository{}
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc := newLandSvc(planRepo, landRepo)
+	acqID := uuid.New()
+	decreeDate := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusField,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("HasNonFinalParcels", ctx, acqID).Return(false, nil)
+	landRepo.On("CreateProgress", ctx, mock.AnythingOfType("*domain.AcquisitionProgress")).Return(nil)
+	landRepo.On("UpdateStatus", ctx, acqID, domain.LandAcquisitionStatusVerified).Return(nil)
+	landRepo.On("UpdateDecree", ctx, acqID, "А/001", &decreeDate).Return(nil)
+
+	acq, err := svc.AdvanceStatus(
+		ctx,
+		acqID,
+		domain.LandAcquisitionStatusVerified,
+		"",
+		"user-1",
+		"А/001",
+		&decreeDate,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.LandAcquisitionStatusVerified, acq.Status)
+	landRepo.AssertExpectations(t)
+}
+
 // ── GetByID ───────────────────────────────────────────────────
 
 func TestLandService_GetByID_Success(t *testing.T) {

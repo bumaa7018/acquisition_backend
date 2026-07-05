@@ -30,6 +30,64 @@ var defaultPermissions = []domain.Permission{
 	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
 	{Name: "land:update", Description: "Update land acquisitions", Resource: "land", Action: "update"},
 	{Name: "land:delete", Description: "Delete land acquisitions", Resource: "land", Action: "delete"},
+	// Нөхөх олговрын (үнэлгээний) эрхүүд — гадаад ролиуд (мэрг. байгууллага,
+	// МИКА, санхүүгийн мэргэжилтэн) ЗӨВХӨН эдгээр эрхтэй ажиллана.
+	{Name: "compensation:read", Description: "Нөхөх олговор/үнэлгээ харах", Resource: "compensation", Action: "read"},
+	{Name: "compensation:create", Description: "Нөхөх олговор/үнэлгээ бүртгэх", Resource: "compensation", Action: "create"},
+	{Name: "compensation:update", Description: "Нөхөх олговор/үнэлгээ засах, төлөв шилжүүлэх", Resource: "compensation", Action: "update"},
+}
+
+// Гадаад ролиудын permission багц — ЗӨВХӨН compensation:* (өөр эрх олгогдохгүй).
+var externalRolePermissions = map[string]struct {
+	description string
+	perms       []string
+}{
+	"professional_org":   {"Мэргэжлийн байгууллага", []string{"compensation:read", "compensation:create", "compensation:update"}},
+	"mika":               {"МИКА", []string{"compensation:read", "compensation:create", "compensation:update"}},
+	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
+}
+
+// SeedCompensationAccess — compensation:* permission-уудыг үүсгэж, гадаад
+// ролиудад ЗӨВХӨН тэдгээрийг олгоно (бусад permission-уудыг нь хураана).
+func (s *Seeder) SeedCompensationAccess(ctx context.Context) error {
+	if _, err := s.seedPermissions(ctx); err != nil {
+		return err
+	}
+	for name, cfg := range externalRolePermissions {
+		role, err := s.roleRepo.GetByName(ctx, name)
+		if err != nil {
+			now := time.Now()
+			role = &domain.Role{
+				ID:          uuid.New(),
+				Name:        name,
+				Description: cfg.description,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.roleRepo.Create(ctx, role); err != nil {
+				return err
+			}
+			slog.Info("external role created", "name", name)
+		}
+		for _, permName := range cfg.perms {
+			perm, err := s.permRepo.GetByName(ctx, permName)
+			if err != nil {
+				return err
+			}
+			_ = s.roleRepo.AssignPermission(ctx, role.ID, perm.ID)
+		}
+		// "Өөр эрх олгогдохгүй" — compensation:*-ээс бусад бүх permission-ийг хураана.
+		if _, err := s.db.Exec(ctx, `
+			DELETE FROM role_permissions rp
+			USING permissions p
+			WHERE rp.role_id = $1 AND rp.permission_id = p.id
+			  AND p.name NOT LIKE 'compensation:%'
+		`, role.ID); err != nil {
+			return err
+		}
+		slog.Info("external role permissions synced", "role", name, "perms", cfg.perms)
+	}
+	return nil
 }
 
 type Seeder struct {
