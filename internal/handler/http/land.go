@@ -146,6 +146,10 @@ func (h *LandHandler) List(c *gin.Context) {
 	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
 		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
 		filter.Status = domain.LandAcquisitionStatusField
+		// Санхүүд нэмээд: хянуулахаар ИЛГЭЭСЭН үнэлгээтэй нэгж талбартай чөлөөлөлт л
+		if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") {
+			filter.HasSubmittedValuation = true
+		}
 	}
 
 	list, total, err := h.svc.List(c.Request.Context(), filter)

@@ -274,6 +274,9 @@ type LandAcquisitionFilter struct {
 	SubCategoryID         int
 	AssignedUserID        string
 	ProfessionalOrgUserID string // empty = no filter; set = only acquisitions accessible by this user
+	// true = зөвхөн "Илгээсэн" (submitted) төлөвтэй нөхөх олговрын үнэлгээтэй
+	// нэгж талбар бүхий чөлөөлөлтүүд (санхүүгийн мэргэжилтний жагсаалт)
+	HasSubmittedValuation bool
 	Page                  int
 	PageSize              int
 }

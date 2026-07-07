@@ -214,6 +214,13 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, filter.ProfessionalOrgUserID)
 		i++
 	}
+	if filter.HasSubmittedValuation {
+		// Санхүүд хянуулахаар ИЛГЭЭСЭН үнэлгээтэй нэгж талбартай чөлөөлөлтүүд л
+		where += ` AND EXISTS (
+			SELECT 1 FROM parcel_valuation_submission vs
+			WHERE vs.acquisition_id = la.id AND vs.status = 'submitted'
+		)`
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx,
