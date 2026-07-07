@@ -22,8 +22,5 @@ ALTER TABLE parcel_valuation_submission ADD CONSTRAINT pvs_acq_parcel_type_key
 CREATE INDEX IF NOT EXISTS idx_assets_valuation_type ON assets (valuation_type);
 CREATE INDEX IF NOT EXISTS idx_compensation_valuation_type ON compensation (valuation_type);
 
--- Одоо байгаа зөвшөөрөгдсөн парцелийг үндсэн (asset) болгож backfill —
--- ингэснээр хуучин тайлан/нийлбэрийн тоо эвдрэхгүй.
-UPDATE parcel SET selected_valuation_type = 'asset'
-WHERE selected_valuation_type IS NULL
-  AND parcel_id IN (SELECT parcel_id FROM parcel_valuation_submission WHERE status = 'approved');
+-- Backfill (зөвшөөрөгдсөн парцелийг asset болгох) нь seeder алхам
+-- 000010_selected_valuation_backfill-д хийгдэнэ — migration зөвхөн schema.

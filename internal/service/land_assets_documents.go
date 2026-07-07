@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"net/url"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -111,7 +115,15 @@ func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uui
 }
 
 func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
-	return s.landRepo.ImportValuation(ctx, acquisitionID, imp)
+	res, err := s.landRepo.ImportValuation(ctx, acquisitionID, imp)
+	if err != nil {
+		return nil, err
+	}
+	// Replace-ээр устгагдсан мөрүүдийн файлуудыг (зураг, тайлан) хадгалалтаас цэвэрлэнэ.
+	for _, fileURL := range res.OrphanedFileURLs {
+		_ = s.files.Delete(ctx, fileURL)
+	}
+	return res, nil
 }
 
 func (s *landService) ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error) {
@@ -153,7 +165,14 @@ func (s *landService) DeleteCompensation(ctx context.Context, acquisitionID, id 
 	if existing.Status == "approved" {
 		return domain.ErrApproved
 	}
-	return s.landRepo.DeleteCompensation(ctx, acquisitionID, id)
+	if err := s.landRepo.DeleteCompensation(ctx, acquisitionID, id); err != nil {
+		return err
+	}
+	// Хавсаргасан үнэлгээний тайлангийн файлыг хадгалалтаас цэвэрлэнэ.
+	if existing.ValuationReportURL != "" {
+		_ = s.files.Delete(ctx, existing.ValuationReportURL)
+	}
+	return nil
 }
 
 func (s *landService) ApproveCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error {
@@ -175,7 +194,11 @@ func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compI
 	if err != nil || comp.AcquisitionID != acqID {
 		return nil, domain.ErrNotFound
 	}
-	stored, err := s.files.Save(ctx, "compensation-report", compID.String(), filename, contentType, data)
+	// Үнэлгээний тайланг зөвхөн санхүү баталгаажуулсны (олговор approved) дараа хавсаргана.
+	if comp.Status != "approved" {
+		return nil, domain.ErrReportBeforeApproval
+	}
+	stored, err := s.files.Save(ctx, "compensation-report", compID.String(), filename, contentType, data, true)
 	if err != nil {
 		return nil, err
 	}
@@ -183,20 +206,30 @@ func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compI
 		_ = s.files.Delete(ctx, stored.URL)
 		return nil, err
 	}
+	// Солигдсон хуучин тайлангийн файлыг цэвэрлэнэ — орфон файл үлдээхгүй.
+	if comp.ValuationReportURL != "" && comp.ValuationReportURL != stored.URL {
+		_ = s.files.Delete(ctx, comp.ValuationReportURL)
+	}
 	comp.ValuationReportURL = stored.URL
 	comp.ValuationReportName = stored.Name
 	return comp, nil
 }
 
 func (s *landService) UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.UUID, filename, contentType string, data []byte) (string, string, error) {
-	stored, err := s.files.Save(ctx, "asset-photo", assetID.String(), filename, contentType, data)
+	stored, err := s.files.Save(ctx, "asset-photo", assetID.String(), filename, contentType, data, true)
 	if err != nil {
 		return "", "", err
 	}
-	// UpdateAssetPhoto нь асеет уг чөлөөлөлтөд хамаарахыг шалгана (WHERE id AND acquisition_id).
-	if err := s.landRepo.UpdateAssetPhoto(ctx, acqID, assetID, stored.URL, stored.Name); err != nil {
+	// UpdateAssetPhoto нь асеет уг чөлөөлөлтөд хамаарахыг шалгаж, солигдсон
+	// хуучин зургийн URL-ийг буцаана.
+	oldURL, err := s.landRepo.UpdateAssetPhoto(ctx, acqID, assetID, stored.URL, stored.Name)
+	if err != nil {
 		_ = s.files.Delete(ctx, stored.URL)
 		return "", "", err
+	}
+	// Хуучин зургийг хадгалалтаас цэвэрлэнэ — replace үед орфон файл үлдээхгүй.
+	if oldURL != "" && oldURL != stored.URL {
+		_ = s.files.Delete(ctx, oldURL)
 	}
 	return stored.URL, stored.Name, nil
 }
@@ -264,14 +297,73 @@ func (s *landService) ListAcquisitionDocuments(ctx context.Context, acquisitionI
 	return s.landRepo.ListAcquisitionDocuments(ctx, acquisitionID)
 }
 
-func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
-	stored, err := s.files.Save(ctx, "acquisition", acquisitionID.String(), filename, contentType, data)
+// buildDocumentFileName — хавсралтын физик файлын нэр:
+// <эзэмшигчийн дугаар>_<хавсралтын төрлийн код>.<өргөтгөл>.
+// Ижил нэртэй файл байвал _2, _3 гэж чөлөөт дугаар олно (давхардал/дарагдахаас сэргийлнэ).
+func buildDocumentFileName(ownerCode string, dt *domain.DocumentType, originalFilename string, existingDocs []*domain.Document) string {
+	if dt == nil || ownerCode == "" {
+		return originalFilename
+	}
+	taken := make(map[string]bool, len(existingDocs))
+	for _, d := range existingDocs {
+		segs := strings.Split(d.FileURL, "/")
+		last := segs[len(segs)-1]
+		if dec, err := url.PathUnescape(last); err == nil {
+			last = dec
+		}
+		taken[last] = true
+	}
+	ext := filepath.Ext(originalFilename)
+	base := ownerCode + "_" + dt.Type
+	name := base + ext
+	for i := 2; taken[name]; i++ {
+		name = base + "_" + strconv.Itoa(i) + ext
+	}
+	return name
+}
+
+// documentDisplayName — дэлгэцэд харагдах нэр: хэрэглэгчийн өгсөн нэр,
+// эс бөгөөс хавсралтын төрлийн нэр, эс бөгөөс эх файлын нэр.
+func documentDisplayName(displayName string, dt *domain.DocumentType, fallback string) string {
+	if n := strings.TrimSpace(displayName); n != "" {
+		return n
+	}
+	if dt != nil {
+		return dt.Name
+	}
+	return fallback
+}
+
+func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	// Физик нэр: <төлөвлөгөөний код>_<төрлийн код>.<өргөтгөл>
+	var dt *domain.DocumentType
+	storedFilename := filename
+	if documentTypeID > 0 {
+		t, err := s.landRepo.GetDocumentType(ctx, documentTypeID)
+		if err != nil {
+			if err == domain.ErrNotFound {
+				return nil, domain.ErrInvalidInput
+			}
+			return nil, err
+		}
+		dt = t
+		acq, err := s.landRepo.GetByID(ctx, acquisitionID)
+		if err != nil {
+			return nil, err
+		}
+		docs, err := s.landRepo.ListAcquisitionDocuments(ctx, acquisitionID)
+		if err != nil {
+			return nil, err
+		}
+		storedFilename = buildDocumentFileName(acq.PlanCode, dt, filename, docs)
+	}
+	stored, err := s.files.Save(ctx, "acquisition", acquisitionID.String(), storedFilename, contentType, data, dt == nil)
 	if err != nil {
 		return nil, err
 	}
 	doc := &domain.Document{
 		ID:             uuid.New(),
-		Name:           stored.Name,
+		Name:           documentDisplayName(displayName, dt, stored.Name),
 		FileType:       stored.Type,
 		FileURL:        stored.URL,
 		SizeBytes:      stored.SizeBytes,
@@ -302,19 +394,42 @@ func (s *landService) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 	return s.landRepo.ListParcelDocuments(ctx, parcelID)
 }
 
-func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
-	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), filename, contentType, data)
+func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	// Физик нэр: <нэгж талбарын дугаар>_<төрлийн код>.<өргөтгөл>
+	var dt *domain.DocumentType
+	storedFilename := filename
+	if documentTypeID > 0 {
+		t, err := s.landRepo.GetDocumentType(ctx, documentTypeID)
+		if err != nil {
+			if err == domain.ErrNotFound {
+				return nil, domain.ErrInvalidInput
+			}
+			return nil, err
+		}
+		dt = t
+		parcel, err := s.landRepo.GetParcelByID(ctx, parcelID)
+		if err != nil {
+			return nil, err
+		}
+		docs, err := s.landRepo.ListParcelDocuments(ctx, parcelID)
+		if err != nil {
+			return nil, err
+		}
+		storedFilename = buildDocumentFileName(parcel.ParcelID, dt, filename, docs)
+	}
+	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), storedFilename, contentType, data, dt == nil)
 	if err != nil {
 		return nil, err
 	}
 	doc := &domain.Document{
-		ID:         uuid.New(),
-		Name:       stored.Name,
-		FileType:   stored.Type,
-		FileURL:    stored.URL,
-		SizeBytes:  stored.SizeBytes,
-		UploadedBy: uploadedBy,
-		UploadedAt: time.Now(),
+		ID:             uuid.New(),
+		Name:           documentDisplayName(displayName, dt, stored.Name),
+		FileType:       stored.Type,
+		FileURL:        stored.URL,
+		SizeBytes:      stored.SizeBytes,
+		UploadedBy:     uploadedBy,
+		UploadedAt:     time.Now(),
+		DocumentTypeID: documentTypeID,
 	}
 	if err := s.landRepo.AddParcelDocument(ctx, parcelID, doc); err != nil {
 		_ = s.files.Delete(ctx, stored.URL)

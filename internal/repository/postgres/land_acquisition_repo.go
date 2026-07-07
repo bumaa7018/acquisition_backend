@@ -1429,7 +1429,8 @@ func (r *landAcqRepo) AddParcelPayment(ctx context.Context, p *domain.ParcelPaym
 
 func (r *landAcqRepo) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at, lad.file_type
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at,
+		       COALESCE(d.document_type_id, 0)
 		FROM document d
 		JOIN land_acquisition_document lad ON lad.document_id = d.id
 		WHERE lad.land_acquisition_id = $1
@@ -1451,21 +1452,36 @@ func (r *landAcqRepo) ListAcquisitionDocuments(ctx context.Context, acquisitionI
 }
 
 func (r *landAcqRepo) AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error {
+	// Хавсралтын төрөл document.document_type_id-д нэгдсэн (migration 000050) —
+	// хуучин land_acquisition_document.file_type багана устсан.
 	_, err := r.db.Exec(ctx, `
 		WITH ins AS (
-			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at, document_type_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0))
 			RETURNING id
 		)
-		INSERT INTO land_acquisition_document (land_acquisition_id, document_id, file_type)
-		SELECT $9, id, $10 FROM ins
+		INSERT INTO land_acquisition_document (land_acquisition_id, document_id)
+		SELECT $9, id FROM ins
 	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, acquisitionID, doc.DocumentTypeID)
 	return err
 }
 
+// GetDocumentType — хавсралтын төрлийг ID-аар авна (файл нэрлэхэд ашиглана).
+func (r *landAcqRepo) GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error) {
+	dt := &domain.DocumentType{}
+	err := r.db.QueryRow(ctx,
+		`SELECT id, type, name FROM document_type WHERE id=$1`, id).
+		Scan(&dt.ID, &dt.Type, &dt.Name)
+	if err != nil {
+		return nil, err
+	}
+	return dt, nil
+}
+
 func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at,
+		       COALESCE(d.document_type_id, 0)
 		FROM document d
 		JOIN parcel_document pd ON pd.document_id = d.id
 		WHERE pd.parcel_id = $1
@@ -1478,7 +1494,7 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 	var result []*domain.Document
 	for rows.Next() {
 		d := &domain.Document{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID); err != nil {
 			return nil, err
 		}
 		result = append(result, d)
@@ -1487,16 +1503,32 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 }
 
 func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error {
-	_, err := r.db.Exec(ctx, `
+	// "Хөрөнгийн үнэлгээний тайлан" (valuation_report) төрлийн хавсралтыг ЗӨВХӨН
+	// үнэлгээ баталгаажсан (selected_valuation_type тавигдсан) нэгж талбарт оруулна.
+	ct, err := r.db.Exec(ctx, `
 		WITH ins AS (
-			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at, document_type_id)
+			SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0)
+			WHERE NOT EXISTS (
+				SELECT 1 FROM document_type dt
+				WHERE dt.id = $10::int AND dt.type = 'valuation_report'
+				  AND NOT EXISTS (
+					SELECT 1 FROM parcel p
+					WHERE p.id = $9 AND p.selected_valuation_type IS NOT NULL
+				  )
+			)
 			RETURNING id
 		)
 		INSERT INTO parcel_document (parcel_id, document_id)
 		SELECT $9, id FROM ins
-	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, parcelID)
-	return err
+	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, parcelID, doc.DocumentTypeID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrReportBeforeApproval
+	}
+	return nil
 }
 
 func (r *landAcqRepo) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
@@ -1902,18 +1934,39 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		vType = domain.ValuationTypeAsset
 	}
 
-	// 0. Хуучин мэдээлэл цэвэрлэх — ЗӨВХӨН тухайн урсгалынхыг (бусад урсгал хэвээр үлдэнэ)
+	// 0. Хуучин мэдээлэл цэвэрлэх — ЗӨВХӨН тухайн урсгалынхыг (бусад урсгал хэвээр үлдэнэ).
+	// Устгагдсан мөрүүдийн файлуудын (тайлан, зураг) URL-ийг цуглуулж буцаана —
+	// service давхарга хадгалалтаас цэвэрлэж, орфон файл үлдээхгүй.
 	if imp.Replace {
-		ct, e := tx.Exec(ctx, "DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3", acquisitionID, imp.ParcelID, vType)
+		collect := func(query string) (int, error) {
+			rows, e := tx.Query(ctx, query, acquisitionID, imp.ParcelID, vType)
+			if e != nil {
+				return 0, e
+			}
+			defer rows.Close()
+			n := 0
+			for rows.Next() {
+				var fileURL string
+				if e := rows.Scan(&fileURL); e != nil {
+					return 0, e
+				}
+				n++
+				if fileURL != "" {
+					res.OrphanedFileURLs = append(res.OrphanedFileURLs, fileURL)
+				}
+			}
+			return n, rows.Err()
+		}
+		n, e := collect("DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 RETURNING COALESCE(valuation_report_url,'')")
 		if e != nil {
 			return nil, e
 		}
-		res.DeletedComps = int(ct.RowsAffected())
-		ct, e = tx.Exec(ctx, "DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3", acquisitionID, imp.ParcelID, vType)
+		res.DeletedComps = n
+		n, e = collect("DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 RETURNING COALESCE(photo_pdf_url,'')")
 		if e != nil {
 			return nil, e
 		}
-		res.DeletedAssets = int(ct.RowsAffected())
+		res.DeletedAssets = n
 	}
 
 	// 1. Газрын үнэлгээ (утга байвал upsert)
@@ -2262,14 +2315,15 @@ func (r *landAcqRepo) DeleteCompensationGrantByCompensationID(ctx context.Contex
 	return err
 }
 
-func (r *landAcqRepo) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
+func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
 		FROM land_acquisition
-		WHERE acquisition_name ILIKE $1 OR plan_code ILIKE $1
+		WHERE (acquisition_name ILIKE $1 OR plan_code ILIKE $1)
+		  AND ($2 = 0 OR status = $2)
 		ORDER BY acquisition_name
 		LIMIT 20
-	`, "%"+q+"%")
+	`, "%"+q+"%", status)
 	if err != nil {
 		return nil, err
 	}
@@ -2290,15 +2344,21 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	args := []any{}
 	where := "1=1"
 	i := 1
+	profParam := 0
 
 	if filter.AcquisitionID != "" {
-		where += fmt.Sprintf(" AND id = $%d::uuid", i)
+		where += fmt.Sprintf(" AND la.id = $%d::uuid", i)
 		args = append(args, filter.AcquisitionID)
 		i++
 	}
 	if filter.PlanCode != "" {
-		where += fmt.Sprintf(" AND plan_code ILIKE $%d", i)
+		where += fmt.Sprintf(" AND la.plan_code ILIKE $%d", i)
 		args = append(args, "%"+filter.PlanCode+"%")
+		i++
+	}
+	if filter.Status != 0 {
+		where += fmt.Sprintf(" AND la.status = $%d", i)
+		args = append(args, filter.Status)
 		i++
 	}
 	var yearPlaceholders []string
@@ -2309,7 +2369,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			args = append(args, yr)
 			i++
 		}
-		where += fmt.Sprintf(` AND id IN (
+		where += fmt.Sprintf(` AND la.id IN (
 			SELECT DISTINCT p.acquisition_id FROM parcel p
 			WHERE EXTRACT(YEAR FROM (
 				SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
@@ -2317,25 +2377,61 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		)`, strings.Join(yearPlaceholders, ","))
 	}
 	if filter.GeneralCategoryID != 0 {
-		where += fmt.Sprintf(" AND general_category_id = $%d", i)
+		where += fmt.Sprintf(" AND la.general_category_id = $%d", i)
 		args = append(args, filter.GeneralCategoryID)
 		i++
 	}
 	if filter.SubCategoryID != 0 {
-		where += fmt.Sprintf(" AND sub_category_id = $%d", i)
+		where += fmt.Sprintf(" AND la.sub_category_id = $%d", i)
 		args = append(args, filter.SubCategoryID)
 		i++
 	}
 	if filter.AssignedUserID != "" {
-		where += fmt.Sprintf(` AND id IN (
+		where += fmt.Sprintf(` AND la.id IN (
 			SELECT acquisition_id FROM land_acquisition_assignee WHERE user_id = $%d::uuid
 		)`, i)
 		args = append(args, filter.AssignedUserID)
 		i++
 	}
+	if filter.ProfessionalOrgUserID != "" {
+		profParam = i
+		where += fmt.Sprintf(` AND (
+			la.professional_org_id = $%d::uuid
+			OR EXISTS (
+				SELECT 1 FROM parcel p_org
+				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::uuid
+			)
+		)`, i, i)
+		args = append(args, filter.ProfessionalOrgUserID)
+		i++
+	}
+	parcelScopeCond := ""
+	acqParcelScopeCond := ""
+	if filter.FilterByParcelStatus {
+		parcelScopeCond += fmt.Sprintf(" AND p.status = %d", filter.ParcelStatusID)
+		acqParcelScopeCond += fmt.Sprintf(" AND p_scope.status = %d", filter.ParcelStatusID)
+	}
+	if profParam != 0 {
+		parcelScopeCond += fmt.Sprintf(` AND (
+			EXISTS (
+				SELECT 1 FROM land_acquisition la_scope
+				WHERE la_scope.id = p.acquisition_id AND la_scope.professional_org_id = $%d::uuid
+			)
+			OR p.independent_org_id = $%d::uuid
+		)`, profParam, profParam)
+		acqParcelScopeCond += fmt.Sprintf(` AND (
+			la.professional_org_id = $%d::uuid OR p_scope.independent_org_id = $%d::uuid
+		)`, profParam, profParam)
+	}
+	if acqParcelScopeCond != "" {
+		where += fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM parcel p_scope
+			WHERE p_scope.acquisition_id = la.id%s
+		)`, acqParcelScopeCond)
+	}
 	_ = i // suppress unused warning after last condition
 
-	acqSubquery := fmt.Sprintf("SELECT id FROM land_acquisition WHERE %s", where)
+	acqSubquery := fmt.Sprintf("SELECT la.id FROM land_acquisition la WHERE %s", where)
 
 	// нэгж талбарын түвшний он шүүлтүүр — $N параметруудыг acqSubquery-тэй хуваалцана
 	parcelYearCond := ""
@@ -2372,6 +2468,11 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		total float64
 		err   error
 	}
+	type valuationRes struct {
+		statuses []domain.ValuationStatusStat
+		types    []domain.ValuationTypeStat
+		err      error
+	}
 
 	acqCh := make(chan acqRes, 1)
 	statusCh := make(chan statusRes, 1)
@@ -2379,30 +2480,43 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	breakdownCh := make(chan breakdownRes, 1)
 	timelineCh := make(chan timelineRes, 1)
 	compCh := make(chan compRes, 1)
+	valuationCh := make(chan valuationRes, 1)
 
 	// 1. Шүүлтэд тохирох чөлөөлөлтүүд
 	go func() {
-		list, _, err := r.List(ctx, domain.LandAcquisitionFilter{
-			PlanCode:          filter.PlanCode,
-			Years:             filter.Years,
-			GeneralCategoryID: filter.GeneralCategoryID,
-			SubCategoryID:     filter.SubCategoryID,
-			AssignedUserID:    filter.AssignedUserID,
-			Page:              1,
-			PageSize:          1000,
-		})
-		// acquisition_id шүүлтүүр байвал нэг л acquisition авна
-		if err == nil && filter.AcquisitionID != "" {
-			filtered := list[:0]
-			for _, a := range list {
-				if a.ID.String() == filter.AcquisitionID {
-					filtered = append(filtered, a)
-					break
-				}
-			}
-			list = filtered
+		rows, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT la.id, COALESCE(la.acquisition_name, ''), la.plan_code, la.status,
+			       COALESCE(la.area_m2, 0), COALESCE(la.decree_number, ''), COUNT(p.id)
+			FROM land_acquisition la
+			LEFT JOIN parcel p ON p.acquisition_id = la.id%s
+			WHERE %s
+			GROUP BY la.id, la.acquisition_name, la.plan_code, la.status, la.area_m2, la.decree_number, la.created_at
+			ORDER BY la.created_at DESC
+			LIMIT 1000
+		`, parcelScopeCond, where), args...)
+		if err != nil {
+			acqCh <- acqRes{nil, err}
+			return
 		}
-		acqCh <- acqRes{list, err}
+		defer rows.Close()
+		var list []*domain.LandAcquisition
+		for rows.Next() {
+			a := &domain.LandAcquisition{}
+			if err := rows.Scan(
+				&a.ID,
+				&a.AcquisitionName,
+				&a.PlanCode,
+				&a.Status,
+				&a.AreaM2,
+				&a.DecreeNumber,
+				&a.ParcelCount,
+			); err != nil {
+				acqCh <- acqRes{nil, err}
+				return
+			}
+			list = append(list, a)
+		}
+		acqCh <- acqRes{list, rows.Err()}
 	}()
 
 	// 2. Нэгж талбарын төлөвийн lookup
@@ -2421,8 +2535,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 				COUNT(*) FILTER (WHERE compensation_paid = true),
 				COALESCE(SUM(acquisition_area_m2) FILTER (WHERE compensation_paid = true), 0)
 			FROM parcel p
-			WHERE p.acquisition_id IN (%s)%s
-		`, acqSubquery, parcelYearCond), args...).Scan(&total, &freed, &freedArea)
+			WHERE p.acquisition_id IN (%s)%s%s
+		`, acqSubquery, parcelYearCond, parcelScopeCond), args...).Scan(&total, &freed, &freedArea)
 		statsCh <- statsRes{total, freed, freedArea, err}
 	}()
 
@@ -2433,10 +2547,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			       COUNT(*), COALESCE(SUM(p.acquisition_area_m2), 0)
 			FROM parcel p
 			LEFT JOIN parcel_status ps ON ps.id = p.status
-			WHERE p.acquisition_id IN (%s)%s
+			WHERE p.acquisition_id IN (%s)%s%s
 			GROUP BY p.status, ps.name
 			ORDER BY p.status
-		`, acqSubquery, parcelYearCond), args...)
+		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
 		if err != nil {
 			breakdownCh <- breakdownRes{nil, err}
 			return
@@ -2461,10 +2575,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			FROM parcel p
 			JOIN land_acquisition la ON la.id = p.acquisition_id
 			WHERE p.acquisition_id IN (%s)
-			  AND la.start_date IS NOT NULL%s
+			  AND la.start_date IS NOT NULL%s%s
 			GROUP BY la.start_date
 			ORDER BY la.start_date
-		`, acqSubquery, parcelYearCond), args...)
+		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
 		if err != nil {
 			timelineCh <- timelineRes{nil, err}
 			return
@@ -2498,23 +2612,88 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 						  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 					) AS amt
 					FROM parcel p
-					WHERE p.acquisition_id IN (%s)%s
+					WHERE p.acquisition_id IN (%s)%s%s
 				) x
-			`, acqSubquery, parcelYearCond)
+			`, acqSubquery, parcelYearCond, parcelScopeCond)
 		} else {
 			compSQL = fmt.Sprintf(`
 				SELECT COALESCE(SUM(c.amount), 0)
 				FROM compensation c
-				JOIN parcel p ON p.parcel_id = c.parcel_id
+				JOIN parcel p ON p.acquisition_id = c.acquisition_id AND p.parcel_id = c.parcel_id
 				WHERE c.acquisition_id IN (%s)
 				  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-			`, acqSubquery)
+				  %s
+			`, acqSubquery, parcelScopeCond)
 		}
 		err := r.db.QueryRow(ctx, compSQL, args...).Scan(&total)
 		compCh <- compRes{total, err}
 	}()
 
-	// 7. Шүүлтүүрт тохирох захиргааны нэгжийн код жагсаалт (au1/au2/au3 давхаргад ашиглана)
+	// 7. Үнэлгээний илгээх/баталгаажуулах төлөв болон урсгалын нэгтгэл
+	go func() {
+		statusRows, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT s.status, COUNT(*)
+			FROM parcel_valuation_submission s
+			JOIN parcel p ON p.acquisition_id = s.acquisition_id AND p.parcel_id = s.parcel_id
+			WHERE p.acquisition_id IN (%s)%s%s
+			GROUP BY s.status
+			ORDER BY s.status
+		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		if err != nil {
+			valuationCh <- valuationRes{err: err}
+			return
+		}
+		var statuses []domain.ValuationStatusStat
+		for statusRows.Next() {
+			var s domain.ValuationStatusStat
+			if err := statusRows.Scan(&s.Status, &s.Count); err != nil {
+				statusRows.Close()
+				valuationCh <- valuationRes{err: err}
+				return
+			}
+			statuses = append(statuses, s)
+		}
+		if err := statusRows.Err(); err != nil {
+			statusRows.Close()
+			valuationCh <- valuationRes{err: err}
+			return
+		}
+		statusRows.Close()
+
+		typeRows, err := r.db.Query(ctx, fmt.Sprintf(`
+			SELECT s.valuation_type,
+			       COUNT(*),
+			       COALESCE(SUM((
+			           SELECT COALESCE(SUM(c.amount), 0)
+			           FROM compensation c
+			           WHERE c.acquisition_id = s.acquisition_id
+			             AND c.parcel_id = s.parcel_id
+			             AND c.valuation_type = s.valuation_type
+			       )), 0)
+			FROM parcel_valuation_submission s
+			JOIN parcel p ON p.acquisition_id = s.acquisition_id AND p.parcel_id = s.parcel_id
+			WHERE p.acquisition_id IN (%s)%s%s
+			GROUP BY s.valuation_type
+			ORDER BY s.valuation_type
+		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		if err != nil {
+			valuationCh <- valuationRes{err: err}
+			return
+		}
+		defer typeRows.Close()
+		var types []domain.ValuationTypeStat
+		for typeRows.Next() {
+			var t domain.ValuationTypeStat
+			if err := typeRows.Scan(&t.ValuationType, &t.Count, &t.Amount); err != nil {
+				valuationCh <- valuationRes{err: err}
+				return
+			}
+			types = append(types, t)
+		}
+		valuationCh <- valuationRes{statuses: statuses, types: types, err: typeRows.Err()}
+	}()
+
+	// 8. Шүүлтүүрт тохирох захиргааны нэгжийн код жагсаалт (au1/au2/au3 давхаргад ашиглана)
 	type auCodesRes struct {
 		au1 []string
 		au2 []string
@@ -2572,9 +2751,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	bkR := <-breakdownCh
 	tlR := <-timelineCh
 	compR := <-compCh
+	valR := <-valuationCh
 	auCodesR := <-auCodesCh
 
-	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, auCodesR.err} {
+	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, valR.err, auCodesR.err} {
 		if e != nil {
 			return nil, e
 		}
@@ -2601,6 +2781,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		TotalCompensation: compR.total,
 		StatusBreakdown:   bkR.rows,
 		Timeline:          tlR.points,
+		ValuationStatuses: valR.statuses,
+		ValuationTypes:    valR.types,
 		FilteredAU1Codes:  auCodesR.au1,
 		FilteredAU2Codes:  auCodesR.au2,
 		FilteredAU3Codes:  auCodesR.au3,
@@ -2655,6 +2837,19 @@ func (r *landAcqRepo) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 		result = []domain.AcquisitionAssignee{}
 	}
 	return result, rows.Err()
+}
+
+// IsAssignedToParcel — хэрэглэгч parcel-ийн харгалзах чөлөөлөлтөд хуваарилагдсан эсэх.
+func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM land_acquisition_assignee a
+			JOIN parcel p ON p.acquisition_id = a.acquisition_id
+			WHERE p.id = $1 AND a.user_id = $2
+		)
+	`, parcelID, userID).Scan(&exists)
+	return exists, err
 }
 
 func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
@@ -2803,15 +2998,32 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID
 			return domain.ErrNotFound
 		}
 		var hasReport bool
-		// Зөвхөн сонгосон (үндсэн) урсгалын зөвшөөрөгдсөн + тайлантай олговрыг шаардана.
+		// Сонгосон урсгалын зөвшөөрөгдсөн олговортой БӨГӨӨД үнэлгээний тайлан
+		// хавсаргагдсан байхыг шаардана. Тайлан нь "Хөрөнгийн үнэлгээний тайлан"
+		// (valuation_report) төрлийн parcel document (шинэ флоу) эсвэл олговрын
+		// valuation_report_url (хуучин өгөгдөл) байж болно.
 		_ = r.db.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM compensation c
 				JOIN parcel p ON p.parcel_id = c.parcel_id AND p.acquisition_id = c.acquisition_id
 				WHERE c.acquisition_id=$1 AND c.parcel_id=$2
-				AND c.status='approved' AND c.valuation_report_url<>''
+				AND c.status='approved'
 				AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-			)`, acquisitionID, parcelCode).Scan(&hasReport)
+			) AND (
+				EXISTS(
+					SELECT 1 FROM parcel_document pd
+					JOIN document d ON d.id = pd.document_id
+					JOIN document_type dt ON dt.id = d.document_type_id
+					WHERE pd.parcel_id=$3 AND dt.type='valuation_report'
+				)
+				OR EXISTS(
+					SELECT 1 FROM compensation c
+					JOIN parcel p ON p.parcel_id = c.parcel_id AND p.acquisition_id = c.acquisition_id
+					WHERE c.acquisition_id=$1 AND c.parcel_id=$2
+					AND c.status='approved' AND c.valuation_report_url<>''
+					AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
+				)
+			)`, acquisitionID, parcelCode, parcelID).Scan(&hasReport)
 		if !hasReport {
 			return domain.ErrValuationReportRequired
 		}
@@ -2953,6 +3165,21 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 		return nil, domain.ErrInvalidInput
 	}
 
+	// Илгээхийн өмнө тухайн урсгалын БҮХ "Үл хөдлөх" төрлийн хөрөнгө зурагтай эсэхийг шалгана.
+	if action == "submit" {
+		var missingPhotos int
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*) FROM assets
+			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
+			  AND asset_type='real_state' AND COALESCE(photo_pdf_url,'')=''`,
+			acquisitionID, code, vType).Scan(&missingPhotos); err != nil {
+			return nil, err
+		}
+		if missingPhotos > 0 {
+			return nil, domain.ErrAssetPhotoRequired
+		}
+	}
+
 	// Upsert төлөв. submit → submitted_by/at, approve/return → reviewed_by/at.
 	if action == "submit" {
 		_, err = tx.Exec(ctx, `
@@ -2982,9 +3209,9 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 		}
 
 		// Нэгж талбарт зөвхөн НЭГ баталгаажсан үнэлгээ байна — бусад урсгалын
-		// илгээх төлөвийг ХҮЧИНГҮЙ болгож, урсгал тус бүрийн түүхэд бичнэ.
-		voidNote := "Өөр үнэлгээний урсгал (" + vType + ") баталгаажсан тул автоматаар хүчингүй болов"
-		voidRows, verr := tx.Query(ctx, `
+		// илгээх төлөвийг ТАТГАЛЗСАН болгож, урсгал тус бүрийн түүхэд бичнэ.
+		voidNote := "Өөр үнэлгээний урсгал (" + vType + ") баталгаажсан тул автоматаар татгалзагдав"
+		rejRows, verr := tx.Query(ctx, `
 			UPDATE parcel_valuation_submission s
 			SET status=$4, last_note=$5, updated_at=NOW()
 			FROM parcel_valuation_submission old
@@ -2992,31 +3219,49 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 			  AND s.acquisition_id=$1 AND s.parcel_id=$2
 			  AND s.valuation_type<>$3 AND s.status<>$4
 			RETURNING s.valuation_type, old.status`,
-			acquisitionID, code, vType, domain.ValuationStatusVoided, voidNote)
+			acquisitionID, code, vType, domain.ValuationStatusRejected, voidNote)
 		if verr != nil {
 			return nil, verr
 		}
-		type voided struct{ vt, fromStatus string }
-		var voidedList []voided
-		for voidRows.Next() {
-			var v voided
-			if err := voidRows.Scan(&v.vt, &v.fromStatus); err != nil {
-				voidRows.Close()
+		type rejected struct{ vt, fromStatus string }
+		var rejectedList []rejected
+		for rejRows.Next() {
+			var v rejected
+			if err := rejRows.Scan(&v.vt, &v.fromStatus); err != nil {
+				rejRows.Close()
 				return nil, err
 			}
-			voidedList = append(voidedList, v)
+			rejectedList = append(rejectedList, v)
 		}
-		voidRows.Close()
-		if err := voidRows.Err(); err != nil {
+		rejRows.Close()
+		if err := rejRows.Err(); err != nil {
 			return nil, err
 		}
-		for _, v := range voidedList {
+		for _, v := range rejectedList {
 			if _, err = tx.Exec(ctx, `
 				INSERT INTO parcel_valuation_submission_history (acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by)
-				VALUES ($1,$2,$3,'void',$4,$5,$6,$7)`,
-				acquisitionID, code, v.vt, v.fromStatus, domain.ValuationStatusVoided, voidNote, userID); err != nil {
+				VALUES ($1,$2,$3,'reject',$4,$5,$6,$7)`,
+				acquisitionID, code, v.vt, v.fromStatus, domain.ValuationStatusRejected, voidNote, userID); err != nil {
 				return nil, err
 			}
+		}
+
+		// Олговрын мөрүүдийн статусыг мөн синк хийнэ: сонгогдсон урсгалын
+		// хүлээгдэж буй олговрууд БАТАЛГААЖИЖ (approved), бусад урсгалынх
+		// ТАТГАЛЗСАН (rejected) болно.
+		if _, err = tx.Exec(ctx, `
+			UPDATE compensation
+			SET status='approved', reviewed_by=$4, reviewed_at=NOW(), review_note=$5, updated_at=NOW()
+			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 AND status='pending'`,
+			acquisitionID, code, vType, userID, note); err != nil {
+			return nil, err
+		}
+		if _, err = tx.Exec(ctx, `
+			UPDATE compensation
+			SET status='rejected', reviewed_by=$4, reviewed_at=NOW(), review_note=$5, updated_at=NOW()
+			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type<>$3 AND status<>'rejected'`,
+			acquisitionID, code, vType, userID, voidNote); err != nil {
+			return nil, err
 		}
 	}
 
@@ -3107,18 +3352,23 @@ func (r *landAcqRepo) UpdateCompensationReport(ctx context.Context, id uuid.UUID
 	return nil
 }
 
-// UpdateAssetPhoto — хөрөнгийн зургийн PDF-ийн URL-ийг хадгална (асеет уг чөлөөлөлтөд хамаарна).
-func (r *landAcqRepo) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) error {
-	ct, err := r.db.Exec(ctx,
-		`UPDATE assets SET photo_pdf_url=$1, photo_pdf_name=$2, updated_at=NOW() WHERE id=$3 AND acquisition_id=$4`,
-		photoURL, photoName, assetID, acquisitionID)
+// UpdateAssetPhoto — хөрөнгийн зургийн PDF-ийн URL-ийг хадгална (асеет уг чөлөөлөлтөд
+// хамаарна). Солигдсон ХУУЧИН файлын URL-ийг буцаана — дуудагч хадгалалтаас цэвэрлэнэ.
+func (r *landAcqRepo) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) (string, error) {
+	var oldURL string
+	err := r.db.QueryRow(ctx, `
+		UPDATE assets a SET photo_pdf_url=$1, photo_pdf_name=$2, updated_at=NOW()
+		FROM assets prev
+		WHERE prev.id = a.id AND a.id=$3 AND a.acquisition_id=$4
+		RETURNING COALESCE(prev.photo_pdf_url,'')`,
+		photoURL, photoName, assetID, acquisitionID).Scan(&oldURL)
+	if err == pgx.ErrNoRows {
+		return "", domain.ErrNotFound
+	}
 	if err != nil {
-		return err
+		return "", err
 	}
-	if ct.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return oldURL, nil
 }
 
 func (r *landAcqRepo) ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error {

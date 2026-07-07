@@ -177,19 +177,21 @@ type dashboardAcqResponse struct {
 }
 
 type dashboardResponse struct {
-	Acquisitions      []dashboardAcqResponse    `json:"acquisitions"`
-	ParcelStatuses    []*domain.ParcelStatus    `json:"parcel_statuses"`
-	TotalParcels      int64                     `json:"total_parcels"`
-	FreedParcels      int64                     `json:"freed_parcels"`
-	FreedAreaM2       float64                   `json:"freed_area_m2"`
-	PlanAreaM2        float64                   `json:"plan_area_m2"`
-	TotalOrders       int64                     `json:"total_orders"`
-	TotalCompensation float64                   `json:"total_compensation"`
-	StatusBreakdown   []domain.ParcelStatusStat `json:"status_breakdown"`
-	Timeline          []domain.TimelinePoint    `json:"timeline"`
-	FilteredAU1Codes  []string                  `json:"filtered_au1_codes"`
-	FilteredAU2Codes  []string                  `json:"filtered_au2_codes"`
-	FilteredAU3Codes  []string                  `json:"filtered_au3_codes"`
+	Acquisitions      []dashboardAcqResponse       `json:"acquisitions"`
+	ParcelStatuses    []*domain.ParcelStatus       `json:"parcel_statuses"`
+	TotalParcels      int64                        `json:"total_parcels"`
+	FreedParcels      int64                        `json:"freed_parcels"`
+	FreedAreaM2       float64                      `json:"freed_area_m2"`
+	PlanAreaM2        float64                      `json:"plan_area_m2"`
+	TotalOrders       int64                        `json:"total_orders"`
+	TotalCompensation float64                      `json:"total_compensation"`
+	StatusBreakdown   []domain.ParcelStatusStat    `json:"status_breakdown"`
+	Timeline          []domain.TimelinePoint       `json:"timeline"`
+	ValuationStatuses []domain.ValuationStatusStat `json:"valuation_statuses,omitempty"`
+	ValuationTypes    []domain.ValuationTypeStat   `json:"valuation_types,omitempty"`
+	FilteredAU1Codes  []string                     `json:"filtered_au1_codes"`
+	FilteredAU2Codes  []string                     `json:"filtered_au2_codes"`
+	FilteredAU3Codes  []string                     `json:"filtered_au3_codes"`
 }
 
 type globalParcelResponse struct {

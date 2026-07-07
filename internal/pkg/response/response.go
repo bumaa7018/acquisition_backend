@@ -146,6 +146,10 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrValuationReportRequired
 	case domain.ErrNonFinalParcels:
 		return http.StatusUnprocessableEntity, i18n.ErrNonFinalParcels
+	case domain.ErrAssetPhotoRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrAssetPhotoRequired
+	case domain.ErrReportBeforeApproval:
+		return http.StatusUnprocessableEntity, i18n.ErrReportBeforeApproval
 	default:
 		return http.StatusInternalServerError, i18n.ErrInternalServer
 	}

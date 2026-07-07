@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -29,10 +30,15 @@ type TokenPair struct {
 }
 
 type Manager struct {
-	accessSecret  string
-	refreshSecret string
-	accessTTL     time.Duration
-	refreshTTL    time.Duration
+	accessSecret      string
+	refreshSecret     string
+	accessTTL         time.Duration
+	refreshTTL        time.Duration
+	revocationChecker RevocationChecker
+}
+
+type RevocationChecker interface {
+	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
 }
 
 func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *Manager {
@@ -42,6 +48,10 @@ func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.D
 		accessTTL:     accessTTL,
 		refreshTTL:    refreshTTL,
 	}
+}
+
+func (m *Manager) SetRevocationChecker(checker RevocationChecker) {
+	m.revocationChecker = checker
 }
 
 type UserInfo struct {
@@ -90,14 +100,30 @@ func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (s
 }
 
 func (m *Manager) ValidateAccessToken(tokenStr string) (*Claims, error) {
-	return m.validateToken(tokenStr, m.accessSecret)
+	return m.ValidateAccessTokenContext(context.Background(), tokenStr)
 }
 
 func (m *Manager) ValidateRefreshToken(tokenStr string) (*Claims, error) {
-	return m.validateToken(tokenStr, m.refreshSecret)
+	return m.ValidateRefreshTokenContext(context.Background(), tokenStr)
 }
 
-func (m *Manager) validateToken(tokenStr, secret string) (*Claims, error) {
+func (m *Manager) ValidateAccessTokenContext(ctx context.Context, tokenStr string) (*Claims, error) {
+	return m.validateToken(ctx, tokenStr, m.accessSecret)
+}
+
+func (m *Manager) ValidateRefreshTokenContext(ctx context.Context, tokenStr string) (*Claims, error) {
+	return m.validateToken(ctx, tokenStr, m.refreshSecret)
+}
+
+func (m *Manager) ParseAccessToken(tokenStr string) (*Claims, error) {
+	return m.parseToken(tokenStr, m.accessSecret)
+}
+
+func (m *Manager) ParseRefreshToken(tokenStr string) (*Claims, error) {
+	return m.parseToken(tokenStr, m.refreshSecret)
+}
+
+func (m *Manager) parseToken(tokenStr, secret string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, domain.ErrInvalidToken
@@ -112,6 +138,24 @@ func (m *Manager) validateToken(tokenStr, secret string) (*Claims, error) {
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
+		return nil, domain.ErrInvalidToken
+	}
+	return claims, nil
+}
+
+func (m *Manager) validateToken(ctx context.Context, tokenStr, secret string) (*Claims, error) {
+	claims, err := m.parseToken(tokenStr, secret)
+	if err != nil {
+		return nil, err
+	}
+	if m.revocationChecker == nil || claims.ID == "" {
+		return claims, nil
+	}
+	revoked, err := m.revocationChecker.IsTokenRevoked(ctx, claims.ID)
+	if err != nil {
+		return nil, err
+	}
+	if revoked {
 		return nil, domain.ErrInvalidToken
 	}
 	return claims, nil

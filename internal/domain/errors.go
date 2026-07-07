@@ -19,4 +19,6 @@ var (
 	ErrInvalidTransition       = errors.New("invalid status transition")
 	ErrValuationNotApproved    = errors.New("compensation valuation is not approved yet")
 	ErrNonFinalParcels         = errors.New("all parcels must be in final status before confirming acquisition")
+	ErrAssetPhotoRequired      = errors.New("real estate assets must have photos before submitting valuation")
+	ErrReportBeforeApproval    = errors.New("valuation must be approved before attaching the report")
 )

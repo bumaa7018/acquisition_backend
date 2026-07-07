@@ -128,6 +128,46 @@ func GetCallerName(c *gin.Context) string {
 	return name
 }
 
+// ParcelAssignmentChecker — хэрэглэгч parcel-ийн харгалзах чөлөөлөлтөд
+// хуваарилагдсан эсэхийг шалгах интерфейс (routes where :id = parcel_id).
+type ParcelAssignmentChecker interface {
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+}
+
+// RequireParcelAssignedOrSenior — /parcels/:id/* бичих маршрутуудад: ахлах
+// мэргэжилтэн эсвэл тухайн parcel-ийн чөлөөлөлтөд хуваарилагдсан ажилтан л нэвтэрнэ.
+func RequireParcelAssignedOrSenior(svc ParcelAssignmentChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rolesAny, _ := c.Get(CtxRoles)
+		if roles, ok := rolesAny.([]string); ok {
+			for _, r := range roles {
+				if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+					c.Next()
+					return
+				}
+			}
+		}
+
+		parcelID, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+		userIDRaw, _ := c.Get(CtxUserID)
+		userID, ok := userIDRaw.(uuid.UUID)
+		if !ok {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+		assigned, err := svc.IsAssignedToParcel(c.Request.Context(), parcelID, userID)
+		if err != nil || !assigned {
+			response.Abort(c, 403, i18n.ErrNotAssigned)
+			return
+		}
+		c.Next()
+	}
+}
+
 // RequireAcquisitionNotLocked — баталгаажсан (status=3) чөлөөлөлтийн бичих
 // хүсэлтийг 423 Locked-ээр буцаана. GET/HEAD/OPTIONS болон `:id`-гүй замуудад
 // шалгуур хэрэглэхгүй.

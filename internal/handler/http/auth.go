@@ -1,7 +1,9 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
@@ -36,6 +38,10 @@ type loginRequest struct {
 
 type refreshRequest struct {
 	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+type logoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
 }
 
 type forgotPasswordRequest struct {
@@ -144,6 +150,11 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // @Success      200  {object}  response.Response
 // @Router       /auth/logout [post]
 func (h *AuthHandler) Logout(c *gin.Context) {
+	var req logoutRequest
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		_ = json.NewDecoder(c.Request.Body).Decode(&req)
+	}
+	_ = h.authSvc.Logout(c.Request.Context(), bearerToken(c.GetHeader("Authorization")), req.RefreshToken)
 	c.JSON(http.StatusOK, response.Response{
 		Code:    http.StatusOK,
 		Message: i18n.T(i18n.Detect(c.GetHeader("Accept-Language")), i18n.MsgLogout),
@@ -195,4 +206,12 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		Code:    http.StatusOK,
 		Message: i18n.T(i18n.Detect(c.GetHeader("Accept-Language")), i18n.MsgPassReset),
 	})
+}
+
+func bearerToken(authHeader string) string {
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return ""
+	}
+	return parts[1]
 }

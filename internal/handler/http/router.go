@@ -124,7 +124,7 @@ func NewRouter(
 		land.Use(notLocked)
 		{
 			land.GET("", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.List)
-			land.GET("/suggest", middleware.RequireAnyPermission("land:read", "compensation:read"), landH.Suggest)
+			land.GET("/suggest", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.Suggest)
 			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware
 			land.GET("/:id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetByID)
@@ -155,7 +155,8 @@ func NewRouter(
 			land.GET("/:id/compensations/:comp_id/history", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListCompensationHistory)
 			land.POST("/:id/compensations/:comp_id/approve", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequireAnyPermission("land:update", "compensation:update"), landH.ApproveCompensation)
 			land.POST("/:id/compensations/:comp_id/reject", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequireAnyPermission("land:update", "compensation:update"), landH.RejectCompensation)
-			land.POST("/:id/compensations/:comp_id/report", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadCompensationReport)
+			// Үнэлгээний тайлан — МИКА өөрийн баталгаажсан урсгалдаа мөн хавсаргана (valuationEditor)
+			land.POST("/:id/compensations/:comp_id/report", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UploadCompensationReport)
 			land.POST("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateCompensationGrant)
 			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensationGrant)
 			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteCompensationGrant)
@@ -189,9 +190,6 @@ func NewRouter(
 			land.PUT("/:id/professional-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAcquisitionProfessionalOrg)
 			land.PATCH("/:id/parcels/:parcel_id/independent-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "professional_org"), middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
 		}
-
-		// Мэргэжлийн байгууллагын өөрийн чөлөөлөлтийн жагсаалт
-		protected.GET("/land-acquisitions/my", landH.ListMyAcquisitions)
 
 		prof := protected.Group("/prof")
 		prof.Use(middleware.RequireOnlyRole("professional_org"))
@@ -303,8 +301,11 @@ func NewRouter(
 			documentTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), documentTypeH.Delete)
 		}
 
-		// Дашбоард
-		protected.GET("/dashboard", middleware.RequirePermission("land:read"), landH.Dashboard)
+		// Дашбоард — дотоод хэрэглэгчид бүрэн, гадаад үнэлгээ/санхүүгийн ролиуд
+		// backend scope-оор зөвхөн өөрт хамаарах мэдээллээ авна.
+		protected.GET("/dashboard",
+			middleware.RequirePermissionOrRole("land:read", "professional_org", "mika", "finance_specialist"),
+			landH.Dashboard)
 
 		// Тайлангийн маршрут
 		report := protected.Group("/report")
@@ -351,15 +352,18 @@ func NewRouter(
 		protected.GET("/compensations/:id", middleware.RequirePermission("land:read"), landH.GetGlobalCompensation)
 
 		// Глобал нэгж талбарын маршрут
+		parcelAssignedOrSenior := middleware.RequireParcelAssignedOrSenior(landSvc)
 		parcels := protected.Group("/parcels")
 		parcels.Use(notParcelLocked)
 		{
 			parcels.GET("", middleware.RequirePermission("land:read"), landH.ListGlobalParcels)
 			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), landH.ListParcelPayments)
-			parcels.POST("/:id/payments", middleware.RequirePermission("land:update"), landH.AddParcelPayment)
-			parcels.GET("/:id/documents", middleware.RequirePermission("land:read"), landH.ListParcelDocuments)
-			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), landH.UploadParcelDocument)
-			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), landH.DeleteParcelDocument)
+			parcels.POST("/:id/payments", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.AddParcelPayment)
+			// Үнэлгээний тайлан Нөхөх олговор табд харагддаг тул гадаад ролиуд (санхүү/МИКА)
+			// мөн уншина; мэрг. байгууллага өөрийн /prof (гишүүнчлэлтэй) замаа ашиглана.
+			parcels.GET("/:id/documents", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.ListParcelDocuments)
+			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.UploadParcelDocument)
+			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.DeleteParcelDocument)
 		}
 
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх

@@ -327,8 +327,17 @@ func (m *MockLandAcquisitionRepository) UpdateCompensationReport(ctx context.Con
 	return m.Called(ctx, id, reportURL, reportName).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) error {
-	return m.Called(ctx, acquisitionID, assetID, photoURL, photoName).Error(0)
+func (m *MockLandAcquisitionRepository) GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentType), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) (string, error) {
+	args := m.Called(ctx, acquisitionID, assetID, photoURL, photoName)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) error {
@@ -415,8 +424,8 @@ func (m *MockLandAcquisitionRepository) GetDashboard(ctx context.Context, filter
 	return args.Get(0).(*domain.DashboardSummary), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
-	args := m.Called(ctx, q)
+func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q, status)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -433,6 +442,11 @@ func (m *MockLandAcquisitionRepository) GetAssignees(ctx context.Context, acquis
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, parcelID, userID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {

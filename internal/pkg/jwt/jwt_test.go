@@ -1,6 +1,7 @@
 package jwt_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,6 +12,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type revocationChecker struct {
+	revokedJTI string
+}
+
+func (c revocationChecker) IsTokenRevoked(_ context.Context, jti string) (bool, error) {
+	return jti == c.revokedJTI, nil
+}
 
 func newManager() *jwtpkg.Manager {
 	return jwtpkg.NewManager(
@@ -78,4 +87,17 @@ func TestExpiredToken(t *testing.T) {
 
 	_, err = m.ValidateAccessToken(pair.AccessToken)
 	assert.ErrorIs(t, err, domain.ErrExpiredToken)
+}
+
+func TestValidateAccessTokenRejectsRevokedToken(t *testing.T) {
+	m := newManager()
+	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: uuid.New()})
+	require.NoError(t, err)
+
+	claims, err := m.ParseAccessToken(pair.AccessToken)
+	require.NoError(t, err)
+	m.SetRevocationChecker(revocationChecker{revokedJTI: claims.ID})
+
+	_, err = m.ValidateAccessToken(pair.AccessToken)
+	assert.ErrorIs(t, err, domain.ErrInvalidToken)
 }

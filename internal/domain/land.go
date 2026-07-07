@@ -135,7 +135,7 @@ const (
 	ValuationStatusSubmitted = "submitted" // Илгээсэн — засах хаагдсан, санхүү хянана
 	ValuationStatusApproved  = "approved"  // Баталгаажсан — эцсийн, засах хаагдсан
 	ValuationStatusReturned  = "returned"  // Буцаагдсан — засах боломжтой, дахин илгээнэ
-	ValuationStatusVoided    = "voided"    // Хүчингүй — өөр урсгал баталгаажсан үед автоматаар (эцсийн)
+	ValuationStatusRejected  = "rejected"  // Татгалзсан — өөр урсгал баталгаажсан үед автоматаар (эцсийн)
 )
 
 // Үнэлгээний урсгалын төрөл (нэгж талбар бүрт 3 тусдаа урсгал).
@@ -591,6 +591,8 @@ type ValuationImportResult struct {
 	DeletedComps  int `json:"deleted_comps"`
 	CreatedAssets int `json:"created_assets"`
 	CreatedComps  int `json:"created_comps"`
+	// Replace үед устгагдсан мөрүүдийн файлууд — service хадгалалтаас цэвэрлэнэ
+	OrphanedFileURLs []string `json:"-"`
 }
 
 // CompensationGrant — газар олгох олговрын бичлэг
@@ -722,12 +724,16 @@ type AuthorizedRepresentative struct {
 
 // DashboardFilter — дашбоардын шүүлтүүрийн параметр
 type DashboardFilter struct {
-	AcquisitionID     string
-	PlanCode          string
-	Years             []int
-	GeneralCategoryID int
-	SubCategoryID     int
-	AssignedUserID    string
+	AcquisitionID         string
+	PlanCode              string
+	Years                 []int
+	Status                int
+	GeneralCategoryID     int
+	SubCategoryID         int
+	AssignedUserID        string
+	ProfessionalOrgUserID string
+	FilterByParcelStatus  bool
+	ParcelStatusID        int
 }
 
 // ParcelStatusStat — нэгж талбарын төлөвийн статистик
@@ -744,19 +750,32 @@ type TimelinePoint struct {
 	Count int64  `json:"count"`
 }
 
+type ValuationStatusStat struct {
+	Status string `json:"status"`
+	Count  int64  `json:"count"`
+}
+
+type ValuationTypeStat struct {
+	ValuationType string  `json:"valuation_type"`
+	Count         int64   `json:"count"`
+	Amount        float64 `json:"amount"`
+}
+
 // DashboardSummary — дашбоардын нийлмэл хариу (бүх тооцоо DB-д хийгдсэн)
 type DashboardSummary struct {
-	Acquisitions      []*LandAcquisition `json:"acquisitions"`
-	ParcelStatuses    []*ParcelStatus    `json:"parcel_statuses"`
-	TotalParcels      int64              `json:"total_parcels"`
-	FreedParcels      int64              `json:"freed_parcels"`
-	FreedAreaM2       float64            `json:"freed_area_m2"`
-	PlanAreaM2        float64            `json:"plan_area_m2"`
-	TotalOrders       int64              `json:"total_orders"`
-	TotalCompensation float64            `json:"total_compensation"`
-	StatusBreakdown   []ParcelStatusStat `json:"status_breakdown"`
-	Timeline          []TimelinePoint    `json:"timeline"`
-	FilteredAU1Codes  []string           `json:"filtered_au1_codes"`
-	FilteredAU2Codes  []string           `json:"filtered_au2_codes"`
-	FilteredAU3Codes  []string           `json:"filtered_au3_codes"`
+	Acquisitions      []*LandAcquisition    `json:"acquisitions"`
+	ParcelStatuses    []*ParcelStatus       `json:"parcel_statuses"`
+	TotalParcels      int64                 `json:"total_parcels"`
+	FreedParcels      int64                 `json:"freed_parcels"`
+	FreedAreaM2       float64               `json:"freed_area_m2"`
+	PlanAreaM2        float64               `json:"plan_area_m2"`
+	TotalOrders       int64                 `json:"total_orders"`
+	TotalCompensation float64               `json:"total_compensation"`
+	StatusBreakdown   []ParcelStatusStat    `json:"status_breakdown"`
+	Timeline          []TimelinePoint       `json:"timeline"`
+	ValuationStatuses []ValuationStatusStat `json:"valuation_statuses"`
+	ValuationTypes    []ValuationTypeStat   `json:"valuation_types"`
+	FilteredAU1Codes  []string              `json:"filtered_au1_codes"`
+	FilteredAU2Codes  []string              `json:"filtered_au2_codes"`
+	FilteredAU3Codes  []string              `json:"filtered_au3_codes"`
 }

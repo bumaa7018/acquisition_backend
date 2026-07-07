@@ -30,7 +30,7 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := jwtManager.ValidateAccessToken(parts[1])
+		claims, err := jwtManager.ValidateAccessTokenContext(c.Request.Context(), parts[1])
 		if err != nil {
 			response.Error(c, err)
 			return

@@ -26,6 +26,10 @@ var defaultPermissions = []domain.Permission{
 	{Name: "permissions:read", Description: "Read permissions", Resource: "permissions", Action: "read"},
 	{Name: "permissions:create", Description: "Create permissions", Resource: "permissions", Action: "create"},
 	{Name: "permissions:delete", Description: "Delete permissions", Resource: "permissions", Action: "delete"},
+	{Name: "admin:read", Description: "Системийн тохиргоо харах", Resource: "admin", Action: "read"},
+	{Name: "admin:create", Description: "Лавлах мэдээлэл нэмэх", Resource: "admin", Action: "create"},
+	{Name: "admin:update", Description: "Лавлах мэдээлэл засах", Resource: "admin", Action: "update"},
+	{Name: "admin:delete", Description: "Лавлах мэдээлэл устгах", Resource: "admin", Action: "delete"},
 	{Name: "land:read", Description: "Read land acquisitions", Resource: "land", Action: "read"},
 	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
 	{Name: "land:update", Description: "Update land acquisitions", Resource: "land", Action: "update"},
@@ -45,6 +49,47 @@ var externalRolePermissions = map[string]struct {
 	"professional_org":   {"Мэргэжлийн байгууллага", []string{"compensation:read", "compensation:create", "compensation:update"}},
 	"mika":               {"МИКА", []string{"compensation:read", "compensation:create", "compensation:update"}},
 	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
+}
+
+// SeedPermissionFixes — эрхийн нэршлийн зөрчлүүдийг засна:
+//  1. admin:* permission үүсгэж admin роль-д олгоно (лавлах CRUD + Тохиргоо цэс)
+//  2. users:read-ийг senior_specialist-д олгоно (ажилтан/байгууллага сонгох UI)
+//  3. Орфон permission-уудыг устгана (acquisition.create, valuation:create/update)
+func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
+	if _, err := s.seedPermissions(ctx); err != nil {
+		return err
+	}
+	grants := map[string][]string{
+		"admin":             {"admin:read", "admin:create", "admin:update", "admin:delete"},
+		"senior_specialist": {"users:read"},
+	}
+	for roleName, permNames := range grants {
+		role, err := s.roleRepo.GetByName(ctx, roleName)
+		if err != nil {
+			continue
+		}
+		for _, permName := range permNames {
+			perm, err := s.permRepo.GetByName(ctx, permName)
+			if err != nil {
+				return err
+			}
+			_ = s.roleRepo.AssignPermission(ctx, role.ID, perm.ID)
+		}
+	}
+	// Орфон permission-ууд: ямар ч маршрут ашиглахаа больсон
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM role_permissions rp USING permissions p
+		WHERE rp.permission_id = p.id AND p.name IN ('acquisition.create', 'valuation:create', 'valuation:update')
+	`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM permissions WHERE name IN ('acquisition.create', 'valuation:create', 'valuation:update')
+	`); err != nil {
+		return err
+	}
+	slog.Info("permission fixes applied")
+	return nil
 }
 
 // SeedCompensationAccess — compensation:* permission-уудыг үүсгэж, гадаад

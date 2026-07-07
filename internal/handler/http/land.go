@@ -73,7 +73,13 @@ func (h *LandHandler) Suggest(c *gin.Context) {
 		response.OK(c, []gin.H{})
 		return
 	}
-	list, err := h.svc.Suggest(c.Request.Context(), q)
+	// Жагсаалттай ижил дүрэм: санхүү/МИКА зөвхөн "Хээрийн судалгаа" төлөвийн нэрсийг харна
+	status := 0
+	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
+		status = domain.LandAcquisitionStatusField
+	}
+	list, err := h.svc.Suggest(c.Request.Context(), q, status)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -1005,17 +1011,19 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	contentType, ok := allowedDocumentContentType(data)
+	// Бүх хавсралт зөвхөн PDF өргөтгөлтэй байна
+	contentType, ok := allowedPDFContentType(data)
 	if !ok {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 		return
 	}
-	documentTypeID, _ := strconv.Atoi(c.PostForm("document_type_id"))
-	filename := fh.Filename
-	if n := c.PostForm("name"); n != "" {
-		filename = n
+	documentTypeID, err := documentTypeIDFromForm(c)
+	if err != nil {
+		response.Error(c, err)
+		return
 	}
-	doc, err := h.svc.UploadAcquisitionDocument(c.Request.Context(), id, filename, contentType, data, uploadedBy, documentTypeID)
+	// filename нь өргөтгөл тодорхойлоход, name нь дэлгэцийн нэрэнд ашиглагдана
+	doc, err := h.svc.UploadAcquisitionDocument(c.Request.Context(), id, fh.Filename, c.PostForm("name"), contentType, data, uploadedBy, documentTypeID)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -2390,21 +2398,36 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	contentType, ok := allowedDocumentContentType(data)
+	// Бүх хавсралт зөвхөн PDF өргөтгөлтэй байна
+	contentType, ok := allowedPDFContentType(data)
 	if !ok {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 		return
 	}
-	parcelFilename := fh.Filename
-	if n := c.PostForm("name"); n != "" {
-		parcelFilename = n
+	documentTypeID, err := documentTypeIDFromForm(c)
+	if err != nil {
+		response.Error(c, err)
+		return
 	}
-	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, parcelFilename, contentType, data, uploadedBy)
+	// filename нь өргөтгөл тодорхойлоход, name нь дэлгэцийн нэрэнд ашиглагдана
+	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, fh.Filename, c.PostForm("name"), contentType, data, uploadedBy, documentTypeID)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.Created(c, toDocumentResponse(doc))
+}
+
+func documentTypeIDFromForm(c *gin.Context) (int, error) {
+	raw := c.PostForm("document_type_id")
+	if raw == "" {
+		return 0, nil
+	}
+	documentTypeID, err := strconv.Atoi(raw)
+	if err != nil || documentTypeID < 0 {
+		return 0, domain.ErrInvalidInput
+	}
+	return documentTypeID, nil
 }
 
 func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
@@ -2473,6 +2496,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	filter := domain.DashboardFilter{
 		AcquisitionID:     c.Query("acquisition_id"),
 		PlanCode:          c.Query("plan_code"),
+		Status:            queryInt(c, "status", 0),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
 		AssignedUserID:    c.Query("assigned_user_id"),
@@ -2480,6 +2504,26 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	for _, y := range c.QueryArray("year") {
 		if n, err := strconv.Atoi(y); err == nil {
 			filter.Years = append(filter.Years, n)
+		}
+	}
+
+	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	isProf := ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага", "Мэргэжлийн байгуулл...")
+	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")
+	isExternalDashboard := !isSenior && (isProf || isReviewer)
+	if isExternalDashboard {
+		filter.FilterByParcelStatus = true
+		filter.ParcelStatusID = domain.ParcelStatusEvaluating
+		if isReviewer {
+			filter.Status = domain.LandAcquisitionStatusField
+		}
+		if isProf {
+			if userUUID, ok := middleware.GetCallerID(c); ok {
+				filter.ProfessionalOrgUserID = userUUID.String()
+			} else {
+				response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
+				return
+			}
 		}
 	}
 
@@ -2500,7 +2544,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		})
 	}
 
-	response.OK(c, dashboardResponse{
+	res := dashboardResponse{
 		Acquisitions:      acqs,
 		ParcelStatuses:    summary.ParcelStatuses,
 		TotalParcels:      summary.TotalParcels,
@@ -2514,7 +2558,13 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		FilteredAU1Codes:  summary.FilteredAU1Codes,
 		FilteredAU2Codes:  summary.FilteredAU2Codes,
 		FilteredAU3Codes:  summary.FilteredAU3Codes,
-	})
+	}
+	if isExternalDashboard {
+		res.ValuationStatuses = summary.ValuationStatuses
+		res.ValuationTypes = summary.ValuationTypes
+	}
+
+	response.OK(c, res)
 }
 
 // CreateFundingSource godoc

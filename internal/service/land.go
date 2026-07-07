@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -42,7 +43,7 @@ type LandAcquisitionService interface {
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
-	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
+	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
 	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error
 }
@@ -96,10 +97,10 @@ type LandPaymentService interface {
 
 type LandDocumentService interface {
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
-	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
+	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
-	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error)
+	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
 }
 
@@ -107,6 +108,7 @@ type LandAssigneeService interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 }
@@ -156,17 +158,21 @@ type landService struct {
 	planRepo repository.PlanRepository
 	landRepo repository.LandAcquisitionRepository
 	files    filestorage.Storage
+	// userRepo — auth DB-ийн хэрэглэгчид (мэрг. байгууллагын нэр харуулахад);
+	// nil байж болно (тест) — тэр үед нэр хоосон үлдэнэ.
+	userRepo repository.UserRepository
 }
 
 func NewLandService(
 	planRepo repository.PlanRepository,
 	landRepo repository.LandAcquisitionRepository,
 	files filestorage.Storage,
+	userRepo repository.UserRepository,
 ) LandService {
 	if files == nil {
 		files = filestorage.DisabledStorage{}
 	}
-	return &landService{planRepo: planRepo, landRepo: landRepo, files: files}
+	return &landService{planRepo: planRepo, landRepo: landRepo, files: files, userRepo: userRepo}
 }
 
 // Create — газар чөлөөлөлтын мэдээлэл үүсгэх
@@ -433,6 +439,17 @@ func (s *landService) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+	// Мэрг. байгууллага нь auth DB-ийн хэрэглэгч тул нэрийг эндээс нөхөж бөглөнө
+	// (main DB-ийн query JOIN хийж чадахгүй '' буцаадаг).
+	if acq.ProfessionalOrgID != nil && s.userRepo != nil {
+		if u, err := s.userRepo.GetByID(ctx, *acq.ProfessionalOrgID); err == nil && u != nil {
+			name := strings.TrimSpace(u.FirstName + " " + u.LastName)
+			if name == "" {
+				name = u.Email
+			}
+			acq.ProfessionalOrgName = name
+		}
+	}
 	return acq, nil
 }
 
@@ -650,8 +667,8 @@ func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardF
 	return s.landRepo.GetDashboard(ctx, filter)
 }
 
-func (s *landService) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
-	return s.landRepo.Suggest(ctx, q)
+func (s *landService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
+	return s.landRepo.Suggest(ctx, q, status)
 }
 
 func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {
@@ -667,6 +684,10 @@ func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 
 func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
 	return s.landRepo.IsAssigned(ctx, acquisitionID, userID)
+}
+
+func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	return s.landRepo.IsAssignedToParcel(ctx, parcelID, userID)
 }
 
 func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {

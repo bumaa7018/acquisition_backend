@@ -30,6 +30,14 @@ type PasswordResetToken struct {
 	CreatedAt time.Time `db:"created_at"`
 }
 
+type RevokedToken struct {
+	JTI       string    `db:"jti"`
+	UserID    uuid.UUID `db:"user_id"`
+	TokenType string    `db:"token_type"`
+	ExpiresAt time.Time `db:"expires_at"`
+	RevokedAt time.Time `db:"revoked_at"`
+}
+
 type UserFilter struct {
 	Search   string
 	Role     string

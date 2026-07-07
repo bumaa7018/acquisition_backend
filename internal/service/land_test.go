@@ -52,7 +52,7 @@ func buildSimpleShp() []byte {
 }
 
 func newLandSvc(planRepo *mocks.MockPlanRepository, landRepo *mocks.MockLandAcquisitionRepository) service.LandService {
-	return service.NewLandService(planRepo, landRepo, filestorage.DisabledStorage{})
+	return service.NewLandService(planRepo, landRepo, filestorage.DisabledStorage{}, nil)
 }
 
 var (

@@ -56,6 +56,41 @@ func (s *MainSeeder) Seed(ctx context.Context) error {
 	return s.seedAssets(ctx, acqID)
 }
 
+// seedSelectedValuationBackfill — зөвшөөрөгдсөн үнэлгээтэй хуучин парцелуудад
+// selected_valuation_type='asset' онооно (migration 000048-ийн schema-д харгалзах
+// өгөгдлийн шилжүүлэг — data өөрчлөлт зөвхөн seeder-ээр хийгдэнэ).
+func (s *MainSeeder) seedSelectedValuationBackfill(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE parcel SET selected_valuation_type = 'asset'
+		WHERE selected_valuation_type IS NULL
+		  AND parcel_id IN (SELECT parcel_id FROM parcel_valuation_submission WHERE status = 'approved')
+	`)
+	return err
+}
+
+// seedDocumentTypeBackfill — хуучин land_acquisition_document.file_type-д хадгалагдаж
+// байсан хавсралтын төрлийг document.document_type_id руу шилжүүлнэ.
+// Багана аль хэдийн устсан (migration 000050) орчинд юу ч хийхгүй.
+func (s *MainSeeder) seedDocumentTypeBackfill(ctx context.Context) error {
+	var hasColumn bool
+	if err := s.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'land_acquisition_document' AND column_name = 'file_type'
+		)`).Scan(&hasColumn); err != nil {
+		return err
+	}
+	if !hasColumn {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE document d SET document_type_id = lad.file_type
+		FROM land_acquisition_document lad
+		WHERE lad.document_id = d.id AND d.document_type_id IS NULL
+	`)
+	return err
+}
+
 func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO document_type (type, name, target) VALUES
@@ -87,6 +122,7 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 		  ('meeting_minutes',        'Хурлын тэмдэглэл',                                                       'parcel'),
 		  ('contract',               'Гэрээ',                                                                   'parcel'),
 		  ('consent_note',           'Зөвшилцлөлийн тэмдэглэл',                                               'parcel'),
+		  ('valuation_report',       'Хөрөнгийн үнэлгээний тайлан',                                            'parcel'),
 		  ('other',                  'БУСАД',                                                                   'both')
 		ON CONFLICT (type) DO NOTHING
 	`)

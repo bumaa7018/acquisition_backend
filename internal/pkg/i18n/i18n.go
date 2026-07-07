@@ -72,6 +72,8 @@ const (
 	ErrValuationReportRequired Key = "valuation_report_required"
 	ErrAcqLocked               Key = "acq_locked"
 	ErrNonFinalParcels         Key = "non_final_parcels"
+	ErrAssetPhotoRequired      Key = "asset_photo_required"
+	ErrReportBeforeApproval    Key = "report_before_approval"
 
 	// Document / file errors
 	ErrFileRequired Key = "file_required"
@@ -131,12 +133,14 @@ var messages = map[Key][2]string{
 	ErrValuationReportRequired: {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
 	ErrAcqLocked:               {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
 	ErrNonFinalParcels:         {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
+	ErrAssetPhotoRequired:      {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
+	ErrReportBeforeApproval:    {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
 
 	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
-	ErrFileTooLarge: {"Файл 10MB-аас хэтэрсэн байна", "file exceeds 10MB limit"},
+	ErrFileTooLarge: {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил
 	ErrFileOpen:     {"Файл нээхэд алдаа гарлаа", "failed to open file"},
 	ErrFileRead:     {"Файл уншихад алдаа гарлаа", "failed to read file"},
-	ErrFileType:     {"Файлын төрөл зөвшөөрөгдөөгүй", "file type is not allowed"},
+	ErrFileType:     {"Зөвхөн PDF файл зөвшөөрөгдөнө", "only PDF files are allowed"},
 	ErrDocNotFound:  {"Баримт олдсонгүй", "document not found"},
 }
 

@@ -820,6 +820,7 @@ func TestLandHandler_UploadAcquisitionDocument_Success(t *testing.T) {
 		mock.Anything, acqID,
 		mock.AnythingOfType("string"),
 		mock.AnythingOfType("string"),
+		mock.AnythingOfType("string"),
 		mock.Anything,
 		mock.AnythingOfType("string"),
 		3,

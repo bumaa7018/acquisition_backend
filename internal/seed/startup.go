@@ -81,6 +81,35 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedCompensationAccess(ctx)
 			},
 		},
+		{
+			// Хавсралтын төрлүүдийг дахин синк хийнэ (valuation_report нэмэгдсэн).
+			// seedDocumentTypes нь ON CONFLICT DO NOTHING тул давхардахгүй.
+			name: "000009_document_types_resync",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
+		{
+			// Migration 000048-ийн schema-д харгалзах data backfill (зөвхөн seeder-ээр).
+			name: "000010_selected_valuation_backfill",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedSelectedValuationBackfill(ctx)
+			},
+		},
+		{
+			// Migration 000050-ийн өмнөх lad.file_type утгыг document.document_type_id руу.
+			name: "000011_document_type_backfill",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypeBackfill(ctx)
+			},
+		},
+		{
+			// Эрхийн нэршлийн зөрчлүүд: admin:*, users:read→senior, орфон цэвэрлэгээ.
+			name: "000012_permission_fixes",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedPermissionFixes(ctx)
+			},
+		},
 	})
 
 	return nil

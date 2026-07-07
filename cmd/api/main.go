@@ -80,6 +80,7 @@ func main() {
 	roleRepo := postgres.NewRoleRepo(authDB)
 	permRepo := postgres.NewPermissionRepo(authDB)
 	pwdResetRepo := postgres.NewPasswordResetRepo(authDB)
+	revokedTokenRepo := postgres.NewRevokedTokenRepo(authDB)
 
 	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
 	planRepo := postgres.NewPlanRepo(authDB)
@@ -106,12 +107,12 @@ func main() {
 		emailSender = email.NoopSender{}
 	}
 
-	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL)
+	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
 	userSvc := service.NewUserService(userRepo)
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
 	fileStorage := filestorage.NewMockStorage(cfg.FileServer.BaseURL, cfg.FileServer.LocalDir)
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage)
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo)
 	planSvc := service.NewPlanService(planRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)

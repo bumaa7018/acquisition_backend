@@ -52,10 +52,9 @@ func (s *SMTPSender) SendPasswordReset(to, resetLink string) error {
 // Token-г зөвхөн log-д хэвлэнэ (development орчин).
 type NoopSender struct{}
 
-func (NoopSender) SendPasswordReset(to, resetLink string) error {
-	slog.Warn("EMAIL NOT CONFIGURED — password reset link (dev only)",
+func (NoopSender) SendPasswordReset(to, _ string) error {
+	slog.Warn("EMAIL NOT CONFIGURED - password reset link was not sent",
 		"to", to,
-		"link", resetLink,
 	)
 	return nil
 }

@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
+// Файл оруулах дээд хэмжээ — frontend-ийн 50MB шалгалттай ижил.
 const (
-	maxDocumentUploadSize = 10 * 1024 * 1024
-	maxAssetPhotoSize     = 25 * 1024 * 1024
-	maxShapefileSize      = 15 * 1024 * 1024
+	maxDocumentUploadSize = 50 * 1024 * 1024
+	maxAssetPhotoSize     = 50 * 1024 * 1024
+	maxShapefileSize      = 50 * 1024 * 1024
 	maxShapefileFormSize  = maxShapefileSize + 1024*1024
 )
 
@@ -46,24 +47,6 @@ func detectContentType(data []byte) string {
 		data = data[:512]
 	}
 	return http.DetectContentType(data)
-}
-
-func allowedDocumentContentType(data []byte) (string, bool) {
-	contentType := detectContentType(data)
-	if strings.HasPrefix(contentType, "text/plain") {
-		return contentType, true
-	}
-	switch contentType {
-	case "application/pdf",
-		"application/zip",
-		"image/jpeg",
-		"image/png",
-		"image/gif",
-		"image/webp":
-		return contentType, true
-	default:
-		return contentType, false
-	}
 }
 
 func allowedPDFContentType(data []byte) (string, bool) {

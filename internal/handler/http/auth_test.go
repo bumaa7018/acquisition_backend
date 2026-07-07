@@ -155,6 +155,7 @@ func TestAuthHandler_RefreshToken_InvalidToken(t *testing.T) {
 func TestAuthHandler_Logout(t *testing.T) {
 	mockSvc := &mocks.MockAuthService{}
 	h := handler.NewAuthHandler(mockSvc)
+	mockSvc.On("Logout", mock.Anything, "", "").Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -163,6 +164,7 @@ func TestAuthHandler_Logout(t *testing.T) {
 	h.Logout(c)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 func TestAuthHandler_ResetPassword_Success(t *testing.T) {

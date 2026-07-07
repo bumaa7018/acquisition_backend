@@ -49,6 +49,12 @@ type PasswordResetRepository interface {
 	DeleteExpired(ctx context.Context) error
 }
 
+type TokenRevocationRepository interface {
+	RevokeToken(ctx context.Context, token *domain.RevokedToken) error
+	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
+	DeleteExpired(ctx context.Context) error
+}
+
 // PlanRepository — auth DB-аас төлөвлөгөө, эх нэгж талбар уншина
 type PlanRepository interface {
 	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)
@@ -69,7 +75,7 @@ type LandLookupRepository interface {
 type LandAcquisitionWriteRepository interface {
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
-	Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error)
+	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
@@ -143,7 +149,7 @@ type LandCompensationRepository interface {
 	ApproveCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, id uuid.UUID, note, reviewedBy string) error
 	UpdateCompensationReport(ctx context.Context, id uuid.UUID, reportURL, reportName string) error
-	UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) error
+	UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) (string, error)
 	ListCompensationHistory(ctx context.Context, acquisitionID, compensationID uuid.UUID) ([]*domain.CompensationHistory, error)
 	ListAllCompensations(ctx context.Context, filter domain.GlobalCompensationFilter) ([]*domain.GlobalCompensation, int64, error)
 	GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error)
@@ -165,12 +171,14 @@ type LandDocumentRepository interface {
 	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
+	GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error)
 }
 
 type LandAssigneeRepository interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 }

@@ -20,6 +20,7 @@ type AuthService interface {
 	Register(ctx context.Context, req RegisterRequest) (*domain.User, error)
 	Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error)
+	Logout(ctx context.Context, accessToken, refreshToken string) error
 	ForgotPassword(ctx context.Context, emailAddr string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
 }
@@ -39,11 +40,12 @@ type LoginRequest struct {
 }
 
 type authService struct {
-	userRepo     repository.UserRepository
-	pwdResetRepo repository.PasswordResetRepository
-	jwtManager   *jwt.Manager
-	emailSender  email.Sender
-	resetBaseURL string
+	userRepo            repository.UserRepository
+	pwdResetRepo        repository.PasswordResetRepository
+	tokenRevocationRepo repository.TokenRevocationRepository
+	jwtManager          *jwt.Manager
+	emailSender         email.Sender
+	resetBaseURL        string
 }
 
 func NewAuthService(
@@ -52,13 +54,20 @@ func NewAuthService(
 	jwtManager *jwt.Manager,
 	emailSender email.Sender,
 	resetBaseURL string,
+	tokenRevocationRepo ...repository.TokenRevocationRepository,
 ) AuthService {
+	var revocationRepo repository.TokenRevocationRepository
+	if len(tokenRevocationRepo) > 0 {
+		revocationRepo = tokenRevocationRepo[0]
+		jwtManager.SetRevocationChecker(revocationRepo)
+	}
 	return &authService{
-		userRepo:     userRepo,
-		pwdResetRepo: pwdResetRepo,
-		jwtManager:   jwtManager,
-		emailSender:  emailSender,
-		resetBaseURL: resetBaseURL,
+		userRepo:            userRepo,
+		pwdResetRepo:        pwdResetRepo,
+		tokenRevocationRepo: revocationRepo,
+		jwtManager:          jwtManager,
+		emailSender:         emailSender,
+		resetBaseURL:        resetBaseURL,
 	}
 }
 
@@ -122,7 +131,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	if err != nil {
 		return nil, err
 	}
-	return s.jwtManager.GenerateTokenPair(jwt.UserInfo{
+	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
 		Username:    user.Username,
 		Email:       user.Email,
@@ -133,10 +142,17 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 		Roles:       roles,
 		Permissions: perms,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.cleanupExpiredRevokedTokens(ctx); err != nil {
+		return nil, err
+	}
+	return tokens, nil
 }
 
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
-	claims, err := s.jwtManager.ValidateRefreshToken(refreshToken)
+	claims, err := s.jwtManager.ValidateRefreshTokenContext(ctx, refreshToken)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +168,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
-	return s.jwtManager.GenerateTokenPair(jwt.UserInfo{
+	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
 		Username:    user.Username,
 		Email:       user.Email,
@@ -163,6 +179,34 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 		Roles:       roles,
 		Permissions: perms,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.cleanupExpiredRevokedTokens(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.revokeClaims(ctx, claims, "refresh"); err != nil {
+		return nil, err
+	}
+	return tokens, nil
+}
+
+func (s *authService) Logout(ctx context.Context, accessToken, refreshToken string) error {
+	if accessToken != "" {
+		if claims, err := s.jwtManager.ParseAccessToken(accessToken); err == nil {
+			if err := s.revokeClaims(ctx, claims, "access"); err != nil {
+				return err
+			}
+		}
+	}
+	if refreshToken != "" {
+		if claims, err := s.jwtManager.ParseRefreshToken(refreshToken); err == nil {
+			if err := s.revokeClaims(ctx, claims, "refresh"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ForgotPassword нь reset token үүсгэж, email-р илгээнэ.
@@ -222,4 +266,24 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 		return err
 	}
 	return s.pwdResetRepo.MarkUsed(ctx, resetToken.ID)
+}
+
+func (s *authService) cleanupExpiredRevokedTokens(ctx context.Context) error {
+	if s.tokenRevocationRepo == nil {
+		return nil
+	}
+	return s.tokenRevocationRepo.DeleteExpired(ctx)
+}
+
+func (s *authService) revokeClaims(ctx context.Context, claims *jwt.Claims, tokenType string) error {
+	if s.tokenRevocationRepo == nil || claims == nil || claims.ID == "" || claims.ExpiresAt == nil {
+		return nil
+	}
+	return s.tokenRevocationRepo.RevokeToken(ctx, &domain.RevokedToken{
+		JTI:       claims.ID,
+		UserID:    claims.UserID,
+		TokenType: tokenType,
+		ExpiresAt: claims.ExpiresAt.Time,
+		RevokedAt: time.Now(),
+	})
 }

@@ -40,6 +40,11 @@ func (m *MockAuthService) RefreshToken(ctx context.Context, refreshToken string)
 	return args.Get(0).(*jwtpkg.TokenPair), args.Error(1)
 }
 
+func (m *MockAuthService) Logout(ctx context.Context, accessToken, refreshToken string) error {
+	args := m.Called(ctx, accessToken, refreshToken)
+	return args.Error(0)
+}
+
 func (m *MockAuthService) ForgotPassword(ctx context.Context, email string) error {
 	args := m.Called(ctx, email)
 	return args.Error(0)
@@ -126,8 +131,8 @@ func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockLandService) Suggest(ctx context.Context, q string) ([]*domain.LandAcquisition, error) {
-	args := m.Called(ctx, q)
+func (m *MockLandService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q, status)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -195,8 +200,8 @@ func (m *MockLandService) ListAcquisitionDocuments(ctx context.Context, acquisit
 	return args.Get(0).([]*domain.Document), args.Error(1)
 }
 
-func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
-	args := m.Called(ctx, acquisitionID, filename, contentType, data, uploadedBy, documentTypeID)
+func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	args := m.Called(ctx, acquisitionID, filename, displayName, contentType, data, uploadedBy, documentTypeID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -434,8 +439,8 @@ func (m *MockLandService) ListParcelDocuments(ctx context.Context, parcelID uuid
 	return args.Get(0).([]*domain.Document), args.Error(1)
 }
 
-func (m *MockLandService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Document, error) {
-	args := m.Called(ctx, parcelID, filename, contentType, data, uploadedBy)
+func (m *MockLandService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	args := m.Called(ctx, parcelID, filename, displayName, contentType, data, uploadedBy, documentTypeID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -464,6 +469,11 @@ func (m *MockLandService) GetAssignees(ctx context.Context, acquisitionID uuid.U
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
+}
+
+func (m *MockLandService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, parcelID, userID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *MockLandService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {

@@ -19,14 +19,16 @@ type StoredFile struct {
 }
 
 type Storage interface {
-	Save(ctx context.Context, namespace, ownerID, filename, contentType string, data []byte) (*StoredFile, error)
+	// unique=true үед файлын нэрэнд uuid угтвар нэмж давхардлаас сэргийлнэ;
+	// false үед өгсөн нэрээр нь яг хадгална (дуудагч давхардлыг өөрөө хариуцна).
+	Save(ctx context.Context, namespace, ownerID, filename, contentType string, data []byte, unique bool) (*StoredFile, error)
 	Read(ctx context.Context, fileURL string) ([]byte, error)
 	Delete(ctx context.Context, fileURL string) error
 }
 
 type DisabledStorage struct{}
 
-func (DisabledStorage) Save(context.Context, string, string, string, string, []byte) (*StoredFile, error) {
+func (DisabledStorage) Save(context.Context, string, string, string, string, []byte, bool) (*StoredFile, error) {
 	return nil, errors.New("file storage is not configured")
 }
 
@@ -50,13 +52,17 @@ func NewMockStorage(baseURL, localDir string) *MockStorage {
 	}
 }
 
-func (s *MockStorage) Save(_ context.Context, namespace, ownerID, filename, contentType string, data []byte) (*StoredFile, error) {
+func (s *MockStorage) Save(_ context.Context, namespace, ownerID, filename, contentType string, data []byte, unique bool) (*StoredFile, error) {
 	if s.BaseURL == "" || s.LocalDir == "" {
 		return nil, errors.New("file storage is not configured")
 	}
 
 	cleanName := filepath.Base(filename)
-	relativePath := filepath.Join(namespace, ownerID, uuid.New().String()+"_"+cleanName)
+	storedName := cleanName
+	if unique {
+		storedName = uuid.New().String() + "_" + cleanName
+	}
+	relativePath := filepath.Join(namespace, ownerID, storedName)
 	localPath := filepath.Join(s.LocalDir, relativePath)
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return nil, err
@@ -65,8 +71,16 @@ func (s *MockStorage) Save(_ context.Context, namespace, ownerID, filename, cont
 		return nil, err
 	}
 
+	// URL-ийн сегмент бүрийг escape хийнэ — эс бөгөөс нэрэнд '%', зай зэрэг
+	// тэмдэгт орсон файлын URL хүчингүй болж, Delete/Read болон browser-ийн
+	// линк ажиллахгүй (файл орфон үлддэг байсан баг).
+	segments := strings.Split(filepath.ToSlash(relativePath), "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+
 	return &StoredFile{
-		URL:       s.BaseURL + "/" + filepath.ToSlash(relativePath),
+		URL:       s.BaseURL + "/" + strings.Join(segments, "/"),
 		Name:      cleanName,
 		Type:      contentType,
 		SizeBytes: int64(len(data)),
@@ -93,6 +107,20 @@ func (s *MockStorage) Delete(_ context.Context, fileURL string) error {
 }
 
 func (s *MockStorage) localPath(fileURL string) (string, error) {
+	// Хуучин бичлэгүүдийн URL escape хийгдээгүй (түүхий '%', зай агуулсан) байж
+	// болзошгүй тул url.Parse-д найдалгүй эхлээд шууд prefix-ээр тасалж авна.
+	if rel, ok := strings.CutPrefix(fileURL, s.BaseURL+"/"); ok {
+		// Шинэ (escape хийгдсэн) URL бол буцааж тайлна; түүхий хуучин URL дээр
+		// PathUnescape алдаа өгвөл байгаагаар нь ашиглана.
+		if decoded, err := url.PathUnescape(rel); err == nil {
+			rel = decoded
+		}
+		if rel == "" || strings.Contains(rel, "..") {
+			return "", errors.New("invalid file URL")
+		}
+		return filepath.Join(s.LocalDir, filepath.FromSlash(rel)), nil
+	}
+
 	base, err := url.Parse(s.BaseURL)
 	if err != nil {
 		return "", err
