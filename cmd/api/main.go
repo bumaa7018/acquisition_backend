@@ -108,6 +108,8 @@ func main() {
 	}
 
 	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
+	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
+	jwtManager.SetSessionValidator(userRepo)
 	userSvc := service.NewUserService(userRepo)
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
@@ -119,11 +121,13 @@ func main() {
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)
 
 	if err := seed.RunStartup(ctx, mainDB, authDB, seed.StartupOptions{
-		Admin:    cfg.Admin,
-		Employee: cfg.Employee,
-		UserRepo: userRepo,
-		RoleRepo: roleRepo,
-		PermRepo: permRepo,
+		Admin:           cfg.Admin,
+		Employee:        cfg.Employee,
+		Finance:         cfg.Finance,
+		ProfessionalOrg: cfg.ProfessionalOrg,
+		UserRepo:        userRepo,
+		RoleRepo:        roleRepo,
+		PermRepo:        permRepo,
 	}); err != nil {
 		slog.Error("failed to create seed_history", "error", err)
 		os.Exit(1)

@@ -179,7 +179,8 @@ func TestAuthService_ResetPassword_ExpiredToken(t *testing.T) {
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
 		Used:      false,
 	}
-	pwdRepo.On("GetByToken", context.Background(), "sometoken").Return(resetToken, nil)
+	// Токен DB-д hash хэлбэрээр хайгддаг тул аргументыг чөлөөтэй тааруулна.
+	pwdRepo.On("GetByToken", context.Background(), mock.Anything).Return(resetToken, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	err := svc.ResetPassword(context.Background(), "sometoken", "NewPassword123!")

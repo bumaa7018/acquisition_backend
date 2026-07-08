@@ -757,7 +757,11 @@ func (h *LandHandler) UpdateParcelValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
 		return
 	}
-	_ = acqID
+	// parcel тухайн чөлөөлөлтөд харьяалагдаж буйг шалгана (IDOR).
+	if err := h.svc.EnsureParcelInAcquisition(c.Request.Context(), acqID, parcelID); err != nil {
+		response.Error(c, err)
+		return
+	}
 
 	var body struct {
 		ValuationZone  string   `json:"valuation_zone"`
@@ -940,9 +944,19 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 }
 
 func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	// parcel тухайн чөлөөлөлтөд харьяалагдаж буйг шалгана (IDOR).
+	if err := h.svc.EnsureParcelInAcquisition(c.Request.Context(), acqID, parcelID); err != nil {
+		response.Error(c, err)
 		return
 	}
 
@@ -2469,9 +2483,19 @@ func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
 // @Failure      400  {object}  response.Response
 // @Router       /land-acquisitions/{id}/parcels/{parcel_id}/compensation [put]
 func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	// parcel тухайн чөлөөлөлтөд харьяалагдаж буйг шалгана (IDOR).
+	if err := h.svc.EnsureParcelInAcquisition(c.Request.Context(), acqID, parcelID); err != nil {
+		response.Error(c, err)
 		return
 	}
 	var body struct {

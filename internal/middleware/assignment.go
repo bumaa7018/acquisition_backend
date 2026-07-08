@@ -331,8 +331,17 @@ func RequireProfOrgMember(svc ProfMemberChecker) gin.HandlerFunc {
 // `:id` нь parcel UUID бөгөөд professional_org хэрэглэгч тухайн parcel-ийн
 // чөлөөлөлтөд хамаарах эсэхийг шалгана.
 func RequireProfParcelMember(svc ProfParcelMemberChecker) gin.HandlerFunc {
+	return RequireProfParcelMemberParam(svc, "id")
+}
+
+// RequireProfParcelMemberParam — parcel UUID-г өгсөн path параметрээс уншиж,
+// professional_org хэрэглэгч тухайн parcel-д хамаарах (чөлөөлөлтийн үндсэн
+// байгууллага эсвэл тухайн parcel-ийн хөндлөнгийн байгууллага) эсэхийг шалгана.
+// /prof/land-acquisitions/:id/parcels/:parcel_id/* маршрутуудад "parcel_id"-ээр
+// ашиглаж, зэргэлдээ parcel руу халдахаас сэргийлнэ.
+func RequireProfParcelMemberParam(svc ProfParcelMemberChecker, param string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		parcelID, err := uuid.Parse(c.Param("id"))
+		parcelID, err := uuid.Parse(c.Param(param))
 		if err != nil {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return

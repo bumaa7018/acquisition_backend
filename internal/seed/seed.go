@@ -363,3 +363,58 @@ func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig
 	slog.Info("employee user created", "email", cfg.Email)
 	return nil
 }
+
+// SeedExternalUsers — санхүүгийн мэргэжилтэн болон мэргэжлийн байгууллагын
+// анхны хэрэглэгчийг үүсгэнэ. Роль (finance_specialist, professional_org) нь
+// SeedCompensationAccess-ээр аль хэдийн үүссэн байх ёстой.
+func (s *Seeder) SeedExternalUsers(ctx context.Context, finCfg config.FinanceConfig, profCfg config.ProfessionalOrgConfig) error {
+	if err := s.seedRoleUser(ctx, "finance_specialist",
+		finCfg.Username, finCfg.Email, finCfg.Password,
+		"Санхүүгийн", "мэргэжилтэн", "Санхүүгийн мэргэжилтэн"); err != nil {
+		return err
+	}
+	return s.seedRoleUser(ctx, "professional_org",
+		profCfg.Username, profCfg.Email, profCfg.Password,
+		"Мэргэжлийн", "байгууллага", "Мэргэжлийн байгууллага")
+}
+
+// seedRoleUser — өгсөн роль-той нэг хэрэглэгчийг idempotent байдлаар үүсгэнэ.
+// Роль байхгүй бол чимээгүй алгасна (seed дараалал буруу тохиолдолд ч эвдрэхгүй).
+func (s *Seeder) seedRoleUser(ctx context.Context, roleName, username, email, password, firstName, lastName, position string) error {
+	role, err := s.roleRepo.GetByName(ctx, roleName)
+	if err != nil {
+		slog.Warn("external role not found, skipping user seed", "role", roleName)
+		return nil
+	}
+
+	if existing, err := s.userRepo.GetByEmail(ctx, email); err == nil {
+		_ = s.roleRepo.AssignToUser(ctx, existing.ID, role.ID)
+		return nil
+	}
+
+	hashed, err := hash.Password(password)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	user := &domain.User{
+		ID:        uuid.New(),
+		Username:  username,
+		Email:     email,
+		Password:  hashed,
+		FirstName: firstName,
+		LastName:  lastName,
+		Position:  position,
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return err
+	}
+	if err := s.roleRepo.AssignToUser(ctx, user.ID, role.ID); err != nil {
+		return err
+	}
+	slog.Info("external user created", "email", email, "role", roleName)
+	return nil
+}

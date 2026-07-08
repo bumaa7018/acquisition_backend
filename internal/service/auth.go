@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"strings"
 	"time"
@@ -160,6 +161,10 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
+	// Идэвхгүй болгосон хэрэглэгч refresh-ээр хандах эрхээ сунгаж болохгүй.
+	if !user.IsActive {
+		return nil, domain.ErrForbidden
+	}
 	perms, err := s.userRepo.GetPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, err
@@ -226,9 +231,11 @@ func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) erro
 
 	now := time.Now()
 	resetToken := &domain.PasswordResetToken{
-		ID:        uuid.New(),
-		UserID:    user.ID,
-		Token:     token,
+		ID:     uuid.New(),
+		UserID: user.ID,
+		// Токеныг DB-д hash хэлбэрээр хадгална — DB задарсан ч токен шууд
+		// ашиглагдахгүй. Хэрэглэгч рүү зөвхөн түүхий токен (email-ээр) очно.
+		Token:     hashResetToken(token),
 		ExpiresAt: now.Add(1 * time.Hour),
 		Used:      false,
 		CreatedAt: now,
@@ -241,8 +248,14 @@ func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) erro
 	return s.emailSender.SendPasswordReset(emailAddr, resetLink)
 }
 
+// hashResetToken — reset токеныг DB-д хадгалах/хайхад ашиглах SHA-256 hash.
+func hashResetToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
 func (s *authService) ResetPassword(ctx context.Context, token, newPassword string) error {
-	resetToken, err := s.pwdResetRepo.GetByToken(ctx, token)
+	resetToken, err := s.pwdResetRepo.GetByToken(ctx, hashResetToken(token))
 	if err != nil {
 		return domain.ErrInvalidToken
 	}
@@ -265,7 +278,11 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return err
 	}
-	return s.pwdResetRepo.MarkUsed(ctx, resetToken.ID)
+	if err := s.pwdResetRepo.MarkUsed(ctx, resetToken.ID); err != nil {
+		return err
+	}
+	// Нууц үг солигдсон тул өмнө олгогдсон бүх токеныг хүчингүй болгоно.
+	return s.userRepo.InvalidateSessions(ctx, user.ID)
 }
 
 func (s *authService) cleanupExpiredRevokedTokens(ctx context.Context) error {

@@ -167,6 +167,30 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	return users, total, rows.Err()
 }
 
+// InvalidateSessions — хэрэглэгчийн токен эх цэгийг NOW() болгож, өмнө олгогдсон
+// бүх токеныг хүчингүй болгоно (секундэд тайрч, шинэ нэвтрэлттэй мөргөлдөхөөс сэргийлнэ).
+func (r *UserRepo) InvalidateSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx,
+		`UPDATE users SET tokens_valid_from = date_trunc('second', NOW()) WHERE id = $1`, userID)
+	return err
+}
+
+// IsSessionValid — эх цэг тавиагүй бол (NULL) эсвэл токены issuedAt эх цэгээс
+// хойш байвал true. Эх цэгээс өмнө олгогдсон токенд false.
+func (r *UserRepo) IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error) {
+	var invalid bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM users
+			WHERE id = $1 AND tokens_valid_from IS NOT NULL AND tokens_valid_from > $2
+		)
+	`, userID, issuedAt).Scan(&invalid)
+	if err != nil {
+		return false, err
+	}
+	return !invalid, nil
+}
+
 func (r *UserRepo) GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
 	query := `SELECT r.name FROM roles r
 	          JOIN user_roles ur ON ur.role_id = r.id

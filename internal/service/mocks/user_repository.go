@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"acquisition_backend/internal/domain"
 
@@ -74,4 +75,14 @@ func (m *MockUserRepository) GetPermissions(ctx context.Context, userID uuid.UUI
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockUserRepository) InvalidateSessions(ctx context.Context, userID uuid.UUID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
+func (m *MockUserRepository) IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error) {
+	args := m.Called(ctx, userID, issuedAt)
+	return args.Bool(0), args.Error(1)
 }

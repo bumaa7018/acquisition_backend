@@ -19,6 +19,12 @@ type UserRepository interface {
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
 	GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error)
 	GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
+	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
+	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
+	InvalidateSessions(ctx context.Context, userID uuid.UUID) error
+	// IsSessionValid — тухайн issuedAt хугацаанд олгогдсон токен хэрэглэгчийн
+	// эх цэгээс хойш байвал (буюу эх цэг тавиагүй бол) true.
+	IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
 }
 
 type RoleRepository interface {

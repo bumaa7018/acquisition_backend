@@ -10,8 +10,10 @@ import (
 )
 
 type StartupOptions struct {
-	Admin    config.AdminConfig
-	Employee config.EmployeeConfig
+	Admin           config.AdminConfig
+	Employee        config.EmployeeConfig
+	Finance         config.FinanceConfig
+	ProfessionalOrg config.ProfessionalOrgConfig
 
 	UserRepo repository.UserRepository
 	RoleRepo repository.RoleRepository
@@ -108,6 +110,15 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000012_permission_fixes",
 			run: func(ctx context.Context) error {
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedPermissionFixes(ctx)
+			},
+		},
+		{
+			// Санхүүгийн мэргэжилтэн, мэргэжлийн байгууллагын анхны хэрэглэгчид
+			// (роль нь 000008_compensation_access-д үүссэн байх ёстой).
+			name: "000013_external_users",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedExternalUsers(ctx, opts.Finance, opts.ProfessionalOrg)
 			},
 		},
 	})

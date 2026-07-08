@@ -3,6 +3,8 @@ package http
 import (
 	"net/http"
 
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
@@ -14,11 +16,12 @@ import (
 
 type RoleHandler struct {
 	roleSvc  service.RoleService
+	permSvc  service.PermissionService
 	validate *validator.Validate
 }
 
-func NewRoleHandler(roleSvc service.RoleService) *RoleHandler {
-	return &RoleHandler{roleSvc: roleSvc, validate: validator.New()}
+func NewRoleHandler(roleSvc service.RoleService, permSvc service.PermissionService) *RoleHandler {
+	return &RoleHandler{roleSvc: roleSvc, permSvc: permSvc, validate: validator.New()}
 }
 
 // List godoc
@@ -185,6 +188,17 @@ func (h *RoleHandler) AssignPermission(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	// Эрх нэмэгдүүлэлтээс сэргийлэх: дуудагч зөвхөн өөрт нь байгаа эрхийг л
+	// роль-д олгож чадна. (Админ бүх эрхтэй тул юуг ч олгож чадна.)
+	perm, err := h.permSvc.GetByID(c.Request.Context(), permID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if !callerHasPermission(c, perm.Name) {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
 	if err := h.roleSvc.AssignPermission(c.Request.Context(), roleID, permID); err != nil {
 		response.Error(c, err)
 		return
@@ -194,6 +208,25 @@ func (h *RoleHandler) AssignPermission(c *gin.Context) {
 		Code:    http.StatusOK,
 		Message: i18n.T(l, i18n.MsgAssigned),
 	})
+}
+
+// callerHasPermission — JWT context-оос дуудагчийн эрхийн жагсаалтад
+// өгсөн permission нэр байгаа эсэхийг шалгана.
+func callerHasPermission(c *gin.Context, permName string) bool {
+	permsAny, ok := c.Get(middleware.CtxPermissions)
+	if !ok {
+		return false
+	}
+	perms, ok := permsAny.([]string)
+	if !ok {
+		return false
+	}
+	for _, p := range perms {
+		if p == permName {
+			return true
+		}
+	}
+	return false
 }
 
 // RemovePermission godoc

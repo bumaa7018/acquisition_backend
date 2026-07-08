@@ -33,6 +33,9 @@ type LandAcquisitionService interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error)
+	// EnsureParcelInAcquisition — parcel тухайн чөлөөлөлтөд харьяалагдаж буйг
+	// шалгана (IDOR-оос сэргийлж, parcel-ийн үйлдлийг зөв acquisition-д хязгаарлана).
+	EnsureParcelInAcquisition(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
@@ -469,8 +472,25 @@ func (s *landService) IsParcelAcquisitionLocked(ctx context.Context, parcelID uu
 	return s.IsAcquisitionLocked(ctx, parcel.AcquisitionID)
 }
 
+// EnsureParcelInAcquisition — parcel тухайн чөлөөлөлтөд харьяалагдаж буйг шалгана.
+// Харьяалагдахгүй бол ErrNotFound буцаана (IDOR-оос сэргийлнэ).
+func (s *landService) EnsureParcelInAcquisition(ctx context.Context, acquisitionID, parcelID uuid.UUID) error {
+	parcel, err := s.landRepo.GetParcelByID(ctx, parcelID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	if parcel.AcquisitionID != acquisitionID {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (s *landService) GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error) {
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return nil, domain.ErrNotFound
+	}
+	// parcel тухайн чөлөөлөлтөд харьяалагдаж буйг баталгаажуулна (IDOR).
+	if err := s.EnsureParcelInAcquisition(ctx, acquisitionID, parcelID); err != nil {
 		return nil, domain.ErrNotFound
 	}
 	pf, err := s.landRepo.GetParcelDetailByID(ctx, parcelID)

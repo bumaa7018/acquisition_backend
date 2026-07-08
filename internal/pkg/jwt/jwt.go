@@ -35,10 +35,17 @@ type Manager struct {
 	accessTTL         time.Duration
 	refreshTTL        time.Duration
 	revocationChecker RevocationChecker
+	sessionValidator  SessionValidator
 }
 
 type RevocationChecker interface {
 	IsTokenRevoked(ctx context.Context, jti string) (bool, error)
+}
+
+// SessionValidator — тухайн хэрэглэгчийн токен эх цэгийг шалгаж, нууц үг
+// сэргээх / албадан гаргах үед олгогдсон бүх хуучин токеныг хүчингүй болгоно.
+type SessionValidator interface {
+	IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
 }
 
 func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *Manager {
@@ -52,6 +59,10 @@ func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.D
 
 func (m *Manager) SetRevocationChecker(checker RevocationChecker) {
 	m.revocationChecker = checker
+}
+
+func (m *Manager) SetSessionValidator(v SessionValidator) {
+	m.sessionValidator = v
 }
 
 type UserInfo struct {
@@ -157,6 +168,16 @@ func (m *Manager) validateToken(ctx context.Context, tokenStr, secret string) (*
 	}
 	if revoked {
 		return nil, domain.ErrInvalidToken
+	}
+	// Хэрэглэгчийн токен эх цэгийг шалгана (нууц үг сэргээх зэргээр хүчингүй болсон эсэх).
+	if m.sessionValidator != nil && claims.IssuedAt != nil {
+		valid, err := m.sessionValidator.IsSessionValid(ctx, claims.UserID, claims.IssuedAt.Time)
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			return nil, domain.ErrInvalidToken
+		}
 	}
 	return claims, nil
 }

@@ -30,6 +30,9 @@ func NewRouter(
 	r.Use(middleware.Recovery())
 	r.Use(middleware.Logger())
 	r.Use(cors.Default())
+	// JSON зэрэг файл бус хүсэлтийн биеийг 5MB-ээр хязгаарлана (файл байршуулах
+	// multipart handler-ууд өөрсдийн хязгаараа тогтооно).
+	r.Use(middleware.BodySizeLimit(5 << 20))
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	r.Static("/mock-files", "uploads/mock-file-server")
@@ -40,7 +43,7 @@ func NewRouter(
 
 	authH := NewAuthHandler(authSvc)
 	userH := NewUserHandler(userSvc)
-	roleH := NewRoleHandler(roleSvc)
+	roleH := NewRoleHandler(roleSvc, permSvc)
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
 	planH := NewPlanHandler(planSvc)
@@ -117,6 +120,9 @@ func NewRouter(
 		notParcelLocked := middleware.RequireParcelAcquisitionNotLocked(landSvc)
 		profOrgMember := middleware.RequireProfOrgMember(landSvc)
 		profParcelMember := middleware.RequireProfParcelMember(landSvc)
+		// /prof/land-acquisitions/:id/parcels/:parcel_id/* — parcel түвшний гишүүнчлэл:
+		// хөндлөнгийн байгууллага зөвхөн өөрийн parcel дээр үйлдэл хийнэ (M3).
+		profParcelMemberByParam := middleware.RequireProfParcelMemberParam(landSvc, "parcel_id")
 		// /prof routes: GET-г оролцуулан бүх хүсэлтийг хаадаг хаалтууд
 		profNotLocked := middleware.RequireProfAcquisitionNotLocked(landSvc)
 		profNotParcelLocked := middleware.RequireProfParcelAcquisitionNotLocked(landSvc)
@@ -209,20 +215,20 @@ func NewRouter(
 				{
 					profLandItem.GET("", middleware.RequirePermission("compensation:read"), landH.GetByID)
 					profLandItem.GET("/parcels", middleware.RequirePermission("compensation:read"), landH.ListEvaluationParcels)
-					profLandItem.GET("/parcels/:parcel_id", middleware.RequirePermission("compensation:read"), landH.GetParcelByID)
-					profLandItem.PATCH("/parcels/:parcel_id/independent-org", middleware.RequirePermission("compensation:update"), landH.SetParcelIndependentOrg)
+					profLandItem.GET("/parcels/:parcel_id", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, landH.GetParcelByID)
+					profLandItem.PATCH("/parcels/:parcel_id/independent-org", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.SetParcelIndependentOrg)
 					// Нэгж талбарын статус
-					profLandItem.GET("/parcels/:parcel_id/available-statuses", middleware.RequirePermission("compensation:read"), parcelWorkflowH.GetAvailableStatuses)
-					profLandItem.PATCH("/parcels/:parcel_id/status", middleware.RequirePermission("compensation:update"), parcelWorkflowH.UpdateParcelStatus)
-					profLandItem.GET("/parcels/:parcel_id/status-history", middleware.RequirePermission("compensation:read"), parcelWorkflowH.ListParcelStatusHistory)
+					profLandItem.GET("/parcels/:parcel_id/available-statuses", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, parcelWorkflowH.GetAvailableStatuses)
+					profLandItem.PATCH("/parcels/:parcel_id/status", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, parcelWorkflowH.UpdateParcelStatus)
+					profLandItem.GET("/parcels/:parcel_id/status-history", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, parcelWorkflowH.ListParcelStatusHistory)
 					// Нөхөх олговрын үнэлгээний илгээх төлөв (мэрг. байгууллага илгээнэ)
-					profLandItem.GET("/parcels/:parcel_id/valuation-status", middleware.RequirePermission("compensation:read"), parcelWorkflowH.GetValuationSubmission)
-					profLandItem.POST("/parcels/:parcel_id/valuation-status", middleware.RequirePermission("compensation:update"), parcelWorkflowH.TransitionValuationSubmission)
-					profLandItem.GET("/parcels/:parcel_id/valuation-status-history", middleware.RequirePermission("compensation:read"), parcelWorkflowH.ListValuationSubmissionHistory)
+					profLandItem.GET("/parcels/:parcel_id/valuation-status", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, parcelWorkflowH.GetValuationSubmission)
+					profLandItem.POST("/parcels/:parcel_id/valuation-status", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, parcelWorkflowH.TransitionValuationSubmission)
+					profLandItem.GET("/parcels/:parcel_id/valuation-status-history", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, parcelWorkflowH.ListValuationSubmissionHistory)
 					// Эрх эзэмшигч төлөөлөгч
-					profLandItem.GET("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:read"), landH.ListAuthorizedRepresentatives)
-					profLandItem.POST("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:update"), landH.CreateAuthorizedRepresentative)
-					profLandItem.DELETE("/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("compensation:update"), landH.DeleteAuthorizedRepresentative)
+					profLandItem.GET("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, landH.ListAuthorizedRepresentatives)
+					profLandItem.POST("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.CreateAuthorizedRepresentative)
+					profLandItem.DELETE("/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.DeleteAuthorizedRepresentative)
 					// Байгааламж — үнэлгээ (valuation:create/update)
 					profLandItem.GET("/assets", middleware.RequirePermission("compensation:read"), landH.ListAssets)
 					profLandItem.POST("/assets", middleware.RequirePermission("compensation:create"), landH.CreateAsset)
