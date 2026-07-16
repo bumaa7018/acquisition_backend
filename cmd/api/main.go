@@ -33,6 +33,7 @@ import (
 	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
 	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/pkg/notify"
 	"acquisition_backend/internal/repository/postgres"
 	"acquisition_backend/internal/seed"
 	"acquisition_backend/internal/service"
@@ -114,7 +115,13 @@ func main() {
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
 	fileStorage := filestorage.NewMockStorage(cfg.FileServer.BaseURL, cfg.FileServer.LocalDir)
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo)
+
+	// Мэдэгдэл: main DB-д хадгалж, in-memory hub-аар SSE стрийм рүү түгээнэ.
+	notificationRepo := postgres.NewNotificationRepo(mainDB)
+	notificationHub := notify.NewHub()
+	notificationSvc := service.NewNotificationService(notificationRepo, notificationHub)
+
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc)
 	planSvc := service.NewPlanService(planRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
@@ -133,14 +140,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc)
 
 	srv := &http.Server{
-		Addr:         ":" + cfg.App.Port,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:    ":" + cfg.App.Port,
+		Handler: router,
+		// SSE стрийм (мэдэгдэл) урт наслах холболт тул WriteTimeout тавихгүй —
+		// тэгэхгүй бол 15 секунд тутам стрийм тасарна. Удаан клиентээс
+		// хамгаалалтыг ReadHeaderTimeout + IdleTimeout хангана.
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {

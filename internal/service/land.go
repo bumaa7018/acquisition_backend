@@ -164,6 +164,9 @@ type landService struct {
 	// userRepo — auth DB-ийн хэрэглэгчид (мэрг. байгууллагын нэр харуулахад);
 	// nil байж болно (тест) — тэр үед нэр хоосон үлдэнэ.
 	userRepo repository.UserRepository
+	// notifier — төлөв өөрчлөгдөх бүрд холбогдох хэрэглэгчдэд мэдэгдэл илгээнэ;
+	// nil байж болно (тест) — тэр үед мэдэгдэл илгээгдэхгүй.
+	notifier NotificationService
 }
 
 func NewLandService(
@@ -171,11 +174,17 @@ func NewLandService(
 	landRepo repository.LandAcquisitionRepository,
 	files filestorage.Storage,
 	userRepo repository.UserRepository,
+	// notifier — заавал бус (variadic) тул хуучин дуудалт/тестүүд өөрчлөгдөхгүй.
+	notifier ...NotificationService,
 ) LandService {
 	if files == nil {
 		files = filestorage.DisabledStorage{}
 	}
-	return &landService{planRepo: planRepo, landRepo: landRepo, files: files, userRepo: userRepo}
+	s := &landService{planRepo: planRepo, landRepo: landRepo, files: files, userRepo: userRepo}
+	if len(notifier) > 0 {
+		s.notifier = notifier[0]
+	}
+	return s
 }
 
 // Create — газар чөлөөлөлтын мэдээлэл үүсгэх
@@ -621,6 +630,10 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 		acq.DecreeDate = decreeDate
 	}
 
+	// Мэдэгдэл: статус амжилттай шилжсэний дараа (энэ мөчид acq.Status
+	// хуучин утгаараа тул from→to хоёуланг нь дамжуулж чадна).
+	s.notifyAcquisitionStatusChanged(ctx, acq, toStatus)
+
 	acq.Status = toStatus
 	return acq, nil
 }
@@ -695,7 +708,14 @@ func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID,
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return domain.ErrNotFound
 	}
-	return s.landRepo.SetAssignees(ctx, acquisitionID, assignees)
+	// Мэдэгдэлд зөвхөн ШИНЭЭР нэмэгдсэн хүмүүсийг ялгахын тулд өмнөх
+	// жагсаалтыг сольхоос нь өмнө авч үлдэнэ.
+	previous, _ := s.landRepo.GetAssignees(ctx, acquisitionID)
+	if err := s.landRepo.SetAssignees(ctx, acquisitionID, assignees); err != nil {
+		return err
+	}
+	s.notifyAssigneesSet(ctx, acquisitionID, previous, assignees)
+	return nil
 }
 
 func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error) {
@@ -719,9 +739,17 @@ func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UU
 }
 
 func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
-	return s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgUserID)
+	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgUserID); err != nil {
+		return err
+	}
+	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgUserID, false)
+	return nil
 }
 
 func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
-	return s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgUserID)
+	if err := s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgUserID); err != nil {
+		return err
+	}
+	s.notifyOrgAssigned(ctx, acqID, &parcelID, orgUserID, true)
+	return nil
 }

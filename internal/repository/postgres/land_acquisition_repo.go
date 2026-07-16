@@ -688,18 +688,21 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 	p := &domain.Parcel{}
 	var remainingAreaM2 float64
 	err := r.db.QueryRow(ctx, `
-			SELECT id, COALESCE(parcel_id,''), COALESCE(old_parcel_id,''),
-			       acquisition_id, valid_from, valid_till,
-			       COALESCE(au1_code,''), COALESCE(au2_code,''), COALESCE(au3_code,''),
-			       COALESCE(ST_AsText(geometry),''),
-			       COALESCE(ST_AsText(acquisition_geom),''),
-			       COALESCE(acquisition_area_m2,0),
-			       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
-			       created_at, COALESCE(created_by,''),
-			       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0)),
-			       COALESCE(db_changed,false), COALESCE(changed_parcel_id,'')
-		FROM parcel
-		WHERE id = $1
+			SELECT p.id, COALESCE(p.parcel_id,''), COALESCE(p.old_parcel_id,''),
+			       p.acquisition_id, p.valid_from, p.valid_till,
+			       COALESCE(p.au1_code,''), COALESCE(p.au2_code,''), COALESCE(p.au3_code,''),
+			       COALESCE(ST_AsText(p.geometry),''),
+			       COALESCE(ST_AsText(p.acquisition_geom),''),
+			       COALESCE(p.acquisition_area_m2,0),
+			       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
+			       p.created_at, COALESCE(p.created_by,''),
+			       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
+			       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
+			       COALESCE(p.status,0), COALESCE(ps.name,''),
+			       p.independent_org_id
+		FROM parcel p
+		LEFT JOIN parcel_status ps ON ps.id = p.status
+		WHERE p.id = $1
 	`, id).Scan(
 		&p.ID, &p.ParcelID, &p.OldParcelID,
 		&p.AcquisitionID, &p.ValidFrom, &p.ValidTill,
@@ -711,6 +714,8 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 		&p.CreatedAt, &p.CreatedBy,
 		&remainingAreaM2,
 		&p.DbChanged, &p.ChangedParcelID,
+		&p.StatusID, &p.StatusName,
+		&p.IndependentOrgID,
 	)
 	if err == nil {
 		p.RemainingAreaM2 = &remainingAreaM2

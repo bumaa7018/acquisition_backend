@@ -1,0 +1,99 @@
+package service
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/notify"
+	"acquisition_backend/internal/repository"
+
+	"github.com/google/uuid"
+)
+
+type NotificationService interface {
+	List(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error)
+	MarkRead(ctx context.Context, recipientID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, recipientID uuid.UUID) error
+	// Subscribe — SSE стрийм суваг. Хязгаар хэтэрвэл nil суваг буцаана.
+	Subscribe(userID uuid.UUID) (<-chan *domain.Notification, func())
+	// Notify — мэдэгдлийг олон хүлээн авагчид үүсгэж, DB-д хадгалаад
+	// идэвхтэй SSE холболтууд руу шууд түгээнэ. Actor өөрөө хүлээн авагчдаас
+	// хасагдана, давхардсан хүлээн авагч нэг л мэдэгдэл авна.
+	Notify(ctx context.Context, recipients []uuid.UUID, n domain.Notification)
+}
+
+type notificationService struct {
+	repo repository.NotificationRepository
+	hub  *notify.Hub
+}
+
+func NewNotificationService(repo repository.NotificationRepository, hub *notify.Hub) NotificationService {
+	return &notificationService{repo: repo, hub: hub}
+}
+
+func (s *notificationService) List(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
+	return s.repo.ListByRecipient(ctx, recipientID, onlyUnread, page, pageSize)
+}
+
+func (s *notificationService) UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error) {
+	return s.repo.UnreadCount(ctx, recipientID)
+}
+
+func (s *notificationService) MarkRead(ctx context.Context, recipientID, id uuid.UUID) error {
+	return s.repo.MarkRead(ctx, recipientID, id)
+}
+
+func (s *notificationService) MarkAllRead(ctx context.Context, recipientID uuid.UUID) error {
+	return s.repo.MarkAllRead(ctx, recipientID)
+}
+
+func (s *notificationService) Subscribe(userID uuid.UUID) (<-chan *domain.Notification, func()) {
+	return s.hub.Subscribe(userID)
+}
+
+func (s *notificationService) Notify(ctx context.Context, recipients []uuid.UUID, n domain.Notification) {
+	// Хүлээн авагчдыг цэвэрлэх: давхардал ба actor-ийг хасна.
+	seen := make(map[uuid.UUID]struct{}, len(recipients))
+	var rows []*domain.Notification
+	now := time.Now()
+	for _, rid := range recipients {
+		if rid == uuid.Nil {
+			continue
+		}
+		if n.ActorID != nil && rid == *n.ActorID {
+			continue
+		}
+		if _, dup := seen[rid]; dup {
+			continue
+		}
+		seen[rid] = struct{}{}
+		row := n // хуулбар
+		row.ID = uuid.New()
+		row.RecipientID = rid
+		row.IsRead = false
+		row.CreatedAt = now
+		row.ReadAt = nil
+		rows = append(rows, &row)
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	// Мэдэгдэл нь туслах үйлдэл — үндсэн бизнес үйлдлийг унагаахгүй,
+	// алдааг зөвхөн логлоно. Хүсэлтийн ctx аль хэдийн дууссан байж болох тул
+	// хадгалалтад өөрийн богино timeout-той ctx ашиглана.
+	go func() {
+		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.repo.CreateBatch(saveCtx, rows); err != nil {
+			slog.Error("notification save failed", "type", n.Type, "recipients", len(rows), "error", err)
+			return
+		}
+		for _, row := range rows {
+			s.hub.Publish(row)
+		}
+	}()
+}

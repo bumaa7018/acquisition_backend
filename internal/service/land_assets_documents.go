@@ -134,6 +134,7 @@ func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensa
 	if err := s.landRepo.CreateCompensation(ctx, c); err != nil {
 		return nil, err
 	}
+	s.notifyCompensationCreated(ctx, c)
 	return c, nil
 }
 
@@ -179,14 +180,22 @@ func (s *landService) ApproveCompensation(ctx context.Context, acquisitionID, id
 	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, id); err != nil {
 		return err
 	}
-	return s.landRepo.ApproveCompensation(ctx, id, note, reviewedBy)
+	if err := s.landRepo.ApproveCompensation(ctx, id, note, reviewedBy); err != nil {
+		return err
+	}
+	s.notifyCompensationReviewed(ctx, acquisitionID, id, true, note)
+	return nil
 }
 
 func (s *landService) RejectCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error {
 	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, id); err != nil {
 		return err
 	}
-	return s.landRepo.RejectCompensation(ctx, id, note, reviewedBy)
+	if err := s.landRepo.RejectCompensation(ctx, id, note, reviewedBy); err != nil {
+		return err
+	}
+	s.notifyCompensationReviewed(ctx, acquisitionID, id, false, note)
+	return nil
 }
 
 func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error) {

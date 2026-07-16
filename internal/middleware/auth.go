@@ -3,6 +3,7 @@ package middleware
 import (
 	"strings"
 
+	"acquisition_backend/internal/pkg/actorctx"
 	"acquisition_backend/internal/pkg/jwt"
 	"acquisition_backend/internal/pkg/response"
 
@@ -45,6 +46,12 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		c.Set(CtxUserPosition, claims.Position)
 		c.Set(CtxRoles, claims.Roles)
 		c.Set(CtxPermissions, claims.Permissions)
+
+		// Actor-ийг request context-д хийж service давхаргад дамжуулна
+		// (мэдэгдэл илгээхэд хэн үйлдэл хийснийг тэндээс уншина).
+		c.Request = c.Request.WithContext(
+			actorctx.With(c.Request.Context(), actorctx.Actor{ID: claims.UserID, Name: userName}),
+		)
 		c.Next()
 	}
 }

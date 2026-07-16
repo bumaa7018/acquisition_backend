@@ -25,7 +25,11 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 }
 
 func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	return s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy)
+	if err := s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy); err != nil {
+		return err
+	}
+	s.notifyParcelStatusChanged(ctx, acquisitionID, parcelID)
+	return nil
 }
 
 func (s *landService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
@@ -37,7 +41,12 @@ func (s *landService) GetValuationSubmission(ctx context.Context, acquisitionID,
 }
 
 func (s *landService) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
-	return s.landRepo.TransitionValuationSubmission(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
+	sub, err := s.landRepo.TransitionValuationSubmission(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyValuationTransition(ctx, acquisitionID, parcelID, valuationType, action, sub)
+	return sub, nil
 }
 
 func (s *landService) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {

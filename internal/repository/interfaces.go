@@ -258,3 +258,14 @@ type DocumentTypeRepository interface {
 	Update(ctx context.Context, dt *domain.DocumentType) error
 	Delete(ctx context.Context, id int) error
 }
+
+// NotificationRepository — хэрэглэгчийн мэдэгдэл (main DB).
+// Бүх унших/бичих үйлдэл recipient_id-аар шүүгдэж, хэрэглэгч зөвхөн
+// өөрийн мэдэгдэлд ханддаг.
+type NotificationRepository interface {
+	CreateBatch(ctx context.Context, ns []*domain.Notification) error
+	ListByRecipient(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error)
+	MarkRead(ctx context.Context, recipientID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, recipientID uuid.UUID) error
+}
