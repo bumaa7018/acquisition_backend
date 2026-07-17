@@ -49,9 +49,14 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 
 		// Actor-ийг request context-д хийж service давхаргад дамжуулна
 		// (мэдэгдэл илгээхэд хэн үйлдэл хийснийг тэндээс уншина).
-		c.Request = c.Request.WithContext(
-			actorctx.With(c.Request.Context(), actorctx.Actor{ID: claims.UserID, Name: userName}),
-		)
+		c.Request = c.Request.WithContext(actorctx.With(c.Request.Context(), actorctx.Actor{
+			ID:        claims.UserID,
+			Name:      userName,
+			Position:  claims.Position,
+			Roles:     claims.Roles,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+		}))
 		c.Next()
 	}
 }

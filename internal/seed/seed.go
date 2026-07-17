@@ -30,6 +30,7 @@ var defaultPermissions = []domain.Permission{
 	{Name: "admin:create", Description: "Лавлах мэдээлэл нэмэх", Resource: "admin", Action: "create"},
 	{Name: "admin:update", Description: "Лавлах мэдээлэл засах", Resource: "admin", Action: "update"},
 	{Name: "admin:delete", Description: "Лавлах мэдээлэл устгах", Resource: "admin", Action: "delete"},
+	{Name: "audit:read", Description: "Ажилтны үйлдлийн лог харах", Resource: "audit", Action: "read"},
 	{Name: "land:read", Description: "Read land acquisitions", Resource: "land", Action: "read"},
 	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
 	{Name: "land:update", Description: "Update land acquisitions", Resource: "land", Action: "update"},
@@ -60,7 +61,7 @@ func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
 		return err
 	}
 	grants := map[string][]string{
-		"admin":             {"admin:read", "admin:create", "admin:update", "admin:delete"},
+		"admin":             {"admin:read", "admin:create", "admin:update", "admin:delete", "audit:read"},
 		"senior_specialist": {"users:read"},
 	}
 	for roleName, permNames := range grants {
@@ -89,6 +90,25 @@ func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
 		return err
 	}
 	slog.Info("permission fixes applied")
+	return nil
+}
+
+func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
+	if _, err := s.seedPermissions(ctx); err != nil {
+		return err
+	}
+	role, err := s.roleRepo.GetByName(ctx, "admin")
+	if err != nil {
+		return err
+	}
+	perm, err := s.permRepo.GetByName(ctx, "audit:read")
+	if err != nil {
+		return err
+	}
+	if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
+		return err
+	}
+	slog.Info("audit permission granted", "role", role.Name, "permission", perm.Name)
 	return nil
 }
 

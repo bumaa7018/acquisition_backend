@@ -120,8 +120,10 @@ func main() {
 	notificationRepo := postgres.NewNotificationRepo(mainDB)
 	notificationHub := notify.NewHub()
 	notificationSvc := service.NewNotificationService(notificationRepo, notificationHub)
+	auditRepo := postgres.NewAuditLogRepo(mainDB)
+	auditSvc := service.NewAuditService(auditRepo)
 
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc)
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc)
 	planSvc := service.NewPlanService(planRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
@@ -140,7 +142,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

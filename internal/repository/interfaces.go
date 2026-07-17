@@ -269,3 +269,9 @@ type NotificationRepository interface {
 	MarkRead(ctx context.Context, recipientID, id uuid.UUID) error
 	MarkAllRead(ctx context.Context, recipientID uuid.UUID) error
 }
+
+// AuditLogRepository — ажилтны бизнес үйлдлийн append-only лог.
+type AuditLogRepository interface {
+	Create(ctx context.Context, log *domain.AuditLog) error
+	List(ctx context.Context, filter domain.AuditLogFilter) ([]*domain.AuditLog, int64, error)
+}

@@ -29,6 +29,10 @@ func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID
 		return err
 	}
 	s.notifyParcelStatusChanged(ctx, acquisitionID, parcelID)
+	s.auditLog(ctx, "status_changed", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
+		"to_status":  statusID,
+		"created_by": createdBy,
+	})
 	return nil
 }
 
@@ -46,6 +50,12 @@ func (s *landService) TransitionValuationSubmission(ctx context.Context, acquisi
 		return nil, err
 	}
 	s.notifyValuationTransition(ctx, acquisitionID, parcelID, valuationType, action, sub)
+	s.auditLog(ctx, "valuation_"+action, domain.AuditResourceValuation, parcelID.String(), uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
+		"valuation_type": valuationType,
+		"note":           note,
+		"user_id":        userID,
+		"status":         sub.Status,
+	})
 	return sub, nil
 }
 
@@ -61,18 +71,41 @@ func (s *landService) CreateFundingSource(ctx context.Context, fs *domain.Fundin
 	if err := s.landRepo.CreateFundingSource(ctx, fs); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "created", domain.AuditResourceFundingSource, fs.ID.String(), uuidPtr(fs.AcquisitionID), nil, map[string]any{
+		"organization_name": fs.OrganizationName,
+		"source_type":       fs.SourceType,
+		"amount":            fs.Amount,
+	})
 	return fs, nil
 }
 
 func (s *landService) UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
+	existing, err := s.landRepo.GetFundingSource(ctx, fs.ID)
+	if err != nil {
+		return nil, err
+	}
+	fs.AcquisitionID = existing.AcquisitionID
 	if err := s.landRepo.UpdateFundingSource(ctx, fs); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "updated", domain.AuditResourceFundingSource, fs.ID.String(), uuidPtr(fs.AcquisitionID), nil, map[string]any{
+		"organization_name": fs.OrganizationName,
+		"source_type":       fs.SourceType,
+		"amount":            fs.Amount,
+	})
 	return fs, nil
 }
 
 func (s *landService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteFundingSource(ctx, id)
+	existing, err := s.landRepo.GetFundingSource(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.landRepo.DeleteFundingSource(ctx, id); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceFundingSource, id.String(), uuidPtr(existing.AcquisitionID), nil, nil)
+	return nil
 }
 
 func (s *landService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
@@ -83,11 +116,21 @@ func (s *landService) CreateAuthorizedRepresentative(ctx context.Context, rep *d
 	if err := s.landRepo.CreateAuthorizedRepresentative(ctx, rep); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "created", domain.AuditResourceRepresentative, rep.ID.String(), uuidPtr(rep.AcquisitionID), nil, map[string]any{
+		"parcel_id":   rep.ParcelID,
+		"first_name":  rep.FirstName,
+		"last_name":   rep.LastName,
+		"register_no": rep.RegisterNo,
+	})
 	return rep, nil
 }
 
 func (s *landService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteAuthorizedRepresentative(ctx, id)
+	if err := s.landRepo.DeleteAuthorizedRepresentative(ctx, id); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceRepresentative, id.String(), nil, nil, nil)
+	return nil
 }
 
 func (s *landService) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {

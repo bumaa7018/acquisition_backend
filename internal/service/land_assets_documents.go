@@ -103,6 +103,10 @@ func (s *landService) UpsertLandValuation(ctx context.Context, v *domain.LandVal
 	if err := s.landRepo.UpsertLandValuation(ctx, v); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "upserted", domain.AuditResourceValuation, v.ParcelID, uuidPtr(v.AcquisitionID), nil, map[string]any{
+		"parcel_id":      v.ParcelID,
+		"valuation_type": v.ValuationType,
+	})
 	return v, nil
 }
 
@@ -111,7 +115,14 @@ func (s *landService) GetLandValuation(ctx context.Context, acquisitionID uuid.U
 }
 
 func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error {
-	return s.landRepo.DeleteLandValuation(ctx, acquisitionID, parcelID, valuationType)
+	if err := s.landRepo.DeleteLandValuation(ctx, acquisitionID, parcelID, valuationType); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceValuation, parcelID, uuidPtr(acquisitionID), nil, map[string]any{
+		"parcel_id":      parcelID,
+		"valuation_type": valuationType,
+	})
+	return nil
 }
 
 func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
@@ -123,6 +134,17 @@ func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 	for _, fileURL := range res.OrphanedFileURLs {
 		_ = s.files.Delete(ctx, fileURL)
 	}
+	s.auditLog(ctx, "imported", domain.AuditResourceValuation, acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"replace":             imp.Replace,
+		"parcel_id":           imp.ParcelID,
+		"valuation_type":      imp.ValuationType,
+		"asset_count":         len(imp.Assets),
+		"orphaned_file_count": len(res.OrphanedFileURLs),
+		"created_assets":      res.CreatedAssets,
+		"created_comps":       res.CreatedComps,
+		"deleted_assets":      res.DeletedAssets,
+		"deleted_comps":       res.DeletedComps,
+	})
 	return res, nil
 }
 
@@ -135,6 +157,12 @@ func (s *landService) CreateCompensation(ctx context.Context, c *domain.Compensa
 		return nil, err
 	}
 	s.notifyCompensationCreated(ctx, c)
+	s.auditLog(ctx, "created", domain.AuditResourceCompensation, c.ID.String(), uuidPtr(c.AcquisitionID), nil, map[string]any{
+		"parcel_id":      c.ParcelID,
+		"valuation_type": c.ValuationType,
+		"amount":         c.Amount,
+		"status":         c.Status,
+	})
 	return c, nil
 }
 
@@ -152,6 +180,12 @@ func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensa
 	if err := s.landRepo.UpdateCompensation(ctx, c); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "updated", domain.AuditResourceCompensation, c.ID.String(), uuidPtr(c.AcquisitionID), nil, map[string]any{
+		"parcel_id":       c.ParcelID,
+		"valuation_type":  c.ValuationType,
+		"amount":          c.Amount,
+		"previous_status": existing.Status,
+	})
 	return c, nil
 }
 
@@ -173,6 +207,11 @@ func (s *landService) DeleteCompensation(ctx context.Context, acquisitionID, id 
 	if existing.ValuationReportURL != "" {
 		_ = s.files.Delete(ctx, existing.ValuationReportURL)
 	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceCompensation, id.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"parcel_id": existing.ParcelID,
+		"amount":    existing.Amount,
+		"status":    existing.Status,
+	})
 	return nil
 }
 
@@ -184,6 +223,10 @@ func (s *landService) ApproveCompensation(ctx context.Context, acquisitionID, id
 		return err
 	}
 	s.notifyCompensationReviewed(ctx, acquisitionID, id, true, note)
+	s.auditLog(ctx, "approved", domain.AuditResourceCompensation, id.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"note":        note,
+		"reviewed_by": reviewedBy,
+	})
 	return nil
 }
 
@@ -195,6 +238,10 @@ func (s *landService) RejectCompensation(ctx context.Context, acquisitionID, id 
 		return err
 	}
 	s.notifyCompensationReviewed(ctx, acquisitionID, id, false, note)
+	s.auditLog(ctx, "rejected", domain.AuditResourceCompensation, id.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"note":        note,
+		"reviewed_by": reviewedBy,
+	})
 	return nil
 }
 
@@ -221,6 +268,10 @@ func (s *landService) UploadCompensationReport(ctx context.Context, acqID, compI
 	}
 	comp.ValuationReportURL = stored.URL
 	comp.ValuationReportName = stored.Name
+	s.auditLog(ctx, "report_uploaded", domain.AuditResourceCompensation, compID.String(), uuidPtr(acqID), nil, map[string]any{
+		"filename":    stored.Name,
+		"uploaded_by": uploadedBy,
+	})
 	return comp, nil
 }
 
@@ -240,6 +291,10 @@ func (s *landService) UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.
 	if oldURL != "" && oldURL != stored.URL {
 		_ = s.files.Delete(ctx, oldURL)
 	}
+	s.auditLog(ctx, "photo_uploaded", domain.AuditResourceParcel, assetID.String(), uuidPtr(acqID), nil, map[string]any{
+		"asset_id": assetID,
+		"filename": stored.Name,
+	})
 	return stored.URL, stored.Name, nil
 }
 
@@ -257,6 +312,13 @@ func (s *landService) CreateCompensationGrant(ctx context.Context, g *domain.Com
 	if err := s.landRepo.CreateCompensationGrant(ctx, g); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "grant_created", domain.AuditResourceCompensation, g.CompensationID.String(), uuidPtr(g.AcquisitionID), nil, map[string]any{
+		"grant_id":      g.ID,
+		"amount":        g.Amount,
+		"grant_date":    g.GrantDate,
+		"land_area_m2":  g.LandAreaM2,
+		"parcel_number": g.ParcelNumber,
+	})
 	return g, nil
 }
 
@@ -267,6 +329,13 @@ func (s *landService) UpdateCompensationGrant(ctx context.Context, g *domain.Com
 	if err := s.landRepo.UpdateCompensationGrant(ctx, g); err != nil {
 		return nil, err
 	}
+	s.auditLog(ctx, "grant_updated", domain.AuditResourceCompensation, g.CompensationID.String(), uuidPtr(g.AcquisitionID), nil, map[string]any{
+		"grant_id":      g.ID,
+		"amount":        g.Amount,
+		"grant_date":    g.GrantDate,
+		"land_area_m2":  g.LandAreaM2,
+		"parcel_number": g.ParcelNumber,
+	})
 	return g, nil
 }
 
@@ -275,14 +344,22 @@ func (s *landService) GetCompensationGrant(ctx context.Context, id uuid.UUID) (*
 }
 
 func (s *landService) DeleteCompensationGrant(ctx context.Context, id uuid.UUID) error {
-	return s.landRepo.DeleteCompensationGrant(ctx, id)
+	if err := s.landRepo.DeleteCompensationGrant(ctx, id); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "grant_deleted", domain.AuditResourceCompensation, id.String(), nil, nil, nil)
+	return nil
 }
 
 func (s *landService) DeleteCompensationGrantByCompensationID(ctx context.Context, acquisitionID, compensationID uuid.UUID) error {
 	if err := s.ensureCompensationInAcquisition(ctx, acquisitionID, compensationID); err != nil {
 		return err
 	}
-	return s.landRepo.DeleteCompensationGrantByCompensationID(ctx, acquisitionID, compensationID)
+	if err := s.landRepo.DeleteCompensationGrantByCompensationID(ctx, acquisitionID, compensationID); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "grant_deleted", domain.AuditResourceCompensation, compensationID.String(), uuidPtr(acquisitionID), nil, nil)
+	return nil
 }
 
 // ListParcelPayments — нэгж талбарын төлбөрийн бичлэгүүд
@@ -299,6 +376,12 @@ func (s *landService) AddParcelPayment(ctx context.Context, p *domain.ParcelPaym
 	if err := s.landRepo.AddParcelPayment(ctx, p); err != nil {
 		return domain.ErrInternalServer
 	}
+	s.auditLog(ctx, "payment_added", domain.AuditResourcePayment, p.ID.String(), nil, uuidPtr(p.ParcelID), map[string]any{
+		"parcel_id": p.ParcelID,
+		"amount":    p.Amount,
+		"currency":  p.Currency,
+		"paid_at":   p.PaidAt,
+	})
 	return nil
 }
 
@@ -384,6 +467,11 @@ func (s *landService) UploadAcquisitionDocument(ctx context.Context, acquisition
 		_ = s.files.Delete(ctx, stored.URL)
 		return nil, err
 	}
+	s.auditLog(ctx, "uploaded", domain.AuditResourceDocument, doc.ID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"name":             doc.Name,
+		"document_type_id": documentTypeID,
+		"uploaded_by":      uploadedBy,
+	})
 	return doc, nil
 }
 
@@ -396,6 +484,9 @@ func (s *landService) DeleteAcquisitionDocument(ctx context.Context, acquisition
 		return err
 	}
 	_ = s.files.Delete(ctx, doc.FileURL)
+	s.auditLog(ctx, "deleted", domain.AuditResourceDocument, documentID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"name": doc.Name,
+	})
 	return nil
 }
 
@@ -444,6 +535,11 @@ func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UU
 		_ = s.files.Delete(ctx, stored.URL)
 		return nil, err
 	}
+	s.auditLog(ctx, "uploaded", domain.AuditResourceDocument, doc.ID.String(), nil, uuidPtr(parcelID), map[string]any{
+		"name":             doc.Name,
+		"document_type_id": documentTypeID,
+		"uploaded_by":      uploadedBy,
+	})
 	return doc, nil
 }
 
@@ -456,6 +552,9 @@ func (s *landService) DeleteParcelDocument(ctx context.Context, parcelID, docume
 		return err
 	}
 	_ = s.files.Delete(ctx, doc.FileURL)
+	s.auditLog(ctx, "deleted", domain.AuditResourceDocument, documentID.String(), nil, uuidPtr(parcelID), map[string]any{
+		"name": doc.Name,
+	})
 	return nil
 }
 

@@ -11,8 +11,12 @@ import (
 )
 
 type Actor struct {
-	ID   uuid.UUID
-	Name string
+	ID        uuid.UUID
+	Name      string
+	Position  string
+	Roles     []string
+	IP        string
+	UserAgent string
 }
 
 type ctxKey struct{}

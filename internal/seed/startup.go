@@ -121,6 +121,13 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 					SeedExternalUsers(ctx, opts.Finance, opts.ProfessionalOrg)
 			},
 		},
+		{
+			name: "000014_audit_permission",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedAuditPermission(ctx)
+			},
+		},
 	})
 
 	return nil

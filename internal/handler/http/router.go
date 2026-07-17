@@ -27,7 +27,7 @@ func NewRouter(
 	documentTypeSvc service.DocumentTypeService,
 	// notificationSvc — заавал бус (variadic) тул хуучин дуудалтууд өөрчлөгдөхгүй;
 	// өгөөгүй үед мэдэгдлийн маршрутууд бүртгэгдэхгүй.
-	notificationSvc ...service.NotificationService,
+	optionalSvcs ...any,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.Recovery())
@@ -74,10 +74,21 @@ func NewRouter(
 	protected := v1.Group("")
 	protected.Use(middleware.JWTAuth(jwtManager))
 	{
+		var notificationSvc service.NotificationService
+		var auditSvc service.AuditService
+		for _, svc := range optionalSvcs {
+			switch v := svc.(type) {
+			case service.NotificationService:
+				notificationSvc = v
+			case service.AuditService:
+				auditSvc = v
+			}
+		}
+
 		// Мэдэгдэл — нэвтэрсэн хэрэглэгч бүр зөвхөн ӨӨРИЙН мэдэгдэлтэй ажиллана
 		// (recipient шүүлт repo түвшинд); нэмэлт permission шаардлагагүй.
-		if len(notificationSvc) > 0 && notificationSvc[0] != nil {
-			notificationH := NewNotificationHandler(notificationSvc[0])
+		if notificationSvc != nil {
+			notificationH := NewNotificationHandler(notificationSvc)
 			notifications := protected.Group("/notifications")
 			{
 				notifications.GET("", notificationH.List)
@@ -86,6 +97,10 @@ func NewRouter(
 				notifications.POST("/read-all", notificationH.MarkAllRead)
 				notifications.POST("/:id/read", notificationH.MarkRead)
 			}
+		}
+		if auditSvc != nil {
+			auditH := NewAuditHandler(auditSvc)
+			protected.GET("/audit-logs", middleware.RequirePermission("audit:read"), auditH.List)
 		}
 
 		users := protected.Group("/users")

@@ -167,6 +167,8 @@ type landService struct {
 	// notifier — төлөв өөрчлөгдөх бүрд холбогдох хэрэглэгчдэд мэдэгдэл илгээнэ;
 	// nil байж болно (тест) — тэр үед мэдэгдэл илгээгдэхгүй.
 	notifier NotificationService
+	// audit — ажилтны бизнес үйлдлийн лог. nil байж болно (тест).
+	audit AuditService
 }
 
 func NewLandService(
@@ -174,15 +176,20 @@ func NewLandService(
 	landRepo repository.LandAcquisitionRepository,
 	files filestorage.Storage,
 	userRepo repository.UserRepository,
-	// notifier — заавал бус (variadic) тул хуучин дуудалт/тестүүд өөрчлөгдөхгүй.
-	notifier ...NotificationService,
+	// extras — заавал бус dependency-үүд (NotificationService, AuditService).
+	extras ...any,
 ) LandService {
 	if files == nil {
 		files = filestorage.DisabledStorage{}
 	}
 	s := &landService{planRepo: planRepo, landRepo: landRepo, files: files, userRepo: userRepo}
-	if len(notifier) > 0 {
-		s.notifier = notifier[0]
+	for _, extra := range extras {
+		switch v := extra.(type) {
+		case NotificationService:
+			s.notifier = v
+		case AuditService:
+			s.audit = v
+		}
 	}
 	return s
 }
@@ -299,6 +306,11 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		_ = s.landRepo.BulkInsertParcels(ctx, acq.ID, srcParcels, acqWKT)
 	}
 
+	s.auditLog(ctx, "created", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, map[string]any{
+		"name":      acq.AcquisitionName,
+		"plan_code": acq.PlanCode,
+		"status":    acq.Status,
+	})
 	return acq, nil
 }
 
@@ -408,6 +420,11 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		}
 	}
 
+	s.auditLog(ctx, "updated", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, map[string]any{
+		"name":             acq.AcquisitionName,
+		"plan_code":        acq.PlanCode,
+		"geometry_changed": geometryChanged,
+	})
 	return acq, geometryChanged, nil
 }
 
@@ -424,7 +441,15 @@ func (s *landService) Delete(ctx context.Context, id uuid.UUID) error {
 	if acq.Status != domain.LandAcquisitionStatusNew {
 		return domain.ErrForbidden
 	}
-	return s.landRepo.Delete(ctx, id)
+	if err := s.landRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceAcquisition, id.String(), uuidPtr(id), nil, map[string]any{
+		"name":      acq.AcquisitionName,
+		"plan_code": acq.PlanCode,
+		"status":    acq.Status,
+	})
+	return nil
 }
 
 func (s *landService) List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error) {
@@ -633,6 +658,12 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 	// Мэдэгдэл: статус амжилттай шилжсэний дараа (энэ мөчид acq.Status
 	// хуучин утгаараа тул from→to хоёуланг нь дамжуулж чадна).
 	s.notifyAcquisitionStatusChanged(ctx, acq, toStatus)
+	s.auditLog(ctx, "status_changed", domain.AuditResourceAcquisition, acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"from_status":   acq.Status,
+		"to_status":     toStatus,
+		"note":          note,
+		"decree_number": decreeNumber,
+	})
 
 	acq.Status = toStatus
 	return acq, nil
@@ -640,12 +671,40 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 
 // UpdateParcelMeta — нэгж талбарын мэдээллийн сангийн өөрчлөлтийн мэдээллийг шинэчлэнэ
 func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
-	return s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT)
+	parcel, _ := s.landRepo.GetParcelByID(ctx, parcelID)
+	if err := s.landRepo.UpdateParcelMeta(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT); err != nil {
+		return err
+	}
+	acqID := uuid.Nil
+	if parcel != nil {
+		acqID = parcel.AcquisitionID
+	}
+	s.auditLog(ctx, "meta_updated", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acqID), uuidPtr(parcelID), map[string]any{
+		"db_changed":          dbChanged,
+		"changed_parcel_id":   changedParcelID,
+		"acquisition_area_m2": acquisitionAreaM2,
+		"geometry_changed":    acquisitionGeomWKT != nil,
+	})
+	return nil
 }
 
 // SetParcelCompensation — нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэнэ
 func (s *landService) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
-	return s.landRepo.SetParcelCompensation(ctx, parcelID, paid)
+	parcel, _ := s.landRepo.GetParcelByID(ctx, parcelID)
+	if err := s.landRepo.SetParcelCompensation(ctx, parcelID, paid); err != nil {
+		return err
+	}
+	acqID := uuid.Nil
+	parcelCode := ""
+	if parcel != nil {
+		acqID = parcel.AcquisitionID
+		parcelCode = parcel.ParcelID
+	}
+	s.auditLog(ctx, "compensation_flag_set", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acqID), uuidPtr(parcelID), map[string]any{
+		"paid":        paid,
+		"parcel_code": parcelCode,
+	})
+	return nil
 }
 
 // ListGlobalParcels — бүх чөлөөлөлтийн нэгж талбарын нэгдсэн жагсаалт
@@ -693,7 +752,13 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 		return domain.ErrInternalServer
 	}
 
-	return s.landRepo.UpsertParcelRight(ctx, p.ID, acq.ID, holderID, src)
+	if err := s.landRepo.UpsertParcelRight(ctx, p.ID, acq.ID, holderID, src); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(), uuidPtr(acq.ID), uuidPtr(p.ID), map[string]any{
+		"parcel_code": parcelCode,
+	})
+	return nil
 }
 
 func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
@@ -715,6 +780,11 @@ func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID,
 		return err
 	}
 	s.notifyAssigneesSet(ctx, acquisitionID, previous, assignees)
+	s.auditLog(ctx, "assignees_set", domain.AuditResourceAcquisition, acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"previous_count": len(previous),
+		"current_count":  len(assignees),
+		"assignees":      assignees,
+	})
 	return nil
 }
 
@@ -743,6 +813,9 @@ func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisi
 		return err
 	}
 	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgUserID, false)
+	s.auditLog(ctx, "professional_org_set", domain.AuditResourceAcquisition, acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+		"org_user_id": orgUserID,
+	})
 	return nil
 }
 
@@ -751,5 +824,8 @@ func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcel
 		return err
 	}
 	s.notifyOrgAssigned(ctx, acqID, &parcelID, orgUserID, true)
+	s.auditLog(ctx, "independent_org_set", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acqID), uuidPtr(parcelID), map[string]any{
+		"org_user_id": orgUserID,
+	})
 	return nil
 }
