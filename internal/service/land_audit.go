@@ -26,14 +26,3 @@ func uuidPtr(id uuid.UUID) *uuid.UUID {
 	}
 	return &id
 }
-
-func auditResourceID(id uuid.UUID) string {
-	if id == uuid.Nil {
-		return ""
-	}
-	return id.String()
-}
-
-func auditParcelResource(parcelID uuid.UUID) (string, *uuid.UUID) {
-	return auditResourceID(parcelID), uuidPtr(parcelID)
-}
