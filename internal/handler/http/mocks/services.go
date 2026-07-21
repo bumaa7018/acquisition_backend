@@ -495,6 +495,11 @@ func (m *MockLandService) IsProfMemberOfParcel(ctx context.Context, parcelID uui
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockLandService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode, userID)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *MockLandService) IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error) {
 	args := m.Called(ctx, id)
 	return args.Bool(0), args.Error(1)

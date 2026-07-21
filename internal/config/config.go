@@ -22,9 +22,10 @@ type Config struct {
 }
 
 type AppConfig struct {
-	Port    string `env:"APP_PORT" envDefault:"8080"`
-	Env     string `env:"APP_ENV" envDefault:"development"`
-	BaseURL string `env:"APP_BASE_URL" envDefault:"http://localhost:8080"`
+	Port     string `env:"APP_PORT" envDefault:"8080"`
+	Env      string `env:"APP_ENV" envDefault:"development"`
+	BaseURL  string `env:"APP_BASE_URL" envDefault:"http://localhost:8080"`
+	LogLevel string `env:"LOG_LEVEL" envDefault:"warn"`
 }
 
 // DBConfig нь envPrefix-тэй хослон ашиглагдана.
@@ -118,6 +119,21 @@ func Load() (*Config, error) {
 		"main_db", cfg.DB.Name,
 		"auth_db", cfg.AuthDB.Name,
 		"email_enabled", cfg.Email.Enabled(),
+		"log_level", cfg.App.LogLevel,
 	)
 	return cfg, nil
+}
+
+// ParseLogLevel .env-ийн LOG_LEVEL утгыг slog.Level рүү хөрвүүлнэ (debug|info|warn|error), таарахгүй бол info.
+func ParseLogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }

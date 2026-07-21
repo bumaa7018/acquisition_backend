@@ -275,3 +275,9 @@ type AuditLogRepository interface {
 	Create(ctx context.Context, log *domain.AuditLog) error
 	List(ctx context.Context, filter domain.AuditLogFilter) ([]*domain.AuditLog, int64, error)
 }
+
+// ClientRequestRepository — бусад системрүү илгээсэн HTTP хүсэлтийн append-only лог.
+type ClientRequestRepository interface {
+	Create(ctx context.Context, r *domain.ClientRequest) error
+	List(ctx context.Context, filter domain.ClientRequestFilter) ([]*domain.ClientRequest, int64, error)
+}

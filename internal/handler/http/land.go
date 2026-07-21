@@ -1682,11 +1682,26 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 	}
 
 	createdBy := ""
+	var callerID uuid.UUID
 	if uid, ok := c.Get("userID"); ok {
-		createdBy = uid.(uuid.UUID).String()
+		callerID = uid.(uuid.UUID)
+		createdBy = callerID.String()
 	}
 	if mikaOnlyCaller(c) {
 		body.ValuationType = domain.ValuationTypeMika
+	}
+
+	// professional_org (үндсэн болон хөндлөнгийн) хэрэглэгч зөвхөн ХАРЬЯАЛАГДАХ
+	// нэгж талбарт л үнэлгээ импортлох ёстой. /prof/... маршрут дээр body.ParcelID
+	// JSON body-гоор ирдэг (URL param биш) тул profParcelMemberByParam middleware-ээр
+	// шалгагдахгүй — энэ шалгалт байхгүй бол acquisition-ийн гишүүн ямар ч parcel_id-д
+	// (өөрт нь харьяалагдахгүй байсан ч) бичих боломжтой байсан (IDOR).
+	if ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага") {
+		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, callerID)
+		if err != nil || !member {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
 	}
 
 	imp := &domain.ValuationImport{

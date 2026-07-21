@@ -114,6 +114,11 @@ type LandAssigneeService interface {
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+	// IsProfMemberOfParcelByCode — parcel_id (код)-оор parcel-ийг олж, тухайн хэрэглэгч
+	// уг acquisition-д харьяалагдах parcel-ийн гишүүн мөн эсэхийг шалгана.
+	// ImportValuation зэрэг parcel_id-г JSON body-гоор хүлээн авдаг route-уудад ашиглана
+	// (URL param биш тул профParcelMemberByParam middleware-ээр шалгах боломжгүй).
+	IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error)
 }
 
 type LandWorkflowService interface {
@@ -417,6 +422,13 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		srcParcels, err := s.planRepo.GetSourceParcels(ctx, acq.PlanCode)
 		if err == nil && len(srcParcels) > 0 {
 			_ = s.landRepo.BulkInsertParcels(ctx, acq.ID, srcParcels, acq.GeometryWKT)
+		}
+
+		// BulkInsertParcels шинэ нэгж талбар нэмсэн байж болзошгүй тул acq.ParcelCount
+		// (шинэ хилтэй давхцах parcel-үүд нэмэгдэхээс ӨМНӨ уншсан хуучин утга) хуучирсан
+		// байна — хариултад зөв тоо буцаахын тулд DB-ээс дахин уншина.
+		if fresh, ferr := s.landRepo.GetByID(ctx, acq.ID); ferr == nil {
+			acq.ParcelCount = fresh.ParcelCount
 		}
 	}
 
@@ -806,6 +818,17 @@ func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisition
 
 func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
 	return s.landRepo.IsProfMemberOfParcel(ctx, parcelID, userID)
+}
+
+func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error) {
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return false, err
+	}
+	if p.AcquisitionID != acquisitionID {
+		return false, domain.ErrNotFound
+	}
+	return s.landRepo.IsProfMemberOfParcel(ctx, p.ID, userID)
 }
 
 func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {

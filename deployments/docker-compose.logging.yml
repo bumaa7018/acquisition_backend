@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Хөнгөн лог хянах stack: Loki (хадгалалт) + Promtail (Docker лог tail хийгч)
+# + Grafana (харах интерфейс). Prometheus/Sentry-гүй — зөвхөн лог харах,
+# амжилттай/амжилтгүй үйлдлийг Grafana дээрээс шүүж харах зорилготой.
+#
+# Асаах: docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.logging.yml up -d
+# (эсвэл scripts/deploy.sh автоматаар шалгаж асаана — cmd/api/main.go-ийн ensureLoggingStack)
+
+services:
+  loki:
+    # index/volume API (Logs Drilldown-ийн лог хэмжээний график) 2.9.0-д
+    # байхгүй (404) — Grafana Logs Drilldown-той ажиллахын тулд шинэчилсэн.
+    image: grafana/loki:3.7.3
+    container_name: gov_loki
+    environment:
+      TZ: Asia/Ulaanbaatar
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - gov_network
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: gov_promtail
+    environment:
+      TZ: Asia/Ulaanbaatar
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - gov_network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    # Logs Drilldown (grafana-lokiexplore-app) plugin >=11.6.11 шаарддаг тул
+    # хувилбарыг шинэчилсэн (10.4.2-той нийцтэй хувилбар байхгүй байсан).
+    image: grafana/grafana:12.4.6
+    container_name: gov_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      TZ: Asia/Ulaanbaatar
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      # Logs Drilldown (Explore Logs) — LogQL бичихгүйгээр label/утгаар нь
+      # жагсаалт хэлбэрээр товшиж шүүх боломж олгодог Grafana app plugin.
+      GF_INSTALL_PLUGINS: "grafana-lokiexplore-app"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    networks:
+      - gov_network
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+volumes:
+  loki_data:
+  grafana_data:
+
+networks:
+  gov_network:
+    name: gov_network
+    external: true

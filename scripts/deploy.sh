@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/deployments/docker-compose.yml}"
+LOGGING_COMPOSE_FILE="${LOGGING_COMPOSE_FILE:-$ROOT_DIR/deployments/docker-compose.logging.yml}"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
 GIT_REMOTE="${GIT_REMOTE:-origin}"
 
@@ -25,6 +26,26 @@ fi
 
 compose() {
   docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+}
+
+# api container нь docker/docker-compose CLI-гүй хөнгөн image дотор ажилладаг
+# тул дотроосоо Loki/Promtail/Grafana-г асааж чадахгүй (internal/pkg/logstack
+# зөвхөн локал dev орчинд air-г host дээр шууд ажиллуулах үед л ажиллана).
+# Тиймээс production deploy бүрд ЭНД, host дээр шалгаж асаана.
+#
+# АНХААР: Loki/Promtail/Grafana мөн "deployments" compose project-д багтдаг
+# тул зөвхөн $COMPOSE_FILE-ээр --remove-orphans ажиллуулбал compose тэдгээрийг
+# "orphan" гэж үзэж УСТГАНА. Тиймээс main+logging хоёр файлыг ХАМТ, НЭГ
+# дуудлагаар up хийнэ — эс тэгвээс эхний (зөвхөн main) up дуудлага logging
+# stack-ийг устгаад, дараа нь дахин үүсгэх хэрэгтэй болно (хэрэглээгүй ч устгал/
+# үүсгэлт давхардана, эсвэл дараагийн алхам амжилтгүй бол логийн stack устсан
+# хэвээр үлдэнэ).
+compose_full() {
+  if [[ -f "$LOGGING_COMPOSE_FILE" ]]; then
+    docker compose -f "$COMPOSE_FILE" -f "$LOGGING_COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
+  else
+    compose "$@"
+  fi
 }
 
 ensure_network() {
@@ -60,9 +81,9 @@ echo "Docker image build хийж байна..."
 compose build ${BUILD_FLAGS:---pull}
 
 echo "Docker service-үүдийг шинээр асааж байна..."
-compose up -d --remove-orphans --wait
+compose_full up -d --remove-orphans --pull missing --wait
 
-compose ps
+compose_full ps
 
 # Frontend container байвал restart хийнэ — backend шинэчлэгдсэний дараа
 # DNS cache цэвэрлэгдэж, шинэ api container-тай дахин холбогдоно

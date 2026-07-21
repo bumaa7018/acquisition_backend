@@ -84,6 +84,7 @@ func Paginated(c *gin.Context, data any, total int64, page, pageSize int) {
 // Abort sends an error response using an i18n key.
 func Abort(c *gin.Context, status int, key i18n.Key) {
 	msg := i18n.T(lang(c), key)
+	logError(c, status, msg)
 	c.AbortWithStatusJSON(status, Response{
 		Code:    status,
 		Error:   msg,
@@ -92,7 +93,10 @@ func Abort(c *gin.Context, status int, key i18n.Key) {
 }
 
 // AbortValidation sends a 400 with a raw validation error string (from go-playground/validator).
+// Валидацийн алдаа зөвхөн талбарын нэр/дүрмийг агуулна (go-playground/validator), илгээсэн
+// утгыг агуулдаггүй тул чөлөөтэй логлож болно.
 func AbortValidation(c *gin.Context, err error) {
+	logError(c, http.StatusBadRequest, err.Error())
 	c.AbortWithStatusJSON(http.StatusBadRequest, Response{
 		Code:    http.StatusBadRequest,
 		Error:   err.Error(),
@@ -103,19 +107,32 @@ func AbortValidation(c *gin.Context, err error) {
 func Error(c *gin.Context, err error) {
 	status, key := mapError(err)
 	msg := i18n.T(lang(c), key)
-	if status >= http.StatusInternalServerError {
-		slog.Error("request failed",
-			"error", err,
-			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
-			"status", status,
-		)
-	}
+	logError(c, status, err.Error())
 	c.AbortWithStatusJSON(status, Response{
 		Code:    status,
 		Error:   msg,
 		Message: msg,
 	})
+}
+
+// logError бүх төрлийн алдааны хариуг (4xx болон 5xx) статусаас хамаарсан
+// түвшинд логлоно — өмнө нь зөвхөн 500-аас дээш статус л логлогддог байсан тул
+// бизнесийн ихэнх алдаа (400/403/404/409 гэх мэт) чимээгүй алга болдог байв.
+// Зөвхөн статус, аргумент, зам, алдааны мессежийг логлоно — хүсэлтийн биеийг
+// (нууц үг, файл гэх мэт мэдээлэл агуулж болзошгүй) хэзээ ч логлохгүй.
+func logError(c *gin.Context, status int, msg string) {
+	attrs := []any{
+		"error", msg,
+		"method", c.Request.Method,
+		"path", c.Request.URL.Path,
+		"status", status,
+	}
+	switch {
+	case status >= http.StatusInternalServerError:
+		slog.Error("request failed", attrs...)
+	default:
+		slog.Warn("request failed", attrs...)
+	}
 }
 
 func mapError(err error) (int, i18n.Key) {

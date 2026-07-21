@@ -3,6 +3,11 @@
 BINARY=server
 CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
+# up/reset-д ашиглана — Loki/Promtail/Grafana мөн адил "deployments" project-д
+# багтдаг тул зөвхөн үндсэн compose файлаар --remove-orphans ажиллуулбал
+# тэдгээрийг "orphan" гэж үзэж УСТГАЖ ЧАДНА. Хоёр файлыг ХАМТ дамжуулснаар
+# compose бүх зорилтот сервисийг таньж, буруу устгахаас сэргийлнэ.
+FULL_COMPOSE=docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.logging.yml --env-file .env
 GOPATH_BIN=$(shell go env GOPATH 2>/dev/null)/bin
 SWAG=$(GOPATH_BIN)/swag
 GOLANGCI_LINT=$(GOPATH_BIN)/golangci-lint
@@ -75,7 +80,7 @@ migrate-auth-down:
 up:
 	@docker network inspect gov_network >/dev/null 2>&1 || docker network create gov_network >/dev/null
 	$(COMPOSE) build --no-cache --pull
-	$(COMPOSE) up -d --remove-orphans --wait
+	$(FULL_COMPOSE) up -d --remove-orphans --pull missing --wait
 
 down:
 	$(COMPOSE) down
@@ -83,7 +88,7 @@ down:
 reset:
 	$(COMPOSE) down -v
 	$(COMPOSE) build --no-cache --pull
-	$(COMPOSE) up -d --remove-orphans --wait
+	$(FULL_COMPOSE) up -d --remove-orphans --pull missing --wait
 
 logs:
 	$(COMPOSE) logs -f

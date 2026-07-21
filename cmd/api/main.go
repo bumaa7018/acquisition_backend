@@ -33,6 +33,7 @@ import (
 	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
 	jwtpkg "acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/pkg/logstack"
 	"acquisition_backend/internal/pkg/notify"
 	"acquisition_backend/internal/repository/postgres"
 	"acquisition_backend/internal/seed"
@@ -51,6 +52,11 @@ func main() {
 		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// LOG_LEVEL-ийг .env-ээс уншсаны дараа лог түвшинг бодит утгаар нь дахин тохируулна.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: config.ParseLogLevel(cfg.App.LogLevel),
+	})))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -122,6 +128,8 @@ func main() {
 	notificationSvc := service.NewNotificationService(notificationRepo, notificationHub)
 	auditRepo := postgres.NewAuditLogRepo(mainDB)
 	auditSvc := service.NewAuditService(auditRepo)
+	clientRequestRepo := postgres.NewClientRequestRepo(mainDB)
+	clientRequestSvc := service.NewClientRequestService(clientRequestRepo)
 
 	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc)
 	planSvc := service.NewPlanService(planRepo)
@@ -142,7 +150,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
@@ -154,6 +162,11 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+
+	// Лог хянах stack (Loki+Promtail+Grafana) ажиллаж байгаа эсэхийг
+	// шалгаж, шаардлагатай бол дэвсгэрт нь автоматаар асаана. API-ийн
+	// асаалтыг хэзээ ч зогсоохгүй (docker байхгүй орчинд чимээгүй алгасна).
+	go logstack.EnsureRunning(ctx, ".")
 
 	go func() {
 		slog.Info("server starting",

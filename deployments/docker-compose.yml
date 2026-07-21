@@ -6,6 +6,7 @@ services:
     env_file:
       - ../.env
     environment:
+      TZ: Asia/Ulaanbaatar
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-appdb}
@@ -31,6 +32,7 @@ services:
     env_file:
       - ../.env
     environment:
+      TZ: Asia/Ulaanbaatar
       DB_HOST: postgres
       DB_PORT: 5432
       AUTH_DB_HOST: postgres

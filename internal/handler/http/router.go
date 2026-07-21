@@ -76,12 +76,15 @@ func NewRouter(
 	{
 		var notificationSvc service.NotificationService
 		var auditSvc service.AuditService
+		var clientRequestSvc service.ClientRequestService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.NotificationService:
 				notificationSvc = v
 			case service.AuditService:
 				auditSvc = v
+			case service.ClientRequestService:
+				clientRequestSvc = v
 			}
 		}
 
@@ -101,6 +104,11 @@ func NewRouter(
 		if auditSvc != nil {
 			auditH := NewAuditHandler(auditSvc)
 			protected.GET("/audit-logs", middleware.RequirePermission("audit:read"), auditH.List)
+		}
+		// Бусад системрүү (гадаад API) илгээсэн HTTP хүсэлтийн бүртгэл.
+		if clientRequestSvc != nil {
+			clientRequestH := NewClientRequestHandler(clientRequestSvc)
+			protected.GET("/client-requests", middleware.RequirePermission("audit:read"), clientRequestH.List)
 		}
 
 		users := protected.Group("/users")
