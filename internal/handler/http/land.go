@@ -1029,15 +1029,21 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	// Бүх хавсралт зөвхөн PDF өргөтгөлтэй байна
-	contentType, ok := allowedPDFContentType(data)
-	if !ok {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
-		return
-	}
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
+		return
+	}
+	// Хавсралт ерөнхийдөө зөвхөн PDF өргөтгөлтэй байна; "Хурлын тэмдэглэл" төрөлд
+	// Гэрээтэй нэгтгэж хэвлэдэг тул DOCX-ийг нэмж зөвшөөрнө.
+	dt, err := documentTypeForUpload(c, h.svc, documentTypeID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	contentType, ok := allowedDocumentContentType(fh.Filename, data, dt)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 		return
 	}
 	// filename нь өргөтгөл тодорхойлоход, name нь дэлгэцийн нэрэнд ашиглагдана
@@ -2431,15 +2437,21 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 	if uid, ok := c.Get("userID"); ok {
 		uploadedBy = uid.(uuid.UUID).String()
 	}
-	// Бүх хавсралт зөвхөн PDF өргөтгөлтэй байна
-	contentType, ok := allowedPDFContentType(data)
-	if !ok {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
-		return
-	}
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
+		return
+	}
+	// Хавсралт ерөнхийдөө зөвхөн PDF өргөтгөлтэй байна; "Хурлын тэмдэглэл" төрөлд
+	// Гэрээтэй нэгтгэж хэвлэдэг тул DOCX-ийг нэмж зөвшөөрнө.
+	dt, err := documentTypeForUpload(c, h.svc, documentTypeID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	contentType, ok := allowedDocumentContentType(fh.Filename, data, dt)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 		return
 	}
 	// filename нь өргөтгөл тодорхойлоход, name нь дэлгэцийн нэрэнд ашиглагдана
@@ -2461,6 +2473,22 @@ func documentTypeIDFromForm(c *gin.Context) (int, error) {
 		return 0, domain.ErrInvalidInput
 	}
 	return documentTypeID, nil
+}
+
+// documentTypeForUpload — байршуулж буй хавсралтын төрлийг өгөгдсөн ID-гаар
+// татаж авчирна (агуулгын төрлийн шалгалтад ашиглана). ID заагаагүй бол nil буцаана.
+func documentTypeForUpload(c *gin.Context, svc service.LandService, documentTypeID int) (*domain.DocumentType, error) {
+	if documentTypeID <= 0 {
+		return nil, nil
+	}
+	dt, err := svc.GetDocumentType(c.Request.Context(), documentTypeID)
+	if err != nil {
+		if err == domain.ErrNotFound {
+			return nil, domain.ErrInvalidInput
+		}
+		return nil, err
+	}
+	return dt, nil
 }
 
 func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {

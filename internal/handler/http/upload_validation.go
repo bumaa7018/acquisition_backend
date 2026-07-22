@@ -6,6 +6,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+
+	"acquisition_backend/internal/domain"
 )
 
 // Файл оруулах дээд хэмжээ — frontend-ийн 50MB шалгалттай ижил.
@@ -52,4 +54,31 @@ func detectContentType(data []byte) string {
 func allowedPDFContentType(data []byte) (string, bool) {
 	contentType := detectContentType(data)
 	return contentType, contentType == "application/pdf"
+}
+
+const (
+	docxContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	// docxAllowedDocumentType — Гэрээг хэвлэхэд Хурлын тэмдэглэлийг Word
+	// баримт байдлаар нэгтгэдэг тул зөвхөн энэ төрөлд PDF-ээс гадна DOCX зөвшөөрнө.
+	docxAllowedDocumentType = "meeting_minutes"
+)
+
+// isDocxFile — .docx (Office Open XML) файл эсэхийг өргөтгөл + zip гарын үсгээр шалгана.
+// http.DetectContentType нь docx-ийн далд zip бүтцийг тусгайлан танихгүй
+// ("application/zip" гэж буцаадаг тул) энд өргөтгөлтэй хослуулж шалгана.
+func isDocxFile(filename string, data []byte) bool {
+	if !strings.HasSuffix(strings.ToLower(filename), ".docx") {
+		return false
+	}
+	return len(data) >= 4 && data[0] == 'P' && data[1] == 'K' && data[2] == 0x03 && data[3] == 0x04
+}
+
+// allowedDocumentContentType — хавсралт байршуулах үед агуулгын төрлийг шалгана.
+// Ерөнхийдөө зөвхөн PDF зөвшөөрнө; "Хурлын тэмдэглэл" (meeting_minutes) төрөлд
+// Гэрээтэй хэвлэхдээ нэгтгэдэг тул Word (docx) файл нэмж зөвшөөрнө.
+func allowedDocumentContentType(filename string, data []byte, dt *domain.DocumentType) (string, bool) {
+	if dt != nil && dt.Type == docxAllowedDocumentType && isDocxFile(filename, data) {
+		return docxContentType, true
+	}
+	return allowedPDFContentType(data)
 }

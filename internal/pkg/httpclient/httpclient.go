@@ -6,6 +6,7 @@ package httpclient
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -16,6 +17,28 @@ import (
 // maxLoggedBodyBytes — request/response биеийг лог/DB-д хэт томроохоос
 // сэргийлж энэ хэмжээгээр огтолж хадгална.
 const maxLoggedBodyBytes = 16 * 1024
+
+// maxBodyBytes — хүсэлт/хариуны биеийг бүхэлд нь санах ойд уншихдаа тавих
+// хатуу дээд хязгаар. Энэ Client нь ердийн JSON/API дуудлагад зориулагдсан
+// (хэдэн KB-KB хэмжээтэй) — том файл татах/илгээх шаардлагатай интеграцид
+// зориулж дуудагч тал өөрийн, ЭНЭ хязгаараас чөлөөтэй http.Client ашиглах
+// ёстой. Гадаад систем санамсаргүй (эсвэл санаатай) асар том хариу буцаавал
+// process-ийн санах ойг барж авахаас сэргийлнэ.
+const maxBodyBytes = 20 * 1024 * 1024
+
+// readBodyCapped биеийг maxBodyBytes хүртэл уншиж, хэтэрвэл алдаа буцаана
+// (чимээгүй огтлохгүй — дуудагч тал бүрэн бус өгөгдлийг андуурч ашиглахаас сэргийлнэ).
+func readBodyCapped(r io.Reader) ([]byte, error) {
+	limited := io.LimitReader(r, maxBodyBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBodyBytes {
+		return nil, fmt.Errorf("хүсэлт/хариуны бие %dMB хязгаараас хэтэрсэн", maxBodyBytes/(1024*1024))
+	}
+	return data, nil
+}
 
 type Client struct {
 	http *http.Client
@@ -41,7 +64,12 @@ func New(log service.ClientRequestService) *Client {
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var reqBody []byte
 	if req.Body != nil {
-		reqBody, _ = io.ReadAll(req.Body)
+		body, err := readBodyCapped(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("хүсэлтийн бие уншихад алдаа гарлаа: %w", err)
+		}
+		reqBody = body
 		req.Body = io.NopCloser(bytes.NewReader(reqBody))
 	}
 
@@ -66,7 +94,15 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 	var respBody []byte
 	if resp.Body != nil {
-		respBody, _ = io.ReadAll(resp.Body)
+		body, readErr := readBodyCapped(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			entry.StatusCode = resp.StatusCode
+			entry.Error = readErr.Error()
+			c.log.Log(entry)
+			return nil, fmt.Errorf("хариуны бие уншихад алдаа гарлаа: %w", readErr)
+		}
+		respBody = body
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 	}
 	entry.StatusCode = resp.StatusCode

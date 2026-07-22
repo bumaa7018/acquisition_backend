@@ -64,6 +64,13 @@ func (s *clientRequestService) Log(entry ClientRequestEntry) {
 		RequestedAt:     entry.RequestedAt,
 	}
 	go func() {
+		release, ok := tryAcquireBackgroundSlot()
+		if !ok {
+			slog.Warn("client_request log dropped — background write queue full", "host", entry.Host, "path", entry.Path)
+			return
+		}
+		defer release()
+
 		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.repo.Create(saveCtx, record); err != nil {

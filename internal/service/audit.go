@@ -70,6 +70,13 @@ func (s *auditService) Log(ctx context.Context, entry AuditEntry) {
 		CreatedAt:     time.Now(),
 	}
 	go func() {
+		release, ok := tryAcquireBackgroundSlot()
+		if !ok {
+			slog.Warn("audit log dropped — background write queue full", "action", entry.Action, "resource_type", entry.ResourceType)
+			return
+		}
+		defer release()
+
 		saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.repo.Create(saveCtx, log); err != nil {

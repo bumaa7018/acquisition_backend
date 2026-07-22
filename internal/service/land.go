@@ -99,6 +99,10 @@ type LandPaymentService interface {
 }
 
 type LandDocumentService interface {
+	// GetDocumentType — хавсралт байршуулах үед зөвшөөрөгдөх файлын
+	// агуулгын төрлийг (жишээ нь "meeting_minutes" бол PDF-ээс гадна DOCX)
+	// тодорхойлоход ашиглана.
+	GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error)
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error

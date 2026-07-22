@@ -816,6 +816,8 @@ func TestLandHandler_UploadAcquisitionDocument_Success(t *testing.T) {
 		UploadedAt:     time.Now(),
 		DocumentTypeID: 3,
 	}
+	mockSvc.On("GetDocumentType", mock.Anything, 3).
+		Return(&domain.DocumentType{ID: 3, Type: "other"}, nil)
 	mockSvc.On("UploadAcquisitionDocument",
 		mock.Anything, acqID,
 		mock.AnythingOfType("string"),

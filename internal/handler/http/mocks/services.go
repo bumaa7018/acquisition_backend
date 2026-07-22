@@ -196,6 +196,14 @@ func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UU
 	return args.Error(0)
 }
 
+func (m *MockLandService) GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentType), args.Error(1)
+}
+
 func (m *MockLandService) ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error) {
 	args := m.Called(ctx, acquisitionID)
 	if args.Get(0) == nil {

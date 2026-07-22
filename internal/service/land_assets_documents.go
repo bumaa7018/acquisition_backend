@@ -494,6 +494,12 @@ func (s *landService) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 	return s.landRepo.ListParcelDocuments(ctx, parcelID)
 }
 
+// GetDocumentType — handler давхаргад хавсралтын төрлөөр (жишээ нь "meeting_minutes")
+// зөвшөөрөгдөх файлын агуулгын төрлийг (PDF/DOCX) шийдэхэд ашиглана.
+func (s *landService) GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error) {
+	return s.landRepo.GetDocumentType(ctx, id)
+}
+
 func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
 	// Физик нэр: <нэгж талбарын дугаар>_<төрлийн код>.<өргөтгөл>
 	var dt *domain.DocumentType
