@@ -1145,12 +1145,9 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 // @Success      200  {object}  response.PaginatedResponse
 // @Failure      500  {object}  response.Response
 // @Router       /report/download [get]
-func (h *LandHandler) ListReportParcels(c *gin.Context) {
-	page := queryInt(c, "page", 1)
-	pageSize := queryInt(c, "page_size", 20)
-	if pageSize > 200 {
-		pageSize = 200
-	}
+// reportParcelFilterFromQuery — ListReportParcels/ReportSummary хоёулаа адилхан
+// query параметрээр шүүлт бүтээдэг тул нэг дор задална.
+func reportParcelFilterFromQuery(c *gin.Context) domain.ReportParcelFilter {
 	var years []int
 	for _, s := range c.QueryArray("year") {
 		if y, err := strconv.Atoi(s); err == nil && y > 0 {
@@ -1158,7 +1155,7 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 		}
 	}
 
-	filter := domain.ReportParcelFilter{
+	return domain.ReportParcelFilter{
 		AcquisitionID:     c.Query("acquisition_id"),
 		PlanCode:          c.Query("plan_code"),
 		AcquisitionName:   c.Query("acquisition_name"),
@@ -1169,9 +1166,19 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 		CompensationType:  c.Query("compensation_type"),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
-		Page:              page,
-		PageSize:          pageSize,
 	}
+}
+
+func (h *LandHandler) ListReportParcels(c *gin.Context) {
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	filter := reportParcelFilterFromQuery(c)
+	filter.Page = page
+	filter.PageSize = pageSize
 
 	rows, total, err := h.svc.ListReportParcels(c.Request.Context(), filter)
 	if err != nil {
@@ -1184,6 +1191,25 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 		result = append(result, toReportParcelRowResponse(r))
 	}
 	response.Paginated(c, result, total, page, pageSize)
+}
+
+// ReportSummary godoc
+// @Summary      Тайлангийн жагсаалтын статистикийн карт (нийт чөлөөлөлт/талбар/талбай/олговор)
+// @Tags         report
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  response.Response
+// @Router       /report/summary [get]
+func (h *LandHandler) ReportSummary(c *gin.Context) {
+	filter := reportParcelFilterFromQuery(c)
+
+	summary, err := h.svc.GetReportSummary(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	response.OK(c, toReportSummaryResponse(summary))
 }
 
 // ListAssets godoc

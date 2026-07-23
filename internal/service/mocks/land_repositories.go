@@ -258,6 +258,14 @@ func (m *MockLandAcquisitionRepository) ListReportParcels(ctx context.Context, f
 	return args.Get(0).([]*domain.ReportParcelRow), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *MockLandAcquisitionRepository) GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error) {
+	args := m.Called(ctx, filter)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ReportSummary), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error) {
 	args := m.Called(ctx, acquisitionID, filter)
 	if args.Get(0) == nil {

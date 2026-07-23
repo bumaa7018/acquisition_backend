@@ -1240,7 +1240,9 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 	return result, total, rows.Err()
 }
 
-func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error) {
+// buildReportParcelWhere — ListReportParcels болон GetReportSummary хоёулаа
+// адилхан шүүлтээр ажилладаг тул WHERE өгүүлбэрийг нэг дор бүтээнэ.
+func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 	args := []any{}
 	where := "1=1"
 	i := 1
@@ -1304,8 +1306,112 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 	if filter.SubCategoryID != 0 {
 		where += fmt.Sprintf(" AND la.sub_category_id = $%d", i)
 		args = append(args, filter.SubCategoryID)
-		i++
 	}
+
+	return where, args
+}
+
+// GetReportSummary — тайлангийн шүүлтэд тохирох БҮХ (хуудаслаагүй) мэдээллийн
+// нэгтгэсэн тоо/дүнг нэг дуудлагаар буцаана — жагсаалтын дээд хэсгийн
+// статистикийн картуудад зориулагдсан; бүх мөрийг клиент рүү дамжуулахгүй.
+func (r *landAcqRepo) GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error) {
+	where, args := buildReportParcelWhere(filter)
+
+	cte := fmt.Sprintf(`
+		WITH parcel_agg AS (
+			SELECT
+				p.id AS parcel_pk,
+				COALESCE(p.status, 0) AS status,
+				COALESCE(ps.name, '') AS status_name,
+				COALESCE(p.acquisition_area_m2, 0) AS acquisition_area_m2,
+				COALESCE(p.area_m2, 0) AS area_m2,
+				la.id AS acquisition_id,
+				(SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id) AS status_date,
+				COALESCE(SUM(c.amount), 0) AS total_comp,
+				COALESCE(SUM(CASE WHEN c.target_type = 'parcel' THEN c.amount ELSE 0 END), 0) AS land_comp,
+				COALESCE(SUM(CASE WHEN c.target_type = 'asset' AND a.asset_type = 'real_state' THEN c.amount ELSE 0 END), 0) AS real_state_comp,
+				COALESCE(SUM(CASE WHEN c.target_type = 'asset' AND a.asset_type = 'property' THEN c.amount ELSE 0 END), 0) AS property_comp
+			FROM parcel p
+			JOIN land_acquisition la ON la.id = p.acquisition_id
+			LEFT JOIN parcel_status ps ON ps.id = p.status
+			LEFT JOIN compensation c ON c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id
+				AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
+			LEFT JOIN assets a ON a.id = c.asset_id
+			WHERE %s
+			GROUP BY p.id, p.status, ps.name, p.acquisition_area_m2, p.area_m2, la.id, p.parcel_id
+		)
+	`, where)
+
+	summary := &domain.ReportSummary{}
+	if err := r.db.QueryRow(ctx, cte+`
+		SELECT
+			COUNT(DISTINCT acquisition_id),
+			COUNT(*),
+			COALESCE(SUM(acquisition_area_m2), 0),
+			COALESCE(SUM(area_m2), 0),
+			COALESCE(SUM(total_comp), 0),
+			COALESCE(SUM(land_comp), 0),
+			COALESCE(SUM(real_state_comp), 0),
+			COALESCE(SUM(property_comp), 0)
+		FROM parcel_agg
+	`, args...).Scan(
+		&summary.AcquisitionCount, &summary.ParcelCount, &summary.TotalAreaM2, &summary.TotalParcelAreaM2, &summary.TotalCompensation,
+		&summary.LandCompensation, &summary.RealStateCompensation, &summary.PropertyCompensation,
+	); err != nil {
+		return nil, err
+	}
+	summary.OtherCompensation = summary.TotalCompensation - summary.LandCompensation -
+		summary.RealStateCompensation - summary.PropertyCompensation
+
+	statusRows, err := r.db.Query(ctx, cte+`
+		SELECT status, status_name, COUNT(*)
+		FROM parcel_agg
+		GROUP BY status, status_name
+		ORDER BY status
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer statusRows.Close()
+	for statusRows.Next() {
+		var s domain.ReportStatusStat
+		if err := statusRows.Scan(&s.Status, &s.StatusName, &s.Count); err != nil {
+			return nil, err
+		}
+		summary.StatusBreakdown = append(summary.StatusBreakdown, s)
+	}
+	if err := statusRows.Err(); err != nil {
+		return nil, err
+	}
+
+	yearRows, err := r.db.Query(ctx, cte+`
+		SELECT EXTRACT(YEAR FROM status_date)::int AS year, COUNT(DISTINCT acquisition_id)
+		FROM parcel_agg
+		WHERE status_date IS NOT NULL
+		GROUP BY year
+		ORDER BY year DESC
+	`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer yearRows.Close()
+	for yearRows.Next() {
+		var y domain.ReportYearStat
+		if err := yearRows.Scan(&y.Year, &y.Count); err != nil {
+			return nil, err
+		}
+		summary.YearBreakdown = append(summary.YearBreakdown, y)
+	}
+	if err := yearRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return summary, nil
+}
+
+func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error) {
+	where, args := buildReportParcelWhere(filter)
+	i := len(args) + 1
 
 	var total int64
 	if err := r.db.QueryRow(ctx, fmt.Sprintf(`
@@ -1336,6 +1442,9 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			COALESCE(p.right_type, 0),
 			COALESCE(p.db_changed, false),
 			COALESCE(p.changed_parcel_id, ''),
+			COALESCE(p.status, 0),
+			COALESCE(ps.name, ''),
+			(SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id),
 			la.id,
 			COALESCE(la.acquisition_name, ''),
 			COALESCE(la.plan_code, ''),
@@ -1355,13 +1464,14 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
 		LEFT JOIN parcel_detail pd ON pd.parcel_id = p.id
 		LEFT JOIN right_holder rh ON rh.id = pd.holder_id
+		LEFT JOIN parcel_status ps ON ps.id = p.status
 		LEFT JOIN compensation c ON c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id
 			AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 		LEFT JOIN assets a ON a.id = c.asset_id
 		WHERE %s
 		GROUP BY
 			p.id, p.parcel_id, p.area_m2, p.acquisition_area_m2,
-			p.remaining_area_m2, p.right_type, p.db_changed, p.changed_parcel_id,
+			p.remaining_area_m2, p.right_type, p.db_changed, p.changed_parcel_id, p.status, ps.name,
 			la.id, la.acquisition_name, la.plan_code, gc.name, sc.name, la.decree_number, la.decree_date,
 			rh.last_name, rh.name, rh.register_no
 		ORDER BY la.acquisition_name, p.parcel_id
@@ -1383,6 +1493,9 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			&row.RightType,
 			&row.DbChanged,
 			&row.ChangedParcelID,
+			&row.Status,
+			&row.StatusName,
+			&row.StatusDate,
 			&row.AcquisitionID,
 			&row.AcquisitionName,
 			&row.PlanCode,

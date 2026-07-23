@@ -712,6 +712,9 @@ type reportParcelRowResponse struct {
 	RightType           int     `json:"right_type"`
 	DbChanged           bool    `json:"db_changed"`
 	ChangedParcelID     string  `json:"changed_parcel_id"`
+	Status              int     `json:"status"`
+	StatusName          string  `json:"status_name"`
+	StatusDate          *string `json:"status_date"`
 	AcquisitionID       string  `json:"acquisition_id"`
 	AcquisitionName     string  `json:"acquisition_name"`
 	PlanCode            string  `json:"plan_code"`
@@ -795,6 +798,8 @@ func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowRespons
 		RightType:           r.RightType,
 		DbChanged:           r.DbChanged,
 		ChangedParcelID:     r.ChangedParcelID,
+		Status:              r.Status,
+		StatusName:          r.StatusName,
 		AcquisitionID:       r.AcquisitionID.String(),
 		AcquisitionName:     r.AcquisitionName,
 		PlanCode:            r.PlanCode,
@@ -812,6 +817,62 @@ func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowRespons
 	if r.DecreeDate != nil {
 		s := r.DecreeDate.Format("2006-01-02")
 		resp.DecreeDate = &s
+	}
+	if r.StatusDate != nil {
+		s := r.StatusDate.Format("2006-01-02")
+		resp.StatusDate = &s
+	}
+	return resp
+}
+
+type reportStatusStatResponse struct {
+	Status     int    `json:"status"`
+	StatusName string `json:"status_name"`
+	Count      int    `json:"count"`
+}
+
+type reportYearStatResponse struct {
+	Year  int `json:"year"`
+	Count int `json:"count"`
+}
+
+type reportSummaryResponse struct {
+	AcquisitionCount      int                        `json:"acquisition_count"`
+	ParcelCount           int                        `json:"parcel_count"`
+	TotalAreaM2           float64                    `json:"total_area_m2"`
+	TotalParcelAreaM2     float64                    `json:"total_parcel_area_m2"`
+	TotalCompensation     float64                    `json:"total_compensation"`
+	LandCompensation      float64                    `json:"land_compensation"`
+	RealStateCompensation float64                    `json:"real_state_compensation"`
+	PropertyCompensation  float64                    `json:"property_compensation"`
+	OtherCompensation     float64                    `json:"other_compensation"`
+	StatusBreakdown       []reportStatusStatResponse `json:"status_breakdown"`
+	YearBreakdown         []reportYearStatResponse   `json:"year_breakdown"`
+}
+
+func toReportSummaryResponse(s *domain.ReportSummary) reportSummaryResponse {
+	resp := reportSummaryResponse{
+		AcquisitionCount:      s.AcquisitionCount,
+		ParcelCount:           s.ParcelCount,
+		TotalAreaM2:           s.TotalAreaM2,
+		TotalParcelAreaM2:     s.TotalParcelAreaM2,
+		TotalCompensation:     s.TotalCompensation,
+		LandCompensation:      s.LandCompensation,
+		RealStateCompensation: s.RealStateCompensation,
+		PropertyCompensation:  s.PropertyCompensation,
+		OtherCompensation:     s.OtherCompensation,
+		StatusBreakdown:       make([]reportStatusStatResponse, 0, len(s.StatusBreakdown)),
+		YearBreakdown:         make([]reportYearStatResponse, 0, len(s.YearBreakdown)),
+	}
+	for _, st := range s.StatusBreakdown {
+		resp.StatusBreakdown = append(resp.StatusBreakdown, reportStatusStatResponse{
+			Status:     st.Status,
+			StatusName: st.StatusName,
+			Count:      st.Count,
+		})
+	}
+	for _, y := range s.YearBreakdown {
+		resp.YearBreakdown = append(resp.YearBreakdown, reportYearStatResponse{Year: y.Year, Count: y.Count})
 	}
 	return resp
 }

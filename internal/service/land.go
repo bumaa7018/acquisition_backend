@@ -45,6 +45,7 @@ type LandAcquisitionService interface {
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
+	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
@@ -739,6 +740,16 @@ func (s *landService) ListReportParcels(ctx context.Context, filter domain.Repor
 		return nil, 0, domain.ErrInternalServer
 	}
 	return list, total, nil
+}
+
+// GetReportSummary — тайлангийн жагсаалтын дээд хэсгийн статистикийн карт
+// (нийт чөлөөлөлт/нэгж талбар, статус болон оны задаргаа, нийт талбай/олговор)
+func (s *landService) GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error) {
+	summary, err := s.landRepo.GetReportSummary(ctx, filter)
+	if err != nil {
+		return nil, domain.ErrInternalServer
+	}
+	return summary, nil
 }
 
 // SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг auth DB-аас татаж хадгална.

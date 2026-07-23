@@ -446,6 +446,11 @@ type ReportParcelRow struct {
 	RightType         int
 	DbChanged         bool
 	ChangedParcelID   string
+	Status            int
+	StatusName        string
+	// StatusDate — сүүлд статус өөрчлөгдсөн огноо (parcel_status_history-ээс);
+	// тайлангийн жагсаалтын дээд хэсэгт оноор нь бүлэглэхэд ашиглана.
+	StatusDate *time.Time
 	// Чөлөөлөлт
 	AcquisitionID       uuid.UUID
 	AcquisitionName     string
@@ -462,6 +467,45 @@ type ReportParcelRow struct {
 	LandComp      float64
 	RealStateComp float64
 	PropertyComp  float64
+}
+
+// ReportStatusStat — тайлангийн шүүлтэд тохирох нэгж талбаруудыг статусаар бүлэглэсэн тоо
+type ReportStatusStat struct {
+	Status     int
+	StatusName string
+	Count      int
+}
+
+// ReportYearStat — тайлангийн шүүлтэд тохирох чөлөөлөлтүүдийг (сүүлийн статус
+// өөрчлөлтийн оноор) бүлэглэсэн тоо
+type ReportYearStat struct {
+	Year  int
+	Count int
+}
+
+// ReportSummary — тайлангийн жагсаалтын дээд хэсгийн статистикийн карт (бүх
+// хуудаслагдсан үр дүнгээр, нэг л дуудлагаар тооцоологдоно)
+type ReportSummary struct {
+	AcquisitionCount int
+	ParcelCount      int
+	// TotalAreaM2 — нөлөөлөлд өртсөн (acquisition_area_m2) талбайн нийлбэр.
+	TotalAreaM2 float64
+	// TotalParcelAreaM2 — нэгж талбаруудын үндсэн (бүтэн, acquisition-аас өмнөх) талбайн
+	// хэмжээний нийлбэр (p.area_m2) — "Нийт чөлөөлөлт" картад харуулахад ашиглана.
+	TotalParcelAreaM2 float64
+	TotalCompensation float64
+	// Нөхөх олговрын төрлөөр задаргаа (ListReportParcels-ийн land_comp/real_state_comp/
+	// property_comp-той адил ангилал) — картын доод хэсэгт харуулахад ашиглана.
+	LandCompensation      float64
+	RealStateCompensation float64
+	PropertyCompensation  float64
+	// OtherCompensation — target_type='asset' боловч холбогдох asset нь устсан/
+	// төрөлгүй зэрэг шалтгаанаар дээрх 3 ангилалд ороогүй үлдэгдэл (TotalCompensation -
+	// Land - RealState - Property). Задаргааны нийлбэр нь нийт дүнтэй яг тэнцүү байхын
+	// баталгаа (тайлангийн картаас "зөрж байна" гэсэн тайлагдсан зөрүүг арилгасан).
+	OtherCompensation float64
+	StatusBreakdown   []ReportStatusStat
+	YearBreakdown     []ReportYearStat
 }
 
 // AssetFilter — хөрөнгийн жагсаалт шүүх болон хуудаслах параметр

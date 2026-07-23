@@ -357,6 +357,7 @@ func NewRouter(
 		report := protected.Group("/report")
 		{
 			report.GET("/download", middleware.RequirePermission("land:read"), landH.ListReportParcels)
+			report.GET("/summary", middleware.RequirePermission("land:read"), landH.ReportSummary)
 		}
 
 		// Нэгж талбарын ажлын урсгал
