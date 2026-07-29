@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,6 +80,9 @@ func TestUserService_Delete_Success(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
 	id := uuid.New()
 	repo.On("Delete", context.Background(), id).Return(nil)
+	// Устгасны дараа сесс тасалдана — устгагдсан хэрэглэгчийн токен хүчинтэй
+	// хэвээр байхаас сэргийлнэ.
+	repo.On("InvalidateSessions", context.Background(), id).Return(nil)
 
 	svc := service.NewUserService(repo)
 	err := svc.Delete(context.Background(), id)
@@ -101,4 +105,34 @@ func TestUserService_List_DefaultPagination(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 	assert.Len(t, got, 1)
 	assert.Empty(t, got[0].Password)
+}
+
+// Нууц үг солиход хуучин токенууд хүчингүй болно.
+func TestUserService_ChangePassword_InvalidatesSessions(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	id := uuid.New()
+	repo.On("GetByID", context.Background(), id).Return(&domain.User{ID: id}, nil)
+	repo.On("UpdatePassword", context.Background(), id, mock.MatchedBy(func(hashed string) bool {
+		// Түүхий нууц үг хадгалагдахгүй — hash болсон байх ёстой.
+		return hashed != "" && hashed != "NewPassword123!"
+	})).Return(nil)
+	repo.On("InvalidateSessions", context.Background(), id).Return(nil)
+
+	svc := service.NewUserService(repo)
+	require.NoError(t, svc.ChangePassword(context.Background(), id, "NewPassword123!"))
+
+	repo.AssertExpectations(t)
+}
+
+// Байхгүй хэрэглэгчийн нууц үг солигдохгүй.
+func TestUserService_ChangePassword_NotFound(t *testing.T) {
+	repo := &mocks.MockUserRepository{}
+	id := uuid.New()
+	repo.On("GetByID", context.Background(), id).Return(nil, domain.ErrNotFound)
+
+	svc := service.NewUserService(repo)
+	err := svc.ChangePassword(context.Background(), id, "NewPassword123!")
+
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	repo.AssertNotCalled(t, "UpdatePassword", mock.Anything, mock.Anything, mock.Anything)
 }

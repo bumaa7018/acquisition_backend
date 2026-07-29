@@ -50,7 +50,48 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 		}
 		return nil, err
 	}
+	if err := r.attachRoles(ctx, []*domain.User{u}); err != nil {
+		return nil, err
+	}
 	return u, nil
+}
+
+// attachRoles — өгсөн хэрэглэгчдийн ролиудыг НЭГ хүсэлтээр татаж хавсаргана
+// (N+1-ээс сэргийлнэ). Хэрэглэгч тус бүрийн роль нь UI-д (жагсаалт, засварлах
+// форм) шаардлагатай.
+func (r *UserRepo) attachRoles(ctx context.Context, users []*domain.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	byID := make(map[uuid.UUID]*domain.User, len(users))
+	ids := make([]uuid.UUID, 0, len(users))
+	for _, u := range users {
+		byID[u.ID] = u
+		ids = append(ids, u.ID)
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT ur.user_id, r.id, r.name, COALESCE(r.description, '')
+		FROM user_roles ur
+		JOIN roles r ON r.id = ur.role_id
+		WHERE ur.user_id = ANY($1)
+		ORDER BY r.name`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID uuid.UUID
+		var role domain.Role
+		if err := rows.Scan(&userID, &role.ID, &role.Name, &role.Description); err != nil {
+			return err
+		}
+		if u, ok := byID[userID]; ok {
+			u.Roles = append(u.Roles, role)
+		}
+	}
+	return rows.Err()
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -90,6 +131,21 @@ func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
 	          WHERE id=$8 AND deleted_at IS NULL`
 	res, err := r.db.Exec(ctx, query,
 		u.Username, u.Email, u.FirstName, u.LastName, u.Position, u.IsActive, u.UpdatedAt, u.ID)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// UpdatePassword — зөвхөн нууц үгийн hash-ийг шинэчилнэ. Update() нь password
+// баганад хүрдэггүй тул нууц үг сэргээхэд энэ методыг хэрэглэнэ.
+func (r *UserRepo) UpdatePassword(ctx context.Context, id uuid.UUID, hashed string) error {
+	res, err := r.db.Exec(ctx,
+		`UPDATE users SET password=$1, updated_at=$2 WHERE id=$3 AND deleted_at IS NULL`,
+		hashed, time.Now(), id)
 	if err != nil {
 		return err
 	}
@@ -164,7 +220,14 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 		}
 		users = append(users, u)
 	}
-	return users, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	// Жагсаалтын "Роль" багана болон засварлах формд шаардлагатай.
+	if err := r.attachRoles(ctx, users); err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
 }
 
 // InvalidateSessions — хэрэглэгчийн токен эх цэгийг NOW() болгож, өмнө олгогдсон

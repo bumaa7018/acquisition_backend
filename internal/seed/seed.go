@@ -93,6 +93,33 @@ func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
 	return nil
 }
 
+// SeedAdminAllPermissions — admin роль-д defaultPermissions-ийн БҮХ эрхийг
+// олгоно (идемпотент).
+//
+// Яагаад: compensation:* эрхүүд admin роль үүссэний ДАРАА нэмэгдсэн тул
+// (000008_compensation_access) admin-д олгогдоогүй үлдсэн. Үүнээс болж
+// "эрх нэмэгдүүлэлтээс сэргийлэх" шалгалт (роль/эрх олгохдоо дуудагч өөрөө
+// тухайн эрхийг эзэмшсэн байх ёстой) админд МИКА / мэргэжлийн байгууллага /
+// санхүүгийн роль олгохыг хориглож байсан. admin бол "full access" роль тул
+// шинэ эрх нэмэгдэх бүрд түүнд олгогдох ёстой.
+func (s *Seeder) SeedAdminAllPermissions(ctx context.Context) error {
+	permIDs, err := s.seedPermissions(ctx)
+	if err != nil {
+		return err
+	}
+	role, err := s.roleRepo.GetByName(ctx, "admin")
+	if err != nil {
+		return err
+	}
+	for _, pid := range permIDs {
+		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
+			return err
+		}
+	}
+	slog.Info("admin role granted all permissions", "count", len(permIDs))
+	return nil
+}
+
 func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
 	if _, err := s.seedPermissions(ctx); err != nil {
 		return err

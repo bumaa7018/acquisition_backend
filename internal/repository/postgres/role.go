@@ -106,7 +106,52 @@ func (r *RoleRepo) List(ctx context.Context) ([]*domain.Role, error) {
 		}
 		roles = append(roles, role)
 	}
-	return roles, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Ролийн эрхүүдийг хамт татна. UI нь эрхийн тоог харуулах, мөн "олгох
+	// боломжтой роль" эсэхийг (эрх нэмэгдүүлэлтийн шалгалт) тооцоход хэрэгтэй —
+	// эс тэгвээс зөвхөн GET /roles/:id дээр л эрх ирж, жагсаалт нь хоосон байна.
+	if err := r.attachPermissions(ctx, roles); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// attachPermissions — өгсөн ролиудын эрхийг НЭГ хүсэлтээр татаж хавсаргана.
+func (r *RoleRepo) attachPermissions(ctx context.Context, roles []*domain.Role) error {
+	if len(roles) == 0 {
+		return nil
+	}
+	byID := make(map[uuid.UUID]*domain.Role, len(roles))
+	ids := make([]uuid.UUID, 0, len(roles))
+	for _, role := range roles {
+		byID[role.ID] = role
+		ids = append(ids, role.ID)
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT rp.role_id, p.id, p.name, COALESCE(p.description, ''), COALESCE(p.resource, ''), COALESCE(p.action, ''), p.created_at
+		FROM role_permissions rp
+		JOIN permissions p ON p.id = rp.permission_id
+		WHERE rp.role_id = ANY($1)
+		ORDER BY p.name`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var roleID uuid.UUID
+		var p domain.Permission
+		if err := rows.Scan(&roleID, &p.ID, &p.Name, &p.Description, &p.Resource, &p.Action, &p.CreatedAt); err != nil {
+			return err
+		}
+		if role, ok := byID[roleID]; ok {
+			role.Permissions = append(role.Permissions, p)
+		}
+	}
+	return rows.Err()
 }
 
 func (r *RoleRepo) AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error {

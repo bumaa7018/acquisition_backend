@@ -731,6 +731,22 @@ func (m *MockUserService) Delete(ctx context.Context, id uuid.UUID) error {
 	return args.Error(0)
 }
 
+func (m *MockUserService) ChangePassword(ctx context.Context, id uuid.UUID, newPassword string) error {
+	return m.Called(ctx, id, newPassword).Error(0)
+}
+
+func (m *MockUserService) InvalidateSessions(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockUserService) GetPermissions(ctx context.Context, id uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
 type MockRoleService struct{ mock.Mock }
 
 func (m *MockRoleService) List(ctx context.Context) ([]*domain.Role, error) {

@@ -15,6 +15,9 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
+	// UpdatePassword — Update() нь password баганыг хөндөхгүй тул нууц үг
+	// шинэчлэхэд тусад нь хэрэглэнэ.
+	UpdatePassword(ctx context.Context, id uuid.UUID, hashed string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
 	GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error)

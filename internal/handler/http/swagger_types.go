@@ -39,11 +39,22 @@ type messageResponse struct {
 }
 
 type createUserBody struct {
-	Email     string `json:"email" example:"user@example.com"`
-	Password  string `json:"password" example:"Password123!"`
-	FirstName string `json:"first_name" example:"John"`
-	LastName  string `json:"last_name" example:"Doe"`
-	IsActive  bool   `json:"is_active" example:"true"`
+	Username  string   `json:"username" example:"jdoe"`
+	Email     string   `json:"email" example:"user@example.com"`
+	Password  string   `json:"password" example:"Password123!"`
+	FirstName string   `json:"first_name" example:"John"`
+	LastName  string   `json:"last_name" example:"Doe"`
+	Position  string   `json:"position" example:"Ахлах мэргэжилтэн"`
+	IsActive  bool     `json:"is_active" example:"true"`
+	RoleIDs   []string `json:"role_ids" example:"550e8400-e29b-41d4-a716-446655440000"`
+}
+
+type changePasswordBody struct {
+	Password string `json:"password" example:"Password123!"`
+}
+
+type assignRoleBody struct {
+	RoleID string `json:"role_id" example:"550e8400-e29b-41d4-a716-446655440000"`
 }
 
 type updateUserBody struct {

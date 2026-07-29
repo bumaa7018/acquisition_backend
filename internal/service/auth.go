@@ -272,10 +272,9 @@ func (s *authService) ResetPassword(ctx context.Context, token, newPassword stri
 	if err != nil {
 		return err
 	}
-	user.Password = hashed
-	user.UpdatedAt = time.Now()
-
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	// UpdatePassword-ээр бичнэ: Update() нь password баганад хүрдэггүй тул
+	// түүгээр дамжуулбал нууц үг СОЛИГДОХГҮЙ (хэрэглэгч солигдсон гэж бодох).
+	if err := s.userRepo.UpdatePassword(ctx, user.ID, hashed); err != nil {
 		return err
 	}
 	if err := s.pwdResetRepo.MarkUsed(ctx, resetToken.ID); err != nil {

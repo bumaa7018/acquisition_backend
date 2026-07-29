@@ -45,7 +45,7 @@ func NewRouter(
 	r.GET("/health/ready", healthH.Ready)
 
 	authH := NewAuthHandler(authSvc)
-	userH := NewUserHandler(userSvc)
+	userH := NewUserHandler(userSvc, roleSvc)
 	roleH := NewRoleHandler(roleSvc, permSvc)
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
@@ -119,6 +119,12 @@ func NewRouter(
 			users.POST("", middleware.RequirePermission("users:create"), userH.Create)
 			users.PUT("/:id", middleware.RequirePermission("users:update"), userH.Update)
 			users.DELETE("/:id", middleware.RequirePermission("users:delete"), userH.Delete)
+			// Нууц үг сэргээх + роль олгох/хураах. Хоёулаа users:update эрх
+			// шаардана; handler дотор нь эрх нэмэгдүүлэлт (privilege escalation)
+			// болон өөрийгөө хаахаас (self-lockout) хамгаалах шалгалт бий.
+			users.PUT("/:id/password", middleware.RequirePermission("users:update"), userH.ChangePassword)
+			users.POST("/:id/roles", middleware.RequirePermission("users:update"), userH.AssignRole)
+			users.DELETE("/:id/roles/:role_id", middleware.RequirePermission("users:update"), userH.RemoveRole)
 		}
 
 		roles := protected.Group("/roles")

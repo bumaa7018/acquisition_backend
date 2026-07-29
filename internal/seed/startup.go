@@ -128,6 +128,16 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 					SeedAuditPermission(ctx)
 			},
 		},
+		{
+			// admin роль-д БҮХ эрхийг олгоно. compensation:* нь admin роль
+			// үүссэний дараа нэмэгдсэн тул түүнд олгогдоогүй үлдэж, эрх
+			// нэмэгдүүлэлтийн шалгалт админд гадаад роль олгохыг хориглож байсан.
+			name: "000015_admin_all_permissions",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedAdminAllPermissions(ctx)
+			},
+		},
 	})
 
 	return nil

@@ -17,6 +17,15 @@ type UserService interface {
 	Create(ctx context.Context, req CreateUserRequest) (*domain.User, error)
 	Update(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*domain.User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	// ChangePassword — админ бусад хэрэглэгчийн нууц үгийг сэргээнэ. Нууц үг
+	// солигдсоны дараа тухайн хэрэглэгчийн бүх сесс хүчингүй болно.
+	ChangePassword(ctx context.Context, id uuid.UUID, newPassword string) error
+	// InvalidateSessions — хэрэглэгчийн бүх токеныг хүчингүй болгоно. Роль/эрх
+	// нь JWT-д агуулагддаг тул эрх өөрчлөгдсөний дараа шууд хүчинтэй болгоход.
+	InvalidateSessions(ctx context.Context, id uuid.UUID) error
+	// GetPermissions — хэрэглэгчийн ролиудаас цуглуулсан эрхийн нэрс. Дуудагч
+	// өөрөөсөө өндөр эрхтэй хэрэглэгчийг өөрчлөхийг хориглоход хэрэглэнэ.
+	GetPermissions(ctx context.Context, id uuid.UUID) ([]string, error)
 }
 
 type CreateUserRequest struct {
@@ -139,5 +148,35 @@ func (s *userService) Update(ctx context.Context, id uuid.UUID, req UpdateUserRe
 }
 
 func (s *userService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.userRepo.Delete(ctx, id)
+	if err := s.userRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	// Устгагдсан хэрэглэгчийн гарт байгаа токен хүчинтэй хэвээр байвал soft-delete
+	// нь хандалтыг зогсоохгүй тул сессийг нь тасална.
+	return s.userRepo.InvalidateSessions(ctx, id)
+}
+
+func (s *userService) ChangePassword(ctx context.Context, id uuid.UUID, newPassword string) error {
+	// Хэрэглэгч байгаа (мөн устгагдаагүй) эсэхийг эхлээд шалгана.
+	if _, err := s.userRepo.GetByID(ctx, id); err != nil {
+		return err
+	}
+	hashed, err := hash.Password(newPassword)
+	if err != nil {
+		return err
+	}
+	if err := s.userRepo.UpdatePassword(ctx, id, hashed); err != nil {
+		return err
+	}
+	// Хуучин нууц үгээр олгогдсон токенууд хүчинтэй хэвээр байвал нууц үг солих
+	// нь халдлагыг зогсоохгүй — иймд бүх сессийг хүчингүй болгоно.
+	return s.userRepo.InvalidateSessions(ctx, id)
+}
+
+func (s *userService) InvalidateSessions(ctx context.Context, id uuid.UUID) error {
+	return s.userRepo.InvalidateSessions(ctx, id)
+}
+
+func (s *userService) GetPermissions(ctx context.Context, id uuid.UUID) ([]string, error) {
+	return s.userRepo.GetPermissions(ctx, id)
 }
