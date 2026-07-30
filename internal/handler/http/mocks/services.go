@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/filestorage"
 	jwtpkg "acquisition_backend/internal/pkg/jwt"
 	"acquisition_backend/internal/service"
 
@@ -961,4 +962,46 @@ func (m *MockPlanService) Suggest(ctx context.Context, q string) ([]*domain.Plan
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*domain.Plan), args.Error(1)
+}
+
+// ── Дроны ортофото ───────────────────────────────────────────────────────────
+
+func (m *MockLandService) ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.DroneImage), args.Error(1)
+}
+
+func (m *MockLandService) CreateDroneUploadURL(ctx context.Context, acquisitionID uuid.UUID, originalName string) (*filestorage.PresignedUpload, error) {
+	args := m.Called(ctx, acquisitionID, originalName)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*filestorage.PresignedUpload), args.Error(1)
+}
+
+func (m *MockLandService) RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error) {
+	args := m.Called(ctx, acquisitionID, storedName, originalName, uploadedBy)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DroneImage), args.Error(1)
+}
+
+func (m *MockLandService) RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.DroneImage), args.Error(1)
+}
+
+func (m *MockLandService) DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, imageID).Error(0)
+}
+
+func (m *MockLandService) DroneLayerName() string {
+	return m.Called().String(0)
 }

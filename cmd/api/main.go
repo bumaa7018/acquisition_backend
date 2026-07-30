@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	handler "acquisition_backend/internal/handler/http"
 	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
+	"acquisition_backend/internal/pkg/geoserver"
 	jwtpkg "acquisition_backend/internal/pkg/jwt"
 	"acquisition_backend/internal/pkg/logstack"
 	"acquisition_backend/internal/pkg/notify"
@@ -120,7 +122,14 @@ func main() {
 	userSvc := service.NewUserService(userRepo)
 	roleSvc := service.NewRoleService(roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
-	fileStorage := filestorage.NewMockStorage(cfg.FileServer.BaseURL, cfg.FileServer.LocalDir)
+	// Файлын систем — системд оруулсан БҮХ файл (баримт, зураг, тайлан, дроны
+	// ортофото) MinIO/S3 дээр хадгалагдана. API нь өөр дээрээ файл хадгалахгүй,
+	// зөвхөн object-ийн замыг DB-д бичнэ.
+	fileStorage, s3Storage, err := buildFileStorage(ctx, cfg.FileServer)
+	if err != nil {
+		slog.Error("file storage init failed", "error", err)
+		os.Exit(1)
+	}
 
 	// Мэдэгдэл: main DB-д хадгалж, in-memory hub-аар SSE стрийм рүү түгээнэ.
 	notificationRepo := postgres.NewNotificationRepo(mainDB)
@@ -131,7 +140,23 @@ func main() {
 	clientRequestRepo := postgres.NewClientRequestRepo(mainDB)
 	clientRequestSvc := service.NewClientRequestService(clientRequestRepo)
 
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc)
+	// Дроны ортофото — GeoServer-ийн ImageMosaic давхаргад granule болж
+	// бүртгэгдэнэ. Тохиргоо GeoServer дээр НЭГ л удаа хийгдэж, зураг тус бүрийг
+	// WMS-д CQL_FILTER=location=... -аар шүүж харуулна.
+	droneStorage := service.DroneStorage{
+		Dir: cfg.GeoServer.LocalDir,
+		Mosaic: geoserver.NewClient(
+			cfg.GeoServer.URL,
+			cfg.GeoServer.User,
+			cfg.GeoServer.Password,
+			cfg.GeoServer.Workspace,
+			cfg.GeoServer.DroneStore,
+			cfg.GeoServer.MosaicDir,
+			cfg.GeoServer.LocalDir,
+		),
+	}
+
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, droneStorage)
 	planSvc := service.NewPlanService(planRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
@@ -145,6 +170,11 @@ func main() {
 		UserRepo:        userRepo,
 		RoleRepo:        roleRepo,
 		PermRepo:        permRepo,
+		// Хуучин локал файлуудыг файлын систем руу зөөх алхамд
+		LegacyFiles:  filestorage.NewMockStorage(legacyFileBaseURL(cfg), cfg.FileServer.LocalDir),
+		Files:        s3Storage,
+		FilesBaseURL: cfg.FileServer.BaseURL,
+		DroneDir:     cfg.GeoServer.LocalDir,
 	}); err != nil {
 		slog.Error("failed to create seed_history", "error", err)
 		os.Exit(1)
@@ -216,4 +246,45 @@ func connectDB(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		time.Sleep(2 * time.Second)
 	}
 	return nil, err
+}
+
+// buildFileStorage — тохиргооноос файлын системийн adapter бэлдэнэ.
+//
+// s3 (анхдагч): MinIO/S3 — API файлыг өөр дээрээ ХАДГАЛАХГҮЙ.
+// mock: хуучин локал хадгалалт — зөвхөн шилжилт/тестэд.
+//
+// Хоёр дахь буцаах утга нь S3 adapter (nil байж болно) — шилжүүлэлтийн seeder
+// алхамд bucket бэлдэх зэрэгт хэрэглэгдэнэ.
+func buildFileStorage(ctx context.Context, cfg config.FileServerConfig) (filestorage.Storage, *filestorage.S3Storage, error) {
+	if strings.EqualFold(cfg.Mode, "mock") {
+		slog.Warn("file storage: локал mock режим — production-д S3 хэрэглэнэ")
+		return filestorage.NewMockStorage(cfg.BaseURL, cfg.LocalDir), nil, nil
+	}
+
+	s3, err := filestorage.NewS3Storage(
+		cfg.S3Endpoint, cfg.S3PublicEndpoint, cfg.S3AccessKey, cfg.S3SecretKey,
+		cfg.S3Bucket, cfg.BaseURL, cfg.S3UseSSL,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Bucket-ийг эхлэхэд нь бэлдэнэ (идемпотент) — эс тэгвээс эхний upload унана.
+	if err := s3.EnsureBucket(ctx); err != nil {
+		return nil, nil, err
+	}
+	slog.Info("file storage ready", "mode", "s3",
+		"endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket, "base_url", cfg.BaseURL)
+	return s3, s3, nil
+}
+
+// legacyFileBaseURL — хуучин локал хадгалалтын URL угтвар.
+//
+// Шилжүүлэлт нь DB дахь ХУУЧИН URL-уудыг (жишээ:
+// http://localhost:8080/mock-files/...) локал зам болгож уншина. Тохиргоо
+// аль хэдийн шинэ (/api/files) болсон тул угтварыг тусад нь тодорхойлно.
+func legacyFileBaseURL(cfg *config.Config) string {
+	if v := os.Getenv("LEGACY_FILE_BASE_URL"); v != "" {
+		return v
+	}
+	return "http://localhost:" + cfg.App.Port + "/mock-files"
 }

@@ -715,3 +715,33 @@ func (m *MockLandAcquisitionRepository) ImportValuation(ctx context.Context, acq
 	}
 	return args.Get(0).(*domain.ValuationImportResult), args.Error(1)
 }
+
+// ── Дроны ортофото ───────────────────────────────────────────────────────────
+
+func (m *MockLandAcquisitionRepository) ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.DroneImage), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) GetDroneImage(ctx context.Context, id uuid.UUID) (*domain.DroneImage, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DroneImage), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CreateDroneImage(ctx context.Context, img *domain.DroneImage) error {
+	return m.Called(ctx, img).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) UpdateDroneImageBounds(ctx context.Context, id uuid.UUID, minX, minY, maxX, maxY float64) error {
+	return m.Called(ctx, id, minX, minY, maxX, maxY).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteDroneImage(ctx context.Context, id uuid.UUID) error {
+	return m.Called(ctx, id).Error(0)
+}

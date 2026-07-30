@@ -76,12 +76,15 @@ const (
 	ErrReportBeforeApproval    Key = "report_before_approval"
 
 	// Document / file errors
-	ErrFileRequired Key = "file_required"
-	ErrFileTooLarge Key = "file_too_large"
-	ErrFileOpen     Key = "file_open"
-	ErrFileRead     Key = "file_read"
-	ErrFileType     Key = "file_type"
-	ErrDocNotFound  Key = "doc_not_found"
+	ErrFileRequired           Key = "file_required"
+	ErrFileTooLarge           Key = "file_too_large"
+	ErrDroneFileType          Key = "drone_file_type"
+	ErrDroneUploadIncomplete  Key = "drone_upload_incomplete"
+	ErrDroneAlreadyRegistered Key = "drone_already_registered"
+	ErrFileOpen               Key = "file_open"
+	ErrFileRead               Key = "file_read"
+	ErrFileType               Key = "file_type"
+	ErrDocNotFound            Key = "doc_not_found"
 )
 
 var messages = map[Key][2]string{
@@ -136,12 +139,15 @@ var messages = map[Key][2]string{
 	ErrAssetPhotoRequired:      {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
 	ErrReportBeforeApproval:    {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
 
-	ErrFileRequired: {"file талбар шаардлагатай", "file field is required"},
-	ErrFileTooLarge: {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил
-	ErrFileOpen:     {"Файл нээхэд алдаа гарлаа", "failed to open file"},
-	ErrFileRead:     {"Файл уншихад алдаа гарлаа", "failed to read file"},
-	ErrFileType:     {"Зөвхөн PDF файл зөвшөөрөгдөнө", "only PDF files are allowed"},
-	ErrDocNotFound:  {"Баримт олдсонгүй", "document not found"},
+	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
+	ErrFileTooLarge:           {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил
+	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
+	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},
+	ErrDroneAlreadyRegistered: {"Зураг аль хэдийн бүртгэгдсэн байна", "image is already registered"},
+	ErrFileOpen:               {"Файл нээхэд алдаа гарлаа", "failed to open file"},
+	ErrFileRead:               {"Файл уншихад алдаа гарлаа", "failed to read file"},
+	ErrFileType:               {"Зөвхөн PDF файл зөвшөөрөгдөнө", "only PDF files are allowed"},
+	ErrDocNotFound:            {"Баримт олдсонгүй", "document not found"},
 }
 
 // T returns the translated message for the given key and language.

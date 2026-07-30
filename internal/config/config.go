@@ -19,6 +19,7 @@ type Config struct {
 	ProfessionalOrg ProfessionalOrgConfig
 	Email           EmailConfig
 	FileServer      FileServerConfig
+	GeoServer       GeoServerConfig
 }
 
 type AppConfig struct {
@@ -80,10 +81,51 @@ type EmailConfig struct {
 	ResetURL string `env:"EMAIL_RESET_URL" envDefault:"http://localhost:3000/reset-password?token="`
 }
 
+// FileServerConfig — системд оруулсан БҮХ файлын хадгалалт.
+//
+// Mode="s3" (анхдагч) үед файл MinIO/S3 дээр хадгалагдаж, API нь өөр дээрээ
+// файл БИЧИХГҮЙ — зөвхөн object-ийн замыг (file_url) DB-д тэмдэглэнэ.
+// Mode="mock" нь хуучин локал хадгалалт — зөвхөн тест/шилжилтэд.
+//
+// BaseURL нь ХАРЬЦАНГУЙ зам (/api/files) — frontend-ийн proxy тэрийг MinIO руу
+// дамжуулна. Ингэснээр DB-д бичигдсэн URL нь орчноос (host/port) хамаарахгүй.
 type FileServerConfig struct {
-	BaseURL  string `env:"FILE_SERVER_BASE_URL" envDefault:"http://localhost:8080/mock-files"`
+	BaseURL  string `env:"FILE_SERVER_BASE_URL" envDefault:"/api/files"`
 	LocalDir string `env:"FILE_SERVER_LOCAL_DIR" envDefault:"uploads/mock-file-server"`
-	Mode     string `env:"FILE_SERVER_MODE" envDefault:"mock"`
+	Mode     string `env:"FILE_SERVER_MODE" envDefault:"s3"`
+
+	S3Endpoint string `env:"S3_ENDPOINT" envDefault:"localhost:9000"`
+	// S3PublicEndpoint — BROWSER хандах хаяг. Дроны ортофотог фронтендээс
+	// ШУУД хадгалалт руу байршуулах presigned URL-ийг ЭНЭ хаягаар гарын
+	// үсэг зурна: presigned URL нь host-ыг гарын үсэгт оруулдаг тул API-ийн
+	// дотоод хаяг (жишээ: minio:9000) browser-т ажиллахгүй.
+	// Схемтэй бичиж болно ("http://minio.example.mn"). Хоосон бол S3Endpoint.
+	S3PublicEndpoint string `env:"S3_PUBLIC_ENDPOINT"`
+	S3AccessKey      string `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
+	S3SecretKey      string `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
+	S3Bucket         string `env:"S3_BUCKET" envDefault:"gov-files"`
+	S3UseSSL         bool   `env:"S3_USE_SSL" envDefault:"false"`
+}
+
+// GeoServerConfig — дроны ортофотог ImageMosaic давхаргад бүртгэхэд хэрэглэнэ.
+//
+// Зургийн ЭХ СУРВАЛЖ нь файлын систем (MinIO) — доорх хавтас нь GeoServer
+// растрыг локал замаар уншдаг тул шаардлагатай РЕНДЕРИЙН КЭШ. Кэш гээгдвэл
+// файлын системээс дахин бүтээгдэнэ (service.ensureDroneCache).
+//
+//   - LocalDir  — API кэшийг БИЧИХ хавтас (host/container-ийн зам)
+//   - MosaicDir — ЯГ ТЭР хавтсыг GEOSERVER-ийн дотроос харах зам. GeoServer
+//     тусдаа container тул зам өөр байж болно (bind mount).
+type GeoServerConfig struct {
+	URL       string `env:"GEOSERVER_URL" envDefault:"http://localhost:8600/geoserver"`
+	User      string `env:"GEOSERVER_ADMIN" envDefault:"admin"`
+	Password  string `env:"GEOSERVER_PASS" envDefault:"geoserver"`
+	Workspace string `env:"GEOSERVER_WORKSPACE" envDefault:"land"`
+	// ImageMosaic coveragestore/layer-ийн нэр. Тохиргоо НЭГ л удаа хийгдэж,
+	// зураг бүрийг granule болгон нэмнэ (давхарга нэмэгдэхгүй).
+	DroneStore string `env:"GEOSERVER_DRONE_STORE" envDefault:"drone"`
+	LocalDir   string `env:"DRONE_IMAGE_DIR" envDefault:"uploads/drone"`
+	MosaicDir  string `env:"DRONE_MOSAIC_DIR" envDefault:"/opt/geoserver_data/drone"`
 }
 
 func (e EmailConfig) Enabled() bool {

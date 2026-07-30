@@ -1,4 +1,7 @@
 .env
+# .env-ийн хуулбар/нөөц — нууц үг агуулдаг тул хэзээ ч commit-д орохгүй
+.env.bak*
+.env.local
 server
 api
 seed-sql
@@ -7,3 +10,6 @@ coverage.html
 *.test
 vendor/
 .air_tmp/
+
+# Дроны ортофото (.tif) — хэдэн зуун MB, GeoServer-тэй хуваалцсан хавтас
+uploads/drone/

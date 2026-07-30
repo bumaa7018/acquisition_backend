@@ -753,6 +753,30 @@ type FundingSource struct {
 	CreatedBy        string    `json:"created_by"`
 }
 
+// DroneImage — чөлөөлөлтийн дроны ортофото (.tif).
+//
+// FileURL нь файлын систем (MinIO) дээрх object-ийн зам — зургийн ЭХ СУРВАЛЖ.
+//
+// FileName нь GeoServer-ийн ImageMosaic давхаргын `location` атрибутын нэр.
+// Frontend давхаргыг дуудахдаа CQL_FILTER=location LIKE '%<FileName>' гэж
+// явуулж тухайн зургийг л харуулна.
+type DroneImage struct {
+	ID            uuid.UUID  `json:"id"`
+	AcquisitionID uuid.UUID  `json:"acquisition_id"`
+	FileName      string     `json:"file_name"`
+	FileURL       string     `json:"file_url"`
+	OriginalName  string     `json:"original_name"`
+	ContentType   string     `json:"content_type"`
+	SizeBytes     int64      `json:"size_bytes"`
+	MinX          *float64   `json:"min_x,omitempty"`
+	MinY          *float64   `json:"min_y,omitempty"`
+	MaxX          *float64   `json:"max_x,omitempty"`
+	MaxY          *float64   `json:"max_y,omitempty"`
+	Published     bool       `json:"published"`
+	UploadedAt    time.Time  `json:"uploaded_at"`
+	UploadedBy    *uuid.UUID `json:"uploaded_by,omitempty"`
+}
+
 // AuthorizedRepresentative — нэгж талбарын итгэмжлэгдсэн төлөөлөгч
 type AuthorizedRepresentative struct {
 	ID            uuid.UUID `json:"id"`

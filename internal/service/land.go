@@ -141,6 +141,21 @@ type LandWorkflowService interface {
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
 }
 
+// LandDroneService — дроны ортофото. Зураг нь файлын системд хадгалагдаж,
+// GeoServer-ийн НЭГ ImageMosaic давхаргад granule болж бүртгэгдэнэ.
+type LandDroneService interface {
+	ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
+	// CreateDroneUploadURL — browser файлыг ШУУД файлын систем руу тавих
+	// зөвшөөрөл. Байт API-аар дамжихгүй тул файлын хэмжээ хязгаарлагдахгүй.
+	CreateDroneUploadURL(ctx context.Context, acquisitionID uuid.UUID, originalName string) (*filestorage.PresignedUpload, error)
+	// RegisterDroneImage — шууд байршуулсан объектыг шалгаж бүртгэнэ.
+	RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error)
+	RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
+	DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error
+	// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр ("land:drone")
+	DroneLayerName() string
+}
+
 type LandFundingService interface {
 	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
@@ -164,6 +179,7 @@ type LandService interface {
 	LandAssigneeService
 	LandWorkflowService
 	LandFundingService
+	LandDroneService
 	LandAuthorizedRepresentativeService
 }
 
@@ -179,6 +195,9 @@ type landService struct {
 	notifier NotificationService
 	// audit — ажилтны бизнес үйлдлийн лог. nil байж болно (тест).
 	audit AuditService
+	// drone — дроны ортофотог хадгалах хавтас + GeoServer-ийн мозайк.
+	// Тохируулаагүй үед дроны зургийн үйлдэл ErrDroneNotConfigured буцаана.
+	drone DroneStorage
 }
 
 func NewLandService(
@@ -186,7 +205,8 @@ func NewLandService(
 	landRepo repository.LandAcquisitionRepository,
 	files filestorage.Storage,
 	userRepo repository.UserRepository,
-	// extras — заавал бус dependency-үүд (NotificationService, AuditService).
+	// extras — заавал бус dependency-үүд
+	// (NotificationService, AuditService, DroneStorage).
 	extras ...any,
 ) LandService {
 	if files == nil {
@@ -199,6 +219,8 @@ func NewLandService(
 			s.notifier = v
 		case AuditService:
 			s.audit = v
+		case DroneStorage:
+			s.drone = v
 		}
 	}
 	return s

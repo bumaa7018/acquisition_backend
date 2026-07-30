@@ -210,6 +210,13 @@ type LandWorkflowRepository interface {
 }
 
 type LandFundingRepository interface {
+	// Дроны ортофото — GeoServer-ийн ImageMosaic granule-тай холбогдоно
+	ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
+	GetDroneImage(ctx context.Context, id uuid.UUID) (*domain.DroneImage, error)
+	CreateDroneImage(ctx context.Context, img *domain.DroneImage) error
+	UpdateDroneImageBounds(ctx context.Context, id uuid.UUID, minX, minY, maxX, maxY float64) error
+	DeleteDroneImage(ctx context.Context, id uuid.UUID) error
+
 	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
 	GetFundingSource(ctx context.Context, id uuid.UUID) (*domain.FundingSource, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) error

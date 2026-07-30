@@ -38,7 +38,9 @@ func NewRouter(
 	r.Use(middleware.BodySizeLimit(5 << 20))
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	r.Static("/mock-files", "uploads/mock-file-server")
+	// Файлыг API тараахаа больсон — бүх файл файлын систем (MinIO) дээр байж,
+	// frontend-ийн /api/files proxy-гоор тарааагдана. Хуучин `/mock-files`
+	// static route-ыг зориуд хассан: API нь файл хадгалах/тараах үүрэггүй.
 
 	healthH := NewHealthHandler(healthChecker)
 	r.GET("/health", healthH.Live)
@@ -239,6 +241,16 @@ func NewRouter(
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAcquisitionDocuments)
 			land.POST("/:id/documents", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadAcquisitionDocument)
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
+			// Дроны ортофото (.tif) — GeoServer-ийн ImageMosaic давхаргад granule
+			// болж бүртгэгдэнэ. Нэг хүсэлтэд НЭГ файл; refresh нь frontend
+			// зураг байршуулсны дараа автоматаар дуудагдана.
+			land.GET("/:id/drone-images", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListDroneImages)
+			// Дроны зураг нь ШУУД файлын систем руу байршина — API зөвхөн
+			// зөвшөөрөл гаргаж (upload-url), дараа нь объектыг шалгаж бүртгэнэ.
+			land.POST("/:id/drone-images/upload-url", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateDroneUploadURL)
+			land.POST("/:id/drone-images", middleware.RequirePermission("land:update"), assignedOrSenior, landH.RegisterDroneImage)
+			land.POST("/:id/drone-images/refresh", middleware.RequirePermission("land:update"), assignedOrSenior, landH.RefreshDroneImages)
+			land.DELETE("/:id/drone-images/:image_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteDroneImage)
 			land.PUT("/:id/professional-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAcquisitionProfessionalOrg)
 			land.PATCH("/:id/parcels/:parcel_id/independent-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "professional_org"), middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
 		}

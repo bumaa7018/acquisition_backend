@@ -3958,3 +3958,88 @@ func (r *landAcqRepo) SetParcelIndependentOrg(ctx context.Context, acqID, parcel
 }
 
 var _ repository.LandAcquisitionRepository = (*landAcqRepo)(nil)
+
+// ── Дроны ортофото ───────────────────────────────────────────────────────────
+
+const droneImageColumns = `id, acquisition_id, file_name, file_url, original_name, content_type,
+	size_bytes, min_x, min_y, max_x, max_y, published, uploaded_at, uploaded_by`
+
+func scanDroneImage(row pgx.Row) (*domain.DroneImage, error) {
+	img := &domain.DroneImage{}
+	if err := row.Scan(&img.ID, &img.AcquisitionID, &img.FileName, &img.FileURL, &img.OriginalName,
+		&img.ContentType, &img.SizeBytes, &img.MinX, &img.MinY, &img.MaxX, &img.MaxY,
+		&img.Published, &img.UploadedAt, &img.UploadedBy); err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+func (r *landAcqRepo) ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT `+droneImageColumns+`
+		FROM drone_image
+		WHERE acquisition_id = $1
+		ORDER BY uploaded_at DESC
+	`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []*domain.DroneImage
+	for rows.Next() {
+		img, err := scanDroneImage(rows)
+		if err != nil {
+			return nil, err
+		}
+		list = append(list, img)
+	}
+	return list, rows.Err()
+}
+
+func (r *landAcqRepo) GetDroneImage(ctx context.Context, id uuid.UUID) (*domain.DroneImage, error) {
+	img, err := scanDroneImage(r.db.QueryRow(ctx,
+		`SELECT `+droneImageColumns+` FROM drone_image WHERE id = $1`, id))
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	return img, nil
+}
+
+func (r *landAcqRepo) CreateDroneImage(ctx context.Context, img *domain.DroneImage) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO drone_image (id, acquisition_id, file_name, file_url, original_name, content_type,
+			size_bytes, min_x, min_y, max_x, max_y, published, uploaded_at, uploaded_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+	`, img.ID, img.AcquisitionID, img.FileName, img.FileURL, img.OriginalName, img.ContentType,
+		img.SizeBytes, img.MinX, img.MinY, img.MaxX, img.MaxY, img.Published,
+		img.UploadedAt, img.UploadedBy)
+	return err
+}
+
+// UpdateDroneImageBounds — GeoServer-ээс уншсан granule-ийн хүрээг тэмдэглэнэ.
+func (r *landAcqRepo) UpdateDroneImageBounds(ctx context.Context, id uuid.UUID, minX, minY, maxX, maxY float64) error {
+	res, err := r.db.Exec(ctx, `
+		UPDATE drone_image
+		SET min_x = $1, min_y = $2, max_x = $3, max_y = $4, published = TRUE
+		WHERE id = $5
+	`, minX, minY, maxX, maxY, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *landAcqRepo) DeleteDroneImage(ctx context.Context, id uuid.UUID) error {
+	res, err := r.db.Exec(ctx, `DELETE FROM drone_image WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}

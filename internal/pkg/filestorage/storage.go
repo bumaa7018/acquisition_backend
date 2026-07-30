@@ -1,12 +1,15 @@
 package filestorage
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,12 +21,68 @@ type StoredFile struct {
 	SizeBytes int64
 }
 
+// PresignedUpload — browser файлыг ШУУД файлын систем руу тавих зөвшөөрөл.
+//
+// API нь байтыг дамжуулахгүй тул файлын хэмжээ API-ийн санах ой/хугацаанаас
+// хамаарахгүй — хэдэн GB ортофотог ч байршуулж болно.
+type PresignedUpload struct {
+	// URL — browser ЭНЭ URL руу PUT хийнэ (зөвшөөрөл нь URL дотор шифрлэгдсэн)
+	URL string `json:"url"`
+	// Method — үргэлж PUT
+	Method string `json:"method"`
+	// FileURL — байршуулалт бүтсэний дараа DB-д бичигдэх харьцангуй зам
+	FileURL string `json:"file_url"`
+	// StoredName — хадгалалтад үүсэх файлын нэр (мозайкийн `location`)
+	StoredName string `json:"stored_name"`
+	// ExpiresInSeconds — зөвшөөрлийн хүчинтэй хугацаа
+	ExpiresInSeconds int `json:"expires_in_seconds"`
+}
+
+// ObjectStat — хадгалалтад БОДИТООР байгаа объектын мэдээлэл. Байршуулсан
+// хэмжээг клиентээс АВАХГҮЙ, эндээс уншина.
+type ObjectStat struct {
+	SizeBytes   int64
+	ContentType string
+}
+
+// DirectUploader — browser-аас шууд байршуулалтыг дэмждэг хадгалалт (S3/MinIO).
+// Байтыг API-аар дамжуулахгүй тул бүх шалгалт байршуулсны ДАРАА хадгалалт дээрх
+// объект дээр хийгдэнэ (Stat + ReadRange).
+type DirectUploader interface {
+	PresignUpload(ctx context.Context, namespace, ownerID, filename, contentType string, expiry time.Duration) (*PresignedUpload, error)
+	// URLFor — нэрнээс file_url-ийг бүтээнэ. Бүртгэх үед замыг СЕРВЕР өөрөө
+	// гаргаж авахад хэрэглэнэ — клиентээс зам хүлээж авбал өөр эзэмшигчийн
+	// объектыг бүртгэх боломж үүснэ.
+	URLFor(namespace, ownerID, storedName string) string
+	Stat(ctx context.Context, fileURL string) (*ObjectStat, error)
+	// ReadRange — объектын зөвхөн эхний хэсгийг унших (magic bytes шалгах).
+	ReadRange(ctx context.Context, fileURL string, offset, length int64) ([]byte, error)
+}
+
 type Storage interface {
 	// unique=true үед файлын нэрэнд uuid угтвар нэмж давхардлаас сэргийлнэ;
 	// false үед өгсөн нэрээр нь яг хадгална (дуудагч давхардлыг өөрөө хариуцна).
 	Save(ctx context.Context, namespace, ownerID, filename, contentType string, data []byte, unique bool) (*StoredFile, error)
+	// SaveStream — файлыг бүхэлд нь санах ойд уншихгүйгээр урсгалаар хадгална.
+	// Дроны ортофото зэрэг зуу-мянган MB файл дээр Save() нь файлын хэмжээгээр
+	// RAM зарцуулж процессыг унагадаг тул том файлд ҮРГЭЛЖ үүнийг хэрэглэнэ.
+	SaveStream(ctx context.Context, namespace, ownerID, filename, contentType string, r io.Reader, size int64, unique bool) (*StoredFile, error)
 	Read(ctx context.Context, fileURL string) ([]byte, error)
+	// OpenStream — файлыг санах ойд бүтнээр уншихгүйгээр урсгалаар нээнэ.
+	// Дуудагч хаах хариуцлагатай.
+	OpenStream(ctx context.Context, fileURL string) (io.ReadCloser, error)
 	Delete(ctx context.Context, fileURL string) error
+}
+
+// storedFileName — хадгалах нэрийг бэлдэнэ. Adapter-ууд (локал ба S3) ижил
+// дүрмээр нэрлэснээр шилжүүлэлт болон URL-ийн бүтэц таарна.
+func storedFileName(filename string, unique bool) (cleanName, storedName string) {
+	cleanName = filepath.Base(filename)
+	storedName = cleanName
+	if unique {
+		storedName = uuid.New().String() + "_" + cleanName
+	}
+	return cleanName, storedName
 }
 
 type DisabledStorage struct{}
@@ -32,7 +91,15 @@ func (DisabledStorage) Save(context.Context, string, string, string, string, []b
 	return nil, errors.New("file storage is not configured")
 }
 
+func (DisabledStorage) SaveStream(context.Context, string, string, string, string, io.Reader, int64, bool) (*StoredFile, error) {
+	return nil, errors.New("file storage is not configured")
+}
+
 func (DisabledStorage) Read(context.Context, string) ([]byte, error) {
+	return nil, errors.New("file storage is not configured")
+}
+
+func (DisabledStorage) OpenStream(context.Context, string) (io.ReadCloser, error) {
 	return nil, errors.New("file storage is not configured")
 }
 
@@ -52,23 +119,27 @@ func NewMockStorage(baseURL, localDir string) *MockStorage {
 	}
 }
 
-func (s *MockStorage) Save(_ context.Context, namespace, ownerID, filename, contentType string, data []byte, unique bool) (*StoredFile, error) {
+func (s *MockStorage) Save(ctx context.Context, namespace, ownerID, filename, contentType string, data []byte, unique bool) (*StoredFile, error) {
+	return s.SaveStream(ctx, namespace, ownerID, filename, contentType, bytes.NewReader(data), int64(len(data)), unique)
+}
+
+func (s *MockStorage) SaveStream(_ context.Context, namespace, ownerID, filename, contentType string, r io.Reader, size int64, unique bool) (*StoredFile, error) {
 	if s.BaseURL == "" || s.LocalDir == "" {
 		return nil, errors.New("file storage is not configured")
 	}
 
-	cleanName := filepath.Base(filename)
-	storedName := cleanName
-	if unique {
-		storedName = uuid.New().String() + "_" + cleanName
-	}
+	cleanName, storedName := storedFileName(filename, unique)
 	relativePath := filepath.Join(namespace, ownerID, storedName)
 	localPath := filepath.Join(s.LocalDir, relativePath)
 	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(localPath, data, 0644); err != nil {
+	written, err := writeFileStream(localPath, r)
+	if err != nil {
 		return nil, err
+	}
+	if size < 0 {
+		size = written
 	}
 
 	// URL-ийн сегмент бүрийг escape хийнэ — эс бөгөөс нэрэнд '%', зай зэрэг
@@ -83,8 +154,26 @@ func (s *MockStorage) Save(_ context.Context, namespace, ownerID, filename, cont
 		URL:       s.BaseURL + "/" + strings.Join(segments, "/"),
 		Name:      cleanName,
 		Type:      contentType,
-		SizeBytes: int64(len(data)),
+		SizeBytes: size,
 	}, nil
+}
+
+// writeFileStream — уншигчийг файл руу урсгалаар бичнэ (санах ойд бүтнээр
+// хуулахгүй). Алдаа гарвал хагас бичигдсэн файлыг үлдээхгүй.
+func writeFileStream(path string, r io.Reader) (int64, error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(f, r)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return 0, err
+	}
+	return n, nil
 }
 
 func (s *MockStorage) Read(_ context.Context, fileURL string) ([]byte, error) {
@@ -93,6 +182,14 @@ func (s *MockStorage) Read(_ context.Context, fileURL string) ([]byte, error) {
 		return nil, err
 	}
 	return os.ReadFile(localPath)
+}
+
+func (s *MockStorage) OpenStream(_ context.Context, fileURL string) (io.ReadCloser, error) {
+	localPath, err := s.localPath(fileURL)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(localPath)
 }
 
 func (s *MockStorage) Delete(_ context.Context, fileURL string) error {

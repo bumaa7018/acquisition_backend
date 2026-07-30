@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"acquisition_backend/internal/config"
+	"acquisition_backend/internal/pkg/filestorage"
 	"acquisition_backend/internal/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,16 @@ type StartupOptions struct {
 	UserRepo repository.UserRepository
 	RoleRepo repository.RoleRepository
 	PermRepo repository.PermissionRepository
+
+	// Файлын системд шилжүүлэх алхамд хэрэглэгдэнэ. Legacy нь хуучин локал
+	// хадгалалт, Files нь шинэ (MinIO). Хоёулаа nil байж болно — тэр үед
+	// шилжүүлэлт алгасагдана.
+	LegacyFiles  filestorage.Storage
+	Files        filestorage.Storage
+	FilesBaseURL string
+	// DroneDir — GeoServer-ийн мозайк хавтас. Файлын систем нэвтрэхээс өмнө
+	// орсон дроны зургууд ЗӨВХӨН тэнд байгаа тул тэндээс зөөнө.
+	DroneDir string
 }
 
 func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupOptions) error {
@@ -136,6 +147,24 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			run: func(ctx context.Context) error {
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
 					SeedAdminAllPermissions(ctx)
+			},
+		},
+		{
+			// Хуучин ЛОКАЛ файлуудыг файлын систем (MinIO) руу зөөж, DB дахь
+			// URL-уудыг шинэчилнэ. API нь файлыг өөр дээрээ хадгалахаа больсон.
+			name: "000016_file_storage_migration",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedFileStorageMigration(
+					ctx, opts.LegacyFiles, opts.Files, opts.FilesBaseURL)
+			},
+		},
+		{
+			// Файлын систем нэвтрэхээс өмнө орсон дроны ортофотуудыг зөөнө
+			// (тэдгээр нь зөвхөн GeoServer-ийн мозайк хавтсанд байсан).
+			name: "000017_drone_images_to_file_storage",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedDroneImagesToFileStorage(
+					ctx, opts.Files, opts.DroneDir)
 			},
 		},
 	})
