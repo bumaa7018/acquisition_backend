@@ -141,8 +141,11 @@ type LandWorkflowService interface {
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
 }
 
-// LandDroneService — дроны ортофото. Зураг нь файлын системд хадгалагдаж,
-// GeoServer-ийн НЭГ ImageMosaic давхаргад granule болж бүртгэгдэнэ.
+// LandDroneService — дроны ортофото.
+//
+// Зураг нь ЗӨВХӨН файлын системд (MinIO) хадгалагдана: browser тийш шууд
+// байршуулж, GeoServer тэндээс HTTP Range хүсэлтээр шууд уншина (COG). Backend
+// растрыг өөр дээрээ хадгалахгүй — зөвхөн зам, хүрээ, давхаргыг зохицуулна.
 type LandDroneService interface {
 	ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
 	// CreateDroneUploadURL — browser файлыг ШУУД файлын систем руу тавих
@@ -153,7 +156,8 @@ type LandDroneService interface {
 	RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
 	DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error
 	// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр ("land:drone")
-	DroneLayerName() string
+	// DroneLayerName — зураг тус бүр өөрийн давхаргатай тул файлын нэрээс тооцно
+	DroneLayerName(fileName string) string
 }
 
 type LandFundingService interface {

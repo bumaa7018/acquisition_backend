@@ -210,7 +210,7 @@ type LandWorkflowRepository interface {
 }
 
 type LandFundingRepository interface {
-	// Дроны ортофото — GeoServer-ийн ImageMosaic granule-тай холбогдоно
+	// Дроны ортофото — GeoServer дээрх давхаргатай холбогдоно
 	ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
 	GetDroneImage(ctx context.Context, id uuid.UUID) (*domain.DroneImage, error)
 	CreateDroneImage(ctx context.Context, img *domain.DroneImage) error

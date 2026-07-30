@@ -62,6 +62,9 @@ services:
       # локал утга агуулдаг тул container дотор буруу болно. compose-ийн
       # `environment:` нь `env_file:`-ээс дээгүүр приоритеттэй.
       S3_ENDPOINT: minio:9000
+      # GeoServer мөн ЯГ ЭНЭ хаягаар растрыг Range хүсэлтээр уншина (нэг
+      # сүлжээнд байгаа тул тусад нь заах шаардлагагүй).
+      S3_GEOSERVER_ENDPOINT: http://minio:9000
       # minio сервистэй ижил хэрэглэгч/нууц үг — зөрөхөөс сэргийлж нэг эх сурвалж
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}

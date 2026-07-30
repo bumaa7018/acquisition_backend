@@ -4017,7 +4017,7 @@ func (r *landAcqRepo) CreateDroneImage(ctx context.Context, img *domain.DroneIma
 	return err
 }
 
-// UpdateDroneImageBounds — GeoServer-ээс уншсан granule-ийн хүрээг тэмдэглэнэ.
+// UpdateDroneImageBounds — GeoServer-ээс уншсан давхаргын хүрээг тэмдэглэнэ.
 func (r *landAcqRepo) UpdateDroneImageBounds(ctx context.Context, id uuid.UUID, minX, minY, maxX, maxY float64) error {
 	res, err := r.db.Exec(ctx, `
 		UPDATE drone_image

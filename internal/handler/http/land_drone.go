@@ -16,18 +16,16 @@ import (
 
 type droneImageResponse struct {
 	*domain.DroneImage
-	// LayerName — WMS-д явуулах давхаргын нэр (бүх зурагт ижил).
+	// LayerName — WMS-д явуулах давхаргын нэр. Зураг тус бүр өөрийн
+	// давхаргатай (GeoServer растрыг файлын системээс шууд уншина) тул
+	// нэр нь зураг бүрт ӨӨР.
 	LayerName string `json:"layer_name"`
-	// CqlFilter — тухайн зургийг л харуулах шүүлтүүр. Frontend үүнийг
-	// WMS хүсэлтийн CQL_FILTER параметрт шууд тавина.
-	CqlFilter string `json:"cql_filter"`
 }
 
 func (h *LandHandler) toDroneImageResponse(img *domain.DroneImage) droneImageResponse {
 	return droneImageResponse{
 		DroneImage: img,
-		LayerName:  h.svc.DroneLayerName(),
-		CqlFilter:  "location LIKE '%" + img.FileName + "'",
+		LayerName:  h.svc.DroneLayerName(img.FileName),
 	}
 }
 
@@ -163,8 +161,8 @@ func (h *LandHandler) RegisterDroneImage(c *gin.Context) {
 }
 
 // RefreshDroneImages godoc
-// @Summary      Refresh the GeoServer drone mosaic
-// @Description  Шинэ .tif-үүдийг ImageMosaic давхаргад granule болгон нэмж,
+// @Summary      Publish drone orthophotos as GeoServer layers
+// @Description  Бүртгэлтэй зургуудыг GeoServer-т давхарга болгон нийтэлж,
 // @Description  GeoServer-ийн кэшийг цэвэрлэнэ. Frontend зураг байршуулсны
 // @Description  дараа автоматаар дуудна.
 // @Tags         LandAcquisitions

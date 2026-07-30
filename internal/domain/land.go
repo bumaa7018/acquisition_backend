@@ -757,9 +757,8 @@ type FundingSource struct {
 //
 // FileURL нь файлын систем (MinIO) дээрх object-ийн зам — зургийн ЭХ СУРВАЛЖ.
 //
-// FileName нь GeoServer-ийн ImageMosaic давхаргын `location` атрибутын нэр.
-// Frontend давхаргыг дуудахдаа CQL_FILTER=location LIKE '%<FileName>' гэж
-// явуулж тухайн зургийг л харуулна.
+// FileName нь файлын системд хадгалагдсан нэр. Зураг тус бүр GeoServer дээр
+// ӨӨРИЙН давхаргатай бөгөөд давхаргын нэр нь эндээс тооцогдоно.
 type DroneImage struct {
 	ID            uuid.UUID  `json:"id"`
 	AcquisitionID uuid.UUID  `json:"acquisition_id"`

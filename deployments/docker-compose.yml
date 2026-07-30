@@ -49,15 +49,9 @@ services:
       AUTH_DB_PORT: 5432
       # GeoServer нь gov_network дээрх "geoserver" сервис
       GEOSERVER_URL: http://geoserver:8080/geoserver
-      # Дроны ортофотогийн РЕНДЕРИЙН КЭШ. Эх сурвалж нь MinIO; GeoServer нь
-      # растрыг локал замаар уншдаг тул кэш шаардлагатай. Кэш гээгдвэл API
-      # файлын системээс дахин бүтээнэ (ensureDroneCache).
-      DRONE_IMAGE_DIR: /app/uploads/drone
-      DRONE_MOSAIC_DIR: /opt/geoserver_data/drone
-    volumes:
-      # government-geoserver-ийн compose мөн ЯГ ЭНЭ host хавтсыг
-      # /opt/geoserver_data/drone-д mount хийнэ.
-      - ../uploads/drone:/app/uploads/drone
+    # volumes БАЙХГҮЙ: backend ямар ч файл хадгалахгүй. Дроны ортофотог
+    # GeoServer файлын системээс (MinIO) HTTP Range-ээр ШУУД уншина, иймд
+    # хуваалцсан хавтас ч, рендерийн кэш ч шаардлагагүй.
     ports:
       - "${APP_PORT:-8080}:${APP_PORT:-8080}"
     depends_on:

@@ -140,19 +140,15 @@ func main() {
 	clientRequestRepo := postgres.NewClientRequestRepo(mainDB)
 	clientRequestSvc := service.NewClientRequestService(clientRequestRepo)
 
-	// Дроны ортофото — GeoServer-ийн ImageMosaic давхаргад granule болж
-	// бүртгэгдэнэ. Тохиргоо GeoServer дээр НЭГ л удаа хийгдэж, зураг тус бүрийг
-	// WMS-д CQL_FILTER=location=... -аар шүүж харуулна.
+	// Дроны ортофото — зураг тус бүр GeoServer дээр өөрийн COG давхаргатай.
+	// GeoServer растрыг ФАЙЛЫН СИСТЕМЭЭС ШУУД (HTTP Range) уншина: backend
+	// растрыг өөр дээрээ ХАДГАЛАХГҮЙ, хуваалцсан хавтас ч шаардахгүй.
 	droneStorage := service.DroneStorage{
-		Dir: cfg.GeoServer.LocalDir,
-		Mosaic: geoserver.NewClient(
+		Publisher: geoserver.NewClient(
 			cfg.GeoServer.URL,
 			cfg.GeoServer.User,
 			cfg.GeoServer.Password,
 			cfg.GeoServer.Workspace,
-			cfg.GeoServer.DroneStore,
-			cfg.GeoServer.MosaicDir,
-			cfg.GeoServer.LocalDir,
 		),
 	}
 
@@ -174,7 +170,8 @@ func main() {
 		LegacyFiles:  filestorage.NewMockStorage(legacyFileBaseURL(cfg), cfg.FileServer.LocalDir),
 		Files:        s3Storage,
 		FilesBaseURL: cfg.FileServer.BaseURL,
-		DroneDir:     cfg.GeoServer.LocalDir,
+		// Зөвхөн ХУУЧИН (мозайк хавтсанд байсан) зургийг зөөх шаардлагатай үед
+		LegacyDroneDir: os.Getenv("LEGACY_DRONE_DIR"),
 	}); err != nil {
 		slog.Error("failed to create seed_history", "error", err)
 		os.Exit(1)
@@ -261,10 +258,16 @@ func buildFileStorage(ctx context.Context, cfg config.FileServerConfig) (filesto
 		return filestorage.NewMockStorage(cfg.BaseURL, cfg.LocalDir), nil, nil
 	}
 
-	s3, err := filestorage.NewS3Storage(
-		cfg.S3Endpoint, cfg.S3PublicEndpoint, cfg.S3AccessKey, cfg.S3SecretKey,
-		cfg.S3Bucket, cfg.BaseURL, cfg.S3UseSSL,
-	)
+	s3, err := filestorage.NewS3Storage(filestorage.S3Options{
+		Endpoint:          cfg.S3Endpoint,
+		PublicEndpoint:    cfg.S3PublicEndpoint,
+		GeoServerEndpoint: cfg.S3GeoServerEndpoint,
+		AccessKey:         cfg.S3AccessKey,
+		SecretKey:         cfg.S3SecretKey,
+		Bucket:            cfg.S3Bucket,
+		BaseURL:           cfg.BaseURL,
+		UseSSL:            cfg.S3UseSSL,
+	})
 	if err != nil {
 		return nil, nil, err
 	}

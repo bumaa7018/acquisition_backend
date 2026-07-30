@@ -34,37 +34,67 @@ type S3Storage struct {
 	presignClient *minio.Client
 	bucket        string
 	baseURL       string
+	// objectBase — GeoServer растрыг унших ШУУД хаягийн угтвар
+	// (жишээ: http://minio:9000)
+	objectBase string
 }
 
-// NewS3Storage — publicEndpoint нь browser хандах хаяг (схемтэй байж болно:
-// "http://localhost:9000"). Хоосон бол endpoint/useSSL-ийг хэрэглэнэ.
-func NewS3Storage(endpoint, publicEndpoint, accessKey, secretKey, bucket, baseURL string, useSSL bool) (*S3Storage, error) {
-	if endpoint == "" || bucket == "" {
+// S3Options — хадгалалтад ГУРВАН өөр өнцгөөс хандах хаягийг тодорхойлно.
+// Эдгээр нь орчноос шалтгаалж зөрдөг тул тусад нь тохируулагдана.
+type S3Options struct {
+	// Endpoint — API өөрөө хандах хаяг (host:port)
+	Endpoint string
+	// PublicEndpoint — BROWSER хандах хаяг (presigned байршуулалт). Хоосон бол
+	// Endpoint.
+	PublicEndpoint string
+	// GeoServerEndpoint — GEOSERVER хандах хаяг (растрыг HTTP Range-ээр унших).
+	// Хоосон бол Endpoint.
+	GeoServerEndpoint string
+	AccessKey         string
+	SecretKey         string
+	Bucket            string
+	// BaseURL — DB-д бичигдэх ХАРЬЦАНГУЙ угтвар (/api/files)
+	BaseURL string
+	UseSSL  bool
+}
+
+func NewS3Storage(opts S3Options) (*S3Storage, error) {
+	if opts.Endpoint == "" || opts.Bucket == "" {
 		return nil, errors.New("s3 endpoint and bucket are required")
 	}
-	creds := credentials.NewStaticV4(accessKey, secretKey, "")
-	client, err := minio.New(endpoint, &minio.Options{Creds: creds, Secure: useSSL})
+	creds := credentials.NewStaticV4(opts.AccessKey, opts.SecretKey, "")
+	client, err := minio.New(opts.Endpoint, &minio.Options{Creds: creds, Secure: opts.UseSSL})
 	if err != nil {
 		return nil, err
 	}
 
-	publicHost, publicSSL := endpoint, useSSL
-	if publicEndpoint != "" {
-		publicHost, publicSSL = splitEndpoint(publicEndpoint, useSSL)
-	}
 	presignClient := client
-	if publicHost != endpoint || publicSSL != useSSL {
-		presignClient, err = minio.New(publicHost, &minio.Options{Creds: creds, Secure: publicSSL})
-		if err != nil {
-			return nil, fmt.Errorf("s3 public endpoint invalid: %w", err)
+	if opts.PublicEndpoint != "" {
+		host, ssl := splitEndpoint(opts.PublicEndpoint, opts.UseSSL)
+		if host != opts.Endpoint || ssl != opts.UseSSL {
+			presignClient, err = minio.New(host, &minio.Options{Creds: creds, Secure: ssl})
+			if err != nil {
+				return nil, fmt.Errorf("s3 public endpoint invalid: %w", err)
+			}
 		}
+	}
+
+	objectBase := strings.TrimRight(client.EndpointURL().String(), "/")
+	if opts.GeoServerEndpoint != "" {
+		host, ssl := splitEndpoint(opts.GeoServerEndpoint, opts.UseSSL)
+		scheme := "http"
+		if ssl {
+			scheme = "https"
+		}
+		objectBase = scheme + "://" + host
 	}
 
 	return &S3Storage{
 		client:        client,
 		presignClient: presignClient,
-		bucket:        bucket,
-		baseURL:       strings.TrimRight(baseURL, "/"),
+		bucket:        opts.Bucket,
+		baseURL:       strings.TrimRight(opts.BaseURL, "/"),
+		objectBase:    objectBase,
 	}, nil
 }
 
@@ -199,6 +229,18 @@ func (s *S3Storage) PresignUpload(ctx context.Context, namespace, ownerID, filen
 
 func (s *S3Storage) URLFor(namespace, ownerID, storedName string) string {
 	return s.urlForKey(objectKey(namespace, ownerID, storedName))
+}
+
+func (s *S3Storage) ObjectURL(fileURL string) (string, error) {
+	key, err := s.keyFromURL(fileURL)
+	if err != nil {
+		return "", err
+	}
+	segments := strings.Split(key, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	return s.objectBase + "/" + s.bucket + "/" + strings.Join(segments, "/"), nil
 }
 
 func (s *S3Storage) Stat(ctx context.Context, fileURL string) (*ObjectStat, error) {

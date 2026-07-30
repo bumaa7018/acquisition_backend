@@ -150,8 +150,15 @@ func (s *MainSeeder) SeedDroneImagesToFileStorage(
 	target filestorage.Storage,
 	droneDir string,
 ) error {
-	if target == nil || droneDir == "" {
-		return errors.New("file storage/drone dir not configured yet — will retry on next start")
+	if target == nil {
+		return errors.New("file storage not configured yet — will retry on next start")
+	}
+	if droneDir == "" {
+		// Шинэ архитектурт локал хавтас БАЙХГҮЙ (GeoServer объектыг файлын
+		// системээс шууд уншина). Зөөх шаардлагатай хуучин бичлэг байвал
+		// LEGACY_DRONE_DIR-ээр хуучин хавтсыг зааж нэг удаа ажиллуулна.
+		slog.Info("drone migration: LEGACY_DRONE_DIR заагаагүй — алгаслаа")
+		return nil
 	}
 
 	rows, err := s.db.Query(ctx, `

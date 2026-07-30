@@ -5,9 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,26 +18,30 @@ import (
 	"github.com/google/uuid"
 )
 
-// DroneMosaic — GeoServer-ийн ImageMosaic давхаргатай харилцах гэрээ.
-// Тест дээр орлуулж болохын тулд интерфэйсээр авна.
-type DroneMosaic interface {
-	// LayerName — WMS-д явуулах давхаргын бүтэн нэр (жишээ: "land:drone")
-	LayerName() string
-	// Refresh — шинэ .tif-үүдийг мозайкийн индекст нэмж, кэшийг цэвэрлэнэ
-	Refresh(ctx context.Context) error
-	// Rebuild — мозайкийг нурааж дахин үүсгэнэ. Хуучин тохиргоотой (нэг л CRS
-	// хүлээдэг) мозайк шинэ зургийг хүлээж авахгүй байвал хэрэглэнэ.
-	Rebuild(ctx context.Context) error
-	// GranuleBoundsWait — harvest нь асинхрон (202) тул дахин оролдох хувилбар
-	GranuleBoundsWait(ctx context.Context, fileName string, attempts int) (*geoserver.Bounds, error)
-	DeleteGranule(ctx context.Context, fileName string) error
+// DronePublisher — GeoServer-т давхарга нийтлэх гэрээ.
+//
+// Зураг тус бүр өөрийн COG store/давхаргатай бөгөөд GeoServer растрыг ФАЙЛЫН
+// СИСТЕМЭЭС ШУУД (HTTP Range) уншина. Тест дээр орлуулж болохын тулд
+// интерфэйсээр авна.
+type DronePublisher interface {
+	Configured() bool
+	// LayerName — WMS-д явуулах давхаргын бүтэн нэр (жишээ: "land:orto_ab12cd34")
+	LayerName(store string) string
+	// Publish — объектын URL-ийг давхарга болгон нийтэлж WGS84 хүрээг буцаана
+	Publish(ctx context.Context, store, objectURL string) (*geoserver.Bounds, error)
+	// Configure — давхаргын харуулах тохиргоог (тунгалаг байдал г.м.) дахин
+	// хэрэглэнэ. Идемпотент.
+	Configure(ctx context.Context, store string) error
+	// Delete — давхаргыг каталогоос хасна (объект хөндөгдөхгүй)
+	Delete(ctx context.Context, store string) error
+	Reset(ctx context.Context) error
 }
 
-// DroneStorage — landService-д extras-аар дамжуулагдах дроны зургийн тохиргоо.
+// DroneStorage — landService-д extras-аар дамжуулагдах дроны тохиргоо.
+//
+// Локал хавтас БАЙХГҮЙ: backend растрыг өөр дээрээ хадгалахгүй.
 type DroneStorage struct {
-	// Dir — API .tif-ийг бичих хавтас (GeoServer мөн ЭНЭ хавтсыг уншина)
-	Dir    string
-	Mosaic DroneMosaic
+	Publisher DronePublisher
 }
 
 // droneNamespace — хадгалалтын объектын угтвар: drone/<acquisitionID>/<нэр>
@@ -57,70 +59,31 @@ var (
 	ErrDroneAlreadyRegistered = errors.New("drone image already registered")
 
 	// Файлын нэрийг GeoServer-ийн CQL-д ашиглах тул зөвхөн аюулгүй тэмдэгт
-	// үлдээнэ (хоосон зай, кирилл, хашилт г.м. mosaic индекст асуудал үүсгэнэ).
+	// үлдээнэ (хоосон зай, кирилл, хашилт г.м. давхаргын нэрэнд асуудал үүсгэнэ).
 	droneNameUnsafe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 	// droneStoredName — бүртгэхэд клиентээс ирэх нэрийн хатуу хэлбэр.
 	droneStoredName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
 
-// openDroneCache — GeoServer уншдаг мозайкийн хавтсанд бичих файлыг нээнэ.
-// Энэ нь ХАДГАЛАЛТ биш, зөвхөн рендерийн кэш (эх сурвалж нь файлын систем).
-// 0644 — GeoServer өөр процесс/container-аас уншина.
-func (s *landService) openDroneCache(fileName string) (*os.File, error) {
-	if err := os.MkdirAll(s.drone.Dir, 0o755); err != nil {
-		return nil, err
-	}
-	return os.OpenFile(filepath.Join(s.drone.Dir, fileName), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-}
-
-// removeDroneCache — хагас бичигдсэн/шаардлагагүй болсон кэшийг зайлуулна.
-func (s *landService) removeDroneCache(fileName string) {
-	if err := os.Remove(filepath.Join(s.drone.Dir, fileName)); err != nil && !os.IsNotExist(err) {
-		slog.Warn("drone cache cleanup failed", "file", fileName, "error", err)
-	}
-}
-
-// ensureDroneCache — кэшэд байхгүй зургийг файлын системээс сэргээнэ.
-// Кэш (volume) гээгдсэн эсвэл өөр хувилбар дээр асаасан үед хэрэгтэй.
-//
-// Ортофото хэдэн зуун MB байдаг тул урсгалаар хуулна — санах ойд бүтнээр
-// уншвал сэргээлт өөрөө процессыг унагаж болно.
-func (s *landService) ensureDroneCache(ctx context.Context, img *domain.DroneImage) error {
-	path := filepath.Join(s.drone.Dir, img.FileName)
-	if _, err := os.Stat(path); err == nil {
-		return nil
-	}
-	if img.FileURL == "" {
-		return nil // хуучин бичлэг — файлын системд ороогүй
-	}
-	src, err := s.files.OpenStream(ctx, img.FileURL)
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-
-	dst, err := s.openDroneCache(img.FileName)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(dst, src)
-	if cerr := dst.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		s.removeDroneCache(img.FileName)
-		return err
-	}
-	slog.Info("drone cache restored from file storage", "file", img.FileName)
-	return nil
-}
-
-// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр.
-func (s *landService) DroneLayerName() string {
-	if s.drone.Mosaic == nil {
+// droneStoreName — зургийн GeoServer store/давхаргын нэр. Файлын нэр нь аль
+// хэдийн давхардахгүй, аюулгүй тэмдэгттэй тул өргөтгөлийг хасаад хэрэглэнэ
+// (цэгийг доогуур зураасаар сольж давхаргын нэрийг цэвэр болгоно).
+func droneStoreName(fileName string) string {
+	name := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	name = strings.ReplaceAll(name, ".", "_")
+	if name == "" {
 		return ""
 	}
-	return s.drone.Mosaic.LayerName()
+	return "drone_" + name
+}
+
+// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр. Зураг тус бүр
+// өөрийн давхаргатай тул файлын нэрээс тооцно.
+func (s *landService) DroneLayerName(fileName string) string {
+	if s.drone.Publisher == nil {
+		return ""
+	}
+	return s.drone.Publisher.LayerName(droneStoreName(fileName))
 }
 
 func (s *landService) ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
@@ -181,7 +144,7 @@ func (s *landService) CreateDroneUploadURL(
 	acquisitionID uuid.UUID,
 	originalName string,
 ) (*filestorage.PresignedUpload, error) {
-	if s.drone.Dir == "" {
+	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
 		return nil, ErrDroneNotConfigured
 	}
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
@@ -207,8 +170,7 @@ func (s *landService) CreateDroneUploadURL(
 //   - хэмжээ нь Stat-аас — клиент хуурамч хэмжээ мэдүүлэх боломжгүй
 //   - төрөл нь эхний 4 байтаас (range GET) — .tif нэртэй өөр файл орох боломжгүй
 //
-// GeoServer-ийн рендерийн кэш нь ЭНД бичигдэхгүй: RefreshDroneImages нь
-// объектыг файлын системээс урсгалаар татаж кэш бүтээнэ (ensureDroneCache).
+// GeoServer-т нийтлэх нь ЭНД хийгдэхгүй — RefreshDroneImages тусад нь хийнэ.
 func (s *landService) RegisterDroneImage(
 	ctx context.Context,
 	acquisitionID uuid.UUID,
@@ -216,7 +178,7 @@ func (s *landService) RegisterDroneImage(
 	originalName string,
 	uploadedBy *uuid.UUID,
 ) (*domain.DroneImage, error) {
-	if s.drone.Dir == "" {
+	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
 		return nil, ErrDroneNotConfigured
 	}
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
@@ -312,90 +274,77 @@ func droneOriginalName(original, fallback string) string {
 	return name
 }
 
-// RefreshDroneImages — GeoServer-ийн мозайкийг шинэчилж (harvest + reset),
-// бүртгэгдээгүй зургуудын хүрээг уншиж тэмдэглэнэ.
+// RefreshDroneImages — бүртгэлтэй зургуудыг GeoServer-т давхарга болгон
+// нийтэлж, хүрээг тэмдэглэнэ.
 //
-// Frontend зураг байршуулсны ДАРАА автоматаар дуудна — ингэснээр шинэ зураг
-// давхаргад шууд харагдана.
+// GeoServer растрыг ФАЙЛЫН СИСТЕМЭЭС ШУУД уншина (COG + HTTP Range) — backend
+// растрыг хуулж ч, дамжуулж ч байхгүй. Нийтлэх нь идемпотент тул дахин дуудахад
+// зөвхөн нийтлэгдээгүй/хүрээ нь хүчингүй зураг л хөндөгдөнө.
+//
+// Frontend зураг байршуулсны ДАРАА автоматаар дуудна.
 func (s *landService) RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
-	if s.drone.Mosaic == nil {
+	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
 		return nil, ErrDroneNotConfigured
 	}
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, err
 	}
+	direct, ok := s.files.(filestorage.DirectUploader)
+	if !ok {
+		return nil, ErrDroneDirectUploadUnsupported
+	}
 	images, err := s.landRepo.ListDroneImages(ctx, acquisitionID)
 	if err != nil {
 		return nil, err
 	}
-	// Мозайкийг индексжүүлэхээс ӨМНӨ кэшэд байхгүй зургийг файлын системээс
-	// сэргээнэ — эс тэгвээс GeoServer файлыг олохгүй.
+
+	published := 0
 	for _, img := range images {
-		if err := s.ensureDroneCache(ctx, img); err != nil {
-			slog.Warn("drone cache restore failed", "file", img.FileName, "error", err)
+		// Хадгалагдсан хүрээ ХҮЧИНТЭЙ бол дахин нийтлэхгүй.
+		if img.Published && img.MinX != nil && img.MinY != nil &&
+			img.MaxX != nil && img.MaxY != nil &&
+			geoserver.ValidateWGS84Bounds(*img.MinX, *img.MinY, *img.MaxX, *img.MaxY) == nil {
+			// Дахин нийтлэхгүй ч ХАРУУЛАХ ТОХИРГООГ дахин хэрэглэнэ — код дээр
+			// тохиргоо зассан үед хуучин давхаргууд хоцорч хар фонтой үлдэхгүй.
+			if err := s.drone.Publisher.Configure(ctx, droneStoreName(img.FileName)); err != nil {
+				slog.Warn("drone layer reconfigure failed", "file", img.FileName, "error", err)
+			}
+			continue
 		}
-	}
-
-	if err := s.drone.Mosaic.Refresh(ctx); err != nil {
-		return nil, err
-	}
-
-	missing, err := s.syncGranuleBounds(ctx, images)
-	if err != nil {
-		return nil, err
-	}
-
-	// Granule бүртгэгдээгүй зураг байвал мозайк нь хуучин тохиргоотой (жишээ:
-	// зөвхөн нэг CRS хүлээдэг) байж мэдэх тул НЭГ удаа нурааж дахин барина.
-	// Индекс нь .tif-үүдээс дахин бүтээгддэг тул зураг гээгдэхгүй.
-	if missing > 0 {
-		slog.Info("drone mosaic rebuild — granule нэмэгдээгүй зураг байна", "count", missing)
-		if err := s.drone.Mosaic.Rebuild(ctx); err != nil {
-			slog.Warn("drone mosaic rebuild failed", "error", err)
-			return images, nil
+		if img.FileURL == "" {
+			continue // файлын системд ороогүй хуучин бичлэг
 		}
-		if _, err := s.syncGranuleBounds(ctx, images); err != nil {
+		// GeoServer объектыг ЭНЭ URL-ээр Range хүсэлтээр уншина.
+		objectURL, err := direct.ObjectURL(img.FileURL)
+		if err != nil {
+			slog.Warn("drone object url build failed", "file", img.FileName, "error", err)
+			continue
+		}
+		bounds, err := s.drone.Publisher.Publish(ctx, droneStoreName(img.FileName), objectURL)
+		if err != nil {
+			// Нийтлэж чадаагүй нь бусад зургийг хөндөх ёсгүй.
+			slog.Warn("drone publish failed", "file", img.FileName, "error", err)
+			continue
+		}
+		if err := s.landRepo.UpdateDroneImageBounds(ctx, img.ID,
+			bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY); err != nil {
 			return nil, err
+		}
+		img.MinX, img.MinY = &bounds.MinX, &bounds.MinY
+		img.MaxX, img.MaxY = &bounds.MaxX, &bounds.MaxY
+		img.Published = true
+		published++
+	}
+	if published > 0 {
+		// Шинэ давхарга GetCapabilities/WMS-д шууд харагдахын тулд.
+		if err := s.drone.Publisher.Reset(ctx); err != nil {
+			slog.Warn("geoserver reset failed", "error", err)
 		}
 	}
 	return images, nil
 }
 
-// syncGranuleBounds — хүрээ нь тодорхойгүй зургуудын хүрээг GeoServer-ээс уншиж
-// тэмдэглэнэ. Буцаах тоо нь granule олдоогүй (мозайкт ороогүй) зургийн тоо.
-func (s *landService) syncGranuleBounds(ctx context.Context, images []*domain.DroneImage) (int, error) {
-	missing := 0
-	for _, img := range images {
-		// Хадгалагдсан хүрээ ХҮЧИНГҮЙ бол (жишээ: тэнхлэг солигдсон хуучин
-		// бичлэг) дахин тооцно — эс тэгвээс frontend дээр газрын зураг
-		// эвдэрсэн хэвээр үлдэнэ.
-		if img.Published && img.MinX != nil && img.MinY != nil &&
-			img.MaxX != nil && img.MaxY != nil &&
-			geoserver.ValidateWGS84Bounds(*img.MinX, *img.MinY, *img.MaxX, *img.MaxY) == nil {
-			continue
-		}
-		// 3 удаа хүртэл оролдоно — harvest асинхрон тул granule хараахан
-		// бүртгэгдээгүй байж болно.
-		bounds, err := s.drone.Mosaic.GranuleBoundsWait(ctx, img.FileName, 3)
-		if err != nil {
-			// Хүрээ уншиж чадаагүй нь давхарга харуулахад саад биш —
-			// зөвхөн "зураг дээр очих" боломжгүй болно.
-			slog.Warn("drone granule bounds unavailable", "file", img.FileName, "error", err)
-			missing++
-			continue
-		}
-		if err := s.landRepo.UpdateDroneImageBounds(ctx, img.ID,
-			bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY); err != nil {
-			return missing, err
-		}
-		img.MinX, img.MinY = &bounds.MinX, &bounds.MinY
-		img.MaxX, img.MaxY = &bounds.MaxX, &bounds.MaxY
-		img.Published = true
-	}
-	return missing, nil
-}
-
-// DeleteDroneImage — granule, файл, бүртгэлийг устгана.
+// DeleteDroneImage — давхарга, объект, бүртгэлийг устгана.
 func (s *landService) DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error {
 	img, err := s.landRepo.GetDroneImage(ctx, imageID)
 	if err != nil {
@@ -405,17 +354,11 @@ func (s *landService) DeleteDroneImage(ctx context.Context, acquisitionID, image
 		return domain.ErrNotFound
 	}
 
-	if s.drone.Mosaic != nil {
-		if err := s.drone.Mosaic.DeleteGranule(ctx, img.FileName); err != nil {
-			// Мозайкаас хасаж чадаагүй ч бүртгэл/файлыг устгана — эс тэгвээс
+	if s.drone.Publisher != nil {
+		if err := s.drone.Publisher.Delete(ctx, droneStoreName(img.FileName)); err != nil {
+			// Каталогоос хасаж чадаагүй ч бүртгэл/объектыг устгана — эс тэгвээс
 			// хэрэглэгч зургийг хэзээ ч устгаж чадахгүй болно.
-			slog.Warn("drone granule delete failed", "file", img.FileName, "error", err)
-		}
-	}
-	// Рендерийн кэш
-	if s.drone.Dir != "" {
-		if err := os.Remove(filepath.Join(s.drone.Dir, img.FileName)); err != nil && !os.IsNotExist(err) {
-			slog.Warn("drone cache delete failed", "file", img.FileName, "error", err)
+			slog.Warn("drone layer delete failed", "file", img.FileName, "error", err)
 		}
 	}
 	// Файлын систем (эх сурвалж)

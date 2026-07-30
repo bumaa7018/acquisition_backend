@@ -57,6 +57,12 @@ type DirectUploader interface {
 	Stat(ctx context.Context, fileURL string) (*ObjectStat, error)
 	// ReadRange — объектын зөвхөн эхний хэсгийг унших (magic bytes шалгах).
 	ReadRange(ctx context.Context, fileURL string, offset, length int64) ([]byte, error)
+	// ObjectURL — хадгалалт дээрх объектын ШУУД хаяг (жишээ:
+	// http://minio:9000/gov-files/drone/<id>/<нэр>.tif).
+	//
+	// GeoServer растрыг ЭНЭ хаягаар HTTP Range хүсэлтээр уншина — иймд
+	// сүлжээний дотоод хаяг байх ёстой (frontend-ийн /api/files proxy биш).
+	ObjectURL(fileURL string) (string, error)
 }
 
 type Storage interface {

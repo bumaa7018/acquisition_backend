@@ -1002,6 +1002,7 @@ func (m *MockLandService) DeleteDroneImage(ctx context.Context, acquisitionID, i
 	return m.Called(ctx, acquisitionID, imageID).Error(0)
 }
 
-func (m *MockLandService) DroneLayerName() string {
-	return m.Called().String(0)
+func (m *MockLandService) DroneLayerName(fileName string) string {
+	args := m.Called(fileName)
+	return args.String(0)
 }

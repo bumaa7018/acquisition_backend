@@ -26,9 +26,9 @@ type StartupOptions struct {
 	LegacyFiles  filestorage.Storage
 	Files        filestorage.Storage
 	FilesBaseURL string
-	// DroneDir — GeoServer-ийн мозайк хавтас. Файлын систем нэвтрэхээс өмнө
+	// LegacyDroneDir — ХУУЧИН мозайк хавтас (LEGACY_DRONE_DIR). Файлын систем нэвтрэхээс өмнө
 	// орсон дроны зургууд ЗӨВХӨН тэнд байгаа тул тэндээс зөөнө.
-	DroneDir string
+	LegacyDroneDir string
 }
 
 func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupOptions) error {
@@ -164,7 +164,7 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000017_drone_images_to_file_storage",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedDroneImagesToFileStorage(
-					ctx, opts.Files, opts.DroneDir)
+					ctx, opts.Files, opts.LegacyDroneDir)
 			},
 		},
 	})

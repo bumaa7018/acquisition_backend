@@ -95,6 +95,16 @@ type FileServerConfig struct {
 	Mode     string `env:"FILE_SERVER_MODE" envDefault:"s3"`
 
 	S3Endpoint string `env:"S3_ENDPOINT" envDefault:"localhost:9000"`
+	// S3GeoServerEndpoint — GEOSERVER хандах хаяг. Дроны растрыг GeoServer
+	// объектын хадгалалтаас HTTP Range хүсэлтээр ШУУД уншдаг тул түүний
+	// хүрч чадах хаяг байх ёстой.
+	//
+	// Container-т API ба GeoServer нэг сүлжээнд байдаг тул анхдагчаар
+	// S3_ENDPOINT-той ижил (minio:9000) — тохируулах шаардлагагүй. Харин
+	// API-г HOST дээр (air) ажиллуулах үед S3_ENDPOINT=localhost:9000 болох ба
+	// GeoServer container-аас "localhost" нь ӨӨРИЙГӨӨ заах тул ЭНД дотоод
+	// сүлжээний хаягийг зааж өгнө: http://minio:9000
+	S3GeoServerEndpoint string `env:"S3_GEOSERVER_ENDPOINT"`
 	// S3PublicEndpoint — BROWSER хандах хаяг. Дроны ортофотог фронтендээс
 	// ШУУД хадгалалт руу байршуулах presigned URL-ийг ЭНЭ хаягаар гарын
 	// үсэг зурна: presigned URL нь host-ыг гарын үсэгт оруулдаг тул API-ийн
@@ -107,25 +117,18 @@ type FileServerConfig struct {
 	S3UseSSL         bool   `env:"S3_USE_SSL" envDefault:"false"`
 }
 
-// GeoServerConfig — дроны ортофотог ImageMosaic давхаргад бүртгэхэд хэрэглэнэ.
+// GeoServerConfig — дроны ортофотог давхарга болгон нийтлэхэд хэрэглэнэ.
 //
-// Зургийн ЭХ СУРВАЛЖ нь файлын систем (MinIO) — доорх хавтас нь GeoServer
-// растрыг локал замаар уншдаг тул шаардлагатай РЕНДЕРИЙН КЭШ. Кэш гээгдвэл
-// файлын системээс дахин бүтээгдэнэ (service.ensureDroneCache).
+// Растрын ЭХ СУРВАЛЖ нь файлын систем (MinIO): GeoServer объектыг HTTP Range
+// хүсэлтээр ШУУД уншина (COG). Иймд хуваалцсан хавтас, локал зам шаардахгүй —
+// backend растрыг өөр дээрээ хадгалахгүй.
 //
-//   - LocalDir  — API кэшийг БИЧИХ хавтас (host/container-ийн зам)
-//   - MosaicDir — ЯГ ТЭР хавтсыг GEOSERVER-ийн дотроос харах зам. GeoServer
-//     тусдаа container тул зам өөр байж болно (bind mount).
+// Workspace нь аль хэдийн байх ёстой (government-geoserver: make config).
 type GeoServerConfig struct {
 	URL       string `env:"GEOSERVER_URL" envDefault:"http://localhost:8600/geoserver"`
 	User      string `env:"GEOSERVER_ADMIN" envDefault:"admin"`
 	Password  string `env:"GEOSERVER_PASS" envDefault:"geoserver"`
 	Workspace string `env:"GEOSERVER_WORKSPACE" envDefault:"land"`
-	// ImageMosaic coveragestore/layer-ийн нэр. Тохиргоо НЭГ л удаа хийгдэж,
-	// зураг бүрийг granule болгон нэмнэ (давхарга нэмэгдэхгүй).
-	DroneStore string `env:"GEOSERVER_DRONE_STORE" envDefault:"drone"`
-	LocalDir   string `env:"DRONE_IMAGE_DIR" envDefault:"uploads/drone"`
-	MosaicDir  string `env:"DRONE_MOSAIC_DIR" envDefault:"/opt/geoserver_data/drone"`
 }
 
 func (e EmailConfig) Enabled() bool {

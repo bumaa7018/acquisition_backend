@@ -241,7 +241,7 @@ func NewRouter(
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAcquisitionDocuments)
 			land.POST("/:id/documents", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadAcquisitionDocument)
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
-			// Дроны ортофото (.tif) — GeoServer-ийн ImageMosaic давхаргад granule
+			// Дроны ортофото (.tif) — GeoServer дээр зураг тус бүр өөрийн давхарга
 			// болж бүртгэгдэнэ. Нэг хүсэлтэд НЭГ файл; refresh нь frontend
 			// зураг байршуулсны дараа автоматаар дуудагдана.
 			land.GET("/:id/drone-images", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListDroneImages)
