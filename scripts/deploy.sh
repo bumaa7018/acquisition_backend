@@ -46,8 +46,15 @@ compose() {
 compose_full() {
   local files=(-f "$COMPOSE_FILE")
   # Файл байхгүй бол тэр сервис оролцохгүй — хасах гэдэг нь файлыг устгах.
-  [[ -f "$MINIO_COMPOSE_FILE" ]] && files+=(-f "$MINIO_COMPOSE_FILE")
-  [[ -f "$LOGGING_COMPOSE_FILE" ]] && files+=(-f "$LOGGING_COMPOSE_FILE")
+  # `if` хэлбэрээр бичсэн нь санамсаргүй биш: `[[ ]] && ...` нь set -e-тэй
+  # хамт уншихад хоёрдмол утгатай (файл байхгүй үед script унах эсэх нь
+  # bash-ийн хувилбар/нөхцлөөс хамаарч мэдэгддэггүй).
+  if [[ -f "$MINIO_COMPOSE_FILE" ]]; then
+    files+=(-f "$MINIO_COMPOSE_FILE")
+  fi
+  if [[ -f "$LOGGING_COMPOSE_FILE" ]]; then
+    files+=(-f "$LOGGING_COMPOSE_FILE")
+  fi
   docker compose "${files[@]}" --env-file "$ENV_FILE" "$@"
 }
 
