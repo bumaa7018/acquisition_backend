@@ -83,10 +83,14 @@ services:
       FILE_SERVER_BASE_URL: /api/files
       S3_ENDPOINT: minio:9000
       # Дроны ортофотог BROWSER-ээс ШУУД байршуулах presigned URL-ийг ЭНЭ
-      # хаягаар гарын үсэг зурна. Browser дотоод "minio:9000"-д хүрч чадахгүй
-      # тул нийтийн хаяг ЗААВАЛ байх ёстой (эс тэгвээс шууд байршуулалт унана).
-      # Production-д домэйноо зааж, MinIO-г reverse proxy-гоор нээнэ.
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:${MINIO_PORT:-9000}}
+      # хаягаар гарын үсэг зурна. Browser нь дотоод "minio:9000"-д хүрч
+      # чадахгүй тул нийтийн хаяг ЗААВАЛ хэрэгтэй.
+      #
+      # Default ТАВИХГҮЙ, ЗОРИУДААР: анхдагчаар "localhost" тавибал сервер
+      # дээр эндүүрэл чимээгүй гарна — presigned URL нь хэрэглэгчийн ӨӨРИЙН
+      # машин руу заасан байх тул зураг байршуулах үед л мэдэгдэнэ. Оронд нь
+      # deploy эхлэхэд шууд зогсож, доорх мессежийг харуулна.
+      S3_PUBLIC_ENDPOINT: '${S3_PUBLIC_ENDPOINT:?.env-д S3_PUBLIC_ENDPOINT зааж өгнө — browser-аас MinIO-д хандах хаяг (жишээ: http://<сервер-IP>:9000 эсвэл https://files.<домэйн>). Локал бол http://localhost:9000}'
       # minio сервистэй ижил хэрэглэгч/нууц үг — зөрөхөөс сэргийлж нэг эх сурвалж
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
