@@ -68,16 +68,14 @@ services:
       # minio сервистэй ижил хэрэглэгч/нууц үг — зөрөхөөс сэргийлж нэг эх сурвалж
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      # S3_PUBLIC_ENDPOINT-ыг ЭНД ЗААХГҮЙ — ../.env-ээс уншигдана.
+      # Presigned URL нь ЭНЭ хаягаар (minio:9000) зурагдана. Browser тэр
+      # хаяг руу ШУУД хандахгүй — frontend-ийн /api/files proxy (Next server)
+      # дамжуулна. Иймд MinIO-ийн портыг гадаад сүлжээнд нээх, CORS тохируулах
+      # шаардлагагүй.
       #
-      # Энэ нь browser дроны ортофотог ШУУД байршуулах presigned URL-ийн хаяг
-      # (жишээ: http://<сервер-IP>:9000). Заагаагүй бол API нь S3_ENDPOINT-ыг
-      # хэрэглэх ба container дотор тэр нь minio:9000 болох тул browser-аас
-      # хүрэхгүй — API асахад ЭНЭ талаар warning логлоно.
-      #
-      # Яагаад compose-д required (${VAR:?...}) болгож БОЛОХГҮЙ: interpolation
-      # унавал `up` огт хүрэхгүй тул postgres/minio/api БҮГД асахгүй болно.
-      # Нэг дроны тохиргооны улмаас бүх системийг унагаж болохгүй.
+      # АНХААР: гарын үсэг Host-ыг хамардаг тул frontend-ийн NEXT_S3_ENDPOINT
+      # нь ЭНЭ S3_ENDPOINT-той ИЖИЛ байх ёстой. Зөрвөл MinIO нь
+      # SignatureDoesNotMatch (403) буцаана.
     depends_on:
       minio:
         condition: service_healthy

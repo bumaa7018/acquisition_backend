@@ -253,12 +253,23 @@ func (s *landService) RegisterDroneImage(
 		return nil, err
 	}
 
+	// GeoServer-т давхарга болгон НЭН ДАРУЙ нийтэлнэ. Ингэснээр frontend
+	// нэмэлт refresh дуудах шаардлагагүй болно.
+	//
+	// Бүтэлгүйтвэл АЛДАА БУЦААХГҮЙ: хэрэглэгчийн файл хадгалалтад бүтэн орж,
+	// бүртгэгдсэн байна. Зөвхөн давхарга үүсээгүй (published=false) тул
+	// "GeoServer шинэчлэх" товчоор дахин оролдоно.
+	if err := s.publishDroneImage(ctx, img); err != nil {
+		slog.Warn("drone publish failed on register", "file", img.FileName, "error", err)
+	}
+
 	s.auditLog(ctx, "uploaded", domain.AuditResourceDocument, img.ID.String(),
 		uuidPtr(acquisitionID), nil, map[string]any{
 			"kind":          "drone_image",
 			"file_name":     img.FileName,
 			"original_name": img.OriginalName,
 			"size_bytes":    img.SizeBytes,
+			"published":     img.Published,
 			"direct_upload": true,
 		})
 	return img, nil
@@ -274,14 +285,53 @@ func droneOriginalName(original, fallback string) string {
 	return name
 }
 
-// RefreshDroneImages — бүртгэлтэй зургуудыг GeoServer-т давхарга болгон
-// нийтэлж, хүрээг тэмдэглэнэ.
+// publishDroneImage — объектыг GeoServer-т давхарга болгон нийтэлж, хүрээг
+// DB-д тэмдэглэнэ. Идемпотент.
 //
-// GeoServer растрыг ФАЙЛЫН СИСТЕМЭЭС ШУУД уншина (COG + HTTP Range) — backend
-// растрыг хуулж ч, дамжуулж ч байхгүй. Нийтлэх нь идемпотент тул дахин дуудахад
-// зөвхөн нийтлэгдээгүй/хүрээ нь хүчингүй зураг л хөндөгдөнө.
+// Register ба Refresh ХОЁУЛАА үүнийг дуудна — ингэснээр нийтлэх логик нэг
+// газар байна.
+func (s *landService) publishDroneImage(ctx context.Context, img *domain.DroneImage) error {
+	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
+		return ErrDroneNotConfigured
+	}
+	if img.FileURL == "" {
+		return ErrDroneObjectMissing
+	}
+	direct, ok := s.files.(filestorage.DirectUploader)
+	if !ok {
+		return ErrDroneDirectUploadUnsupported
+	}
+	// GeoServer объектыг ЭНЭ URL-ээр Range хүсэлтээр уншина.
+	objectURL, err := direct.ObjectURL(img.FileURL)
+	if err != nil {
+		return err
+	}
+	bounds, err := s.drone.Publisher.Publish(ctx, droneStoreName(img.FileName), objectURL)
+	if err != nil {
+		return err
+	}
+	if err := s.landRepo.UpdateDroneImageBounds(ctx, img.ID,
+		bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY); err != nil {
+		return err
+	}
+	img.MinX, img.MinY = &bounds.MinX, &bounds.MinY
+	img.MaxX, img.MaxY = &bounds.MaxX, &bounds.MaxY
+	img.Published = true
+	// Шинэ давхарга WMS-д шууд харагдахын тулд.
+	if err := s.drone.Publisher.Reset(ctx); err != nil {
+		slog.Warn("geoserver reset failed", "error", err)
+	}
+	return nil
+}
+
+// RefreshDroneImages — ЗАСВАРЫН үйлдэл: нийтлэгдээгүй эсвэл хүрээ нь хүчингүй
+// зургуудыг дахин нийтэлж, нийтлэгдсэн давхаргуудын харуулах тохиргоог
+// шинэчилнэ.
 //
-// Frontend зураг байршуулсны ДАРАА автоматаар дуудна.
+// Байршуулах ҮНДСЭН урсгалд ОРОХГҮЙ: RegisterDroneImage өөрөө нийтэлдэг тул
+// frontend дараа нь дахин дуудах шаардлагагүй (давхар дуудлага байсныг хасав).
+// Хэрэглэгч "GeoServer шинэчлэх" товч дарах, эсвэл нийтлэлт бүтэлгүйтсэн
+// зургийг дахин оролдоход хэрэглэгдэнэ.
 func (s *landService) RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {
 	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
 		return nil, ErrDroneNotConfigured
@@ -289,56 +339,26 @@ func (s *landService) RefreshDroneImages(ctx context.Context, acquisitionID uuid
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, err
 	}
-	direct, ok := s.files.(filestorage.DirectUploader)
-	if !ok {
-		return nil, ErrDroneDirectUploadUnsupported
-	}
 	images, err := s.landRepo.ListDroneImages(ctx, acquisitionID)
 	if err != nil {
 		return nil, err
 	}
 
-	published := 0
 	for _, img := range images {
-		// Хадгалагдсан хүрээ ХҮЧИНТЭЙ бол дахин нийтлэхгүй.
+		// Хадгалагдсан хүрээ ХҮЧИНТЭЙ бол дахин нийтлэхгүй — зөвхөн ХАРУУЛАХ
+		// ТОХИРГООГ дахин хэрэглэнэ (код дээр тохиргоо зассан үед хуучин
+		// давхаргууд хоцорч хар фонтой үлдэхгүй).
 		if img.Published && img.MinX != nil && img.MinY != nil &&
 			img.MaxX != nil && img.MaxY != nil &&
 			geoserver.ValidateWGS84Bounds(*img.MinX, *img.MinY, *img.MaxX, *img.MaxY) == nil {
-			// Дахин нийтлэхгүй ч ХАРУУЛАХ ТОХИРГООГ дахин хэрэглэнэ — код дээр
-			// тохиргоо зассан үед хуучин давхаргууд хоцорч хар фонтой үлдэхгүй.
 			if err := s.drone.Publisher.Configure(ctx, droneStoreName(img.FileName)); err != nil {
 				slog.Warn("drone layer reconfigure failed", "file", img.FileName, "error", err)
 			}
 			continue
 		}
-		if img.FileURL == "" {
-			continue // файлын системд ороогүй хуучин бичлэг
-		}
-		// GeoServer объектыг ЭНЭ URL-ээр Range хүсэлтээр уншина.
-		objectURL, err := direct.ObjectURL(img.FileURL)
-		if err != nil {
-			slog.Warn("drone object url build failed", "file", img.FileName, "error", err)
-			continue
-		}
-		bounds, err := s.drone.Publisher.Publish(ctx, droneStoreName(img.FileName), objectURL)
-		if err != nil {
-			// Нийтлэж чадаагүй нь бусад зургийг хөндөх ёсгүй.
+		// Нэг зураг нийтлэгдэхгүй нь бусдыг хөндөх ёсгүй.
+		if err := s.publishDroneImage(ctx, img); err != nil {
 			slog.Warn("drone publish failed", "file", img.FileName, "error", err)
-			continue
-		}
-		if err := s.landRepo.UpdateDroneImageBounds(ctx, img.ID,
-			bounds.MinX, bounds.MinY, bounds.MaxX, bounds.MaxY); err != nil {
-			return nil, err
-		}
-		img.MinX, img.MinY = &bounds.MinX, &bounds.MinY
-		img.MaxX, img.MaxY = &bounds.MaxX, &bounds.MaxY
-		img.Published = true
-		published++
-	}
-	if published > 0 {
-		// Шинэ давхарга GetCapabilities/WMS-д шууд харагдахын тулд.
-		if err := s.drone.Publisher.Reset(ctx); err != nil {
-			slog.Warn("geoserver reset failed", "error", err)
 		}
 	}
 	return images, nil

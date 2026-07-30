@@ -105,16 +105,10 @@ type FileServerConfig struct {
 	// GeoServer container-аас "localhost" нь ӨӨРИЙГӨӨ заах тул ЭНД дотоод
 	// сүлжээний хаягийг зааж өгнө: http://minio:9000
 	S3GeoServerEndpoint string `env:"S3_GEOSERVER_ENDPOINT"`
-	// S3PublicEndpoint — BROWSER хандах хаяг. Дроны ортофотог фронтендээс
-	// ШУУД хадгалалт руу байршуулах presigned URL-ийг ЭНЭ хаягаар гарын
-	// үсэг зурна: presigned URL нь host-ыг гарын үсэгт оруулдаг тул API-ийн
-	// дотоод хаяг (жишээ: minio:9000) browser-т ажиллахгүй.
-	// Схемтэй бичиж болно ("http://minio.example.mn"). Хоосон бол S3Endpoint.
-	S3PublicEndpoint string `env:"S3_PUBLIC_ENDPOINT"`
-	S3AccessKey      string `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
-	S3SecretKey      string `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
-	S3Bucket         string `env:"S3_BUCKET" envDefault:"gov-files"`
-	S3UseSSL         bool   `env:"S3_USE_SSL" envDefault:"false"`
+	S3AccessKey         string `env:"S3_ACCESS_KEY" envDefault:"minioadmin"`
+	S3SecretKey         string `env:"S3_SECRET_KEY" envDefault:"minioadmin"`
+	S3Bucket            string `env:"S3_BUCKET" envDefault:"gov-files"`
+	S3UseSSL            bool   `env:"S3_USE_SSL" envDefault:"false"`
 }
 
 // GeoServerConfig — дроны ортофотог давхарга болгон нийтлэхэд хэрэглэнэ.

@@ -260,7 +260,6 @@ func buildFileStorage(ctx context.Context, cfg config.FileServerConfig) (filesto
 
 	s3, err := filestorage.NewS3Storage(filestorage.S3Options{
 		Endpoint:          cfg.S3Endpoint,
-		PublicEndpoint:    cfg.S3PublicEndpoint,
 		GeoServerEndpoint: cfg.S3GeoServerEndpoint,
 		AccessKey:         cfg.S3AccessKey,
 		SecretKey:         cfg.S3SecretKey,
@@ -271,43 +270,15 @@ func buildFileStorage(ctx context.Context, cfg config.FileServerConfig) (filesto
 	if err != nil {
 		return nil, nil, err
 	}
-	// Дроны ортофото browser-ээс ШУУД хадгалалт руу байршдаг тул presigned
-	// URL-ийн хаяг browser-т хүрдэг байх ёстой. Заагаагүй бол S3Endpoint
-	// хэрэглэгдэх ба container дотор тэр нь "minio:9000" — browser хүрэхгүй.
-	// compose-д required болговол бүх сервис асахгүй болох тул deploy-г
-	// унагахгүйгээр операторт ТОДОРХОЙ мэдэгдэнэ.
-	if cfg.S3PublicEndpoint == "" && !isBrowserReachableHost(cfg.S3Endpoint) {
-		slog.Warn("S3_PUBLIC_ENDPOINT тохируулаагүй: дроны зургийг browser-ээс "+
-			"ШУУД байршуулах боломжгүй. .env-д browser хандах хаягийг зааж өгнө "+
-			"(жишээ: http://<сервер-IP>:9000)", "presign_host", cfg.S3Endpoint)
-	}
 	// Bucket-ийг эхлэхэд нь бэлдэнэ (идемпотент) — эс тэгвээс эхний upload унана.
 	if err := s3.EnsureBucket(ctx); err != nil {
 		return nil, nil, err
 	}
 	slog.Info("file storage ready", "mode", "s3",
 		"endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket, "base_url", cfg.BaseURL,
-		"public_endpoint", cfg.S3PublicEndpoint)
+		"geoserver_endpoint", cfg.S3GeoServerEndpoint)
 
 	return s3, s3, nil
-}
-
-// isBrowserReachableHost — хаяг browser-аас хүрч болохоор эсэхийг ойролцоогоор
-// шалгана. Docker-ийн дотоод сервисийн нэр ("minio:9000" — цэггүй, localhost
-// биш) browser-т хүрдэггүй; localhost эсвэл домэйн/IP нь локал хөгжүүлэлт
-// эсвэл нийтийн хаяг байх магадлалтай тул анхааруулга гаргахгүй.
-func isBrowserReachableHost(endpoint string) bool {
-	host := endpoint
-	if i := strings.Index(host, "://"); i >= 0 {
-		host = host[i+3:]
-	}
-	host, _, _ = strings.Cut(host, "/")
-	host, _, _ = strings.Cut(host, ":")
-	if host == "localhost" || host == "127.0.0.1" {
-		return true
-	}
-	// Цэг агуулсан бол домэйн/IP — гадаад хаяг байх магадлалтай.
-	return strings.Contains(host, ".")
 }
 
 // legacyFileBaseURL — хуучин локал хадгалалтын URL угтвар.

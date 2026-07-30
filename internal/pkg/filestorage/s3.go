@@ -27,26 +27,23 @@ import (
 // `/api/files/acquisition/<id>/<uuid>_file.pdf`). Frontend-ийн proxy үүнийг
 // MinIO руу дамжуулдаг тул орчин (host/port) солигдоход DB-д хөндөх шаардлагагүй.
 type S3Storage struct {
-	client *minio.Client
-	// presignClient — browser хандах endpoint-оор гарын үсэг зурах client.
-	// Presigned URL нь host-ыг гарын үсэгт оруулдаг тул API-ийн дотоод хаяг
-	// (жишээ: minio:9000) browser-т ажиллахгүй — нийтийн хаягаар зурна.
-	presignClient *minio.Client
-	bucket        string
-	baseURL       string
+	client  *minio.Client
+	bucket  string
+	baseURL string
 	// objectBase — GeoServer растрыг унших ШУУД хаягийн угтвар
 	// (жишээ: http://minio:9000)
 	objectBase string
 }
 
-// S3Options — хадгалалтад ГУРВАН өөр өнцгөөс хандах хаягийг тодорхойлно.
-// Эдгээр нь орчноос шалтгаалж зөрдөг тул тусад нь тохируулагдана.
+// S3Options — хадгалалтад хандах хаягууд.
+//
+// Presigned URL нь Endpoint-оор зурагдана. Browser тэр хаяг руу ШУУД хандахгүй:
+// frontend-ийн `/api/files/...` proxy (Next server) хүсэлтийг тэр хаяг руу
+// дамжуулна. Гарын үсэг Host-ыг хамардаг тул frontend-ийн NEXT_S3_ENDPOINT нь
+// ЭНЭ Endpoint-той ИЖИЛ байх ёстой (compose дээр хоёулаа minio:9000).
 type S3Options struct {
 	// Endpoint — API өөрөө хандах хаяг (host:port)
 	Endpoint string
-	// PublicEndpoint — BROWSER хандах хаяг (presigned байршуулалт). Хоосон бол
-	// Endpoint.
-	PublicEndpoint string
 	// GeoServerEndpoint — GEOSERVER хандах хаяг (растрыг HTTP Range-ээр унших).
 	// Хоосон бол Endpoint.
 	GeoServerEndpoint string
@@ -68,17 +65,6 @@ func NewS3Storage(opts S3Options) (*S3Storage, error) {
 		return nil, err
 	}
 
-	presignClient := client
-	if opts.PublicEndpoint != "" {
-		host, ssl := splitEndpoint(opts.PublicEndpoint, opts.UseSSL)
-		if host != opts.Endpoint || ssl != opts.UseSSL {
-			presignClient, err = minio.New(host, &minio.Options{Creds: creds, Secure: ssl})
-			if err != nil {
-				return nil, fmt.Errorf("s3 public endpoint invalid: %w", err)
-			}
-		}
-	}
-
 	objectBase := strings.TrimRight(client.EndpointURL().String(), "/")
 	if opts.GeoServerEndpoint != "" {
 		host, ssl := splitEndpoint(opts.GeoServerEndpoint, opts.UseSSL)
@@ -90,11 +76,10 @@ func NewS3Storage(opts S3Options) (*S3Storage, error) {
 	}
 
 	return &S3Storage{
-		client:        client,
-		presignClient: presignClient,
-		bucket:        opts.Bucket,
-		baseURL:       strings.TrimRight(opts.BaseURL, "/"),
-		objectBase:    objectBase,
+		client:     client,
+		bucket:     opts.Bucket,
+		baseURL:    strings.TrimRight(opts.BaseURL, "/"),
+		objectBase: objectBase,
 	}, nil
 }
 
@@ -214,7 +199,7 @@ func (s *S3Storage) PresignUpload(ctx context.Context, namespace, ownerID, filen
 	_, storedName := storedFileName(filename, false)
 	key := objectKey(namespace, ownerID, storedName)
 
-	u, err := s.presignClient.PresignedPutObject(ctx, s.bucket, key, expiry)
+	u, err := s.client.PresignedPutObject(ctx, s.bucket, key, expiry)
 	if err != nil {
 		return nil, fmt.Errorf("presign failed: %w", err)
 	}
