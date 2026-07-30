@@ -35,33 +35,6 @@ services:
     networks:
       - gov_network
 
-  # Файлын систем — системд оруулсан БҮХ файл (баримт, зураг, тайлан, дроны
-  # ортофото) эндээ хадгалагдана. API файлыг өөр дээрээ хадгалахгүй, зөвхөн
-  # objects-ийн замыг (file_url) DB-д бичнэ.
-  minio:
-    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
-    command: server /data --console-address ":9001"
-    environment:
-      TZ: Asia/Ulaanbaatar
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      # 9000 — S3 API, 9001 — админ консол
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 10s
-    restart: on-failure
-    logging: *default-logging
-    networks:
-      - gov_network
-
   api:
     build:
       context: ..
@@ -76,24 +49,6 @@ services:
       AUTH_DB_PORT: 5432
       # GeoServer нь gov_network дээрх "geoserver" сервис
       GEOSERVER_URL: http://geoserver:8080/geoserver
-      # Файлын систем — gov_network дээрх "minio" сервис.
-      # Эдгээрийг ЭНД зааж байгаа нь санамсаргүй биш: env_file (../.env) нь
-      # локал (localhost) утга агуулдаг тул container дотор буруу болно.
-      FILE_SERVER_MODE: s3
-      FILE_SERVER_BASE_URL: /api/files
-      S3_ENDPOINT: minio:9000
-      # Дроны ортофотог BROWSER-ээс ШУУД байршуулах presigned URL-ийг ЭНЭ
-      # хаягаар гарын үсэг зурна. Browser нь дотоод "minio:9000"-д хүрч
-      # чадахгүй тул нийтийн хаяг ЗААВАЛ хэрэгтэй.
-      #
-      # Default ТАВИХГҮЙ, ЗОРИУДААР: анхдагчаар "localhost" тавибал сервер
-      # дээр эндүүрэл чимээгүй гарна — presigned URL нь хэрэглэгчийн ӨӨРИЙН
-      # машин руу заасан байх тул зураг байршуулах үед л мэдэгдэнэ. Оронд нь
-      # deploy эхлэхэд шууд зогсож, доорх мессежийг харуулна.
-      S3_PUBLIC_ENDPOINT: '${S3_PUBLIC_ENDPOINT:?.env-д S3_PUBLIC_ENDPOINT зааж өгнө — browser-аас MinIO-д хандах хаяг (жишээ: http://<сервер-IP>:9000 эсвэл https://files.<домэйн>). Локал бол http://localhost:9000}'
-      # minio сервистэй ижил хэрэглэгч/нууц үг — зөрөхөөс сэргийлж нэг эх сурвалж
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       # Дроны ортофотогийн РЕНДЕРИЙН КЭШ. Эх сурвалж нь MinIO; GeoServer нь
       # растрыг локал замаар уншдаг тул кэш шаардлагатай. Кэш гээгдвэл API
       # файлын системээс дахин бүтээнэ (ensureDroneCache).
@@ -108,8 +63,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:${APP_PORT:-8080}/health || exit 1"]
       interval: 5s
@@ -123,7 +76,6 @@ services:
 
 volumes:
   postgres_data:
-  minio_data:
 
 networks:
   gov_network:

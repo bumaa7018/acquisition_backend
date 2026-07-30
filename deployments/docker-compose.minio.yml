@@ -1,0 +1,88 @@
+version: "3.9"
+
+# ФАЙЛЫН СИСТЕМ (MinIO) — системд оруулсан БҮХ файл (баримт, зураг, тайлан,
+# дроны ортофото) эндээ хадгалагдана. API файлыг өөр дээрээ хадгалахгүй,
+# зөвхөн object-ийн замыг (file_url) DB-д бичнэ.
+#
+# ЯАГААД ТУСДАА ФАЙЛ:
+#   1. Зөвхөн `scripts/deploy.sh`-ээр асна. `docker compose -f
+#      deployments/docker-compose.yml up` гэж гараар дуудахад MinIO хөндөгдөхгүй.
+#   2. Хасахад хялбар: ЭНЭ ФАЙЛЫГ УСТГАХАД болно. deploy.sh нь файл байгаа
+#      эсэхийг шалгадаг тул дараагийн deploy-д MinIO нь `--remove-orphans`-аар
+#      цэвэрлэгдэж, api-гийн `depends_on` болон S3 тохиргоо мөн арилна
+#      (compose нь -f файлуудын depends_on/environment-ыг нэмэлтээр нэгтгэдэг).
+#      Тэр үед файлын хадгалалтыг .env-ээр өөр зүг чиглүүлэх шаардлагатай —
+#      эс бөгөөс API асахдаа хадгалалт бэлдэж чадалгүй зогсоно.
+#
+# АНХААР: `--remove-orphans`-тай `up` дуудлагад ЭНЭ файл хамт байх ёстой.
+# Байхгүй бол compose нь ажиллаж байгаа minio-г "orphan" гэж үзэн УСТГАНА
+# (docker-compose.logging.yml-тай ижил байдал — deploy.sh дээр тайлбарласан).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    command: server /data --console-address ":9001"
+    environment:
+      TZ: Asia/Ulaanbaatar
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      # 9000 — S3 API, 9001 — админ консол.
+      # 9000 нь BROWSER-ээс хүрдэг байх ёстой: дроны ортофото (хэдэн GB)
+      # backend-ээр дамжихгүй, фронтендээс ШУУД энэ порт руу байршдаг.
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: on-failure
+    logging: *default-logging
+    networks:
+      - gov_network
+
+  # api-гийн файлын системтэй холбоотой тохиргоо — MinIO-той ХАМТ нэг файлд
+  # байлгаснаар хасахад бүхэлдээ арилна.
+  api:
+    environment:
+      FILE_SERVER_MODE: s3
+      FILE_SERVER_BASE_URL: /api/files
+      # gov_network дээрх "minio" сервис. Эдгээрийг ЭНД зааж байгаа нь
+      # санамсаргүй биш: env_file (../.env) нь host дээр ажиллуулах (air)
+      # локал утга агуулдаг тул container дотор буруу болно. compose-ийн
+      # `environment:` нь `env_file:`-ээс дээгүүр приоритеттэй.
+      S3_ENDPOINT: minio:9000
+      # minio сервистэй ижил хэрэглэгч/нууц үг — зөрөхөөс сэргийлж нэг эх сурвалж
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # S3_PUBLIC_ENDPOINT-ыг ЭНД ЗААХГҮЙ — ../.env-ээс уншигдана.
+      #
+      # Энэ нь browser дроны ортофотог ШУУД байршуулах presigned URL-ийн хаяг
+      # (жишээ: http://<сервер-IP>:9000). Заагаагүй бол API нь S3_ENDPOINT-ыг
+      # хэрэглэх ба container дотор тэр нь minio:9000 болох тул browser-аас
+      # хүрэхгүй — API асахад ЭНЭ талаар warning логлоно.
+      #
+      # Яагаад compose-д required (${VAR:?...}) болгож БОЛОХГҮЙ: interpolation
+      # унавал `up` огт хүрэхгүй тул postgres/minio/api БҮГД асахгүй болно.
+      # Нэг дроны тохиргооны улмаас бүх системийг унагаж болохгүй.
+    depends_on:
+      minio:
+        condition: service_healthy
+
+volumes:
+  minio_data:
+
+networks:
+  gov_network:
+    name: gov_network
+    external: true
