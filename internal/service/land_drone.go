@@ -27,11 +27,12 @@ type DronePublisher interface {
 	Configured() bool
 	// LayerName — WMS-д явуулах давхаргын бүтэн нэр (жишээ: "land:orto_ab12cd34")
 	LayerName(store string) string
-	// Publish — объектын URL-ийг давхарга болгон нийтэлж WGS84 хүрээг буцаана
-	Publish(ctx context.Context, store, objectURL string) (*geoserver.Bounds, error)
+	// Publish — объектын URL-ийг давхарга болгон нийтэлж WGS84 хүрээг буцаана.
+	// hasAlpha нь тунгалаг байдлын тохиргоог шийднэ (Configure-ийг үзнэ үү).
+	Publish(ctx context.Context, store, objectURL string, hasAlpha bool) (*geoserver.Bounds, error)
 	// Configure — давхаргын харуулах тохиргоог (тунгалаг байдал г.м.) дахин
 	// хэрэглэнэ. Идемпотент.
-	Configure(ctx context.Context, store string) error
+	Configure(ctx context.Context, store string, hasAlpha bool) error
 	// Delete — давхаргыг каталогоос хасна (объект хөндөгдөхгүй)
 	Delete(ctx context.Context, store string) error
 	Reset(ctx context.Context) error
@@ -305,6 +306,25 @@ func droneOriginalName(original, fallback string) string {
 	return name
 }
 
+// droneHasAlpha — растрт alpha зурвас байгаа эсэхийг объектын толгойгоос уншина.
+//
+// Тунгалаг байдлын тохиргоо ҮҮНЭЭС шалтгаална (geoserver.Client.Configure).
+// Толгойг уншиж чадаагүй бол ALPHA-ГҮЙ гэж үзнэ: тэр үед InputTransparentColor
+// хэрэглэгдэж хар фон арилна — alpha-тай файлыг андуурч тэгж тохируулбал фон
+// цагаан болох ч, alpha-гүй файлыг андуурвал фон ХАР болно. Хоёр талын эрсдэлээс
+// хар нь илүү элбэг тохиолддог тул анхдагчаар түүнийг шийднэ.
+func (s *landService) droneHasAlpha(ctx context.Context, direct filestorage.DirectUploader, fileURL string) bool {
+	info, err := readDroneRasterInfo(ctx, func(ctx context.Context, offset, length int64) ([]byte, error) {
+		return direct.ReadRange(ctx, fileURL, offset, length)
+	})
+	if err != nil {
+		slog.Warn("drone raster header read failed; assuming no alpha band",
+			"url", fileURL, "error", err)
+		return false
+	}
+	return info.HasAlpha
+}
+
 // publishDroneImage — объектыг GeoServer-т давхарга болгон нийтэлж, хүрээг
 // DB-д тэмдэглэнэ. Идемпотент.
 //
@@ -326,7 +346,8 @@ func (s *landService) publishDroneImage(ctx context.Context, img *domain.DroneIm
 	if err != nil {
 		return err
 	}
-	bounds, err := s.drone.Publisher.Publish(ctx, droneStoreName(img.FileName), objectURL)
+	bounds, err := s.drone.Publisher.Publish(ctx, droneStoreName(img.FileName), objectURL,
+		s.droneHasAlpha(ctx, direct, img.FileURL))
 	if err != nil {
 		return err
 	}
@@ -363,15 +384,20 @@ func (s *landService) RefreshDroneImages(ctx context.Context, acquisitionID uuid
 	if err != nil {
 		return nil, err
 	}
+	direct, _ := s.files.(filestorage.DirectUploader)
 
 	for _, img := range images {
 		// Хадгалагдсан хүрээ ХҮЧИНТЭЙ бол дахин нийтлэхгүй — зөвхөн ХАРУУЛАХ
 		// ТОХИРГООГ дахин хэрэглэнэ (код дээр тохиргоо зассан үед хуучин
-		// давхаргууд хоцорч хар фонтой үлдэхгүй).
+		// давхаргууд хоцорч хар/цагаан фонтой үлдэхгүй).
 		if img.Published && img.MinX != nil && img.MinY != nil &&
 			img.MaxX != nil && img.MaxY != nil &&
 			geoserver.ValidateWGS84Bounds(*img.MinX, *img.MinY, *img.MaxX, *img.MaxY) == nil {
-			if err := s.drone.Publisher.Configure(ctx, droneStoreName(img.FileName)); err != nil {
+			hasAlpha := false
+			if direct != nil {
+				hasAlpha = s.droneHasAlpha(ctx, direct, img.FileURL)
+			}
+			if err := s.drone.Publisher.Configure(ctx, droneStoreName(img.FileName), hasAlpha); err != nil {
 				slog.Warn("drone layer reconfigure failed", "file", img.FileName, "error", err)
 			}
 			continue

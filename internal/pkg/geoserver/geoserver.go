@@ -26,6 +26,12 @@ import (
 	"time"
 )
 
+// geoserverTimeout — GeoServer-ийн REST дуудлагын дээд хугацаа.
+//
+// Хамгийн урт дуудлага нь растрыг нээх (coverages?list=all / coverage үүсгэх)
+// — доорх NewClient-ийн тайлбарыг үзнэ үү.
+const geoserverTimeout = 10 * time.Minute
+
 type Client struct {
 	baseURL   string // .../geoserver
 	user      string
@@ -43,9 +49,21 @@ func NewClient(baseURL, user, pass, workspace string) *Client {
 		user:      user,
 		pass:      pass,
 		workspace: workspace,
-		// Алсын COG-ийг эхлээд нээхэд (толгой + overview уншилт) хэдэн секунд
-		// зарцуулж болно.
-		http: &http.Client{Timeout: 120 * time.Second},
+		// Алсын растрыг ПЕРВЫЙ УДАА нээх нь хамгийн үнэтэй үйлдэл: GeoServer
+		// толгойг (IFD) HTTP Range-ээр уншина.
+		//
+		// ЯАГААД ТАК УУЖУУ: жинхэнэ COG дээр энэ нь 1-2 секунд. Харин COG БИШ
+		// GeoTIFF-ийн толгой файлын төгсгөлд байдаг тул уншигч файлыг эхнээс
+		// дуустал мөлхөж унших ба энэ нь файлын хэмжээ, сүлжээнээс хамаарч
+		// минут хүрч болно (138 MB зураг дээр анхдагч тохиргоотой 230-350 сек
+		// хэмжигдсэн — тэр үед 120 сек-ийн timeout нь ЗУРГИЙГ БҮРМӨСӨН
+		// НИЙТЛЭГДЭХГҮЙ болгож байсан).
+		//
+		// geoserver-ийн блокийн хэмжээг томсгосноор (docker-compose дахь
+		// it.geosolutions.cog.default.header.length) тэр 4-6 сек болсон ч
+		// timeout нь ХАМГААЛАЛТ хэвээр байх ёстой: хэрэглэгч 500 MB хүртэл
+		// зураг оруулж болно.
+		http: &http.Client{Timeout: geoserverTimeout},
 	}
 }
 
@@ -127,14 +145,14 @@ func xmlEscape(s string) string { return xmlEscaper.Replace(s) }
 
 // Publish — объектын URL-ийг GeoServer-т давхарга болгон нийтэлж, WGS84 хүрээг
 // буцаана. Идемпотент: аль хэдийн байгаа store/coverage-ийг дахин үүсгэхгүй.
-func (c *Client) Publish(ctx context.Context, store, cogURL string) (*Bounds, error) {
+func (c *Client) Publish(ctx context.Context, store, cogURL string, hasAlpha bool) (*Bounds, error) {
 	if !c.Configured() {
 		return nil, errors.New("geoserver is not configured")
 	}
 	if err := c.ensureStore(ctx, store, cogURL); err != nil {
 		return nil, err
 	}
-	if err := c.ensureCoverage(ctx, store); err != nil {
+	if err := c.ensureCoverage(ctx, store, hasAlpha); err != nil {
 		return nil, err
 	}
 	return c.CoverageBounds(ctx, store)
@@ -187,7 +205,7 @@ func (c *Client) nativeCoverageName(ctx context.Context, store string) (string, 
 	return res.List.String[0], nil
 }
 
-func (c *Client) ensureCoverage(ctx context.Context, store string) error {
+func (c *Client) ensureCoverage(ctx context.Context, store string, hasAlpha bool) error {
 	coveragePath := c.storePath(store) + "/coverages/" + url.PathEscape(store)
 	ok, err := c.exists(ctx, coveragePath+".json")
 	if err != nil {
@@ -213,24 +231,44 @@ func (c *Client) ensureCoverage(ctx context.Context, store string) error {
 		slog.Info("geoserver coverage published", "store", store, "native", native)
 	}
 	// Давхцуулж харуулах тохиргоо — идемпотент.
-	return c.Configure(ctx, store)
+	return c.Configure(ctx, store, hasAlpha)
 }
 
 // Configure — давхаргыг ДАВХЦУУЛЖ харуулахад тохирсон болгоно. Идемпотент тул
 // тохиргоо код дээр солигдоход refresh нь хуучин давхаргад ч дахин хэрэглэнэ.
 //
-// InputTransparentColor=#000000 — ортофотогийн ХАР ЗАХ болон reproject хийхэд
-// булангуудад үүсэх хар дүүргэлтийг тунгалаг болгоно. Үүнгүйгээр зураг "хар
-// фонтой" харагдана. Гэрэлтүүлгийн бодит ХАР пиксел ч тунгалаг болох нь
-// ортофотод хүлээн зөвшөөрөгдсөн зардал (хар нь бараг үргэлж nodata).
+// hasAlpha — растрт alpha зурвас байгаа эсэх. Тунгалаг байдлыг хэрхэн шийдэх нь
+// ҮҮНЭЭС ШАЛТГААЛНА, хоёр тохиолдлыг ХОЛИХ БОЛОМЖГҮЙ:
+//
+//	alpha БАЙХГҮЙ (3 зурваст RGB, ихэвчлэн JPEG-шахалттай):
+//	  nodata нь бүтэн ХАР дүүргэлт болж хадгалагддаг тул
+//	  InputTransparentColor=#000000 хэрэгтэй. Хэмжсэн (190 MB ортофото, захын
+//	  6% фрэйм дээр): үүнгүйгээр хар 59.4%, үүнтэй 5.5% болж буурна.
+//
+//	alpha БАЙГАА (4 зурваст RGBA):
+//	  InputTransparentColor-ыг ТАВИХ БОЛОМЖГҮЙ. Тавьбал GeoServer тунгалаг
+//	  байдлыг өнгө тааруулж ӨӨРӨӨ бүтээх ба файлын alpha зурвасыг ХАЯНА. Alpha
+//	  доорх RGB нь ихэвчлэн ЦАГААН байдаг тул фон бүтэн цагаан болно. Хэмжсэн
+//	  (138 MB, alpha-тай ортофото): ITC-тэй үед тунгалаг 4.7%/цагаан 33.0%,
+//	  ITC-гүй үед тунгалаг 37.6%/цагаан 0.0%.
 //
 // ЯАГААД Output- БИШ Input-: OutputTransparentColor нь ImageMosaic-ийн
 // параметр — ердийн GeoTIFF/COG store дээр GeoServer түүнийг ХАДГАЛДАГ ч
-// УНШИГЧ нь мэдэхгүй тул нөлөө үзүүлэхгүй (хар фон хэвээр үлдэнэ). Хэмжсэн
-// зөрүү: Input- үед тунгалаг 38%/хар 2.4%, Output- үед тунгалаг 0%/хар 40.4%.
-func (c *Client) Configure(ctx context.Context, store string) error {
+// УНШИГЧ нь мэдэхгүй тул нөлөө үзүүлэхгүй (хар фон хэвээр үлдэнэ).
+//
+// ҮЛДЭХ ХЯЗГААР: InputTransparentColor нь өнгийг ЯГ тааруулдаг (tolerance
+// байхгүй). JPEG нь гэмтэлтэй шахалт тул хар дүүргэлтийн зах (1,1,2) г.м.
+// болж хувирдаг ба тааруулалтад өртөхгүй — иймд нимгэн хар хүрээ ҮЛДЭНЭ
+// (хэмжсэн 5.5%). Энэ нь overview-ээс биш ЭХ ФАЙЛД шигдсэн: OverviewPolicy
+// QUALITY/IGNORE хоёр ижил хэмжигдсэн. Бүрэн арилгахын тулд эх файлд alpha /
+// mask нэмэх шаардлагатай (COG болгон хөрвүүлэх үед).
+func (c *Client) Configure(ctx context.Context, store string, hasAlpha bool) error {
+	transparent := `{"string":["InputTransparentColor","#000000"]},`
+	if hasAlpha {
+		transparent = ""
+	}
 	body := []byte(`{"coverage":{"parameters":{"entry":[` +
-		`{"string":["InputTransparentColor","#000000"]},` +
+		transparent +
 		`{"string":["OverviewPolicy","QUALITY"]}` +
 		`]}}}`)
 	status, res, err := c.do(ctx, http.MethodPut,
@@ -241,6 +279,31 @@ func (c *Client) Configure(ctx context.Context, store string) error {
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("coverage config failed (%d): %s", status, snippet(res))
+	}
+	// Тохиргоо СОЛИГДСОН тул GeoWebCache-ийн хуучин тайлуудыг хаях ЗААВАЛ.
+	// Frontend нь тайлаар (TILED=true) дуудаж GWC-ийн кэшийг ашигладаг ба
+	// /rest/reset нь тайлын кэшийг ЦЭВЭРЛЭДЭГГҮЙ — иймд үүнгүйгээр шинэ
+	// тохиргоо хэрэглэгчид ХАРАГДАХГҮЙ (хэмжсэн: тунгалаг фонгүй хуучин тайл
+	// truncate хийх хүртэл үйлдсээр байв).
+	if err := c.truncateCache(ctx, store); err != nil {
+		// Кэш хаяж чадаагүй нь тохиргоог бүтэлгүйтсэн гэж үзэх шалтгаан биш —
+		// тайл нь expire болоод шинэчлэгдэнэ.
+		slog.Warn("gwc truncate failed", "layer", c.LayerName(store), "error", err)
+	}
+	return nil
+}
+
+// truncateCache — давхаргын кэшлэгдсэн тайлуудыг GeoWebCache-ээс хаяна.
+func (c *Client) truncateCache(ctx context.Context, store string) error {
+	body := []byte(`<truncateLayer><layerName>` +
+		xmlEscape(c.LayerName(store)) + `</layerName></truncateLayer>`)
+	status, res, err := c.do(ctx, http.MethodPost, "/gwc/rest/masstruncate", "text/xml", body)
+	if err != nil {
+		return err
+	}
+	// Хэзээ ч кэшлэгдээгүй давхарга дээр 400 буцаж болно — асуудал биш.
+	if status != http.StatusOK && status != http.StatusBadRequest {
+		return fmt.Errorf("gwc masstruncate failed (%d): %s", status, snippet(res))
 	}
 	return nil
 }
