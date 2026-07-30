@@ -152,7 +152,11 @@ type LandDroneService interface {
 	// зөвшөөрөл. Байт API-аар дамжихгүй тул файлын хэмжээ хязгаарлагдахгүй.
 	CreateDroneUploadURL(ctx context.Context, acquisitionID uuid.UUID, originalName string) (*filestorage.PresignedUpload, error)
 	// RegisterDroneImage — шууд байршуулсан объектыг шалгаж бүртгэнэ.
-	RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error)
+	// Хоёр дахь буцаах утга нь GeoServer-т нийтлэх ҮЕД гарсан алдаа. Бүртгэл
+	// бүтсэн (файл хадгалалтад бүтэн) тул error БИШ — гэхдээ шалтгааныг
+	// хэрэглэгчид харуулахгүй бол зөвхөн серверийн лог дээр үлдэж, асуудлыг
+	// олох боломжгүй болно.
+	RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error, error)
 	RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
 	DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error
 	// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр ("land:drone")

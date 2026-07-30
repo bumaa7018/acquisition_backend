@@ -177,37 +177,37 @@ func (s *landService) RegisterDroneImage(
 	storedName string,
 	originalName string,
 	uploadedBy *uuid.UUID,
-) (*domain.DroneImage, error) {
+) (*domain.DroneImage, error, error) {
 	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
-		return nil, ErrDroneNotConfigured
+		return nil, nil, ErrDroneNotConfigured
 	}
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	direct, ok := s.files.(filestorage.DirectUploader)
 	if !ok {
-		return nil, ErrDroneDirectUploadUnsupported
+		return nil, nil, ErrDroneDirectUploadUnsupported
 	}
 
 	// Нэрийг хатуу шалгана — зөвхөн presign гаргахад хэрэглэсэн тэмдэгтүүд.
 	// (Зам дамжих `..`, `/` бүрэн хаагдана.)
 	storedName = filepath.Base(storedName)
 	if storedName == "" || len(storedName) > 128 || !droneStoredName.MatchString(storedName) {
-		return nil, ErrDroneFileType
+		return nil, nil, ErrDroneFileType
 	}
 	if ext := strings.ToLower(filepath.Ext(storedName)); ext != ".tif" && ext != ".tiff" {
-		return nil, ErrDroneFileType
+		return nil, nil, ErrDroneFileType
 	}
 
 	// Давхардлыг эндээс шалгана — DB-ийн unique зөрчил дээр объектыг устгах
 	// логик руу орвол АЛЬ ХЭДИЙН бүртгэлтэй зургийн файлыг устгах болно.
 	existing, err := s.landRepo.ListDroneImages(ctx, acquisitionID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, img := range existing {
 		if img.FileName == storedName {
-			return nil, ErrDroneAlreadyRegistered
+			return nil, nil, ErrDroneAlreadyRegistered
 		}
 	}
 
@@ -215,22 +215,22 @@ func (s *landService) RegisterDroneImage(
 	stat, err := direct.Stat(ctx, fileURL)
 	if err != nil {
 		// Байршуулалт бүтээгүй/тасалдсан — объект хадгалалтад байхгүй.
-		return nil, fmt.Errorf("%w: %v", ErrDroneObjectMissing, err)
+		return nil, nil, fmt.Errorf("%w: %v", ErrDroneObjectMissing, err)
 	}
 	if stat.SizeBytes <= 0 {
-		return nil, ErrDroneObjectMissing
+		return nil, nil, ErrDroneObjectMissing
 	}
 
 	head, err := direct.ReadRange(ctx, fileURL, 0, 4)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !isGeoTIFF(head) {
 		// Бид зөвшөөрөл гаргасан объект — GeoTIFF биш бол хог болгож үлдээхгүй.
 		if delErr := s.files.Delete(ctx, fileURL); delErr != nil {
 			slog.Warn("drone object cleanup failed", "file", storedName, "error", delErr)
 		}
-		return nil, ErrDroneFileType
+		return nil, nil, ErrDroneFileType
 	}
 
 	img := &domain.DroneImage{
@@ -250,7 +250,7 @@ func (s *landService) RegisterDroneImage(
 		// боломжтой; хоцорсон объектыг лог дээрээс хянана.
 		slog.Warn("drone image registration failed; object kept in file storage",
 			"file", storedName, "url", fileURL, "error", err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	// GeoServer-т давхарга болгон НЭН ДАРУЙ нийтэлнэ. Ингэснээр frontend
@@ -259,8 +259,10 @@ func (s *landService) RegisterDroneImage(
 	// Бүтэлгүйтвэл АЛДАА БУЦААХГҮЙ: хэрэглэгчийн файл хадгалалтад бүтэн орж,
 	// бүртгэгдсэн байна. Зөвхөн давхарга үүсээгүй (published=false) тул
 	// "GeoServer шинэчлэх" товчоор дахин оролдоно.
+	var publishErr error
 	if err := s.publishDroneImage(ctx, img); err != nil {
 		slog.Warn("drone publish failed on register", "file", img.FileName, "error", err)
+		publishErr = err
 	}
 
 	s.auditLog(ctx, "uploaded", domain.AuditResourceDocument, img.ID.String(),
@@ -272,7 +274,7 @@ func (s *landService) RegisterDroneImage(
 			"published":     img.Published,
 			"direct_upload": true,
 		})
-	return img, nil
+	return img, publishErr, nil
 }
 
 // droneOriginalName — харуулах нэр. Клиентээс ирдэг тул цэвэрлэж, хэтэрхий

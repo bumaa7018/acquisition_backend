@@ -20,6 +20,11 @@ type droneImageResponse struct {
 	// давхаргатай (GeoServer растрыг файлын системээс шууд уншина) тул
 	// нэр нь зураг бүрт ӨӨР.
 	LayerName string `json:"layer_name"`
+	// PublishError — GeoServer-т давхарга үүсгэхэд гарсан алдаа (байвал).
+	// Зураг хадгалалтад бүтэн орсон тул хүсэлт нь бүтсэн гэж тооцогдоно —
+	// гэхдээ шалтгааныг ХАРУУЛАХГҮЙ бол хэрэглэгч "Шинэчлэх дарна уу" гэсэн
+	// ерөнхий мессежээс өөр юу ч харахгүй, шалтгаан серверийн лог дээр үлдэнэ.
+	PublishError string `json:"publish_error,omitempty"`
 }
 
 func (h *LandHandler) toDroneImageResponse(img *domain.DroneImage) droneImageResponse {
@@ -152,12 +157,16 @@ func (h *LandHandler) RegisterDroneImage(c *gin.Context) {
 		}
 	}
 
-	img, err := h.svc.RegisterDroneImage(c.Request.Context(), id, req.StoredName, req.OriginalName, uploadedBy)
+	img, publishErr, err := h.svc.RegisterDroneImage(c.Request.Context(), id, req.StoredName, req.OriginalName, uploadedBy)
 	if err != nil {
 		droneError(c, err)
 		return
 	}
-	response.Created(c, h.toDroneImageResponse(img))
+	res := h.toDroneImageResponse(img)
+	if publishErr != nil {
+		res.PublishError = publishErr.Error()
+	}
+	response.Created(c, res)
 }
 
 // RefreshDroneImages godoc

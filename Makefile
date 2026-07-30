@@ -3,11 +3,17 @@
 BINARY=server
 CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
-# up/reset-д ашиглана — Loki/Promtail/Grafana мөн адил "deployments" project-д
-# багтдаг тул зөвхөн үндсэн compose файлаар --remove-orphans ажиллуулбал
-# тэдгээрийг "orphan" гэж үзэж УСТГАЖ ЧАДНА. Хоёр файлыг ХАМТ дамжуулснаар
-# compose бүх зорилтот сервисийг таньж, буруу устгахаас сэргийлнэ.
-FULL_COMPOSE=docker compose -f deployments/docker-compose.yml -f deployments/docker-compose.logging.yml --env-file .env
+# Файлын систем (MinIO) — хасах бол compose файлыг устгахад болно, тиймээс
+# байгаа эсэхийг wildcard-аар шалгана (scripts/deploy.sh-ийн адил).
+MINIO_FILE=deployments/docker-compose.minio.yml
+MINIO_ARG=$(if $(wildcard $(MINIO_FILE)),-f $(MINIO_FILE))
+# up/down/reset-д ашиглана — MinIO болон Loki/Promtail/Grafana мөн адил
+# "deployments" project-д багтдаг тул зөвхөн үндсэн compose файлаар
+# --remove-orphans ажиллуулбал тэдгээрийг "orphan" гэж үзэж УСТГАЖ ЧАДНА. Бүх
+# файлыг ХАМТ дамжуулснаар compose бүх зорилтот сервисийг таньж, буруу
+# устгахаас сэргийлнэ. Мөн api-гийн S3 тохиргоо (S3_ENDPOINT=minio:9000) нь
+# minio файл дотор байдаг тул түүнгүйгээр api хадгалалт бэлдэж чадалгүй зогсоно.
+FULL_COMPOSE=docker compose -f deployments/docker-compose.yml $(MINIO_ARG) -f deployments/docker-compose.logging.yml --env-file .env
 GOPATH_BIN=$(shell go env GOPATH 2>/dev/null)/bin
 SWAG=$(GOPATH_BIN)/swag
 GOLANGCI_LINT=$(GOPATH_BIN)/golangci-lint
@@ -83,15 +89,17 @@ up:
 	$(FULL_COMPOSE) up -d --remove-orphans --pull missing --wait
 
 down:
-	$(COMPOSE) down
+	$(FULL_COMPOSE) down
 
+# АНХААР: -v нь minio_data volume-ыг МӨН устгана — файлын системд байршуулсан
+# бүх файл (баримт, зураг, дроны ортофото) DB-тэй хамт цэвэрлэгдэнэ.
 reset:
-	$(COMPOSE) down -v
+	$(FULL_COMPOSE) down -v
 	$(COMPOSE) build --no-cache --pull
 	$(FULL_COMPOSE) up -d --remove-orphans --pull missing --wait
 
 logs:
-	$(COMPOSE) logs -f
+	$(FULL_COMPOSE) logs -f
 
 seed:
 	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
