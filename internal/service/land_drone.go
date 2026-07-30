@@ -57,6 +57,8 @@ var (
 	// (байршуулалт тасалдсан эсвэл хийгдээгүй).
 	ErrDroneObjectMissing     = errors.New("uploaded object not found in file storage")
 	ErrDroneAlreadyRegistered = errors.New("drone image already registered")
+	// ErrDroneTooLarge — зураг зөвшөөрөгдсөн хэмжээнээс давсан.
+	ErrDroneTooLarge = errors.New("drone image exceeds the maximum allowed size")
 
 	// Файлын нэрийг GeoServer-ийн CQL-д ашиглах тул зөвхөн аюулгүй тэмдэгт
 	// үлдээнэ (хоосон зай, кирилл, хашилт г.м. давхаргын нэрэнд асуудал үүсгэнэ).
@@ -126,9 +128,17 @@ func droneFileName(original string) string {
 	return fmt.Sprintf("%s_%s%s", stem, uuid.NewString()[:8], ext)
 }
 
-// droneUploadTTL — байршуулах зөвшөөрлийн хүчинтэй хугацаа. Хэдэн GB ортофото
+// droneUploadTTL — байршуулах зөвшөөрлийн хүчинтэй хугацаа. Том ортофото
 // сүлжээгээр удаан явж болох тул уужуу авна.
 const droneUploadTTL = 6 * time.Hour
+
+// maxDroneSizeBytes — дроны зургийн дээд хэмжээ (500 MB).
+//
+// Frontend мөн адил шалгадаг ч энэ нь ЖИНХЭНЭ хаалт: файл нь presigned URL-ээр
+// ШУУД хадгалалт руу явдаг тул зөвхөн браузерын шалгалтад найдаж болохгүй.
+// Хэмжээг бүртгэх үед хадгалалтаас (Stat) уншиж шалгана — клиентийн мэдүүлсэн
+// утга биш.
+const maxDroneSizeBytes int64 = 500 * 1024 * 1024
 
 // CreateDroneUploadURL — browser файлыг ШУУД файлын систем руу тавих зөвшөөрөл
 // гаргана.
@@ -219,6 +229,14 @@ func (s *landService) RegisterDroneImage(
 	}
 	if stat.SizeBytes <= 0 {
 		return nil, nil, ErrDroneObjectMissing
+	}
+	if stat.SizeBytes > maxDroneSizeBytes {
+		// Хэт том объектыг хадгалалтад хог болгож үлдээхгүй — бүртгэгдэхгүй тул
+		// хэн ч түүнийг устгах боломжгүй болно.
+		if delErr := s.files.Delete(ctx, fileURL); delErr != nil {
+			slog.Warn("oversized drone object cleanup failed", "file", storedName, "error", delErr)
+		}
+		return nil, nil, fmt.Errorf("%w: %d > %d bytes", ErrDroneTooLarge, stat.SizeBytes, maxDroneSizeBytes)
 	}
 
 	head, err := direct.ReadRange(ctx, fileURL, 0, 4)

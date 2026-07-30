@@ -81,6 +81,7 @@ const (
 	ErrDroneFileType          Key = "drone_file_type"
 	ErrDroneUploadIncomplete  Key = "drone_upload_incomplete"
 	ErrDroneAlreadyRegistered Key = "drone_already_registered"
+	ErrDroneTooLarge          Key = "drone_too_large"
 	ErrFileOpen               Key = "file_open"
 	ErrFileRead               Key = "file_read"
 	ErrFileType               Key = "file_type"
@@ -144,6 +145,7 @@ var messages = map[Key][2]string{
 	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
 	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},
 	ErrDroneAlreadyRegistered: {"Зураг аль хэдийн бүртгэгдсэн байна", "image is already registered"},
+	ErrDroneTooLarge:          {"Зургийн хэмжээ хэтэрсэн байна. Дээд хязгаар 500 MB", "image exceeds the maximum allowed size of 500 MB"},
 	ErrFileOpen:               {"Файл нээхэд алдаа гарлаа", "failed to open file"},
 	ErrFileRead:               {"Файл уншихад алдаа гарлаа", "failed to read file"},
 	ErrFileType:               {"Зөвхөн PDF файл зөвшөөрөгдөнө", "only PDF files are allowed"},

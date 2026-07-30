@@ -51,6 +51,8 @@ func droneError(c *gin.Context, err error) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrDroneUploadIncomplete)
 	case errors.Is(err, service.ErrDroneAlreadyRegistered):
 		response.Abort(c, http.StatusConflict, i18n.ErrDroneAlreadyRegistered)
+	case errors.Is(err, service.ErrDroneTooLarge):
+		response.Abort(c, http.StatusRequestEntityTooLarge, i18n.ErrDroneTooLarge)
 	case errors.Is(err, service.ErrDroneNotConfigured),
 		errors.Is(err, service.ErrDroneDirectUploadUnsupported):
 		response.Abort(c, http.StatusServiceUnavailable, i18n.ErrInternalServer)
