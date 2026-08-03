@@ -176,14 +176,16 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 // @Router       /users [post]
 func (h *UserHandler) Create(c *gin.Context) {
 	var req struct {
-		Username  string   `json:"username" validate:"required"`
-		Email     string   `json:"email"`
-		Password  string   `json:"password" validate:"required,min=8"`
-		FirstName string   `json:"first_name" validate:"required"`
-		LastName  string   `json:"last_name" validate:"required"`
-		Position  string   `json:"position"`
-		IsActive  *bool    `json:"is_active"`
-		RoleIDs   []string `json:"role_ids"`
+		Username   string        `json:"username" validate:"required"`
+		Email      string        `json:"email"`
+		Password   string        `json:"password" validate:"required,min=8"`
+		FirstName  string        `json:"first_name"`
+		LastName   string        `json:"last_name"`
+		Position   string        `json:"position"`
+		EmployeeID *uuid.UUID    `json:"employee_id"`
+		Employee   *employeeBody `json:"employee"`
+		IsActive   *bool         `json:"is_active"`
+		RoleIDs    []string      `json:"role_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.AbortValidation(c, err)
@@ -215,14 +217,27 @@ func (h *UserHandler) Create(c *gin.Context) {
 		roles = append(roles, role)
 	}
 
+	var employeeReq *service.CreateEmployeeRequest
+	if req.Employee != nil {
+		converted, err := employeeReqFromBody(*req.Employee)
+		if err != nil {
+			response.AbortValidation(c, err)
+			return
+		}
+		converted.CreatedBy = currentUserEmail(c)
+		converted.UpdatedBy = converted.CreatedBy
+		employeeReq = &converted
+	}
 	user, err := h.userSvc.Create(c.Request.Context(), service.CreateUserRequest{
-		Username:  req.Username,
-		Email:     req.Email,
-		Password:  req.Password,
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
-		Position:  req.Position,
-		IsActive:  req.IsActive,
+		Username:   req.Username,
+		Email:      req.Email,
+		Password:   req.Password,
+		FirstName:  req.FirstName,
+		LastName:   req.LastName,
+		Position:   req.Position,
+		EmployeeID: req.EmployeeID,
+		Employee:   employeeReq,
+		IsActive:   req.IsActive,
 	})
 	if err != nil {
 		response.Error(c, err)

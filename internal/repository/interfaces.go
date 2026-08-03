@@ -11,9 +11,11 @@ import (
 
 type UserRepository interface {
 	Create(ctx context.Context, user *domain.User) error
+	CreateWithEmployee(ctx context.Context, user *domain.User, employee *domain.Employee, person *domain.Person) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
+	GetByEmployeeID(ctx context.Context, employeeID uuid.UUID) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	// UpdatePassword — Update() нь password баганыг хөндөхгүй тул нууц үг
 	// шинэчлэхэд тусад нь хэрэглэнэ.
@@ -28,6 +30,47 @@ type UserRepository interface {
 	// IsSessionValid — тухайн issuedAt хугацаанд олгогдсон токен хэрэглэгчийн
 	// эх цэгээс хойш байвал (буюу эх цэг тавиагүй бол) true.
 	IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
+}
+
+type OrganizationRepository interface {
+	ListOrganizations(ctx context.Context, filter domain.HRFilter) ([]*domain.Organization, int64, error)
+	GetOrganizationByID(ctx context.Context, id uuid.UUID) (*domain.Organization, error)
+	CreateOrganization(ctx context.Context, org *domain.Organization) error
+	UpdateOrganization(ctx context.Context, org *domain.Organization) error
+	DeleteOrganization(ctx context.Context, id uuid.UUID) error
+}
+
+type DepartmentRepository interface {
+	ListDepartments(ctx context.Context, filter domain.HRFilter) ([]*domain.Department, int64, error)
+	GetDepartmentByID(ctx context.Context, id uuid.UUID) (*domain.Department, error)
+	CreateDepartment(ctx context.Context, dep *domain.Department) error
+	UpdateDepartment(ctx context.Context, dep *domain.Department) error
+	DeleteDepartment(ctx context.Context, id uuid.UUID) error
+}
+
+type PositionRepository interface {
+	ListPositions(ctx context.Context, filter domain.HRFilter) ([]*domain.Position, int64, error)
+	GetPositionByID(ctx context.Context, id uuid.UUID) (*domain.Position, error)
+	CreatePosition(ctx context.Context, pos *domain.Position) error
+	UpdatePosition(ctx context.Context, pos *domain.Position) error
+	DeletePosition(ctx context.Context, id uuid.UUID) error
+}
+
+type PersonRepository interface {
+	ListPersons(ctx context.Context, filter domain.HRFilter) ([]*domain.Person, int64, error)
+	GetPersonByID(ctx context.Context, id uuid.UUID) (*domain.Person, error)
+	CreatePerson(ctx context.Context, person *domain.Person) error
+	UpdatePerson(ctx context.Context, person *domain.Person) error
+	DeletePerson(ctx context.Context, id uuid.UUID) error
+}
+
+type EmployeeRepository interface {
+	ListEmployees(ctx context.Context, filter domain.HRFilter) ([]*domain.Employee, int64, error)
+	GetEmployeeByID(ctx context.Context, id uuid.UUID) (*domain.Employee, error)
+	CreateEmployee(ctx context.Context, employee *domain.Employee) error
+	CreateEmployeeWithPerson(ctx context.Context, employee *domain.Employee, person *domain.Person) error
+	UpdateEmployee(ctx context.Context, employee *domain.Employee) error
+	DeleteEmployee(ctx context.Context, id uuid.UUID) error
 }
 
 type RoleRepository interface {

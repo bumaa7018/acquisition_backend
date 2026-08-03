@@ -23,11 +23,11 @@ func NewUserRepo(db *pgxpool.Pool) *UserRepo {
 }
 
 func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
-	query := `INSERT INTO users (id, username, email, password, first_name, last_name, position, is_active, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+	query := `INSERT INTO users (id, username, email, password, first_name, last_name, position, employee_id, is_active, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 	_, err := r.db.Exec(ctx, query,
 		u.ID, u.Username, u.Email, u.Password, u.FirstName, u.LastName,
-		u.Position, u.IsActive, u.CreatedAt, u.UpdatedAt)
+		u.Position, u.EmployeeID, u.IsActive, u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
 			return domain.ErrAlreadyExists
@@ -37,13 +37,76 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	return nil
 }
 
+func (r *UserRepo) CreateWithEmployee(ctx context.Context, u *domain.User, e *domain.Employee, p *domain.Person) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if p != nil {
+		if err := insertPerson(ctx, tx, p); err != nil {
+			return err
+		}
+		e.PersonID = p.ID
+	}
+	if e != nil {
+		if err := insertEmployee(ctx, tx, e); err != nil {
+			return err
+		}
+		u.EmployeeID = &e.ID
+		if err := fillUserFromEmployee(ctx, tx, u, e.ID); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO users (id, username, email, password, first_name, last_name, position, employee_id, is_active, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		u.ID, u.Username, u.Email, u.Password, u.FirstName, u.LastName, u.Position, u.EmployeeID, u.IsActive, u.CreatedAt, u.UpdatedAt)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") {
+			return domain.ErrAlreadyExists
+		}
+		return mapHRError(err)
+	}
+	return tx.Commit(ctx)
+}
+
+func fillUserFromEmployee(ctx context.Context, q hrQuerier, u *domain.User, employeeID uuid.UUID) error {
+	var personType, positionName string
+	var lastName, firstName, legalName *string
+	err := q.QueryRow(ctx, `
+		SELECT p.person_type, p.last_name, p.first_name, p.legal_name, pos.name
+		FROM employee e
+		JOIN person p ON p.id=e.person_id
+		JOIN position pos ON pos.id=e.position_id
+		WHERE e.id=$1 AND e.deleted_at IS NULL`, employeeID).
+		Scan(&personType, &lastName, &firstName, &legalName, &positionName)
+	if err != nil {
+		return mapHRError(err)
+	}
+	u.Position = positionName
+	if personType == "legal" {
+		u.LastName = "Хуулийн этгээд"
+		if legalName != nil {
+			u.FirstName = *legalName
+		}
+	} else {
+		if lastName != nil {
+			u.LastName = *lastName
+		}
+		if firstName != nil {
+			u.FirstName = *firstName
+		}
+	}
+	return nil
+}
+
 func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), employee_id, is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE id = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.EmployeeID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -51,6 +114,9 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, err
 		return nil, err
 	}
 	if err := r.attachRoles(ctx, []*domain.User{u}); err != nil {
+		return nil, err
+	}
+	if err := r.attachEmployees(ctx, []*domain.User{u}); err != nil {
 		return nil, err
 	}
 	return u, nil
@@ -95,12 +161,12 @@ func (r *UserRepo) attachRoles(ctx context.Context, users []*domain.User) error 
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), employee_id, is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE email = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, email).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.EmployeeID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -111,12 +177,28 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, 
 }
 
 func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
-	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), employee_id, is_active, created_at, updated_at, deleted_at
 	          FROM users WHERE username = $1 AND deleted_at IS NULL`
 	u := &domain.User{}
 	err := r.db.QueryRow(ctx, query, username).Scan(
 		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-		&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+		&u.Position, &u.EmployeeID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return u, nil
+}
+
+func (r *UserRepo) GetByEmployeeID(ctx context.Context, employeeID uuid.UUID) (*domain.User, error) {
+	query := `SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), employee_id, is_active, created_at, updated_at, deleted_at
+	          FROM users WHERE employee_id = $1 AND deleted_at IS NULL`
+	u := &domain.User{}
+	err := r.db.QueryRow(ctx, query, employeeID).Scan(
+		&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
+		&u.Position, &u.EmployeeID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -127,10 +209,10 @@ func (r *UserRepo) GetByUsername(ctx context.Context, username string) (*domain.
 }
 
 func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
-	query := `UPDATE users SET username=$1, email=$2, first_name=$3, last_name=$4, position=$5, is_active=$6, updated_at=$7
-	          WHERE id=$8 AND deleted_at IS NULL`
+	query := `UPDATE users SET username=$1, email=$2, first_name=$3, last_name=$4, position=$5, employee_id=$6, is_active=$7, updated_at=$8
+	          WHERE id=$9 AND deleted_at IS NULL`
 	res, err := r.db.Exec(ctx, query,
-		u.Username, u.Email, u.FirstName, u.LastName, u.Position, u.IsActive, u.UpdatedAt, u.ID)
+		u.Username, u.Email, u.FirstName, u.LastName, u.Position, u.EmployeeID, u.IsActive, u.UpdatedAt, u.ID)
 	if err != nil {
 		return err
 	}
@@ -201,7 +283,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 
 	offset := (f.Page - 1) * f.PageSize
 	args = append(args, f.PageSize, offset)
-	query := fmt.Sprintf(`SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), is_active, created_at, updated_at, deleted_at
+	query := fmt.Sprintf(`SELECT id, username, email, password, first_name, last_name, COALESCE(position, ''), employee_id, is_active, created_at, updated_at, deleted_at
 	                       FROM users %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`,
 		where, argIdx, argIdx+1)
 
@@ -215,7 +297,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	for rows.Next() {
 		u := &domain.User{}
 		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Password, &u.FirstName, &u.LastName,
-			&u.Position, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt); err != nil {
+			&u.Position, &u.EmployeeID, &u.IsActive, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, u)
@@ -227,7 +309,44 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	if err := r.attachRoles(ctx, users); err != nil {
 		return nil, 0, err
 	}
+	if err := r.attachEmployees(ctx, users); err != nil {
+		return nil, 0, err
+	}
 	return users, total, nil
+}
+
+func (r *UserRepo) attachEmployees(ctx context.Context, users []*domain.User) error {
+	if len(users) == 0 {
+		return nil
+	}
+	byEmployeeID := make(map[uuid.UUID]*domain.User)
+	ids := make([]uuid.UUID, 0, len(users))
+	for _, u := range users {
+		if u.EmployeeID != nil {
+			byEmployeeID[*u.EmployeeID] = u
+			ids = append(ids, *u.EmployeeID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := r.db.Query(ctx, employeeSelectSQL()+` WHERE e.id = ANY($1) AND e.deleted_at IS NULL`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		e := &domain.Employee{}
+		p := &domain.Person{}
+		if err := scanEmployeeRow(rows, e, p); err != nil {
+			return err
+		}
+		e.Person = p
+		if u := byEmployeeID[e.ID]; u != nil {
+			u.Employee = e
+		}
+	}
+	return rows.Err()
 }
 
 // InvalidateSessions — хэрэглэгчийн токен эх цэгийг NOW() болгож, өмнө олгогдсон

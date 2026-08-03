@@ -167,6 +167,26 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 					ctx, opts.Files, opts.LegacyDroneDir)
 			},
 		},
+		{
+			name: "000018_hr_permissions",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRPermissions(ctx)
+			},
+		},
+		{
+			name: "000019_hr_backfill",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRBackfill(ctx)
+			},
+		},
+		{
+			// 000019 нь ажилтныг department_id=NULL-тай үүсгэсэн тул "Алба,
+			// хэлтэс" лавлах хоосон, "Ажилтан" дээр хэлтэс харагдахгүй байв.
+			name: "000020_hr_departments",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRDepartments(ctx)
+			},
+		},
 	})
 
 	return nil

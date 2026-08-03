@@ -1,0 +1,7 @@
+DROP INDEX IF EXISTS ux_users_employee_active;
+ALTER TABLE users DROP COLUMN IF EXISTS employee_id;
+DROP TABLE IF EXISTS employee;
+DROP TABLE IF EXISTS person;
+DROP TABLE IF EXISTS position;
+DROP TABLE IF EXISTS department;
+DROP TABLE IF EXISTS organization;

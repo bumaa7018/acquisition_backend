@@ -30,6 +30,10 @@ var defaultPermissions = []domain.Permission{
 	{Name: "admin:create", Description: "Лавлах мэдээлэл нэмэх", Resource: "admin", Action: "create"},
 	{Name: "admin:update", Description: "Лавлах мэдээлэл засах", Resource: "admin", Action: "update"},
 	{Name: "admin:delete", Description: "Лавлах мэдээлэл устгах", Resource: "admin", Action: "delete"},
+	{Name: "hr:read", Description: "Хүний нөөцийн бүртгэл харах", Resource: "hr", Action: "read"},
+	{Name: "hr:create", Description: "Хүний нөөцийн бүртгэл нэмэх", Resource: "hr", Action: "create"},
+	{Name: "hr:update", Description: "Хүний нөөцийн бүртгэл засах", Resource: "hr", Action: "update"},
+	{Name: "hr:delete", Description: "Хүний нөөцийн бүртгэл устгах", Resource: "hr", Action: "delete"},
 	{Name: "audit:read", Description: "Ажилтны үйлдлийн лог харах", Resource: "audit", Action: "read"},
 	{Name: "land:read", Description: "Read land acquisitions", Resource: "land", Action: "read"},
 	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
@@ -40,6 +44,257 @@ var defaultPermissions = []domain.Permission{
 	{Name: "compensation:read", Description: "Нөхөх олговор/үнэлгээ харах", Resource: "compensation", Action: "read"},
 	{Name: "compensation:create", Description: "Нөхөх олговор/үнэлгээ бүртгэх", Resource: "compensation", Action: "create"},
 	{Name: "compensation:update", Description: "Нөхөх олговор/үнэлгээ засах, төлөв шилжүүлэх", Resource: "compensation", Action: "update"},
+}
+
+func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
+	if _, err := s.seedPermissions(ctx); err != nil {
+		return err
+	}
+	role, err := s.roleRepo.GetByName(ctx, "admin")
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"hr:read", "hr:create", "hr:update", "hr:delete"} {
+		perm, err := s.permRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
+			return err
+		}
+	}
+	slog.Info("hr permissions granted", "role", "admin")
+	return nil
+}
+
+func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var orgID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		WITH ins AS (
+			INSERT INTO organization (name, short_name, register_no, source)
+			SELECT 'Нийслэлийн Газрын алба', 'НГА', 'HR-BACKFILL-ORG', 'backfill'
+			WHERE NOT EXISTS (SELECT 1 FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL)
+			RETURNING id
+		)
+		SELECT id FROM ins
+		UNION ALL
+		SELECT id FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL
+		LIMIT 1`).Scan(&orgID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := tx.Query(ctx, `SELECT id, username, email, first_name, last_name, COALESCE(position,'Ажилтан') FROM users WHERE deleted_at IS NULL AND employee_id IS NULL`)
+	if err != nil {
+		return err
+	}
+	type backfillUser struct {
+		id           uuid.UUID
+		username     string
+		email        string
+		firstName    string
+		lastName     string
+		positionName string
+	}
+	var users []backfillUser
+	for rows.Next() {
+		var u backfillUser
+		if err := rows.Scan(&u.id, &u.username, &u.email, &u.firstName, &u.lastName, &u.positionName); err != nil {
+			return err
+		}
+		users = append(users, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, u := range users {
+		var posID uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO position (name)
+				SELECT $1
+				WHERE NOT EXISTS (SELECT 1 FROM position WHERE name=$1 AND deleted_at IS NULL)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM position WHERE name=$1 AND deleted_at IS NULL
+			LIMIT 1`, u.positionName).Scan(&posID); err != nil {
+			return err
+		}
+		var personID uuid.UUID
+		registerNo := "EMP-" + u.username
+		if err := tx.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO person (person_type, register_no, last_name, first_name, email, source, created_by, updated_by)
+				SELECT 'citizen', $1, $2, $3, $4, 'backfill', 'seed', 'seed'
+				WHERE NOT EXISTS (SELECT 1 FROM person WHERE register_no=$1 AND deleted_at IS NULL)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM person WHERE register_no=$1 AND deleted_at IS NULL
+			LIMIT 1`, registerNo, u.lastName, u.firstName, u.email).Scan(&personID); err != nil {
+			return err
+		}
+		var employeeID uuid.UUID
+		employeeNo := "EMP-" + u.username
+		if err := tx.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO employee (person_id, organization_id, position_id, employee_no, work_email, created_by, updated_by)
+				SELECT $1, $2, $3, $4, $5, 'seed', 'seed'
+				WHERE NOT EXISTS (SELECT 1 FROM employee WHERE person_id=$1 AND deleted_at IS NULL)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM employee WHERE person_id=$1 AND deleted_at IS NULL
+			LIMIT 1`, personID, orgID, posID, employeeNo, u.email).Scan(&employeeID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE users SET employee_id=$1, position=$2, updated_at=NOW() WHERE id=$3 AND employee_id IS NULL`, employeeID, u.positionName, u.id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	slog.Info("hr backfill applied")
+	return nil
+}
+
+// hrSampleDepartments — Нийслэлийн Газрын албаны бүтэц (жишээ өгөгдөл).
+// parent_id хэрэглэхгүй: UI-ийн "Алба, хэлтэс" форм нь зөвхөн
+// organization_id/name/code/sort_order-ыг тохируулдаг тул бүтцийг хавтгай
+// байлгав — үгүй бол UI-аас засах боломжгүй мөр үүснэ.
+var hrSampleDepartments = []struct {
+	code      string
+	name      string
+	sortOrder int
+}{
+	{"ADM", "Захиргаа, удирдлагын хэлтэс", 1},
+	{"GCH", "Газар чөлөөлөлтийн хэлтэс", 2},
+	{"UNO", "Үнэлгээ, нөхөх олговрын хэлтэс", 3},
+	{"GZZ", "Геодези, зураг зүйн хэлтэс", 4},
+	{"SHO", "Санхүү, хөрөнгө оруулалтын хэлтэс", 5},
+	{"HSH", "Хяналт, шинжилгээний хэлтэс", 6},
+	{"MTH", "Мэдээллийн технологийн хэлтэс", 7},
+}
+
+// Албан тушаал → хэлтсийн харгалзаа. Тохирохгүй/хоосон тушаал нь
+// hrDefaultDepartmentCode-д унана.
+var hrPositionDepartment = map[string]string{
+	"Ахлах мэргэжилтэн":      "GCH",
+	"Ажилтан":                "ADM",
+	"Санхүүгийн мэргэжилтэн": "SHO",
+	"МИКА": "UNO",
+	"Мэргэжлийн байгууллага":             "UNO",
+	"Хөндлөнгийн мэргэжлийн байгууллага": "UNO",
+}
+
+const hrDefaultDepartmentCode = "ADM"
+
+// SeedHRDepartments — "Алба, хэлтэс" лавлахыг жишээ өгөгдлөөр бөглөж, ажилтан
+// бүрийг албан тушаалынх нь дагуу хэлтэст холбоно.
+//
+// Шалтгаан: hr backfill (000019) нь ажилтныг зөвхөн organization/position-той
+// үүсгэсэн ба department_id-г NULL үлдээсэн. Улмаар "Алба, хэлтэс" хуудас
+// хоосон (байсан 7 мөр нь E2E тестийн үлдэгдэл, бүгд deleted_at-тай) ба
+// "Ажилтан" хуудсанд хэлтсийн мэдээлэл гарахгүй байв.
+//
+// Идемпотент: хэлтсийг (organization_id, name)-аар, ажилтны холбоосыг
+// department_id IS NULL шалгуураар л хийнэ — гараар зассан өгөгдлийг
+// дарж бичихгүй.
+func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var orgID uuid.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL LIMIT 1`,
+	).Scan(&orgID); err != nil {
+		// Байгууллага байхгүй бол 000019 ажиллаагүй байна — холбох ажилтан ч байхгүй.
+		slog.Warn("hr departments skipped: base organization not found", "error", err)
+		return nil
+	}
+
+	deptIDs := make(map[string]uuid.UUID, len(hrSampleDepartments))
+	for _, d := range hrSampleDepartments {
+		var id uuid.UUID
+		if err := tx.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO department (organization_id, code, name, sort_order)
+				SELECT $1, $2, $3, $4
+				WHERE NOT EXISTS (
+					SELECT 1 FROM department
+					WHERE organization_id=$1 AND name=$3 AND deleted_at IS NULL
+				)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM department
+			WHERE organization_id=$1 AND name=$3 AND deleted_at IS NULL
+			LIMIT 1`, orgID, d.code, d.name, d.sortOrder).Scan(&id); err != nil {
+			return err
+		}
+		deptIDs[d.code] = id
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT e.id, COALESCE(p.name, '')
+		FROM employee e
+		JOIN position p ON p.id = e.position_id
+		WHERE e.deleted_at IS NULL AND e.department_id IS NULL AND e.organization_id = $1`, orgID)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		id       uuid.UUID
+		position string
+	}
+	var employees []pending
+	for rows.Next() {
+		var e pending
+		if err := rows.Scan(&e.id, &e.position); err != nil {
+			rows.Close()
+			return err
+		}
+		employees = append(employees, e)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, e := range employees {
+		code, ok := hrPositionDepartment[e.position]
+		if !ok {
+			code = hrDefaultDepartmentCode
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE employee SET department_id=$1, updated_at=NOW(), updated_by='seed'
+			 WHERE id=$2 AND department_id IS NULL`, deptIDs[code], e.id); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	slog.Info("hr departments seeded",
+		"departments", len(hrSampleDepartments), "employees_linked", len(employees))
+	return nil
 }
 
 // Гадаад ролиудын permission багц — ЗӨВХӨН compensation:* (өөр эрх олгогдохгүй).

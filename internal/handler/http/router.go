@@ -79,6 +79,11 @@ func NewRouter(
 		var notificationSvc service.NotificationService
 		var auditSvc service.AuditService
 		var clientRequestSvc service.ClientRequestService
+		var organizationSvc service.OrganizationService
+		var departmentSvc service.DepartmentService
+		var positionSvc service.PositionService
+		var personSvc service.PersonService
+		var employeeSvc service.EmployeeService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.NotificationService:
@@ -87,6 +92,16 @@ func NewRouter(
 				auditSvc = v
 			case service.ClientRequestService:
 				clientRequestSvc = v
+			case service.OrganizationService:
+				organizationSvc = v
+			case service.DepartmentService:
+				departmentSvc = v
+			case service.PositionService:
+				positionSvc = v
+			case service.PersonService:
+				personSvc = v
+			case service.EmployeeService:
+				employeeSvc = v
 			}
 		}
 
@@ -111,6 +126,58 @@ func NewRouter(
 		if clientRequestSvc != nil {
 			clientRequestH := NewClientRequestHandler(clientRequestSvc)
 			protected.GET("/client-requests", middleware.RequirePermission("audit:read"), clientRequestH.List)
+		}
+		if organizationSvc != nil && departmentSvc != nil && positionSvc != nil && personSvc != nil && employeeSvc != nil {
+			hrH := NewHRHandler(organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc)
+			denyExternal := middleware.DenyAnyRole("professional_org", "mika", "finance_specialist")
+			adminOnly := middleware.RequireAnyRole("admin")
+
+			organizations := protected.Group("/organizations")
+			organizations.Use(denyExternal)
+			{
+				organizations.GET("", middleware.RequirePermission("hr:read"), hrH.ListOrganizations)
+				organizations.GET("/:id", middleware.RequirePermission("hr:read"), hrH.GetOrganization)
+				organizations.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreateOrganization)
+				organizations.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdateOrganization)
+				organizations.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeleteOrganization)
+			}
+
+			departments := protected.Group("/departments")
+			departments.Use(denyExternal)
+			{
+				departments.GET("", middleware.RequirePermission("hr:read"), hrH.ListDepartments)
+				departments.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreateDepartment)
+				departments.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdateDepartment)
+				departments.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeleteDepartment)
+			}
+
+			positions := protected.Group("/positions")
+			positions.Use(denyExternal)
+			{
+				positions.GET("", middleware.RequirePermission("hr:read"), hrH.ListPositions)
+				positions.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreatePosition)
+				positions.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdatePosition)
+				positions.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeletePosition)
+			}
+
+			persons := protected.Group("/persons")
+			persons.Use(denyExternal)
+			{
+				persons.GET("", middleware.RequirePermission("hr:read"), hrH.ListPersons)
+				persons.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreatePerson)
+				persons.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdatePerson)
+				persons.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeletePerson)
+			}
+
+			employees := protected.Group("/employees")
+			employees.Use(denyExternal)
+			{
+				employees.GET("", middleware.RequirePermission("hr:read"), hrH.ListEmployees)
+				employees.GET("/:id", middleware.RequirePermission("hr:read"), hrH.GetEmployee)
+				employees.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreateEmployee)
+				employees.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdateEmployee)
+				employees.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeleteEmployee)
+			}
 		}
 
 		users := protected.Group("/users")

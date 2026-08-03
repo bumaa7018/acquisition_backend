@@ -29,13 +29,15 @@ type UserService interface {
 }
 
 type CreateUserRequest struct {
-	Username  string `validate:"required"`
-	Email     string `validate:"omitempty"`
-	Password  string `validate:"required,min=8"`
-	FirstName string `validate:"required"`
-	LastName  string `validate:"required"`
-	Position  string
-	IsActive  *bool
+	Username   string `validate:"required"`
+	Email      string `validate:"omitempty"`
+	Password   string `validate:"required,min=8"`
+	FirstName  string `validate:"required"`
+	LastName   string `validate:"required"`
+	Position   string
+	EmployeeID *uuid.UUID
+	Employee   *CreateEmployeeRequest
+	IsActive   *bool
 }
 
 type UpdateUserRequest struct {
@@ -48,11 +50,16 @@ type UpdateUserRequest struct {
 }
 
 type userService struct {
-	userRepo repository.UserRepository
+	userRepo     repository.UserRepository
+	employeeRepo repository.EmployeeRepository
 }
 
-func NewUserService(userRepo repository.UserRepository) UserService {
-	return &userService{userRepo: userRepo}
+func NewUserService(userRepo repository.UserRepository, employeeRepos ...repository.EmployeeRepository) UserService {
+	var employeeRepo repository.EmployeeRepository
+	if len(employeeRepos) > 0 {
+		employeeRepo = employeeRepos[0]
+	}
+	return &userService{userRepo: userRepo, employeeRepo: employeeRepo}
 }
 
 func (s *userService) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
@@ -82,6 +89,9 @@ func (s *userService) List(ctx context.Context, filter domain.UserFilter) ([]*do
 }
 
 func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domain.User, error) {
+	if s.employeeRepo != nil && req.EmployeeID == nil && req.Employee == nil {
+		return nil, domain.ErrInvalidInput
+	}
 	existing, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err != nil && err != domain.ErrNotFound {
 		return nil, err
@@ -108,11 +118,71 @@ func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domai
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, err
+	if s.employeeRepo != nil {
+		if req.EmployeeID != nil {
+			if existing, err := s.userRepo.GetByEmployeeID(ctx, *req.EmployeeID); err == nil && existing != nil {
+				return nil, domain.ErrAlreadyExists
+			} else if err != nil && err != domain.ErrNotFound {
+				return nil, err
+			}
+			employee, err := s.employeeRepo.GetEmployeeByID(ctx, *req.EmployeeID)
+			if err != nil {
+				return nil, err
+			}
+			applyEmployeeToUser(user, employee)
+			if err := s.userRepo.Create(ctx, user); err != nil {
+				return nil, err
+			}
+		} else {
+			employee := employeeFromCreate(*req.Employee)
+			var person *domain.Person
+			if req.Employee.Person != nil {
+				person = personFromRequest(*req.Employee.Person)
+				if err := validatePerson(person); err != nil {
+					return nil, err
+				}
+			} else if req.Employee.PersonID != nil {
+				employee.PersonID = *req.Employee.PersonID
+			} else {
+				return nil, domain.ErrInvalidInput
+			}
+			if employee.OrganizationID == uuid.Nil || employee.PositionID == uuid.Nil {
+				return nil, domain.ErrInvalidInput
+			}
+			if err := s.userRepo.CreateWithEmployee(ctx, user, employee, person); err != nil {
+				return nil, err
+			}
+			user.EmployeeID = &employee.ID
+		}
+	} else {
+		if err := s.userRepo.Create(ctx, user); err != nil {
+			return nil, err
+		}
 	}
 	user.Password = ""
 	return user, nil
+}
+
+func applyEmployeeToUser(user *domain.User, employee *domain.Employee) {
+	user.EmployeeID = &employee.ID
+	user.Employee = employee
+	user.Position = employee.PositionName
+	if employee.Person == nil {
+		return
+	}
+	if employee.Person.PersonType == "legal" {
+		user.LastName = "Хуулийн этгээд"
+		if employee.Person.LegalName != nil {
+			user.FirstName = *employee.Person.LegalName
+		}
+		return
+	}
+	if employee.Person.LastName != nil {
+		user.LastName = *employee.Person.LastName
+	}
+	if employee.Person.FirstName != nil {
+		user.FirstName = *employee.Person.FirstName
+	}
 }
 
 func (s *userService) Update(ctx context.Context, id uuid.UUID, req UpdateUserRequest) (*domain.User, error) {
