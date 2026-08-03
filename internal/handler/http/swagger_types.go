@@ -4,13 +4,6 @@
 //nolint:unused
 package http
 
-type registerBody struct {
-	Email     string `json:"email" example:"user@example.com"`
-	Password  string `json:"password" example:"Password123!"`
-	FirstName string `json:"first_name" example:"John"`
-	LastName  string `json:"last_name" example:"Doe"`
-}
-
 type loginBody struct {
 	Email    string `json:"email" example:"admin@example.com"`
 	Password string `json:"password" example:"Admin123!"`

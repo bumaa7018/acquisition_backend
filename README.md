@@ -51,8 +51,11 @@ deployments/      — Dockerfile, docker-compose.yml
 ## Endpoints
 
 ### Auth (public)
+
+Нээлттэй бүртгэл байхгүй — аккаунтыг зөвхөн `POST /api/v1/users` (`users:create`)
+-ээр эрх бүхий ажилтан үүсгэнэ.
+
 ```
-POST /api/v1/auth/register
 POST /api/v1/auth/login
 POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
@@ -138,11 +141,6 @@ dangling image болон ашиглагдахгүй build cache цэвэрлэ�
 ```bash
 # Health check
 curl http://localhost:8080/health
-
-# Register
-curl -X POST http://localhost:8080/api/v1/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"user@example.com","password":"Password123!","first_name":"John","last_name":"Doe"}'
 
 # Login (admin)
 curl -X POST http://localhost:8080/api/v1/auth/login \

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -941,4 +942,66 @@ func TestRouter_ParcelStatuses_DeniesProfessionalOrgWrite(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	parcelStatusSvc.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// Нээлттэй бүртгэл БАЙХГҮЙ байх ёстой: түүнийг эргүүлж нээвэл хэн ч идэвхтэй
+// (`IsActive: true`) аккаунт үүсгэн хүчинтэй JWT авч, permission шалгадаггүй
+// маршрутууд руу орно. Аккаунтыг зөвхөн `POST /users` (`users:create`) үүсгэнэ.
+func TestRouter_Register_NotExposed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	router := handler.NewRouter(
+		nil,
+		jwtManager,
+		nil,
+		nil,
+		nil,
+		nil,
+		&mocks.MockLandService{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	body := `{"username":"intruder","password":"Password123!","first_name":"In","last_name":"Truder"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// Токенгүйгээр хэрэглэгч үүсгэх боломжгүй — /users нь JWT-ийн ард.
+func TestRouter_UsersCreate_RequiresToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	userSvc := &mocks.MockUserService{}
+	router := handler.NewRouter(
+		nil,
+		jwtManager,
+		nil,
+		userSvc,
+		nil,
+		nil,
+		&mocks.MockLandService{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	body := `{"username":"intruder","password":"Password123!","first_name":"In","last_name":"Truder"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	userSvc.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }

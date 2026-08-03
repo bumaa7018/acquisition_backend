@@ -35,44 +35,6 @@ func newAuthSvc(userRepo *mocks.MockUserRepository, pwdRepo *mocks.MockPasswordR
 	return service.NewAuthService(userRepo, pwdRepo, newJWTManager(), es, "http://localhost:3000/reset?token=")
 }
 
-// ── Register ────────────────────────────────────────────────
-
-func TestAuthService_Register_Success(t *testing.T) {
-	userRepo := &mocks.MockUserRepository{}
-	pwdRepo := &mocks.MockPasswordResetRepository{}
-	es := &mockEmailSender{}
-
-	userRepo.On("GetByUsername", context.Background(), "testuser").Return(nil, domain.ErrNotFound)
-	userRepo.On("Create", context.Background(), mock.MatchedBy(func(u *domain.User) bool { return u != nil })).Return(nil)
-
-	svc := newAuthSvc(userRepo, pwdRepo, es)
-	user, err := svc.Register(context.Background(), service.RegisterRequest{
-		Username: "testuser", Password: "Password123!",
-		FirstName: "Test", LastName: "User",
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "testuser", user.Username)
-	assert.Empty(t, user.Password)
-	userRepo.AssertExpectations(t)
-}
-
-func TestAuthService_Register_DuplicateUsername(t *testing.T) {
-	userRepo := &mocks.MockUserRepository{}
-	pwdRepo := &mocks.MockPasswordResetRepository{}
-	es := &mockEmailSender{}
-
-	existing := &domain.User{ID: uuid.New(), Username: "testuser"}
-	userRepo.On("GetByUsername", context.Background(), "testuser").Return(existing, nil)
-
-	svc := newAuthSvc(userRepo, pwdRepo, es)
-	_, err := svc.Register(context.Background(), service.RegisterRequest{
-		Username: "testuser", Password: "Password123!",
-	})
-
-	assert.ErrorIs(t, err, domain.ErrAlreadyExists)
-}
-
 // ── Login ────────────────────────────────────────────────────
 
 func TestAuthService_Login_Success(t *testing.T) {

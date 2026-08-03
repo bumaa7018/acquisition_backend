@@ -143,6 +143,8 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusConflict, i18n.ErrConflict
 	case domain.ErrInvalidCredentials:
 		return http.StatusUnauthorized, i18n.ErrInvalidCreds
+	case domain.ErrTooManyRequests:
+		return http.StatusTooManyRequests, i18n.ErrTooManyRequests
 	case domain.ErrUnauthorized:
 		return http.StatusUnauthorized, i18n.ErrUnauthorized
 	case domain.ErrForbidden:

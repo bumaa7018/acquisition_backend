@@ -17,22 +17,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// AuthService — нэвтрэлт. Хэрэглэгч ҮҮСГЭХ үйлдэл ЭНД БАЙХГҮЙ: дотоод систем
+// тул аккаунтыг зөвхөн эрх бүхий ажилтан UserService.Create (`users:create`)
+// -ээр үүсгэнэ.
 type AuthService interface {
-	Register(ctx context.Context, req RegisterRequest) (*domain.User, error)
 	Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error)
 	Logout(ctx context.Context, accessToken, refreshToken string) error
 	ForgotPassword(ctx context.Context, emailAddr string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
-}
-
-type RegisterRequest struct {
-	Username  string `validate:"required"`
-	Email     string `validate:"omitempty"`
-	Password  string `validate:"required,min=8"`
-	FirstName string `validate:"required"`
-	LastName  string `validate:"required"`
-	Position  string
 }
 
 type LoginRequest struct {
@@ -47,6 +40,7 @@ type authService struct {
 	jwtManager          *jwt.Manager
 	emailSender         email.Sender
 	resetBaseURL        string
+	loginLimiter        *loginLimiter
 }
 
 func NewAuthService(
@@ -69,60 +63,36 @@ func NewAuthService(
 		jwtManager:          jwtManager,
 		emailSender:         emailSender,
 		resetBaseURL:        resetBaseURL,
+		loginLimiter:        newLoginLimiter(),
 	}
-}
-
-func (s *authService) Register(ctx context.Context, req RegisterRequest) (*domain.User, error) {
-	existing, err := s.userRepo.GetByUsername(ctx, req.Username)
-	if err != nil && err != domain.ErrNotFound {
-		return nil, err
-	}
-	if existing != nil {
-		return nil, domain.ErrAlreadyExists
-	}
-
-	hashed, err := hash.Password(req.Password)
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	user := &domain.User{
-		ID:        uuid.New(),
-		Username:  req.Username,
-		Email:     req.Email,
-		Password:  hashed,
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
-		Position:  req.Position,
-		IsActive:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, err
-	}
-	user.Password = ""
-	return user, nil
 }
 
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
+	// Brute-force хамгаалалт: цонхонд хэт олон амжилтгүй оролдлого хийсэн бол
+	// нууц үг зөв эсэхийг ч шалгалгүй 429 буцаана (username-ээр, IP-ээс хамааралгүй).
+	if s.loginLimiter.blocked(req.Username) {
+		return nil, domain.ErrTooManyRequests
+	}
 	user, err := s.userRepo.GetByUsername(ctx, req.Username)
 	if err == domain.ErrNotFound {
 		user, err = s.userRepo.GetByEmail(ctx, req.Username)
 	}
 	if err != nil {
 		if err == domain.ErrNotFound {
+			s.loginLimiter.recordFailure(req.Username)
 			return nil, domain.ErrInvalidCredentials
 		}
 		return nil, err
 	}
 	if !hash.ComparePassword(user.Password, req.Password) {
+		s.loginLimiter.recordFailure(req.Username)
 		return nil, domain.ErrInvalidCredentials
 	}
 	if !user.IsActive {
 		return nil, domain.ErrForbidden
 	}
+	// Амжилттай — тоолуурыг цэвэрлэнэ.
+	s.loginLimiter.reset(req.Username)
 
 	perms, err := s.userRepo.GetPermissions(ctx, user.ID)
 	if err != nil {

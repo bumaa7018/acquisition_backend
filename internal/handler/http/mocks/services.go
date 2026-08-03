@@ -17,14 +17,6 @@ type MockAuthService struct {
 	mock.Mock
 }
 
-func (m *MockAuthService) Register(ctx context.Context, req service.RegisterRequest) (*domain.User, error) {
-	args := m.Called(ctx, req)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.User), args.Error(1)
-}
-
 func (m *MockAuthService) Login(ctx context.Context, req service.LoginRequest) (*jwtpkg.TokenPair, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {

@@ -62,10 +62,13 @@ func NewRouter(
 
 	v1 := r.Group("/api/v1")
 
+	// Нээлттэй бүртгэл (`POST /auth/register`) ЗОРИУД байхгүй: энэ нь дотоод
+	// систем тул хэрэглэгчийг зөвхөн эрх бүхий ажилтан `POST /users`
+	// (`users:create`) -ээр үүсгэнэ. Нээлттэй байх үед хэн ч идэвхтэй аккаунт
+	// нээж хүчинтэй JWT аван permission шалгадаггүй маршрутууд руу орно.
 	auth := v1.Group("/auth")
 	auth.Use(middleware.RateLimit(30, time.Minute))
 	{
-		auth.POST("/register", authH.Register)
 		auth.POST("/login", authH.Login)
 		auth.POST("/refresh", authH.RefreshToken)
 		auth.POST("/logout", authH.Logout)

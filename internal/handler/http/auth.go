@@ -22,15 +22,6 @@ func NewAuthHandler(authSvc service.AuthService) *AuthHandler {
 	return &AuthHandler{authSvc: authSvc, validate: validator.New()}
 }
 
-type registerRequest struct {
-	Username  string `json:"username" validate:"required"`
-	Email     string `json:"email"`
-	Password  string `json:"password" validate:"required,min=8"`
-	FirstName string `json:"first_name" validate:"required"`
-	LastName  string `json:"last_name" validate:"required"`
-	Position  string `json:"position"`
-}
-
 type loginRequest struct {
 	Username string `json:"username" validate:"required"`
 	Password string `json:"password" validate:"required"`
@@ -51,41 +42,6 @@ type forgotPasswordRequest struct {
 type resetPasswordRequest struct {
 	Token       string `json:"token" validate:"required"`
 	NewPassword string `json:"new_password" validate:"required,min=8"`
-}
-
-// Register godoc
-// @Summary      Register a new user
-// @Tags         Auth
-// @Accept       json
-// @Produce      json
-// @Param        body body registerBody true "Registration payload"
-// @Success      201  {object}  response.Response
-// @Failure      400  {object}  response.Response
-// @Failure      409  {object}  response.Response
-// @Router       /auth/register [post]
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req registerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.AbortValidation(c, err)
-		return
-	}
-	if err := h.validate.Struct(req); err != nil {
-		response.AbortValidation(c, err)
-		return
-	}
-	user, err := h.authSvc.Register(c.Request.Context(), service.RegisterRequest{
-		Username:  req.Username,
-		Email:     req.Email,
-		Password:  req.Password,
-		FirstName: req.FirstName,
-		LastName:  req.LastName,
-		Position:  req.Position,
-	})
-	if err != nil {
-		response.Error(c, err)
-		return
-	}
-	response.Created(c, user)
 }
 
 // Login godoc

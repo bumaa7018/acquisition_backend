@@ -6,6 +6,7 @@ var (
 	ErrNotFound                = errors.New("not found")
 	ErrAlreadyExists           = errors.New("already exists")
 	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrTooManyRequests         = errors.New("too many requests")
 	ErrUnauthorized            = errors.New("unauthorized")
 	ErrForbidden               = errors.New("forbidden")
 	ErrInvalidToken            = errors.New("invalid token")

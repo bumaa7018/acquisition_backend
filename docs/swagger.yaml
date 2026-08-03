@@ -174,21 +174,6 @@ definitions:
         example: eyJhbGci...
         type: string
     type: object
-  http.registerBody:
-    properties:
-      email:
-        example: user@example.com
-        type: string
-      first_name:
-        example: John
-        type: string
-      last_name:
-        example: Doe
-        type: string
-      password:
-        example: Password123!
-        type: string
-    type: object
   http.resetPasswordBody:
     properties:
       new_password:
@@ -375,35 +360,6 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Refresh access token
-      tags:
-      - Auth
-  /auth/register:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Registration payload
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/http.registerBody'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/response.Response'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/response.Response'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/response.Response'
-      summary: Register a new user
       tags:
       - Auth
   /auth/reset-password:

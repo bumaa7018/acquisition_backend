@@ -14,7 +14,6 @@ import (
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -22,48 +21,6 @@ import (
 
 func init() {
 	gin.SetMode(gin.TestMode)
-}
-
-func TestAuthHandler_Register_Success(t *testing.T) {
-	mockSvc := &mocks.MockAuthService{}
-	h := handler.NewAuthHandler(mockSvc)
-
-	user := &domain.User{ID: uuid.New(), Username: "testuser"}
-	mockSvc.On("Register", mock.Anything, service.RegisterRequest{
-		Username:  "testuser",
-		Password:  "Password123!",
-		FirstName: "Test",
-		LastName:  "User",
-	}).Return(user, nil)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := `{"username":"testuser","password":"Password123!","first_name":"Test","last_name":"User"}`
-	c.Request = httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Register(c)
-
-	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["data"])
-	mockSvc.AssertExpectations(t)
-}
-
-func TestAuthHandler_Register_ValidationError(t *testing.T) {
-	mockSvc := &mocks.MockAuthService{}
-	h := handler.NewAuthHandler(mockSvc)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := `{"password":"short"}`
-	c.Request = httptest.NewRequest(http.MethodPost, "/register", bytes.NewBufferString(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-
-	h.Register(c)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestAuthHandler_Login_Success(t *testing.T) {
