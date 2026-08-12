@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -1090,6 +1091,8 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 // @Param        au3_code          query  string  false  "Багийн код"
 // @Param        acquisition_name  query  string  false  "Чөлөөлөлтийн нэр (ILIKE)"
 // @Param        status            query  int     false  "Чөлөөлөлтийн статус"
+// @Param        status_id         query  int     false  "Нэгж талбарын төлөв"
+// @Param        unlinked_only     query  bool    false  "Идэвхтэй захирамжид холбогдоогүй нэгж талбар"
 // @Success      200  {object}  response.PaginatedResponse
 // @Router       /parcels [get]
 func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
@@ -1110,6 +1113,8 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		AcquisitionID:   c.Query("acquisition_id"),
 		PlanCode:        c.Query("plan_code"),
 		Status:          queryInt(c, "status", 0),
+		StatusID:        queryInt(c, "status_id", 0),
+		UnlinkedOnly:    strings.EqualFold(c.Query("unlinked_only"), "true") || c.Query("unlinked_only") == "1",
 		Years:           years,
 		Page:            page,
 		PageSize:        pageSize,

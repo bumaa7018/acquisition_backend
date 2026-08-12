@@ -44,6 +44,13 @@ var defaultPermissions = []domain.Permission{
 	{Name: "compensation:read", Description: "Нөхөх олговор/үнэлгээ харах", Resource: "compensation", Action: "read"},
 	{Name: "compensation:create", Description: "Нөхөх олговор/үнэлгээ бүртгэх", Resource: "compensation", Action: "create"},
 	{Name: "compensation:update", Description: "Нөхөх олговор/үнэлгээ засах, төлөв шилжүүлэх", Resource: "compensation", Action: "update"},
+	// Захирамжийн төслийн эрхүүд — захирамжийн төсөлтэй ажиллах мэргэжилтэн
+	// ЗӨВХӨН эдгээрээр ажиллана. Өмнө нь land:* эрхээр удирдагдаж байсан тул
+	// газар чөлөөлөлт засах эрхтэй хүн бүр захирамжийн төсөлд хүрдэг байв.
+	{Name: "decision:read", Description: "Захирамжийн төсөл харах", Resource: "decision", Action: "read"},
+	{Name: "decision:create", Description: "Захирамжийн төсөл үүсгэх", Resource: "decision", Action: "create"},
+	{Name: "decision:update", Description: "Захирамжийн төсөл засах, батлах", Resource: "decision", Action: "update"},
+	{Name: "decision:delete", Description: "Захирамжийн төсөл устгах", Resource: "decision", Action: "delete"},
 }
 
 func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
@@ -391,6 +398,52 @@ func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
 		return err
 	}
 	slog.Info("audit permission granted", "role", role.Name, "permission", perm.Name)
+	return nil
+}
+
+// SeedDecisionPermissions — decision:* эрхүүдийг үүсгэж олгоно.
+//
+// Захирамжийн төслийн маршрутууд land:*-аас decision:* руу шилжсэн тул:
+//  1. admin роль-д БҮХ decision:* эрхийг олгоно (админ бол full access роль,
+//     мөн эрх нэмэгдүүлэлтийн шалгалт нь өөрт байхгүй эрхийг бусдад олгуулдаггүй).
+//  2. Одоо land:<action> эрхтэй БҮХ роль-д харгалзах decision:<action>-ийг
+//     олгоно — өмнө нь захирамжийн төсөлтэй ажиллаж байсан мэргэжилтнүүд
+//     (ахлах мэргэжилтэн, UI-аас үүсгэсэн ролиуд) эрхээ алдахгүй.
+//
+// Гадаад ролиуд (мэрг. байгууллага, МИКА, санхүү) land:* эрхгүй тул (зөвхөн
+// compensation:*) энэ алхмаар decision:* авахгүй.
+func (s *Seeder) SeedDecisionPermissions(ctx context.Context) error {
+	if _, err := s.seedPermissions(ctx); err != nil {
+		return err
+	}
+
+	role, err := s.roleRepo.GetByName(ctx, "admin")
+	if err != nil {
+		return err
+	}
+	for _, name := range []string{"decision:read", "decision:create", "decision:update", "decision:delete"} {
+		perm, err := s.permRepo.GetByName(ctx, name)
+		if err != nil {
+			return err
+		}
+		if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
+			return err
+		}
+	}
+
+	// land:<action> → decision:<action> тусгал (идемпотент).
+	tag, err := s.db.Exec(ctx, `
+		INSERT INTO role_permissions (role_id, permission_id)
+		SELECT rp.role_id, dp.id
+		FROM role_permissions rp
+		JOIN permissions lp ON lp.id = rp.permission_id AND lp.name LIKE 'land:%'
+		JOIN permissions dp ON dp.name = 'decision:' || split_part(lp.name, ':', 2)
+		ON CONFLICT DO NOTHING
+	`)
+	if err != nil {
+		return err
+	}
+	slog.Info("decision permissions granted", "admin_role", role.Name, "mirrored_from_land", tag.RowsAffected())
 	return nil
 }
 

@@ -470,6 +470,365 @@ paths:
       summary: Дашбоардын нийлмэл мэдээлэл
       tags:
       - dashboard
+  /decision-drafts:
+    get:
+      parameters:
+      - description: Саналын хуудасны дугаар (ILIKE)
+        in: query
+        name: proposal_no
+        type: string
+      - description: Захирамжийн дугаар (ILIKE)
+        in: query
+        name: decree_number
+        type: string
+      - description: Байршил (ILIKE)
+        in: query
+        name: location
+        type: string
+      - description: Холбогдсон нэгж талбарын дугаар (ILIKE)
+        in: query
+        name: parcel_id
+        type: string
+      - description: Огноо (YYYY-MM-DD)-с эхлэн
+        in: query
+        name: date_from
+        type: string
+      - description: Огноо (YYYY-MM-DD) хүртэл
+        in: query
+        name: date_to
+        type: string
+      - description: Хугацаа (он)
+        in: query
+        name: duration_year
+        type: integer
+      - description: 'Төлөв: 1=Төсөл, 2=Баталгаажсан'
+        in: query
+        name: status
+        type: integer
+      - description: Чөлөөлөлтийн ID
+        in: query
+        name: acquisition_id
+        type: string
+      - description: Санхүүгийн эх үүсвэрийн ID
+        in: query
+        name: funding_source_id
+        type: string
+      - description: Ажлын төрөл
+        in: query
+        name: work_type_id
+        type: integer
+      - description: Төсөв
+        in: query
+        name: budget_id
+        type: integer
+      - description: 'Хуудасны дугаар (default: 1)'
+        in: query
+        name: page
+        type: integer
+      - description: 'Хуудасны хэмжээ (default: 20)'
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.PaginatedResponse'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төслийн жагсаалт
+      tags:
+      - decision-draft
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төсөл үүсгэх
+      tags:
+      - decision-draft
+  /decision-drafts/{id}:
+    delete:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төсөл устгах (зөвхөн "Төсөл" төлөвт)
+      tags:
+      - decision-draft
+    get:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төслийн дэлгэрэнгүй
+      tags:
+      - decision-draft
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төсөл засварлах (зөвхөн "Төсөл" төлөвт)
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/confirm:
+    post:
+      consumes:
+      - application/json
+      description: Захирамжийн дугаар болон огноог бөглөж баталгаажуулна. Үүнээс хойш
+        өөрчлөлт орохгүй.
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн явц нэмэх (баталгаажуулах)
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/funding-sources:
+    get:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжид нэмэгдсэн санхүүгийн эх үүсвэрүүд
+      tags:
+      - decision-draft
+    post:
+      consumes:
+      - application/json
+      description: Төслийг үүсгэсний дараа олон эх үүсвэр нэмж болно.
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжид санхүүгийн эх үүсвэр нэмэх
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/funding-sources/{link_id}:
+    delete:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Холбоосын ID
+        in: path
+        name: link_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжаас санхүүгийн эх үүсвэр хасах
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/parcels:
+    get:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжид холбогдсон нэгж талбарууд (хасагдсаныг түүхээр хамт)
+      tags:
+      - decision-draft
+    post:
+      consumes:
+      - application/json
+      description: Зөвхөн "Чөлөөлсөн" төлөвтэй, өөр захирамжид холбогдоогүй нэгж талбар
+        холбогдоно.
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбар холбох
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/parcels/{link_id}:
+    delete:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Холбоосын ID
+        in: path
+        name: link_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарыг захирамжаас хасах (түүх үлдээнэ)
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/parcels/{link_id}/funding-source:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Нэгж талбарын холбоосын ID
+        in: path
+        name: link_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Холбогдсон нэгж талбарын санхүүгийн эх үүсвэрийг солих
+      tags:
+      - decision-draft
+  /funding-sources:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Санхүүгийн эх үүсвэрийн сонголт (бүх чөлөөлөлтөөр)
+      tags:
+      - decision-draft
+    post:
+      consumes:
+      - application/json
+      description: Захирамжийн төслөөс шууд шинэ эх үүсвэр бичиж оруулна. funding_sources
+        хүснэгтэд чөлөөлөлтгүй мөр болж бичигдэнэ.
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Шинэ санхүүгийн эх үүсвэр бүртгэх (гараар)
+      tags:
+      - decision-draft
   /health:
     get:
       description: Returns 200 if the server is running
@@ -1631,6 +1990,26 @@ paths:
       summary: Бүх нэгж талбарын нэгдсэн жагсаалт
       tags:
       - parcels
+  /parcels/{id}/decision-drafts:
+    get:
+      parameters:
+      - description: Нэгж талбарын ID (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарт холбогдсон захирамжууд (нэгж талбарын "Захирамж" таб)
+      tags:
+      - decision-draft
   /parcels/{id}/payments:
     get:
       parameters:

@@ -305,6 +305,44 @@ type ParcelStatusRepository interface {
 	Delete(ctx context.Context, id int) error
 }
 
+// DecisionOptionRepository — Ажлын төрөл / Төсөв сонголтын жагсаалт (ижил
+// бүтэцтэй тул нэг интерфейсээр, хоёр өөр хэрэгжүүлэлтээр).
+type DecisionOptionRepository interface {
+	List(ctx context.Context) ([]*domain.DecisionOption, error)
+	GetByID(ctx context.Context, id int) (*domain.DecisionOption, error)
+	Create(ctx context.Context, o *domain.DecisionOption) error
+	Update(ctx context.Context, o *domain.DecisionOption) error
+	Delete(ctx context.Context, id int) error
+}
+
+type DecisionDraftRepository interface {
+	List(ctx context.Context, f domain.DecisionDraftFilter) ([]*domain.DecisionDraft, int64, error)
+	GetByID(ctx context.Context, id string) (*domain.DecisionDraft, error)
+	Create(ctx context.Context, d *domain.DecisionDraft) error
+	Update(ctx context.Context, d *domain.DecisionDraft) error
+	Confirm(ctx context.Context, id, decreeNumber, decisionDate, note, actor string) error
+	Delete(ctx context.Context, id string) error
+	SetAcquisition(ctx context.Context, id, acquisitionID string) error
+	ListProgressHistory(ctx context.Context, draftID string) ([]*domain.DecisionDraftProgressHistory, error)
+	AddProgressHistory(ctx context.Context, h *domain.DecisionDraftProgressHistory) error
+
+	ListParcels(ctx context.Context, draftID string) ([]*domain.DecisionDraftParcel, error)
+	ListByParcel(ctx context.Context, parcelUUID string) ([]*domain.DecisionDraftParcel, error)
+	GetParcelInfo(ctx context.Context, parcelUUID string) (*domain.ParcelLinkInfo, error)
+	LinkParcel(ctx context.Context, draftID, parcelUUID, fundingLinkID, actor string) (string, error)
+	UnlinkParcel(ctx context.Context, draftID, linkID, actor string) error
+	ActiveLinkOf(ctx context.Context, parcelUUID string) (string, error)
+
+	ListFundingSourceOptions(ctx context.Context) ([]*domain.FundingSourceOption, error)
+	CreateFundingSourceOption(ctx context.Context, o *domain.FundingSourceOption, note, actor string) error
+	ListDraftFundingSources(ctx context.Context, draftID string) ([]*domain.DecisionDraftFundingLink, error)
+	AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, actor string) error
+	RemoveFundingSource(ctx context.Context, draftID, linkID string) error
+	FundingLinkBelongsTo(ctx context.Context, draftID, fundingLinkID string) (bool, error)
+	FundingLinkInUse(ctx context.Context, fundingLinkID string) (bool, error)
+	SetParcelFundingLink(ctx context.Context, draftID, linkID, fundingLinkID string) error
+}
+
 type DocumentTypeRepository interface {
 	List(ctx context.Context, target string) ([]*domain.DocumentType, error)
 	GetByID(ctx context.Context, id int) (*domain.DocumentType, error)

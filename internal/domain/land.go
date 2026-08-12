@@ -415,6 +415,8 @@ type GlobalParcelFilter struct {
 	AcquisitionID   string
 	PlanCode        string
 	Status          int
+	StatusID        int
+	UnlinkedOnly    bool
 	Years           []int
 	Page            int
 	PageSize        int

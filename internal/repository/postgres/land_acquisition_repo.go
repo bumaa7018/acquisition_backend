@@ -1156,6 +1156,19 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, filter.Status)
 		i++
 	}
+	if filter.StatusID != 0 {
+		where += fmt.Sprintf(" AND p.status = $%d", i)
+		args = append(args, filter.StatusID)
+		i++
+	}
+	if filter.UnlinkedOnly {
+		where += ` AND NOT EXISTS (
+			SELECT 1
+			  FROM decision_draft_parcel ddp
+			 WHERE ddp.parcel_id = p.id
+			   AND ddp.removed_at IS NULL
+		)`
+	}
 	if len(filter.Years) > 0 {
 		placeholders := make([]string, len(filter.Years))
 		for j, yr := range filter.Years {
@@ -3601,8 +3614,11 @@ func (r *landAcqRepo) ListFundingSources(ctx context.Context, acquisitionID uuid
 
 func (r *landAcqRepo) GetFundingSource(ctx context.Context, id uuid.UUID) (*domain.FundingSource, error) {
 	fs := &domain.FundingSource{}
+	// acquisition_id нь захирамжаас гараар үүсгэсэн бие даасан мөр дээр NULL
+	// байж болно (000060) — uuid.UUID руу scan хийхийн тулд тэглэнэ.
 	err := r.db.QueryRow(ctx, `
-		SELECT id, acquisition_id, organization_name, source_type, amount, currency, note, created_at, created_by
+		SELECT id, COALESCE(acquisition_id, '00000000-0000-0000-0000-000000000000'::uuid),
+		       organization_name, source_type, amount, currency, note, created_at, created_by
 		FROM funding_sources WHERE id = $1
 	`, id).Scan(&fs.ID, &fs.AcquisitionID, &fs.OrganizationName, &fs.SourceType, &fs.Amount, &fs.Currency, &fs.Note, &fs.CreatedAt, &fs.CreatedBy)
 	if err != nil {

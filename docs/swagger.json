@@ -329,6 +329,579 @@
                 }
             }
         },
+        "/decision-drafts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төслийн жагсаалт",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Саналын хуудасны дугаар (ILIKE)",
+                        "name": "proposal_no",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн дугаар (ILIKE)",
+                        "name": "decree_number",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Байршил (ILIKE)",
+                        "name": "location",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Холбогдсон нэгж талбарын дугаар (ILIKE)",
+                        "name": "parcel_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Огноо (YYYY-MM-DD)-с эхлэн",
+                        "name": "date_from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Огноо (YYYY-MM-DD) хүртэл",
+                        "name": "date_to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хугацаа (он)",
+                        "name": "duration_year",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Төлөв: 1=Төсөл, 2=Баталгаажсан",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Чөлөөлөлтийн ID",
+                        "name": "acquisition_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Санхүүгийн эх үүсвэрийн ID",
+                        "name": "funding_source_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Ажлын төрөл",
+                        "name": "work_type_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Төсөв",
+                        "name": "budget_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны дугаар (default: 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Хуудасны хэмжээ (default: 20)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төсөл үүсгэх",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төслийн дэлгэрэнгүй",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төсөл засварлах (зөвхөн \"Төсөл\" төлөвт)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төсөл устгах (зөвхөн \"Төсөл\" төлөвт)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/confirm": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Захирамжийн дугаар болон огноог бөглөж баталгаажуулна. Үүнээс хойш өөрчлөлт орохгүй.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн явц нэмэх (баталгаажуулах)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/funding-sources": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжид нэмэгдсэн санхүүгийн эх үүсвэрүүд",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Төслийг үүсгэсний дараа олон эх үүсвэр нэмж болно.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжид санхүүгийн эх үүсвэр нэмэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/funding-sources/{link_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжаас санхүүгийн эх үүсвэр хасах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Холбоосын ID",
+                        "name": "link_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/parcels": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжид холбогдсон нэгж талбарууд (хасагдсаныг түүхээр хамт)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Зөвхөн \"Чөлөөлсөн\" төлөвтэй, өөр захирамжид холбогдоогүй нэгж талбар холбогдоно.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Нэгж талбар холбох",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/parcels/{link_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Нэгж талбарыг захирамжаас хасах (түүх үлдээнэ)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Холбоосын ID",
+                        "name": "link_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/parcels/{link_id}/funding-source": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Холбогдсон нэгж талбарын санхүүгийн эх үүсвэрийг солих",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын холбоосын ID",
+                        "name": "link_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/funding-sources": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Санхүүгийн эх үүсвэрийн сонголт (бүх чөлөөлөлтөөр)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Захирамжийн төслөөс шууд шинэ эх үүсвэр бичиж оруулна. funding_sources хүснэгтэд чөлөөлөлтгүй мөр болж бичигдэнэ.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Шинэ санхүүгийн эх үүсвэр бүртгэх (гараар)",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns 200 if the server is running",
@@ -2155,6 +2728,39 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/response.PaginatedResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/parcels/{id}/decision-drafts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Нэгж талбарт холбогдсон захирамжууд (нэгж талбарын \"Захирамж\" таб)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын ID (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }

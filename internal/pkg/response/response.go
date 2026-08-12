@@ -169,6 +169,20 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrAssetPhotoRequired
 	case domain.ErrReportBeforeApproval:
 		return http.StatusUnprocessableEntity, i18n.ErrReportBeforeApproval
+	case domain.ErrDecisionConfirmed:
+		return http.StatusConflict, i18n.ErrDecisionConfirmed
+	case domain.ErrParcelNotReleased:
+		return http.StatusUnprocessableEntity, i18n.ErrParcelNotReleased
+	case domain.ErrParcelAlreadyLinked:
+		return http.StatusConflict, i18n.ErrParcelAlreadyLinked
+	case domain.ErrDecisionAcqMismatch:
+		return http.StatusUnprocessableEntity, i18n.ErrDecisionAcqMismatch
+	case domain.ErrDecreeRequired:
+		return http.StatusBadRequest, i18n.ErrDecreeRequired
+	case domain.ErrFundingSourceRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrFundingSourceRequired
+	case domain.ErrFundingSourceInUse:
+		return http.StatusConflict, i18n.ErrFundingSourceInUse
 	default:
 		return http.StatusInternalServerError, i18n.ErrInternalServer
 	}

@@ -187,6 +187,23 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRDepartments(ctx)
 			},
 		},
+		{
+			// Захирамжийн төслийн "Ажлын төрөл" / "Төсөв" сонголтын анхны
+			// утгууд. Цаашид Тохиргоо цэснээс удирдагдана.
+			name: "000021_decision_draft_options",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedDecisionOptions(ctx)
+			},
+		},
+		{
+			// Захирамжийн төслийн маршрутууд land:*-аас decision:* руу шилжсэн.
+			// Админ роль-д decision:* бүрийг олгоно, мөн land:<action> эрхтэй
+			// ролиудад харгалзах decision:<action>-ийг тусгана.
+			name: "000022_decision_permissions",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedDecisionPermissions(ctx)
+			},
+		},
 	})
 
 	return nil

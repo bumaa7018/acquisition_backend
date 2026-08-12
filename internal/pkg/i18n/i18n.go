@@ -86,6 +86,15 @@ const (
 	ErrFileRead               Key = "file_read"
 	ErrFileType               Key = "file_type"
 	ErrDocNotFound            Key = "doc_not_found"
+
+	// Захирамжийн төслийн алдаа
+	ErrDecisionConfirmed     Key = "decision_confirmed"
+	ErrParcelNotReleased     Key = "parcel_not_released"
+	ErrParcelAlreadyLinked   Key = "parcel_already_linked"
+	ErrDecisionAcqMismatch   Key = "decision_acq_mismatch"
+	ErrDecreeRequired        Key = "decree_required"
+	ErrFundingSourceRequired Key = "funding_source_required"
+	ErrFundingSourceInUse    Key = "funding_source_in_use"
 )
 
 var messages = map[Key][2]string{
@@ -150,6 +159,14 @@ var messages = map[Key][2]string{
 	ErrFileRead:               {"Файл уншихад алдаа гарлаа", "failed to read file"},
 	ErrFileType:               {"Зөвхөн PDF файл зөвшөөрөгдөнө", "only PDF files are allowed"},
 	ErrDocNotFound:            {"Баримт олдсонгүй", "document not found"},
+
+	ErrDecisionConfirmed:     {"Баталгаажсан захирамжийн төсөлд өөрчлөлт оруулах боломжгүй", "confirmed decision draft cannot be modified"},
+	ErrParcelNotReleased:     {"Зөвхөн 'Чөлөөлсөн' төлөвтэй нэгж талбарыг захирамжид холбоно", "only released parcels can be linked to a decision draft"},
+	ErrParcelAlreadyLinked:   {"Тухайн нэгж талбар өөр захирамжид аль хэдийн холбогдсон байна", "parcel is already linked to another decision draft"},
+	ErrDecisionAcqMismatch:   {"Захирамжид өөр чөлөөлөлтөд харьяалагдах нэгж талбар холбох боломжгүй", "parcel belongs to a different land acquisition"},
+	ErrDecreeRequired:        {"Захирамжийн дугаар болон огноог заавал бөглөнө", "decree number and date are required"},
+	ErrFundingSourceRequired: {"Эхлээд захирамжид санхүүгийн эх үүсвэр нэмээд, нэгж талбар бүрт эх үүсвэрээ сонгоно уу", "add a funding source to the decision draft and select one for the parcel"},
+	ErrFundingSourceInUse:    {"Энэ эх үүсвэрийг нэгж талбар ашиглаж байгаа тул хасах боломжгүй", "funding source is in use by a linked parcel"},
 }
 
 // T returns the translated message for the given key and language.

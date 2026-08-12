@@ -87,8 +87,11 @@ func NewRouter(
 		var positionSvc service.PositionService
 		var personSvc service.PersonService
 		var employeeSvc service.EmployeeService
+		var decisionSvcs service.DecisionServices
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
+			case service.DecisionServices:
+				decisionSvcs = v
 			case service.NotificationService:
 				notificationSvc = v
 			case service.AuditService:
@@ -423,6 +426,67 @@ func NewRouter(
 			parcelStatuses.POST("", middleware.RequirePermission("admin:create"), parcelStatusH.Create)
 			parcelStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), parcelStatusH.Update)
 			parcelStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelStatusH.Delete)
+		}
+
+		// Захирамжийн төсөл. Захирамжийн төсөлтэй ажиллах мэргэжилтэн ЗӨВХӨН
+		// decision:* эрхээр ажиллана (land:* эрх энд хүчинтэй БИШ). Сонголтын
+		// хоёр жагсаалт (Ажлын төрөл, Төсөв) нь бусад lookup-ийн адил admin:*
+		// эрхээр удирдагдаж, GET нь нэвтэрсэн хэрэглэгч бүрт нээлттэй.
+		if decisionSvcs.Draft != nil {
+			decisionH := NewDecisionDraftHandler(decisionSvcs.Draft)
+
+			decisionDrafts := protected.Group("/decision-drafts")
+			{
+				decisionDrafts.GET("", middleware.RequirePermission("decision:read"), decisionH.List)
+				decisionDrafts.GET("/:id", middleware.RequirePermission("decision:read"), decisionH.GetByID)
+				decisionDrafts.POST("", middleware.RequirePermission("decision:create"), decisionH.Create)
+				decisionDrafts.PUT("/:id", middleware.RequirePermission("decision:update"), decisionH.Update)
+				decisionDrafts.DELETE("/:id", middleware.RequirePermission("decision:delete"), decisionH.Delete)
+				decisionDrafts.POST("/:id/confirm", middleware.RequirePermission("decision:update"), decisionH.Confirm)
+				decisionDrafts.GET("/:id/progress-history", middleware.RequirePermission("decision:read"), decisionH.ListProgressHistory)
+				decisionDrafts.POST("/:id/progress", middleware.RequirePermission("decision:update"), decisionH.AddProgress)
+				decisionDrafts.GET("/:id/parcels", middleware.RequirePermission("decision:read"), decisionH.ListParcels)
+				decisionDrafts.POST("/:id/parcels", middleware.RequirePermission("decision:update"), decisionH.LinkParcel)
+				decisionDrafts.DELETE("/:id/parcels/:link_id", middleware.RequirePermission("decision:update"), decisionH.UnlinkParcel)
+				decisionDrafts.PATCH("/:id/parcels/:link_id/funding-source", middleware.RequirePermission("decision:update"), decisionH.SetParcelFundingSource)
+				// Санхүүгийн эх үүсвэр — төслийг үүсгэсний дараа олноор нэмнэ
+				decisionDrafts.GET("/:id/funding-sources", middleware.RequirePermission("decision:read"), decisionH.ListDraftFundingSources)
+				decisionDrafts.POST("/:id/funding-sources", middleware.RequirePermission("decision:update"), decisionH.AddFundingSource)
+				decisionDrafts.DELETE("/:id/funding-sources/:link_id", middleware.RequirePermission("decision:update"), decisionH.RemoveFundingSource)
+			}
+
+			// Нэгж талбарын "Захирамж" таб
+			protected.GET("/parcels/:id/decision-drafts",
+				middleware.RequirePermission("decision:read"), decisionH.ListByParcel)
+
+			// Санхүүгийн эх үүсвэрийн сонголт (бүх чөлөөлөлтөөр)
+			protected.GET("/funding-sources",
+				middleware.RequirePermission("decision:read"), decisionH.ListFundingSourceOptions)
+			// Гараар шинэ эх үүсвэр бүртгэх (чөлөөлөлтгүй, бие даасан мөр)
+			protected.POST("/funding-sources",
+				middleware.RequirePermission("decision:create"), decisionH.CreateFundingSourceOption)
+		}
+		if decisionSvcs.WorkType != nil {
+			workTypeH := NewDecisionOptionHandler(decisionSvcs.WorkType)
+			workTypes := protected.Group("/decision-work-types")
+			{
+				workTypes.GET("", workTypeH.List)
+				workTypes.GET("/:id", workTypeH.GetByID)
+				workTypes.POST("", middleware.RequirePermission("admin:create"), workTypeH.Create)
+				workTypes.PUT("/:id", middleware.RequirePermission("admin:update"), workTypeH.Update)
+				workTypes.DELETE("/:id", middleware.RequirePermission("admin:delete"), workTypeH.Delete)
+			}
+		}
+		if decisionSvcs.Budget != nil {
+			budgetH := NewDecisionOptionHandler(decisionSvcs.Budget)
+			budgets := protected.Group("/decision-budgets")
+			{
+				budgets.GET("", budgetH.List)
+				budgets.GET("/:id", budgetH.GetByID)
+				budgets.POST("", middleware.RequirePermission("admin:create"), budgetH.Create)
+				budgets.PUT("/:id", middleware.RequirePermission("admin:update"), budgetH.Update)
+				budgets.DELETE("/:id", middleware.RequirePermission("admin:delete"), budgetH.Delete)
+			}
 		}
 
 		// Баримт бичгийн төрөл

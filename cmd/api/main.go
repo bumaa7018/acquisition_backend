@@ -98,6 +98,9 @@ func main() {
 	acquisitionProgressStatusRepo := postgres.NewAcquisitionProgressStatusRepo(mainDB)
 	parcelStatusRepo := postgres.NewParcelStatusRepo(mainDB)
 	documentTypeRepo := postgres.NewDocumentTypeRepo(mainDB)
+	decisionDraftRepo := postgres.NewDecisionDraftRepo(mainDB)
+	decisionWorkTypeRepo := postgres.NewDecisionWorkTypeRepo(mainDB)
+	decisionBudgetRepo := postgres.NewDecisionBudgetRepo(mainDB)
 
 	jwtManager := jwtpkg.NewManager(
 		cfg.JWT.AccessSecret,
@@ -163,6 +166,13 @@ func main() {
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)
+	// Ажлын төрөл / Төсөв нь ижил интерфейстэй тул router-ийн type switch
+	// тэдгээрийг ялгаж чадахгүй — нэг багцаар дамжуулна.
+	decisionSvcs := service.DecisionServices{
+		Draft:    service.NewDecisionDraftService(decisionDraftRepo),
+		WorkType: service.NewDecisionOptionService(decisionWorkTypeRepo),
+		Budget:   service.NewDecisionOptionService(decisionBudgetRepo),
+	}
 
 	if err := seed.RunStartup(ctx, mainDB, authDB, seed.StartupOptions{
 		Admin:           cfg.Admin,
@@ -183,7 +193,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, decisionSvcs)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

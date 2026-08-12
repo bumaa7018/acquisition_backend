@@ -22,4 +22,14 @@ var (
 	ErrNonFinalParcels         = errors.New("all parcels must be in final status before confirming acquisition")
 	ErrAssetPhotoRequired      = errors.New("real estate assets must have photos before submitting valuation")
 	ErrReportBeforeApproval    = errors.New("valuation must be approved before attaching the report")
+
+	// Захирамжийн төсөл
+	ErrDecisionConfirmed   = errors.New("confirmed decision draft cannot be modified")
+	ErrParcelNotReleased   = errors.New("only released parcels can be linked to a decision draft")
+	ErrParcelAlreadyLinked = errors.New("parcel is already linked to another decision draft")
+	ErrDecisionAcqMismatch = errors.New("parcel belongs to a different land acquisition")
+	// Нэгж талбар холбохын өмнө захирамжид эх үүсвэр нэмсэн байх ба талбар
+	// бүрт эх үүсвэр сонгосон байх ёстой.
+	ErrFundingSourceRequired = errors.New("a funding source must be added and selected first")
+	ErrFundingSourceInUse    = errors.New("funding source is in use by a linked parcel")
 )
