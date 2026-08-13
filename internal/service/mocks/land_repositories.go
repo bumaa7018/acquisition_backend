@@ -45,6 +45,72 @@ func (m *MockPlanRepository) Suggest(ctx context.Context, q string) ([]*domain.P
 	return args.Get(0).([]*domain.Plan), args.Error(1)
 }
 
+// MockPlanStoreRepository — PlanStoreRepository (MAIN DB-ийн plan хүснэгт)-ийн mock
+type MockPlanStoreRepository struct{ mock.Mock }
+
+func (m *MockPlanStoreRepository) Upsert(ctx context.Context, plan *domain.Plan) (*domain.Plan, error) {
+	args := m.Called(ctx, plan)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Plan), args.Error(1)
+}
+
+func (m *MockPlanStoreRepository) GetByCode(ctx context.Context, planCode string) (*domain.Plan, error) {
+	args := m.Called(ctx, planCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Plan), args.Error(1)
+}
+
+func (m *MockPlanStoreRepository) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
+	args := m.Called(ctx, q)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.Plan), args.Error(1)
+}
+
+// MockPlanProjectClient — дундын сервисийн /plan/project дуудалтын mock
+type MockPlanProjectClient struct{ mock.Mock }
+
+func (m *MockPlanProjectClient) GetPlanProject(ctx context.Context, code string) (*domain.Plan, error) {
+	args := m.Called(ctx, code)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Plan), args.Error(1)
+}
+
+// MockParcelInfoClient — дундын сервисийн нэгж талбарын дуудалтуудын mock
+// (/parcels/by/acquisition — хилээр дугаар; /parcel/info/{id} — дугаараар мэдээлэл)
+type MockParcelInfoClient struct{ mock.Mock }
+
+func (m *MockParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error) {
+	args := m.Called(ctx, acquisitionWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockParcelInfoClient) GetParcelInfo(ctx context.Context, parcelID string) (*domain.SourceParcel, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.SourceParcel), args.Error(1)
+}
+
+func (m *MockParcelInfoClient) ListApplicationPersons(ctx context.Context, appNo, parcelID string) ([]*domain.ParcelHolder, error) {
+	args := m.Called(ctx, appNo, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelHolder), args.Error(1)
+}
+
 // MockLandAcquisitionRepository — LandAcquisitionRepository-ийн mock
 type MockLandAcquisitionRepository struct{ mock.Mock }
 
@@ -106,11 +172,6 @@ func (m *MockLandAcquisitionRepository) GetByID(ctx context.Context, id uuid.UUI
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error) {
-	args := m.Called(ctx, geomWKT, planWKT)
-	return args.Bool(0), args.Error(1)
-}
-
 func (m *MockLandAcquisitionRepository) FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error) {
 	args := m.Called(ctx, geomWKT)
 	if args.Get(0) == nil {
@@ -119,12 +180,25 @@ func (m *MockLandAcquisitionRepository) FindIntersectingAU3(ctx context.Context,
 	return args.Get(0).([]domain.LandAcquisitionAU), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error) {
+	args := m.Called(ctx, geomWKT)
+	return args.Get(0).(float64), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error {
 	return m.Called(ctx, au).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error {
 	return m.Called(ctx, acquisitionID, parcels, acqWKT).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, codes []string, acqWKT string) (*domain.ParcelDiscoveryResult, error) {
+	args := m.Called(ctx, acquisitionID, codes, acqWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelDiscoveryResult), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
@@ -189,8 +263,47 @@ func (m *MockLandAcquisitionRepository) UpsertHolder(ctx context.Context, src *d
 	return args.Get(0).(uuid.UUID), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error {
+func (m *MockLandAcquisitionRepository) ReplaceParcelDetail(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error {
 	return m.Called(ctx, parcelID, acquisitionID, holderID, src).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ApplyParcelGeometry(
+	ctx context.Context,
+	parcelID uuid.UUID,
+	parcelWKT, acqWKT string,
+) (*domain.ParcelGeometryResult, error) {
+	args := m.Called(ctx, parcelID, parcelWKT, acqWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelGeometryResult), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) FillParcelAUCodesFromGeometry(ctx context.Context, parcelID uuid.UUID) (domain.LandAcquisitionAU, error) {
+	args := m.Called(ctx, parcelID)
+	return args.Get(0).(domain.LandAcquisitionAU), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ReplaceParcelHolders(
+	ctx context.Context,
+	parcelID, acquisitionID uuid.UUID,
+	appNo string,
+	holders []*domain.ParcelHolder,
+) (uuid.UUID, error) {
+	args := m.Called(ctx, parcelID, acquisitionID, appNo, holders)
+	return args.Get(0).(uuid.UUID), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelHolders(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelHolder, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelHolder), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) SetParcelDetailHolder(ctx context.Context, parcelID, holderID uuid.UUID) error {
+	return m.Called(ctx, parcelID, holderID).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) Update(ctx context.Context, acq *domain.LandAcquisition) error {

@@ -20,12 +20,20 @@ func NewPlanHandler(svc service.PlanService) *PlanHandler {
 }
 
 type planResponse struct {
-	ID          string  `json:"id"`
-	PlanCode    string  `json:"plan_code"`
-	Name        string  `json:"name"`
-	AreaM2      float64 `json:"area_m2"`
-	Status      int     `json:"status"`
-	BoundaryWKT string  `json:"boundary_wkt"`
+	ID           string  `json:"id"`
+	ProjectID    string  `json:"project_id,omitempty"`
+	Code         string  `json:"code"`
+	PlanCode     string  `json:"plan_code"`
+	Name         string  `json:"name"`
+	PlanTypeName string  `json:"plan_type_name,omitempty"`
+	AreaM2       float64 `json:"area_m2"`
+	Status       int     `json:"status"`
+	BoundaryWKT  string  `json:"boundary_wkt"`
+	StartDate    *string `json:"start_date,omitempty"`
+	EndDate      *string `json:"end_date,omitempty"`
+	StartData    *string `json:"start_data,omitempty"`
+	EndData      *string `json:"end_data,omitempty"`
+	ApprovedDate *string `json:"approved_date,omitempty"`
 }
 
 // Search godoc
@@ -57,12 +65,20 @@ func (h *PlanHandler) Search(c *gin.Context) {
 	}
 
 	response.OK(c, planResponse{
-		ID:          plan.ID.String(),
-		PlanCode:    plan.PlanCode,
-		Name:        plan.Name,
-		AreaM2:      plan.AreaM2,
-		Status:      plan.Status,
-		BoundaryWKT: plan.BoundaryWKT,
+		ID:           plan.ID.String(),
+		ProjectID:    plan.ProjectID,
+		Code:         planCode(plan),
+		PlanCode:     plan.PlanCode,
+		Name:         plan.Name,
+		PlanTypeName: plan.PlanTypeName,
+		AreaM2:       plan.AreaM2,
+		Status:       plan.Status,
+		BoundaryWKT:  plan.BoundaryWKT,
+		StartDate:    plan.StartData,
+		EndDate:      plan.EndData,
+		StartData:    plan.StartData,
+		EndData:      plan.EndData,
+		ApprovedDate: plan.ApprovedDate,
 	})
 }
 
@@ -89,9 +105,17 @@ func (h *PlanHandler) Suggest(c *gin.Context) {
 	for _, p := range plans {
 		result = append(result, planResponse{
 			ID:       p.PlanCode,
+			Code:     planCode(p),
 			PlanCode: p.PlanCode,
 			Name:     p.Name,
 		})
 	}
 	response.OK(c, result)
+}
+
+func planCode(plan *domain.Plan) string {
+	if plan.Code != "" {
+		return plan.Code
+	}
+	return plan.PlanCode
 }

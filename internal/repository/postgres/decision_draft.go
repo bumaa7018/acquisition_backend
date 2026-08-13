@@ -711,6 +711,50 @@ func (r *DecisionDraftRepo) SetParcelFundingLink(ctx context.Context, draftID, l
 	return nil
 }
 
+// BindFundingSourceToAcquisition — захирамжийн төсөлд нэгж талбар холбоход
+// сонгосон санхүүгийн эх үүсвэрийг ТУХАЙН ЧӨЛӨӨЛӨЛТӨД хадгална.
+//
+// Чөлөөлөлт бүртгэхэд эх үүсвэр асуухаа больсон тул чөлөөлөлтийн санхүүжилтийн
+// мэдээлэл ЗӨВХӨН эндээс бүрдэнэ. Хоёр тохиолдол:
+//
+//   - Эх үүсвэр нь чөлөөлөлтгүй (бие даасан, acquisition_id IS NULL) бол шууд
+//     тухайн чөлөөлөлтөд холбоно.
+//   - ӨӨР чөлөөлөлтийнх бол зөөж авахгүй (тэр чөлөөлөлтийн санхүүжилт эвдэрнэ)
+//     — харин ижил нэр/төрлийн мөр байхгүй бол хуулбарыг үүсгэнэ.
+//
+// Идемпотент: дахин дуудахад давхардал үүсгэхгүй.
+func (r *DecisionDraftRepo) BindFundingSourceToAcquisition(ctx context.Context, fundingLinkID, acquisitionID string) error {
+	if _, err := r.db.Exec(ctx, `
+		UPDATE funding_sources fs
+		   SET acquisition_id = $2
+		  FROM decision_draft_funding_source ddfs
+		 WHERE ddfs.id = $1
+		   AND fs.id = ddfs.funding_source_id
+		   AND fs.acquisition_id IS NULL
+	`, fundingLinkID, acquisitionID); err != nil {
+		return err
+	}
+
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO funding_sources (
+			acquisition_id, organization_name, source_type, amount, currency, note, created_by
+		)
+		SELECT $2, src.organization_name, src.source_type, src.amount, src.currency, src.note, src.created_by
+		  FROM decision_draft_funding_source ddfs
+		  JOIN funding_sources src ON src.id = ddfs.funding_source_id
+		 WHERE ddfs.id = $1
+		   AND src.acquisition_id IS NOT NULL
+		   AND src.acquisition_id <> $2
+		   AND NOT EXISTS (
+		       SELECT 1 FROM funding_sources dup
+		        WHERE dup.acquisition_id = $2
+		          AND dup.organization_name = src.organization_name
+		          AND dup.source_type = src.source_type
+		   )
+	`, fundingLinkID, acquisitionID)
+	return err
+}
+
 func (r *DecisionDraftRepo) RemoveFundingSource(ctx context.Context, draftID, linkID string) error {
 	res, err := r.db.Exec(ctx,
 		`DELETE FROM decision_draft_funding_source WHERE id = $1 AND decision_draft_id = $2`,

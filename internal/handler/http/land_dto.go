@@ -54,6 +54,7 @@ type parcelResponse struct {
 	AU3Code            string   `json:"au3_code"`
 	RightType          int      `json:"right_type"`
 	Landuse            string   `json:"landuse"`
+	LanduseName        string   `json:"landuse_name,omitempty"`
 	AreaM2             float64  `json:"area_m2"`
 	AcquisitionAreaM2  float64  `json:"acquisition_area_m2"`
 	RemainingAreaM2    *float64 `json:"remaining_area_m2"`
@@ -88,7 +89,11 @@ type parcelFullResponse struct {
 	RemainingAreaM2       *float64          `json:"remaining_area_m2"`
 	RightType             int               `json:"right_type"`
 	Landuse               string            `json:"landuse"`
+	LanduseName           string            `json:"landuse_name,omitempty"`
 	AreaM2                float64           `json:"area_m2"`
+	AddressKhashaa        string            `json:"address_khashaa,omitempty"`
+	AddressStreet         string            `json:"address_streetname,omitempty"`
+	PropertyNo            string            `json:"property_no,omitempty"`
 	DbChanged             bool              `json:"db_changed"`
 	ChangedParcelID       string            `json:"changed_parcel_id"`
 	StatusID              int               `json:"status_id"`
@@ -98,28 +103,56 @@ type parcelFullResponse struct {
 	CreatedAt             string            `json:"created_at"`
 	CreatedBy             string            `json:"created_by"`
 	Detail                *parcelDetailInfo `json:"detail,omitempty"`
+	// Holders — БҮХ эзэмшигч (нэг хүсэлт дээр төрөл өөр олон хүн байж болно).
+	// detail дотрох holder_* талбарууд нь зөвхөн үндсэн хүсэлт гаргагчийг заана.
+	Holders []parcelHolderResponse `json:"holders"`
+}
+
+type parcelHolderResponse struct {
+	ID            string `json:"id"`
+	MainApplicant bool   `json:"main_applicant"`
+	LastName      string `json:"last_name"`
+	Name          string `json:"name"`
+	RegisterNo    string `json:"register_no"`
+	Phone         string `json:"phone"`
+	Email         string `json:"email"`
+	// PersonType — эзэмшигчийн төрөл, жишээ нь "3: Монгол улсын хуулийн этгээд".
+	// Хуулийн этгээд үед last_name хоосон, name-д байгууллагын бүтэн нэр байна.
+	PersonType string `json:"person_type"`
+	AppNo      string `json:"app_no"`
 }
 
 type parcelDetailInfo struct {
-	RightType        int      `json:"right_type"`
-	HolderLastName   string   `json:"holder_last_name"`
-	HolderName       string   `json:"holder_name"`
-	HolderRegisterNo string   `json:"holder_register_no"`
-	HolderPhone      string   `json:"holder_phone"`
-	HolderEmail      string   `json:"holder_email"`
-	HolderType       string   `json:"holder_type"`
-	HolderCivilID    string   `json:"holder_civil_id"`
-	AppNo            string   `json:"app_no"`
-	DecisionNo       string   `json:"decision_no"`
-	DecisionDate     *string  `json:"decision_date"`
-	ContractNo       string   `json:"contract_no"`
-	ContractDate     *string  `json:"contract_date"`
-	CertificateNo    string   `json:"certificate_no"`
-	CertificateDate  *string  `json:"certificate_date"`
-	ValuationZone    string   `json:"valuation_zone"`
-	BasePricePerHa   *float64 `json:"base_price_per_ha"`
-	AuctionCoeff     *float64 `json:"auction_coeff"`
-	AuctionPrice     *float64 `json:"auction_price"`
+	RightType           int      `json:"right_type"`
+	HolderLastName      string   `json:"holder_last_name"`
+	HolderName          string   `json:"holder_name"`
+	HolderRegisterNo    string   `json:"holder_register_no"`
+	HolderPhone         string   `json:"holder_phone"`
+	HolderEmail         string   `json:"holder_email"`
+	HolderType          string   `json:"holder_type"`
+	HolderCivilID       string   `json:"holder_civil_id"`
+	AppNo               string   `json:"app_no"`
+	AppTimestamp        *string  `json:"app_timestamp"`
+	AppType             string   `json:"app_type"`
+	AppStatus           string   `json:"app_status"`
+	DecisionNo          string   `json:"decision_no"`
+	DecisionDate        *string  `json:"decision_date"`
+	ContractNo          string   `json:"contract_no"`
+	ContractDate        *string  `json:"contract_date"`
+	ContractBegin       *string  `json:"contract_begin"`
+	ContractEnd         *string  `json:"contract_end"`
+	ContractPropertyNo  string   `json:"contract_property_no"`
+	ContractStatus      string   `json:"contract_status"`
+	CertificateNo       string   `json:"certificate_no"`
+	CertificateDate     *string  `json:"certificate_date"`
+	RecordNo            string   `json:"record_no"`
+	RecordDate          *string  `json:"record_date"`
+	RecordCertificateNo string   `json:"record_certificate_no"`
+	RecordStatus        string   `json:"record_status"`
+	ValuationZone       string   `json:"valuation_zone"`
+	BasePricePerHa      *float64 `json:"base_price_per_ha"`
+	AuctionCoeff        *float64 `json:"auction_coeff"`
+	AuctionPrice        *float64 `json:"auction_price"`
 }
 
 type progressResponse struct {
@@ -587,7 +620,7 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		r.Parcels = append(r.Parcels, parcelResponse{
 			ID: p.ID.String(), ParcelID: p.ParcelID,
 			AU1Code: p.AU1Code, AU2Code: p.AU2Code, AU3Code: p.AU3Code,
-			RightType: p.RightType, Landuse: p.Landuse, AreaM2: p.AreaM2,
+			RightType: p.RightType, Landuse: p.Landuse, LanduseName: p.LanduseName, AreaM2: p.AreaM2,
 			AcquisitionAreaM2: p.AcquisitionAreaM2, RemainingAreaM2: p.RemainingAreaM2,
 			CompensationPaid: p.CompensationPaid, DbChanged: p.DbChanged,
 			ChangedParcelID: p.ChangedParcelID,
@@ -607,6 +640,7 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 		AU3Code:            p.AU3Code,
 		RightType:          p.RightType,
 		Landuse:            p.Landuse,
+		LanduseName:        p.LanduseName,
 		AreaM2:             p.AreaM2,
 		AcquisitionAreaM2:  p.AcquisitionAreaM2,
 		RemainingAreaM2:    p.RemainingAreaM2,
@@ -644,7 +678,11 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		RemainingAreaM2:    pf.RemainingAreaM2,
 		RightType:          pf.RightType,
 		Landuse:            pf.Landuse,
+		LanduseName:        pf.LanduseName,
 		AreaM2:             pf.AreaM2,
+		AddressKhashaa:     pf.AddressKhashaa,
+		AddressStreet:      pf.AddressStreet,
+		PropertyNo:         pf.PropertyNo,
 		DbChanged:          pf.DbChanged,
 		ChangedParcelID:    pf.ChangedParcelID,
 		StatusID:           pf.StatusID,
@@ -670,18 +708,29 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	if pf.Detail != nil {
 		d := pf.Detail
 		di := &parcelDetailInfo{
-			RightType:        d.RightType,
-			HolderLastName:   d.HolderLastName,
-			HolderName:       d.HolderName,
-			HolderRegisterNo: d.HolderRegisterNo,
-			HolderPhone:      d.HolderPhone,
-			HolderEmail:      d.HolderEmail,
-			HolderType:       d.HolderType,
-			HolderCivilID:    d.HolderCivilID,
-			AppNo:            d.AppNo,
-			DecisionNo:       d.DecisionNo,
-			ContractNo:       d.ContractNo,
-			CertificateNo:    d.CertificateNo,
+			RightType:           d.RightType,
+			HolderLastName:      d.HolderLastName,
+			HolderName:          d.HolderName,
+			HolderRegisterNo:    d.HolderRegisterNo,
+			HolderPhone:         d.HolderPhone,
+			HolderEmail:         d.HolderEmail,
+			HolderType:          d.HolderType,
+			HolderCivilID:       d.HolderCivilID,
+			AppNo:               d.AppNo,
+			AppType:             d.AppType,
+			AppStatus:           d.AppStatus,
+			DecisionNo:          d.DecisionNo,
+			ContractNo:          d.ContractNo,
+			ContractPropertyNo:  d.ContractPropertyNo,
+			ContractStatus:      d.ContractStatus,
+			CertificateNo:       d.CertificateNo,
+			RecordNo:            d.RecordNo,
+			RecordCertificateNo: d.RecordCertificateNo,
+			RecordStatus:        d.RecordStatus,
+		}
+		if d.AppTimestamps != nil {
+			s := d.AppTimestamps.Format(time.RFC3339)
+			di.AppTimestamp = &s
 		}
 		if d.DecisionDate != nil {
 			s := d.DecisionDate.Format("2006-01-02")
@@ -691,15 +740,41 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 			s := d.ContractDate.Format("2006-01-02")
 			di.ContractDate = &s
 		}
+		if d.ContractBegin != nil {
+			s := d.ContractBegin.Format("2006-01-02")
+			di.ContractBegin = &s
+		}
+		if d.ContractEnd != nil {
+			s := d.ContractEnd.Format("2006-01-02")
+			di.ContractEnd = &s
+		}
 		if d.CertificateDate != nil {
 			s := d.CertificateDate.Format("2006-01-02")
 			di.CertificateDate = &s
+		}
+		if d.RecordDate != nil {
+			s := d.RecordDate.Format("2006-01-02")
+			di.RecordDate = &s
 		}
 		di.ValuationZone = d.ValuationZone
 		di.BasePricePerHa = d.BasePricePerHa
 		di.AuctionCoeff = d.AuctionCoeff
 		di.AuctionPrice = d.AuctionPrice
 		r.Detail = di
+	}
+	r.Holders = make([]parcelHolderResponse, 0, len(pf.Holders))
+	for _, h := range pf.Holders {
+		r.Holders = append(r.Holders, parcelHolderResponse{
+			ID:            h.ID.String(),
+			MainApplicant: h.MainApplicant,
+			LastName:      h.LastName,
+			Name:          h.Name,
+			RegisterNo:    h.RegisterNo,
+			Phone:         h.Phone,
+			Email:         h.Email,
+			PersonType:    h.PersonType,
+			AppNo:         h.AppNo,
+		})
 	}
 	return r
 }

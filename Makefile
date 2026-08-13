@@ -1,8 +1,9 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
+MW_DIR ?= ../goverment-middleware
 # Файлын систем (MinIO) — хасах бол compose файлыг устгахад болно, тиймээс
 # байгаа эсэхийг wildcard-аар шалгана (scripts/deploy.sh-ийн адил).
 MINIO_FILE=deployments/docker-compose.minio.yml
@@ -139,6 +140,25 @@ deploy:
 
 docker-rebuild:
 	SKIP_GIT_PULL=1 ./scripts/deploy.sh
+
+# ─── Middleware service ───────────────────────────────────────────────────────
+middleware-run:
+	$(MAKE) -C $(MW_DIR) run
+
+middleware-docker-build:
+	$(MAKE) -C $(MW_DIR) docker-build
+
+middleware-docker-up:
+	$(MAKE) -C $(MW_DIR) docker-up
+
+middleware-docker-down:
+	$(MAKE) -C $(MW_DIR) docker-down
+
+middleware-docker-logs:
+	$(MAKE) -C $(MW_DIR) docker-logs
+
+middleware-docker-restart:
+	$(MAKE) -C $(MW_DIR) docker-restart
 
 # ─── Frontend ──────────────────────────────────────────────────────────────────
 FE_DIR ?= ../government-frontend

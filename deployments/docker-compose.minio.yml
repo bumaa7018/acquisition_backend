@@ -32,17 +32,13 @@ services:
       TZ: Asia/Ulaanbaatar
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    # АЮУЛГҮЙ БАЙДАЛ: MinIO-ийн S3 API (9000) портыг host-д НИЙТЛЭХГҮЙ.
-    # Bucket policy нь anonymous read байсан тул host-д ил байхад хэн ч
-    # `http://<host>:9000/gov-files/<key>`-ээр бүх баримт/ортофотог
-    # нэвтрэлтгүй татаж чаддаг байв (аудитаар батлагдсан). Frontend болон
-    # GeoServer энэ порт руу gov_network ДОТРООС (minio:9000) хүрдэг тул
-    # host-д нийтлэх шаардлагагүй — дроны upload/татац бүгд Next-ийн
-    # `/api/files` proxy-гоор (эрх шалгагдсан) явдаг.
+    # Local/dev дээр presigned upload болон S3 шалгалтууд `localhost:9000`
+    # руу шууд ханддаг тул S3 API-г зөвхөн loopback дээр нээнэ. 0.0.0.0 дээр
+    # нийтлэхгүй тул сүлжээний гаднаас шууд харагдахгүй.
     #
-    # Консол (9001) нь зөвхөн localhost-д — ops SSH tunnel-ээр хандана,
-    # 0.0.0.0-д ил гарахгүй.
+    # Консол (9001) мөн зөвхөн localhost-д — ops SSH tunnel-ээр хандана.
     ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data

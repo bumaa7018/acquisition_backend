@@ -115,6 +115,15 @@ type PlanRepository interface {
 	Suggest(ctx context.Context, q string) ([]*domain.Plan, error)
 }
 
+// PlanStoreRepository — MAIN DB-ийн plan хүснэгт. Дундын сервисээс (middleware
+// /plan/project) татсан төлөвлөгөөг чөлөөлөлт үүсгэх үед хадгалж, төлөвлөгөөгөөр
+// хайх/сонгох үйлдэл үүнээс уншина.
+type PlanStoreRepository interface {
+	Upsert(ctx context.Context, plan *domain.Plan) (*domain.Plan, error)
+	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)
+	Suggest(ctx context.Context, q string) ([]*domain.Plan, error)
+}
+
 type LandLookupRepository interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
@@ -129,10 +138,15 @@ type LandAcquisitionWriteRepository interface {
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
-	ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
+	// ComputeAreaM2 — чөлөөлөх хилийн талбайг м²-ээр PostGIS-аар тооцно.
+	ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error)
 	CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error
 	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error
+	// InsertParcelCodes — ЗӨВХӨН дугаараар нэгж талбарын мөр үүсгэнэ
+	// (дэлгэрэнгүй нь дараа нь SyncParcel-ээр татагдана). Дугаар бүрийг
+	// бүртгэхийн өмнө байгаа эсэхийг шалгаж, давхардлыг үүсгэхгүй.
+	InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, codes []string, acqWKT string) (*domain.ParcelDiscoveryResult, error)
 	CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
@@ -141,10 +155,23 @@ type LandAcquisitionWriteRepository interface {
 	GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*domain.ParcelFull, error)
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error
+	// ApplyParcelGeometry — эх системээс ирсэн геометрийг хадгалж, чөлөөлөгдөх
+	// талбайн хил/хэмжээ болон үлдэх талбайг тооцно.
+	ApplyParcelGeometry(ctx context.Context, parcelID uuid.UUID, parcelWKT, acqWKT string) (*domain.ParcelGeometryResult, error)
+	// FillParcelAUCodesFromGeometry — геометрээр харьяалах баг/хороог олж
+	// аймаг/сум/багийн кодыг хадгална.
+	FillParcelAUCodesFromGeometry(ctx context.Context, parcelID uuid.UUID) (domain.LandAcquisitionAU, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
 	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
-	UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
+	// ReplaceParcelDetail — parcel_detail-ийг хуучин мөрүүдийг устгаж бүрэн шинэчилнэ.
+	ReplaceParcelDetail(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
+	// ReplaceParcelHolders — нэгж талбарын ОЛОН эзэмшигчийг бүрэн шинэчилж,
+	// үндсэн хүсэлт гаргагчийн right_holder.id-г буцаана.
+	ReplaceParcelHolders(ctx context.Context, parcelID, acquisitionID uuid.UUID, appNo string, holders []*domain.ParcelHolder) (uuid.UUID, error)
+	ListParcelHolders(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelHolder, error)
+	// SetParcelDetailHolder — parcel_detail.holder_id-г үндсэн эзэмшигчид холбоно.
+	SetParcelDetailHolder(ctx context.Context, parcelID, holderID uuid.UUID) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
 	UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error
@@ -341,6 +368,9 @@ type DecisionDraftRepository interface {
 	FundingLinkBelongsTo(ctx context.Context, draftID, fundingLinkID string) (bool, error)
 	FundingLinkInUse(ctx context.Context, fundingLinkID string) (bool, error)
 	SetParcelFundingLink(ctx context.Context, draftID, linkID, fundingLinkID string) error
+	// BindFundingSourceToAcquisition — нэгж талбар холбоход сонгосон эх үүсвэрийг
+	// тухайн чөлөөлөлтийн санхүүжилт болгож хадгална.
+	BindFundingSourceToAcquisition(ctx context.Context, fundingLinkID, acquisitionID string) error
 }
 
 type DocumentTypeRepository interface {

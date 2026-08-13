@@ -204,6 +204,15 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedDecisionPermissions(ctx)
 			},
 		},
+		{
+			// Migration 000068-ийн plan хүснэгтэд харгалзах data backfill.
+			// Төлөвлөгөөгөөр хайх/сонгох үйлдэл цаашид plan хүснэгтээс уншина
+			// тул хуучин чөлөөлөлтүүдийн төлөвлөгөөг тийш зөөнө.
+			name: "000023_plan_backfill",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedPlanBackfill(ctx)
+			},
+		},
 	})
 
 	return nil

@@ -20,6 +20,7 @@ type Config struct {
 	Email           EmailConfig
 	FileServer      FileServerConfig
 	GeoServer       GeoServerConfig
+	Middleware      MiddlewareConfig
 }
 
 type AppConfig struct {
@@ -123,6 +124,10 @@ type GeoServerConfig struct {
 	User      string `env:"GEOSERVER_ADMIN" envDefault:"admin"`
 	Password  string `env:"GEOSERVER_PASS" envDefault:"geoserver"`
 	Workspace string `env:"GEOSERVER_WORKSPACE" envDefault:"land"`
+}
+
+type MiddlewareConfig struct {
+	BaseURL string `env:"MIDDLEWARE_BASE_URL" envDefault:""`
 }
 
 func (e EmailConfig) Enabled() bool {

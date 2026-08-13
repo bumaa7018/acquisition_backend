@@ -68,6 +68,44 @@ func (s *MainSeeder) seedSelectedValuationBackfill(ctx context.Context) error {
 	return err
 }
 
+// SeedPlanBackfill — migration 000068-ийн plan хүснэгтэд харгалзах өгөгдлийн
+// шилжүүлэг: одоо байгаа чөлөөлөлтүүдийн төлөвлөгөөний мэдээллийг (plan_code,
+// plan_name, plan_geom, plan_area_m2) plan хүснэгт руу зөөнө.
+//
+// Яагаад: төлөвлөгөөгөөр хайх/сонгох үйлдэл цаашид ЗӨВХӨН plan хүснэгтээс
+// уншина. Backfill байхгүй бол хуучин чөлөөлөлтүүдийн төлөвлөгөө сонголтод
+// харагдахгүй болно.
+//
+// Идемпотент: plan_code-оор ON CONFLICT DO NOTHING, дараа нь чөлөөлөлтийн
+// plan_id-г шинэ мөрүүдтэй тааруулна (өмнө нь auth DB-ийн plan.id-г хэлдэг байсан).
+func (s *MainSeeder) SeedPlanBackfill(ctx context.Context) error {
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO plan (id, plan_code, name, boundary_wkt, area_m2, status)
+		SELECT DISTINCT ON (la.plan_code)
+		       gen_random_uuid(),
+		       la.plan_code,
+		       COALESCE(la.plan_name, ''),
+		       la.plan_geom,
+		       la.plan_area_m2,
+		       2
+		FROM land_acquisition la
+		WHERE COALESCE(la.plan_code, '') <> ''
+		ORDER BY la.plan_code, la.created_at
+		ON CONFLICT (plan_code) DO NOTHING
+	`); err != nil {
+		return err
+	}
+
+	_, err := s.db.Exec(ctx, `
+		UPDATE land_acquisition la
+		SET plan_id = p.id
+		FROM plan p
+		WHERE p.plan_code = la.plan_code
+		  AND la.plan_id IS DISTINCT FROM p.id
+	`)
+	return err
+}
+
 // seedDocumentTypeBackfill — хуучин land_acquisition_document.file_type-д хадгалагдаж
 // байсан хавсралтын төрлийг document.document_type_id руу шилжүүлнэ.
 // Багана аль хэдийн устсан (migration 000050) орчинд юу ч хийхгүй.
@@ -151,11 +189,10 @@ func (s *MainSeeder) seedDefaultAssets(ctx context.Context) error {
 func (s *MainSeeder) seedAUs(ctx context.Context) error {
 	// Аймаг — Төв аймаг (ойролцоо хил, хялбарчилсан)
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO au1 (id, code, name, area_m2, geometry, created_by, updated_by)
+		INSERT INTO au1 (code, name, area_m2, geometry)
 			VALUES (
-				uuid_generate_v4(), $1, $2, $3,
-				ST_GeomFromText($4, 4326)::geometry(Polygon, 4326),
-				'system', 'system'
+				$1, $2, $3,
+				ST_Multi(ST_GeomFromText($4, 4326))::geometry(MultiPolygon, 4326)
 			)
 		ON CONFLICT (code) DO NOTHING
 	`,
@@ -170,11 +207,10 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 
 	// Сум — Зуунмод сум
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO au2 (id, code, name, au1_code, area_m2, geometry, created_by, updated_by)
+		INSERT INTO au2 (code, name, au1_code, area_m2, geometry)
 			VALUES (
-				uuid_generate_v4(), $1, $2, $3, $4,
-				ST_GeomFromText($5, 4326)::geometry(Polygon, 4326),
-				'system', 'system'
+				$1, $2, $3, $4,
+				ST_GeomFromText($5, 4326)::geometry(Polygon, 4326)
 			)
 		ON CONFLICT (code) DO NOTHING
 	`,
@@ -190,11 +226,10 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 
 	// Баг — 1-р баг
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO au3 (id, code, name, au1_code, au2_code, area_m2, geometry, created_by, updated_by)
+		INSERT INTO au3 (code, name, au1_code, au2_code, area_m2, geometry)
 			VALUES (
-				uuid_generate_v4(), $1, $2, $3, $4, $5,
-				ST_GeomFromText($6, 4326)::geometry(Polygon, 4326),
-				'system', 'system'
+				$1, $2, $3, $4, $5,
+				ST_Multi(ST_GeomFromText($6, 4326))::geometry(MultiPolygon, 4326)
 			)
 		ON CONFLICT (code) DO NOTHING
 	`,

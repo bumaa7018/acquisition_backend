@@ -287,6 +287,9 @@ func NewRouter(
 			land.POST("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateCompensationGrant)
 			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensationGrant)
 			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteCompensationGrant)
+			// Чөлөөлөх ХИЛЭЭР нэгж талбарыг тодорхойлж бүртгэнэ (дугаар л татна).
+			// Дэлгэрэнгүйг дараа нь дугаар тус бүрээр доорх /sync-ээр татна.
+			land.POST("/:id/parcels/by-acquisition", middleware.RequirePermission("land:create"), assignedOrSenior, landH.DiscoverParcels)
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncParcel)
 			land.POST("/:id/parcels/:parcel_id/sync/contract-act", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncContractAct)
 			land.POST("/:id/parcels/:parcel_id/sync/valuation", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncValuation)

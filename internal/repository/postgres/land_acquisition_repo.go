@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"strings"
@@ -378,32 +379,27 @@ func (r *landAcqRepo) getAUs(ctx context.Context, acqID uuid.UUID) ([]domain.Lan
 	return aus, rows.Err()
 }
 
-// ValidateOverlap checks that the acquisition geometry has a real area overlap with the plan.
-func (r *landAcqRepo) ValidateOverlap(ctx context.Context, geomWKT, planWKT string) (bool, error) {
-	var ok bool
-	err := r.db.QueryRow(ctx, `
-			WITH g AS (
-				SELECT
-					ST_MakeValid(ST_GeomFromText($1, 4326))::geometry AS acquisition_geom,
-					ST_MakeValid(ST_GeomFromText($2, 4326))::geometry AS plan_geom
-			)
-			SELECT ST_Area(ST_CollectionExtract(ST_Intersection(acquisition_geom, plan_geom), 3)) > 0
-			FROM g
-		`, geomWKT, planWKT).Scan(&ok)
-	return ok, err
-}
-
-// FindIntersectingAU3 returns bags (au3) that intersect with the given geometry.
+// FindIntersectingAU3 — чөлөөлөлтийн геометртэй огтлолцох БАГ/ХОРОО (au3)-г олно.
+//
+// Аймаг/сум (au1, au2)-ыг тусад нь орон зайгаар хайхгүй — au3 мөр дээрх
+// au1_code/au2_code-оос авч, зөвхөн НЭРийг эх хүснэгтээс уншина.
+//
+//   - LEFT JOIN: аймаг/сумын нэр олдоогүй ч тухайн au3 хаягдахгүй (өмнө нь
+//     INNER JOIN байсан тул au2 нь тааралдаагүй au3 бүрэн алга болдог байв).
+//   - Геометрийг Polygon-оор хатуу cast хийхгүй: MultiPolygon хил ирэхэд
+//     cast нь алдаа болж, чөлөөлөлт баггүй үлдэж байв. ST_MakeValid нь
+//     эвдэрсэн (self-intersect) хилийг ч уншиж чадна.
 func (r *landAcqRepo) FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT a3.code, COALESCE(a3.name,''),
-		       a3.au1_code, COALESCE(a1.name,''),
-		       a3.au2_code, COALESCE(a2.name,'')
+		       COALESCE(a3.au1_code,''), COALESCE(a1.name,''),
+		       COALESCE(a3.au2_code,''), COALESCE(a2.name,'')
 		FROM au3 a3
-		JOIN au1 a1 ON a1.code = a3.au1_code
-		JOIN au2 a2 ON a2.code = a3.au2_code
+		LEFT JOIN au1 a1 ON a1.code = a3.au1_code
+		LEFT JOIN au2 a2 ON a2.code = a3.au2_code
 			WHERE a3.geometry IS NOT NULL
-			  AND ST_Intersects(a3.geometry, ST_GeomFromText($1, 4326)::geometry(Polygon, 4326))
+			  AND ST_Intersects(a3.geometry, ST_MakeValid(ST_GeomFromText($1, 4326)))
+			ORDER BY a3.code
 	`, geomWKT)
 	if err != nil {
 		return nil, err
@@ -442,74 +438,204 @@ func (r *landAcqRepo) CreateAU(ctx context.Context, au *domain.LandAcquisitionAU
 	return err
 }
 
-// BulkInsertParcels inserts source parcels that intersect the acquisition geometry.
+// ComputeAreaM2 — WKT хилийн талбайг м²-ээр тооцно (geography → бөмбөрцөг дээрх
+// бодит талбай). Хил хоосон бол 0 буцаана.
+func (r *landAcqRepo) ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error) {
+	if strings.TrimSpace(geomWKT) == "" {
+		return 0, nil
+	}
+	var areaM2 float64
+	if err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(ST_Area(ST_GeomFromText($1, 4326)::geography), 0)`,
+		geomWKT,
+	).Scan(&areaM2); err != nil {
+		return 0, err
+	}
+	return areaM2, nil
+}
+
+// BulkInsertParcels — дундын сервисээс ирсэн нэгж талбаруудыг бүртгэнэ.
+//
+// Нэгж талбар ЗӨВХӨН дугаараараа (parcel_id) үүснэ: геометр нь заавал биш.
+// Дундын сервисийн /parcel/info геометр буцаадаггүй тул өмнө нь давхцлын
+// шалгалт бүх мөрийг хаяж, жагсаалт хоосон үлддэг байсан.
+//
+// Геометр ирсэн тохиолдолд чөлөөлөлттэй давхцах хэсэг (acquisition_geom) ба
+// түүний талбайг PostGIS-аар тооцож нэмэлтээр хадгална. Геометр нь невалид
+// эсвэл polygon биш бол зөвхөн геометрийг л хаяж, мөр өөрөө бүртгэгдэнэ.
+//
+// Нэг нэгж талбар дээрх алдаа бусдыг зогсоохгүй — бүгдийг оролдож, эхний
+// алдааг буцаана (дуудагч логлохын тулд).
 func (r *landAcqRepo) BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error {
 	now := time.Now()
-	for _, sp := range parcels {
-		var intersects bool
-		if err := r.db.QueryRow(ctx, `
-				SELECT ST_Intersects(
-					ST_GeomFromText($1, 4326)::geometry(Polygon, 4326),
-					ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)
-				)
-			`, sp.GeometryWKT, acqWKT).Scan(&intersects); err != nil {
-			continue // невалид geometry → skip
+	var firstErr error
+	keep := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
 		}
-		if !intersects {
+	}
+
+	for _, sp := range parcels {
+		if sp == nil || strings.TrimSpace(sp.ParcelID) == "" {
+			continue // дугааргүй бол бүртгэх боломжгүй
+		}
+
+		parcelID, created, err := r.insertParcelRow(ctx, acquisitionID, sp, sp.GeometryWKT, acqWKT, now)
+		if err != nil && strings.TrimSpace(sp.GeometryWKT) != "" {
+			// Геометр невалид/өөр төрөл байж болно. Нэгж талбар дугаараараа
+			// бүртгэгдэх ёстой тул геометргүйгээр дахин оролдоно.
+			parcelID, created, err = r.insertParcelRow(ctx, acquisitionID, sp, "", acqWKT, now)
+		}
+		if err != nil {
+			keep(err)
+			continue
+		}
+		if parcelID == uuid.Nil {
+			// parcel_id глобал unique — өөр чөлөөлөлтөд бүртгэгдсэн байна.
 			continue
 		}
 
-		_, err := r.db.Exec(ctx, `
-				WITH geom AS (
-					SELECT
-						ST_GeomFromText($6, 4326)::geometry(Polygon, 4326) AS parcel_geom,
-						ST_GeomFromText($7, 4326)::geometry(Polygon, 4326) AS acquisition_geom
-				),
-				overlap AS (
-					SELECT ST_GeometryN(ST_CollectionExtract(ST_Intersection(parcel_geom, acquisition_geom), 3), 1)::geometry(Polygon, 4326) AS geom
-					FROM geom
-				)
-				INSERT INTO parcel (
-					id, parcel_id, acquisition_id,
-					au1_code, au2_code, au3_code,
-					geometry,
+		if created {
+			_ = r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, 0, "system")
+		}
+		holderID, err := r.UpsertHolder(ctx, sp)
+		if err != nil {
+			keep(err)
+			holderID = uuid.Nil
+		}
+		keep(r.ReplaceParcelDetail(ctx, parcelID, acquisitionID, holderID, sp))
+	}
+	return firstErr
+}
+
+// InsertParcelCodes — дундын сервисээс ирсэн нэгж талбарын ДУГААРУУДААР
+// хоосон (дэлгэрэнгүйгүй) мөр үүсгэнэ. Дэлгэрэнгүй нь дараагийн алхамд
+// SyncParcel-ээр дугаар тус бүрээр татагдана.
+//
+// insertParcelRow нь ON CONFLICT (parcel_id) DO NOTHING хийдэг тул дахин
+// дуудахад давхардал үүсэхгүй: өмнө нь ЭНЭ чөлөөлөлтөд бүртгэгдсэн бол
+// existing, ӨӨР чөлөөлөлтөд бүртгэгдсэн бол (uuid.Nil) skipped болно.
+//
+// Нэг дугаар дээрх алдаа бусдыг зогсоохгүй — эхний алдааг л буцаана.
+func (r *landAcqRepo) InsertParcelCodes(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	codes []string,
+	acqWKT string,
+) (*domain.ParcelDiscoveryResult, error) {
+	now := time.Now()
+	res := &domain.ParcelDiscoveryResult{ParcelIDs: []string{}}
+	var firstErr error
+
+	seen := make(map[string]struct{}, len(codes))
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		res.Total++
+
+		sp := &domain.SourceParcel{ParcelID: code}
+		parcelID, created, err := r.insertParcelRow(ctx, acquisitionID, sp, "", acqWKT, now)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if parcelID == uuid.Nil {
+			// parcel_id глобал unique — өөр чөлөөлөлтөд бүртгэгдсэн байна.
+			res.Skipped++
+			continue
+		}
+		if created {
+			res.Created++
+			_ = r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, 0, "system")
+		} else {
+			res.Existing++
+		}
+		res.ParcelIDs = append(res.ParcelIDs, code)
+	}
+	return res, firstErr
+}
+
+// insertParcelRow — нэгж талбарын мөрийг үүсгэнэ. parcelWKT хоосон бол
+// геометргүйгээр бүртгэнэ. created=false нь мөр өмнө нь байсныг (ON CONFLICT)
+// илэрхийлнэ — тэр үед парцелын ID-г тухайн чөлөөлөлтөөс хайж буцаана
+// (өөр чөлөөлөлтийнх бол uuid.Nil).
+func (r *landAcqRepo) insertParcelRow(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	sp *domain.SourceParcel,
+	parcelWKT, acqWKT string,
+	now time.Time,
+) (parcelID uuid.UUID, created bool, err error) {
+	err = r.db.QueryRow(ctx, `
+			WITH geom AS (
+				SELECT
+					ST_GeomFromText(NULLIF($9, ''), 4326)::geometry(Polygon, 4326) AS parcel_geom,
+					ST_GeomFromText(NULLIF($10, ''), 4326)::geometry(Polygon, 4326) AS acquisition_geom
+			),
+			overlap AS (
+				SELECT ST_GeometryN(ST_CollectionExtract(ST_Intersection(parcel_geom, acquisition_geom), 3), 1)::geometry(Polygon, 4326) AS geom
+				FROM geom
+			)
+			INSERT INTO parcel (
+				id, parcel_id, old_parcel_id, acquisition_id, valid_from, valid_till,
+				au1_code, au2_code, au3_code,
+				geometry,
 				acquisition_geom,
 				acquisition_area_m2,
-				right_type, landuse, area_m2,
+				right_type, landuse, landuse_name, area_m2,
+				address_khashaa, address_streetname, property_no,
 				created_at, created_by, updated_at, updated_by
-				)
-				SELECT
-					uuid_generate_v4(), $1, $2,
-					$3, $4, $5,
-					geom.parcel_geom,
-					overlap.geom,
-					ST_Area(overlap.geom::geography),
-					$8, $9, $10,
-					$11, 'system', $12, 'system'
-				FROM geom, overlap
-				WHERE overlap.geom IS NOT NULL
-				  AND NOT ST_IsEmpty(overlap.geom)
-				ON CONFLICT (parcel_id) DO NOTHING
-			`,
-			sp.ParcelID, acquisitionID,
-			sp.AU1Code, sp.AU2Code, sp.AU3Code,
-			sp.GeometryWKT, acqWKT,
-			sp.RightType, sp.Landuse, sp.AreaM2,
-			now, now,
-		)
-		if err != nil {
-			return err
-		}
-		// Insert initial status history
-		var insertedID uuid.UUID
-		if err := r.db.QueryRow(ctx,
-			`SELECT id FROM parcel WHERE parcel_id = $1 AND acquisition_id = $2`,
-			sp.ParcelID, acquisitionID,
-		).Scan(&insertedID); err == nil {
-			_ = r.InsertParcelStatusHistory(ctx, insertedID, acquisitionID, 0, "system")
-		}
+			)
+			SELECT
+				uuid_generate_v4(), $1, $2, $3, $4, $5,
+				$6, $7, $8,
+				geom.parcel_geom,
+				CASE
+					WHEN overlap.geom IS NOT NULL AND NOT ST_IsEmpty(overlap.geom)
+					THEN overlap.geom
+				END,
+				CASE
+					WHEN overlap.geom IS NOT NULL AND NOT ST_IsEmpty(overlap.geom)
+					THEN ST_Area(overlap.geom::geography)
+				END,
+				$11, $12, $13, $14,
+				$15, $16, $17,
+				$18, 'system', $19, 'system'
+			FROM geom, overlap
+			ON CONFLICT (parcel_id) DO NOTHING
+			RETURNING id
+		`,
+		sp.ParcelID, sp.OldParcelID, acquisitionID, sp.ValidFrom, sp.ValidTill,
+		sp.AU1Code, sp.AU2Code, sp.AU3Code,
+		parcelWKT, acqWKT,
+		sp.RightType, sp.Landuse, sp.LanduseName, sp.AreaM2,
+		sp.AddressKhashaa, sp.AddressStreet, sp.PropertyNo,
+		now, now,
+	).Scan(&parcelID)
+	if err == nil {
+		return parcelID, true, nil
 	}
-	return nil
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, false, err
+	}
+
+	// ON CONFLICT DO NOTHING — мөр аль хэдийн байна. Тухайн чөлөөлөлтийн
+	// парцел бол мэдээллийг шинэчлэхийн тулд ID-г буцаана.
+	if err := r.db.QueryRow(ctx,
+		`SELECT id FROM parcel WHERE parcel_id = $1 AND acquisition_id = $2`,
+		sp.ParcelID, acquisitionID,
+	).Scan(&parcelID); err != nil {
+		return uuid.Nil, false, nil
+	}
+	return parcelID, false, nil
 }
 
 func (r *landAcqRepo) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
@@ -776,17 +902,20 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(ST_AsText(p.geometry),''),
 				COALESCE(ST_AsText(p.acquisition_geom),''),
 				COALESCE(p.acquisition_area_m2,0),
-				COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
+				COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.landuse_name,''), COALESCE(p.area_m2,0),
+				COALESCE(p.address_khashaa,''), COALESCE(p.address_streetname,''), COALESCE(p.property_no,''),
 				p.created_at, COALESCE(p.created_by,''),
 				COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
 				COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
 				p.independent_org_id, p.selected_valuation_type,
 			COALESCE(pd.right_type,0),
-			COALESCE(pd.app_no,''), pd.app_timestamps,
+			COALESCE(pd.app_no,''), pd.app_timestamps, COALESCE(pd.app_type,''), COALESCE(pd.app_status,''),
 			COALESCE(pd.decision_no,''), pd.decision_date,
-			COALESCE(pd.contract_no,''), pd.contract_date,
+			COALESCE(pd.contract_no,''), pd.contract_date, pd.contract_begin, pd.contract_end,
+			COALESCE(pd.contract_property_no,''), COALESCE(pd.contract_status,''),
 			COALESCE(pd.certificate_no,''), pd.certificate_date,
+			COALESCE(pd.record_no,''), pd.record_date, COALESCE(pd.record_certificate_no,''), COALESCE(pd.record_status,''),
 			COALESCE(rh.last_name,''), COALESCE(rh.name,''),
 			COALESCE(rh.register_no,''), COALESCE(rh.phone,''),
 			COALESCE(rh.email,''), COALESCE(rh.holder_type,''),
@@ -804,17 +933,20 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pf.GeometryWKT,
 		&pf.AcquisitionGeomWKT,
 		&pf.AcquisitionAreaM2,
-		&pf.RightType, &pf.Landuse, &pf.AreaM2,
+		&pf.RightType, &pf.Landuse, &pf.LanduseName, &pf.AreaM2,
+		&pf.AddressKhashaa, &pf.AddressStreet, &pf.PropertyNo,
 		&pf.CreatedAt, &pf.CreatedBy,
 		&pfRemainingAreaM2,
 		&pf.DbChanged, &pf.ChangedParcelID,
 		&pf.StatusID, &pf.StatusName,
 		&pf.IndependentOrgID, &pf.SelectedValuationType,
 		&d.RightType,
-		&d.AppNo, &d.AppTimestamps,
+		&d.AppNo, &d.AppTimestamps, &d.AppType, &d.AppStatus,
 		&d.DecisionNo, &d.DecisionDate,
-		&d.ContractNo, &d.ContractDate,
+		&d.ContractNo, &d.ContractDate, &d.ContractBegin, &d.ContractEnd,
+		&d.ContractPropertyNo, &d.ContractStatus,
 		&d.CertificateNo, &d.CertificateDate,
+		&d.RecordNo, &d.RecordDate, &d.RecordCertificateNo, &d.RecordStatus,
 		&d.HolderLastName, &d.HolderName,
 		&d.HolderRegisterNo, &d.HolderPhone,
 		&d.HolderEmail, &d.HolderType,
@@ -830,7 +962,28 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	if d.HolderName != "" || d.RightType != 0 {
 		pf.Detail = d
 	}
+	// Эзэмшигчид (олон байж болно). Алдаа гарсан ч дэлгэрэнгүйг буцаана —
+	// эзэмшигчийн жагсаалт хоосон үлдэнэ.
+	if holders, hErr := r.ListParcelHolders(ctx, id); hErr == nil {
+		pf.Holders = holders
+	}
 	return pf, nil
+}
+
+// SetParcelDetailHolder — parcel_detail.holder_id-г ҮНДСЭН эзэмшигчид холбоно
+// (нэг эзэмшигч харуулдаг хуучин дэлгэц/тайлангуудад хэрэглэгдэнэ).
+func (r *landAcqRepo) SetParcelDetailHolder(ctx context.Context, parcelID, holderID uuid.UUID) error {
+	if holderID == uuid.Nil {
+		return nil
+	}
+	_, err := r.db.Exec(ctx, `
+		UPDATE parcel_detail SET
+			holder_id  = $2,
+			updated_at = NOW(),
+			updated_by = 'system'
+		WHERE parcel_id = $1
+	`, parcelID, holderID)
+	return err
 }
 
 func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error {
@@ -858,8 +1011,123 @@ func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID 
 	return err
 }
 
+// ApplyParcelGeometry — дундын сервисээс ИРСЭН геометрээр нэгж талбарын
+// геометрийг хадгалж, чөлөөлөлтийн бүстэй давхцах хэсгийг PostGIS-аар тооцно:
+//
+//   - geometry            — нэгж талбарын хил (эх системийн WKT)
+//   - acquisition_geom    — ЧӨЛӨӨЛӨГДӨХ талбайн хил (давхцах хэсэг)
+//   - acquisition_area_m2 — ЧӨЛӨӨЛӨГДӨХ талбайн хэмжээ (м², geography)
+//   - remaining_area_m2   — үлдэх талбай (нэгж талбарын талбай − чөлөөлөгдөх)
+//
+// Давхцахгүй бол чөлөөлөгдөх хил/хэмжээ NULL болж, үлдэх талбай нь бүтэн
+// талбайтай тэнцэнэ. Үлдэх талбайг тооцохдоо эх системийн area_m2-ыг эрхэмлэж,
+// байхгүй үед геометрээс тооцно.
+func (r *landAcqRepo) ApplyParcelGeometry(
+	ctx context.Context,
+	parcelID uuid.UUID,
+	parcelWKT, acqWKT string,
+) (*domain.ParcelGeometryResult, error) {
+	if strings.TrimSpace(parcelWKT) == "" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	result := &domain.ParcelGeometryResult{}
+	err := r.db.QueryRow(ctx, `
+		WITH src AS (
+			SELECT ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)             AS parcel_geom,
+			       ST_GeomFromText(NULLIF($3, ''), 4326)::geometry(Polygon, 4326) AS acq_geom
+		),
+		calc AS (
+			SELECT parcel_geom,
+			       ST_GeometryN(
+			           ST_CollectionExtract(
+			               ST_Intersection(ST_MakeValid(parcel_geom), ST_MakeValid(acq_geom)), 3
+			           ), 1
+			       )::geometry(Polygon, 4326) AS overlap_geom
+			FROM src
+		),
+		final AS (
+			SELECT parcel_geom,
+			       CASE WHEN overlap_geom IS NOT NULL AND NOT ST_IsEmpty(overlap_geom)
+			            THEN overlap_geom END AS overlap_geom
+			FROM calc
+		)
+		UPDATE parcel p SET
+			geometry            = f.parcel_geom,
+			acquisition_geom    = f.overlap_geom,
+			acquisition_area_m2 = CASE WHEN f.overlap_geom IS NULL
+			                           THEN NULL ELSE ST_Area(f.overlap_geom::geography) END,
+			remaining_area_m2   = GREATEST(
+				COALESCE(NULLIF(p.area_m2, 0), ST_Area(f.parcel_geom::geography))
+				- COALESCE(CASE WHEN f.overlap_geom IS NULL
+				                THEN 0 ELSE ST_Area(f.overlap_geom::geography) END, 0),
+				0),
+			updated_at = NOW(),
+			updated_by = 'system'
+		FROM final f
+		WHERE p.id = $1
+		RETURNING ST_Area(p.geometry::geography),
+		          COALESCE(p.acquisition_area_m2, 0),
+		          COALESCE(p.remaining_area_m2, 0),
+		          (p.acquisition_geom IS NOT NULL)
+	`, parcelID, parcelWKT, acqWKT).Scan(
+		&result.ParcelAreaM2,
+		&result.AcquisitionAreaM2,
+		&result.RemainingAreaM2,
+		&result.HasOverlap,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return result, nil
+}
+
+// FillParcelAUCodesFromGeometry — нэгж талбарын ГЕОМЕТРЭЭР харьяалагдах
+// баг/хороог (au3) олж, аймаг/сум-дүүрэг/багийн кодыг хадгална. Эх систем нь
+// зөвхөн au2-ыг буцаадаг тул au1/au3 үүнээс гарна.
+//
+// Хамгийн их давхцалтай au3-ыг авна (нэгж талбар хилийн зааг дээр байж болно).
+// Олдоогүй бол одоогийн кодуудыг хөндөхгүй.
+func (r *landAcqRepo) FillParcelAUCodesFromGeometry(ctx context.Context, parcelID uuid.UUID) (domain.LandAcquisitionAU, error) {
+	var au domain.LandAcquisitionAU
+	err := r.db.QueryRow(ctx, `
+		WITH best AS (
+			SELECT a3.code AS au3_code, a3.au2_code, a3.au1_code
+			FROM au3 a3, parcel p
+			WHERE p.id = $1
+			  AND p.geometry IS NOT NULL
+			  AND a3.geometry IS NOT NULL
+			  AND ST_Intersects(a3.geometry, p.geometry)
+			ORDER BY ST_Area(ST_Intersection(a3.geometry, p.geometry)) DESC
+			LIMIT 1
+		)
+		UPDATE parcel p SET
+			au1_code   = b.au1_code,
+			au2_code   = COALESCE(NULLIF(b.au2_code, ''), p.au2_code),
+			au3_code   = b.au3_code,
+			updated_at = NOW(),
+			updated_by = 'system'
+		FROM best b
+		WHERE p.id = $1
+		RETURNING COALESCE(p.au1_code, ''), COALESCE(p.au2_code, ''), COALESCE(p.au3_code, '')
+	`, parcelID).Scan(&au.AU1Code, &au.AU2Code, &au.AU3Code)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return au, domain.ErrNotFound
+		}
+		return au, err
+	}
+	return au, nil
+}
+
 // UpsertHolder finds or creates a right_holder record.
 func (r *landAcqRepo) UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error) {
+	if src.HolderRegisterNo == "" && src.HolderName == "" && src.HolderLastName == "" {
+		return uuid.Nil, nil
+	}
 	if src.HolderRegisterNo != "" {
 		var id uuid.UUID
 		err := r.db.QueryRow(ctx,
@@ -891,41 +1159,287 @@ func (r *landAcqRepo) UpsertHolder(ctx context.Context, src *domain.SourceParcel
 	return id, err
 }
 
-// UpsertParcelRight creates a parcel_detail record if one doesn't exist for the parcel.
-func (r *landAcqRepo) UpsertParcelRight(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error {
-	var count int
-	if err := r.db.QueryRow(ctx,
-		"SELECT COUNT(*) FROM parcel_detail WHERE parcel_id = $1", parcelID,
-	).Scan(&count); err != nil {
+// ReplaceParcelHolders — нэгж талбарын эзэмшигчдийг дундын сервисээс татсан
+// жагсаалтаар БҮРЭН шинэчилнэ (sync = тухайн үеийн бодит байдал).
+//
+// Эзэмшигч тус бүр right_holder-т upsert хийгдэж, parcel_holder-оор нэгж
+// талбартай холбогдоно. Хуучин холбоос устгагдана (right_holder мөр өөрөө
+// хэвээр — өөр нэгж талбар түүнийг заасан байж болно).
+//
+// Буцаах утга нь ҮНДСЭН хүсэлт гаргагчийн right_holder.id (parcel_detail.holder_id-д
+// холбогдоно). Үндсэн нь тэмдэглэгдээгүй бол эхний эзэмшигчийг авна.
+func (r *landAcqRepo) ReplaceParcelHolders(
+	ctx context.Context,
+	parcelID, acquisitionID uuid.UUID,
+	appNo string,
+	holders []*domain.ParcelHolder,
+) (uuid.UUID, error) {
+	// Жагсаалт хоосон байсан ч хуучин эзэмшигчид УСТГАГДАНА (эх системд
+	// эзэмшигч үлдээгүй гэсэн үг). Дуудалт бүтэлгүйтсэн үед энэ функц
+	// дуудагдахгүй — service тэр үед хуучныг хөндөхгүй.
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "DELETE FROM parcel_holder WHERE parcel_id = $1", parcelID); err != nil {
+		return uuid.Nil, err
+	}
+
+	var mainHolderID uuid.UUID
+	var foundMain bool
+	for _, h := range holders {
+		if h == nil {
+			continue
+		}
+		holderID, err := upsertHolderTx(ctx, tx, h)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if holderID == uuid.Nil {
+			continue
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO parcel_holder (
+				id, parcel_id, acquisition_id, holder_id, app_no, main_applicant,
+				created_by, updated_by
+			) VALUES (uuid_generate_v4(), $1, $2, $3, NULLIF($4, ''), $5, 'system', 'system')
+			ON CONFLICT (parcel_id, holder_id) DO UPDATE SET
+				acquisition_id = EXCLUDED.acquisition_id,
+				app_no         = EXCLUDED.app_no,
+				main_applicant = parcel_holder.main_applicant OR EXCLUDED.main_applicant,
+				updated_at     = NOW(),
+				updated_by     = 'system'
+		`, parcelID, acquisitionID, holderID, appNo, h.MainApplicant); err != nil {
+			return uuid.Nil, err
+		}
+
+		switch {
+		case h.MainApplicant && !foundMain:
+			mainHolderID, foundMain = holderID, true
+		case mainHolderID == uuid.Nil:
+			mainHolderID = holderID
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return mainHolderID, nil
+}
+
+// upsertHolderTx — right_holder-ийг регистрийн дугаараар (байвал), эсвэл
+// нэр+утсаар тааруулж олно; олдоогүй бол шинээр үүсгэнэ. Олдсон үед
+// холбоо барих мэдээллийг шинэчилнэ (эх сурвалж нь дундын сервис).
+func upsertHolderTx(ctx context.Context, tx pgx.Tx, h *domain.ParcelHolder) (uuid.UUID, error) {
+	if strings.TrimSpace(h.RegisterNo) == "" &&
+		strings.TrimSpace(h.Name) == "" &&
+		strings.TrimSpace(h.LastName) == "" {
+		return uuid.Nil, nil
+	}
+
+	var id uuid.UUID
+	var err error
+	if h.RegisterNo != "" {
+		err = tx.QueryRow(ctx,
+			"SELECT id FROM right_holder WHERE register_no = $1", h.RegisterNo,
+		).Scan(&id)
+	} else {
+		// Регистргүй хүнийг нэр + утсаар тааруулна (давхардал үүсгэхээс сэргийлж).
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM right_holder
+			WHERE register_no IS NULL
+			  AND COALESCE(last_name,'') = $1
+			  AND COALESCE(name,'') = $2
+			  AND COALESCE(phone,'') = $3
+			LIMIT 1
+		`, h.LastName, h.Name, h.Phone).Scan(&id)
+	}
+	if err == nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE right_holder SET
+				last_name   = NULLIF($2, ''),
+				name        = $3,
+				phone       = NULLIF($4, ''),
+				email       = NULLIF($5, ''),
+				holder_type = COALESCE(NULLIF($6, ''), holder_type),
+				updated_at  = NOW(),
+				updated_by  = 'system'
+			WHERE id = $1
+		`, id, h.LastName, h.Name, h.Phone, h.Email, h.PersonType); err != nil {
+			return uuid.Nil, err
+		}
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, err
+	}
+
+	var regNo *string
+	if h.RegisterNo != "" {
+		regNo = &h.RegisterNo
+	}
+	// right_holder.name нь NOT NULL — өөрийн нэр хоосон бол овгийг тавина.
+	name := h.Name
+	if name == "" {
+		name = h.LastName
+	}
+	err = tx.QueryRow(ctx, `
+		INSERT INTO right_holder (
+			id, last_name, name, register_no, phone, email, holder_type,
+			created_by, updated_by
+		) VALUES (
+			uuid_generate_v4(), NULLIF($1, ''), $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''),
+			'system', 'system'
+		)
+		RETURNING id
+	`, h.LastName, name, regNo, h.Phone, h.Email, h.PersonType).Scan(&id)
+	return id, err
+}
+
+// ListParcelHolders — нэгж талбарын эзэмшигчид (үндсэн хүсэлт гаргагч эхэнд).
+func (r *landAcqRepo) ListParcelHolders(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelHolder, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT ph.id, ph.main_applicant,
+		       COALESCE(rh.last_name,''), COALESCE(rh.name,''),
+		       COALESCE(rh.register_no,''), COALESCE(rh.phone,''),
+		       COALESCE(rh.email,''), COALESCE(rh.holder_type,''),
+		       COALESCE(ph.app_no,'')
+		FROM parcel_holder ph
+		JOIN right_holder rh ON rh.id = ph.holder_id
+		WHERE ph.parcel_id = $1
+		ORDER BY ph.main_applicant DESC, rh.last_name, rh.name
+	`, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []domain.ParcelHolder
+	for rows.Next() {
+		h := domain.ParcelHolder{}
+		if err := rows.Scan(
+			&h.ID, &h.MainApplicant,
+			&h.LastName, &h.Name,
+			&h.RegisterNo, &h.Phone,
+			&h.Email, &h.PersonType, &h.AppNo,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
+// ReplaceParcelDetail — нэгж талбарын эрх зүйн дэлгэрэнгүйг дундын сервисийн
+// мэдээллээр БҮРЭН шинэчилнэ: хуучин parcel_detail мөрүүдийг УСТГАЖ, шинийг
+// үүсгэнэ (sync = тухайн үеийн бодит байдал). Ингэснээр өмнөх хүсэлт/гэрээний
+// хоцрогдсон мөр, олон давхар мөр үлдэхгүй.
+//
+// ОНЦГОЙ: хэрэглэгч гараас оруулсан газрын үнэлгээний талбарууд
+// (valuation_zone, base_price_per_ha, auction_coeff, auction_price) нь дундын
+// сервисээс ирдэггүй тул шинэ мөрөнд ХУУЛАГДАНА — sync тэднийг устгахгүй.
+func (r *landAcqRepo) ReplaceParcelDetail(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	if count > 0 {
-		return nil
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel SET
+			old_parcel_id = NULLIF($2, ''),
+			valid_from = $3,
+			valid_till = $4,
+			au1_code = NULLIF($5, ''),
+			au2_code = NULLIF($6, ''),
+			au3_code = NULLIF($7, ''),
+			right_type = $8,
+			landuse = NULLIF($9, ''),
+			landuse_name = NULLIF($10, ''),
+			area_m2 = $11,
+			address_khashaa = NULLIF($12, ''),
+			address_streetname = NULLIF($13, ''),
+			property_no = NULLIF($14, ''),
+			updated_at = NOW(),
+			updated_by = 'system'
+		WHERE id = $1
+	`,
+		parcelID,
+		src.OldParcelID, src.ValidFrom, src.ValidTill,
+		src.AU1Code, src.AU2Code, src.AU3Code,
+		src.RightType, src.Landuse, src.LanduseName, src.AreaM2,
+		src.AddressKhashaa, src.AddressStreet, src.PropertyNo,
+	); err != nil {
+		return err
 	}
-	_, err := r.db.Exec(ctx, `
+
+	// Хэрэглэгчийн оруулсан үнэлгээний талбаруудыг устгахаас хамгаалж хуулна.
+	var (
+		valuationZone  *string
+		basePricePerHa *float64
+		auctionCoeff   *float64
+		auctionPrice   *float64
+	)
+	if err := tx.QueryRow(ctx, `
+		SELECT valuation_zone, base_price_per_ha, auction_coeff, auction_price
+		FROM parcel_detail
+		WHERE parcel_id = $1
+		  AND (valuation_zone IS NOT NULL OR base_price_per_ha IS NOT NULL
+		       OR auction_coeff IS NOT NULL OR auction_price IS NOT NULL)
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, parcelID).Scan(&valuationZone, &basePricePerHa, &auctionCoeff, &auctionPrice); err != nil &&
+		!errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	// Хуучин дэлгэрэнгүйг БҮГДИЙГ устгана.
+	if _, err := tx.Exec(ctx, "DELETE FROM parcel_detail WHERE parcel_id = $1", parcelID); err != nil {
+		return err
+	}
+
+	var holderIDParam any
+	if holderID != uuid.Nil {
+		holderIDParam = holderID
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO parcel_detail (
 			id, parcel_id, acquisition_id, right_type, holder_id,
-			app_no, app_timestamps,
+			app_no, app_timestamps, app_type, app_status,
 			decision_no, decision_date,
-			contract_no, contract_date,
+			contract_no, contract_date, contract_begin, contract_end,
+			contract_property_no, contract_status,
 			certificate_no, certificate_date,
+			record_no, record_date, record_certificate_no, record_status,
+			valuation_zone, base_price_per_ha, auction_coeff, auction_price,
 			created_by, updated_by
 		) VALUES (
 			uuid_generate_v4(), $1, $2, $3, $4,
-			$5, NOW(),
-			$6, $7,
-			$8, $9,
-			$10, $11,
+			$5, $6, $7, $8,
+			$9, $10,
+			$11, $12, $13, $14,
+			$15, $16,
+			$17, $18,
+			$19, $20, $21, $22,
+			$23, $24, $25, $26,
 			'system', 'system'
 		)
 	`,
-		parcelID, acquisitionID, src.RightType, holderID,
-		src.AppNo,
+		parcelID, acquisitionID, src.RightType, holderIDParam,
+		src.AppNo, src.AppTimestamp, src.AppType, src.AppStatus,
 		src.DecisionNo, src.DecisionDate,
-		src.ContractNo, src.ContractDate,
+		src.ContractNo, src.ContractDate, src.ContractBegin, src.ContractEnd,
+		src.ContractPropertyNo, src.ContractStatus,
 		src.CertificateNo, src.CertificateDate,
-	)
-	return err
+		src.RecordNo, src.RecordDate, src.RecordCertificateNo, src.RecordStatus,
+		valuationZone, basePricePerHa, auctionCoeff, auctionPrice,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *landAcqRepo) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {

@@ -168,7 +168,9 @@ func (h *LandHandler) List(c *gin.Context) {
 
 // Create godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл үүсгэх
-// @Description  plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ
+// @Description  plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ.
+// @Description  Талбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
+// @Description  Нэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
@@ -552,9 +554,46 @@ func (h *LandHandler) GetByID(c *gin.Context) {
 	response.OK(c, r)
 }
 
+// DiscoverParcels godoc
+// @Summary      Чөлөөлөх хилээр нэгж талбарыг тодорхойлж бүртгэх
+// @Description  Чөлөөлөлтийн хилээр дундын сервисийн /parcels/by/acquisition-ыг дуудаж,
+// @Description  давхцах нэгж талбарын ДУГААРУУДЫГ авч бүртгэнэ. Дэлгэрэнгүй мэдээлэл
+// @Description  ЭНД татагдахгүй — дараа нь дугаар тус бүрээр
+// @Description  /land-acquisitions/{id}/parcels/{parcel_id}/sync дуудна.
+// @Description  Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгах тул давхардал үүсэхгүй.
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id  path  string  true  "LandAcquisition UUID"
+// @Success      200  {object}  response.Response{data=domain.ParcelDiscoveryResult}
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/by-acquisition [post]
+func (h *LandHandler) DiscoverParcels(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.DiscoverParcels(ctx, acqID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, res)
+}
+
 // SyncParcel godoc
-// @Summary      Нэгж талбарын дэлгэрэнгүй мэдээллийг secondary DB-аас татах
-// @Description  Эзэмшигч болон эрх зүйн мэдээллийг auth DB-аас татаж main DB-д хадгална
+// @Summary      Нэгж талбарын дэлгэрэнгүй мэдээллийг дундын сервисээс татах
+// @Description  1) /parcel/info/{parcel_id}-аар нэгж талбарын дэлгэрэнгүйг татаж хадгална.
+// @Description  2) Дэлгэрэнгүй дээрх app_no-гоор /application/persons дуудаж, ЭЗЭМШИГЧДИЙГ
+// @Description  (нэг хүсэлт дээр төрөл өөр олон хүн байж болно) бүгдийг хадгална.
+// @Description  Үндсэн хүсэлт гаргагч нь parcel_detail.holder_id-д холбогдоно; бүх эзэмшигч
+// @Description  нэгж талбарын дэлгэрэнгүй хариултын holders дотор харагдана.
+// @Description  Sync нь ОРЛУУЛАХ үйлдэл: хуучин дэлгэрэнгүй болон эзэмшигчид устгагдаж шинээр
+// @Description  үүснэ. Хэрэглэгчийн оруулсан үнэлгээ/олговор/хөрөнгө/төлөв хөндөгдөхгүй.
 // @Tags         land-acquisitions
 // @Produce      json
 // @Security     BearerAuth
@@ -571,7 +610,8 @@ func (h *LandHandler) SyncParcel(c *gin.Context) {
 	}
 	parcelCode := c.Param("parcel_id")
 
-	if err := h.svc.SyncParcel(c.Request.Context(), acqID, parcelCode); err != nil {
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	if err := h.svc.SyncParcel(ctx, acqID, parcelCode); err != nil {
 		response.Error(c, err)
 		return
 	}

@@ -94,6 +94,8 @@ func main() {
 
 	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
 	planRepo := postgres.NewPlanRepo(authDB)
+	// Дундын сервисээс татсан төлөвлөгөө main DB-ийн plan хүснэгтэд хадгалагдана
+	planStoreRepo := postgres.NewPlanStoreRepo(mainDB)
 	landAcqRepo := postgres.NewLandAcquisitionRepo(mainDB)
 	acquisitionProgressStatusRepo := postgres.NewAcquisitionProgressStatusRepo(mainDB)
 	parcelStatusRepo := postgres.NewParcelStatusRepo(mainDB)
@@ -161,8 +163,13 @@ func main() {
 		),
 	}
 
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, droneStorage)
-	planSvc := service.NewPlanService(planRepo)
+	middlewareBaseURL := strings.TrimRight(cfg.Middleware.BaseURL, "/")
+	if middlewareBaseURL == "" {
+		middlewareBaseURL = "http://localhost:8081"
+	}
+	parcelInfoClient := service.NewHTTPParcelInfoClient(middlewareBaseURL)
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo)
+	planSvc := service.NewPlanService(planRepo, parcelInfoClient, planStoreRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)

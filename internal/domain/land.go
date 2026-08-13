@@ -55,43 +55,85 @@ type StatusOption struct {
 
 // Plan — газар зохион байгуулалтын төлөвлөгөө (auth DB-д хадгалагдана)
 type Plan struct {
-	ID          uuid.UUID
-	PlanCode    string
-	Name        string
-	BoundaryWKT string // WKT текст хэлбэрт
-	AreaM2      float64
-	Status      int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           uuid.UUID
+	ProjectID    string
+	Code         string
+	PlanCode     string
+	Name         string
+	PlanTypeName string
+	BoundaryWKT  string // WKT текст хэлбэрт
+	AreaM2       float64
+	Status       int
+	StartData    *string
+	EndData      *string
+	ApprovedDate *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // SourceParcel — нэгж талбарын эх мэдээлэл (auth DB-д хадгалагдана)
 type SourceParcel struct {
-	ID               uuid.UUID
-	ParcelID         string
-	PlanCode         string
-	GeometryWKT      string
-	AU1Code          string
-	AU2Code          string
-	AU3Code          string
-	RightType        int
-	Landuse          string
-	AreaM2           float64
-	HolderLastName   string
-	HolderName       string
-	HolderRegisterNo string
-	HolderPhone      string
-	HolderEmail      string
-	HolderType       string
-	HolderCivilID    string
-	AppNo            string
-	DecisionNo       string
-	DecisionDate     *time.Time
-	ContractNo       string
-	ContractDate     *time.Time
-	CertificateNo    string
-	CertificateDate  *time.Time
-	CreatedAt        time.Time
+	ID                  uuid.UUID  `json:"id"`
+	ParcelID            string     `json:"parcel_id"`
+	OldParcelID         string     `json:"old_parcel_id"`
+	PlanCode            string     `json:"plan_code"`
+	GeometryWKT         string     `json:"geometry_wkt"`
+	AU1Code             string     `json:"au1_code"`
+	AU2Code             string     `json:"au2_code"`
+	AU3Code             string     `json:"au3_code"`
+	RightType           int        `json:"right_type"`
+	Landuse             string     `json:"landuse"`
+	LanduseName         string     `json:"landuse_name"`
+	AreaM2              float64    `json:"area_m2"`
+	AddressKhashaa      string     `json:"address_khashaa"`
+	AddressStreet       string     `json:"address_streetname"`
+	ValidFrom           *time.Time `json:"valid_from"`
+	ValidTill           *time.Time `json:"valid_till"`
+	PropertyNo          string     `json:"property_no"`
+	HolderLastName      string     `json:"holder_last_name"`
+	HolderName          string     `json:"holder_name"`
+	HolderRegisterNo    string     `json:"holder_register_no"`
+	HolderPhone         string     `json:"holder_phone"`
+	HolderEmail         string     `json:"holder_email"`
+	HolderType          string     `json:"holder_type"`
+	HolderCivilID       string     `json:"holder_civil_id"`
+	AppNo               string     `json:"app_no"`
+	AppTimestamp        *time.Time `json:"app_timestamp"`
+	AppType             string     `json:"app_type"`
+	AppStatus           string     `json:"app_status"`
+	DecisionNo          string     `json:"decision_no"`
+	DecisionDate        *time.Time `json:"decision_date"`
+	ContractNo          string     `json:"contract_no"`
+	ContractDate        *time.Time `json:"contract_date"`
+	ContractBegin       *time.Time `json:"contract_begin"`
+	ContractEnd         *time.Time `json:"contract_end"`
+	ContractPropertyNo  string     `json:"contract_property_no"`
+	ContractStatus      string     `json:"contract_status"`
+	CertificateNo       string     `json:"certificate_no"`
+	CertificateDate     *time.Time `json:"certificate_date"`
+	RecordNo            string     `json:"record_no"`
+	RecordDate          *time.Time `json:"record_date"`
+	RecordCertificateNo string     `json:"record_certificate_no"`
+	RecordStatus        string     `json:"record_status"`
+	CreatedAt           time.Time  `json:"created_at"`
+}
+
+// ParcelDiscoveryResult — чөлөөлөх ХИЛЭЭР дундын сервисээс нэгж талбарын
+// ДУГААРУУДЫГ татаж бүртгэсний үр дүн.
+//
+// Дугаар бүрийг бүртгэхийн өмнө аль хэдийн бүртгэгдсэн эсэхийг шалгадаг тул
+// дахин дуудахад давхардал үүсэхгүй:
+//   - Created  — шинээр бүртгэгдсэн
+//   - Existing — өмнө нь ЭНЭ чөлөөлөлтөд бүртгэгдсэн байсан
+//   - Skipped  — ӨӨР чөлөөлөлтөд бүртгэгдсэн тул алгасагдсан
+//     (parcel.parcel_id глобал unique)
+type ParcelDiscoveryResult struct {
+	Total    int `json:"total"`
+	Created  int `json:"created"`
+	Existing int `json:"existing"`
+	Skipped  int `json:"skipped"`
+	// Энэ чөлөөлөлтөд бүртгэлтэй болсон дугаарууд (created + existing)
+	ParcelIDs []string `json:"parcel_ids"`
 }
 
 // ConstructionType — бүтээн байгуулалтын төрөл (lookup, legacy)
@@ -317,7 +359,11 @@ type Parcel struct {
 	RemainingAreaM2       *float64
 	RightType             int
 	Landuse               string
+	LanduseName           string
 	AreaM2                float64
+	AddressKhashaa        string
+	AddressStreet         string
+	PropertyNo            string
 	CompensationPaid      bool
 	DbChanged             bool
 	ChangedParcelID       string
@@ -336,27 +382,77 @@ type Parcel struct {
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
 type ParcelDetailInfo struct {
-	RightType        int
-	HolderLastName   string
-	HolderName       string
-	HolderRegisterNo string
-	HolderPhone      string
-	HolderEmail      string
-	HolderType       string
-	HolderCivilID    string
-	AppNo            string
-	AppTimestamps    *time.Time
-	DecisionNo       string
-	DecisionDate     *time.Time
-	ContractNo       string
-	ContractDate     *time.Time
-	CertificateNo    string
-	CertificateDate  *time.Time
+	RightType           int
+	HolderLastName      string
+	HolderName          string
+	HolderRegisterNo    string
+	HolderPhone         string
+	HolderEmail         string
+	HolderType          string
+	HolderCivilID       string
+	AppNo               string
+	AppTimestamps       *time.Time
+	AppType             string
+	AppStatus           string
+	DecisionNo          string
+	DecisionDate        *time.Time
+	ContractNo          string
+	ContractDate        *time.Time
+	ContractBegin       *time.Time
+	ContractEnd         *time.Time
+	ContractPropertyNo  string
+	ContractStatus      string
+	CertificateNo       string
+	CertificateDate     *time.Time
+	RecordNo            string
+	RecordDate          *time.Time
+	RecordCertificateNo string
+	RecordStatus        string
 	// Газрын үнэлгээний мэдээлэл
 	ValuationZone  string
 	BasePricePerHa *float64
 	AuctionCoeff   *float64
 	AuctionPrice   *float64
+}
+
+// ParcelHolder — нэгж талбарын эзэмшигч. Нэг хүсэлт (app_no) дээр эзэмшигчийн
+// төрөл өөр хэд хэдэн хүн байж болох тул parcel_holder-д БҮГД хадгалагдана.
+//
+// Дундын сервисийн /application/persons хариултаас:
+//
+//	name       → LastName (овог/эцгийн нэр)
+//	first_name → Name     (өөрийн нэр)
+//
+// ХУУЛИЙН ЭТГЭЭД (компани) үед first_name хоосон ирдэг тул байгууллагын бүтэн
+// нэр Name-д бичигдэж, LastName хоосон үлдэнэ.
+type ParcelHolder struct {
+	ID uuid.UUID
+	// MainApplicant — үндсэн хүсэлт гаргагч. parcel_detail.holder_id-д
+	// ЭНЭ хүн холбогдоно (хуучин, нэг эзэмшигчтэй дэлгэцүүд тэрийг уншина).
+	MainApplicant bool
+	LastName      string
+	Name          string
+	RegisterNo    string
+	Phone         string
+	Email         string
+	// PersonType — эзэмшигчийн төрөл (cl_person_type), жишээ нь
+	// "2: Монгол улсын иргэн", "3: Монгол улсын хуулийн этгээд".
+	// right_holder.holder_type-д хадгалагдана.
+	PersonType string
+	AppNo      string
+}
+
+// ParcelGeometryResult — нэгж талбарын геометрээс PostGIS-аар тооцоолсон
+// утгууд (чөлөөлөлтийн бүстэй давхцуулсны дараа).
+type ParcelGeometryResult struct {
+	// ParcelAreaM2 — нэгж талбарын геометрийн бодит талбай (м²)
+	ParcelAreaM2 float64
+	// AcquisitionAreaM2 — ЧӨЛӨӨЛӨГДӨХ талбайн хэмжээ (давхцах хэсэг, м²)
+	AcquisitionAreaM2 float64
+	// RemainingAreaM2 — үлдэх талбай (м²)
+	RemainingAreaM2 float64
+	// HasOverlap — чөлөөлөлтийн бүстэй давхцсан эсэх
+	HasOverlap bool
 }
 
 // ParcelFull — нэгж талбарын дэлгэрэнгүй мэдээлэл (parcel + parcel_detail + right_holder)
@@ -365,6 +461,8 @@ type ParcelFull struct {
 	StatusID   int
 	StatusName string
 	Detail     *ParcelDetailInfo
+	// Holders — БҮХ эзэмшигч (үндсэн нь эхэнд). Detail нь зөвхөн үндсэнийг агуулна.
+	Holders []ParcelHolder
 }
 
 // AcquisitionProgress — газар чөлөөлөлтийн статус өөрчлөлтийн түүх

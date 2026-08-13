@@ -160,6 +160,14 @@ func (m *MockLandService) SyncParcel(ctx context.Context, acquisitionID uuid.UUI
 	return m.Called(ctx, acquisitionID, parcelCode).Error(0)
 }
 
+func (m *MockLandService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelDiscoveryResult), args.Error(1)
+}
+
 func (m *MockLandService) GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error) {
 	args := m.Called(ctx, acquisitionID)
 	if args.Get(0) == nil {

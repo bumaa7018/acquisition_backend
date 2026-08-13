@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -38,6 +40,7 @@ type LandAcquisitionService interface {
 	EnsureParcelInAcquisition(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
+	DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error)
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
@@ -203,6 +206,15 @@ type landService struct {
 	notifier NotificationService
 	// audit — ажилтны бизнес үйлдлийн лог. nil байж болно (тест).
 	audit AuditService
+	// parcelInfo — middleware service-ээр auth DB-ийн source_parcel мэдээлэл уншина.
+	// nil үед тест/хуучин урсгал planRepo руу шууд унана.
+	parcelInfo ParcelInfoClient
+	// planProjects — middleware-ийн /plan/project. Чөлөөлөлт үүсгэх/хил
+	// шинэчлэхэд төлөвлөгөөг ҮҮНЭЭС авна. nil үед planRepo (auth DB) руу унана.
+	planProjects PlanProjectClient
+	// planStore — MAIN DB-ийн plan хүснэгт. Дундын сервисээс татсан
+	// төлөвлөгөө энд хадгалагдаж, хайлт/сонголт үүнээс уншина.
+	planStore repository.PlanStoreRepository
 	// drone — дроны ортофотог хадгалах хавтас + GeoServer-ийн мозайк.
 	// Тохируулаагүй үед дроны зургийн үйлдэл ErrDroneNotConfigured буцаана.
 	drone DroneStorage
@@ -227,8 +239,17 @@ func NewLandService(
 			s.notifier = v
 		case AuditService:
 			s.audit = v
+		case ParcelInfoClient:
+			s.parcelInfo = v
 		case DroneStorage:
 			s.drone = v
+		case repository.PlanStoreRepository:
+			s.planStore = v
+		}
+		// PlanProjectClient-ийг ParcelInfoClient-тай ижил обьект хэрэгжүүлдэг тул
+		// switch-ийн салангид case болгож биш, тусад нь шалгана.
+		if v, ok := extra.(PlanProjectClient); ok {
+			s.planProjects = v
 		}
 	}
 	return s
@@ -266,12 +287,13 @@ func (s *landService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelS
 // 3. PostGIS-аар чөлөөлөх хил төлөвлөгөөний хилтэй давхцаж байгааг шалгана
 // 4. land_acquisition үүсгэнэ
 // 5. Огтлолцох баг (au3) олж холбоно
-// 6. auth DB-аас нэгж талбар татаж, давхцахыг шалгаж main DB-д хадгална
+//
+// Нэгж талбарыг үүсгэх үед татахгүй (тусад нь татагдана).
 func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionRequest) (*domain.LandAcquisition, error) {
-	// 1. Төлөвлөгөө хайх (auth DB)
-	plan, err := s.planRepo.GetByCode(ctx, req.PlanCode)
+	// 1. Төлөвлөгөө хайх (middleware /plan/project) ба main DB-д хадгалах
+	plan, err := s.resolvePlan(ctx, req.PlanCode)
 	if err != nil {
-		return nil, domain.ErrNotFound
+		return nil, err
 	}
 
 	// 2. Shapefile задлах
@@ -280,26 +302,29 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		return nil, domain.ErrInvalidInput
 	}
 
-	// 3. Хилийн шалгалт: төлөвлөгөөний хилээс илүү гарч болно, гэхдээ бодит талбайгаар давхцах ёстой
-	overlaps, err := s.landRepo.ValidateOverlap(ctx, acqWKT, plan.BoundaryWKT)
-	if err != nil {
-		return nil, domain.ErrInternalServer
-	}
-	if !overlaps {
-		return nil, domain.ErrInvalidInput
-	}
+	// 3. Төлөвлөгөөний хилтэй давхцуулах шалгалт ХИЙХГҮЙ.
+	//
+	// Төлөвлөгөө нь дундын сервисээс (/plan/project) татагддаг болсон бөгөөд
+	// тэр нь хил (boundary) буцаадаггүй. Мөн чөлөөлөх хил төлөвлөгөөнөөс
+	// хамааралгүй тогтоогддог тул давхцлыг шаардах нь бүртгэлийг хориглох
+	// шалтгаан болох ёсгүй.
 
 	// 4. land_acquisition үүсгэх
 	now := time.Now()
-	planIDCopy := plan.ID
+	var planID *uuid.UUID
+	if plan.ID != uuid.Nil {
+		planIDCopy := plan.ID
+		planID = &planIDCopy
+	}
 	acq := &domain.LandAcquisition{
 		ID:                uuid.New(),
-		PlanID:            &planIDCopy,
+		PlanID:            planID,
 		PlanCode:          plan.PlanCode,
 		PlanName:          plan.Name,
 		PlanGeomWKT:       plan.BoundaryWKT,
 		PlanAreaM2:        plan.AreaM2,
 		GeometryWKT:       acqWKT,
+		AreaM2:            s.computeAreaM2(ctx, acqWKT),
 		Status:            domain.LandAcquisitionStatusNew,
 		StartDate:         &req.StartDate,
 		EndDate:           req.EndDate,
@@ -330,21 +355,13 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		ChangedAt:     now,
 	})
 
-	// 5. Огтлолцох баг олж холбох
-	aus, err := s.landRepo.FindIntersectingAU3(ctx, acqWKT)
-	if err == nil {
-		for i := range aus {
-			aus[i].LandAcquisitionID = acq.ID
-			_ = s.landRepo.CreateAU(ctx, &aus[i])
-		}
-		acq.AUs = aus
-	}
+	// 5. Чөлөөлөлтийн ГЕОМЕТРЭЭР огтлолцох баг/хороо (au3)-г олж хадгална.
+	// Аймаг/сум нь au3 мөрөөс гарна (FindIntersectingAU3-ыг үз).
+	acq.AUs = s.saveIntersectingAUs(ctx, acq.ID, acqWKT)
 
-	// 6. Нэгж талбар татаж хадгалах (auth DB → main DB)
-	srcParcels, err := s.planRepo.GetSourceParcels(ctx, plan.PlanCode)
-	if err == nil && len(srcParcels) > 0 {
-		_ = s.landRepo.BulkInsertParcels(ctx, acq.ID, srcParcels, acqWKT)
-	}
+	// Нэгж талбарыг ҮҮСГЭХ үед автоматаар ТАТАХГҮЙ. Шинэ чөлөөлөлт нэгж
+	// талбаргүйгээр бүртгэгдэж, нэгж талбар нь хил шинэчлэх (Update) эсвэл
+	// SyncParcel-ээр тусад нь татагдана.
 
 	s.auditLog(ctx, "created", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, map[string]any{
 		"name":      acq.AcquisitionName,
@@ -373,9 +390,9 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			targetPlanCode = req.PlanCode
 		}
 
-		plan, err := s.planRepo.GetByCode(ctx, targetPlanCode)
+		plan, err := s.resolvePlan(ctx, targetPlanCode)
 		if err != nil {
-			return nil, false, domain.ErrNotFound
+			return nil, false, err
 		}
 
 		newWKT, err := shapefile.Parse(req.ShapefileData)
@@ -383,23 +400,24 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			return nil, false, domain.ErrInvalidInput
 		}
 
-		overlaps, err := s.landRepo.ValidateOverlap(ctx, newWKT, plan.BoundaryWKT)
-		if err != nil {
-			return nil, false, domain.ErrInternalServer
-		}
-		if !overlaps {
-			return nil, false, domain.ErrInvalidInput
-		}
+		// Төлөвлөгөөний хилтэй давхцуулах шалгалт ХИЙХГҮЙ (Create-тай ижил
+		// шалтгаан: /plan/project хил буцаахгүй, хил нь бие даан тогтоогдоно).
 
 		geometryChanged = true
 
-		planIDCopy := plan.ID
-		acq.PlanID = &planIDCopy
+		if plan.ID != uuid.Nil {
+			planIDCopy := plan.ID
+			acq.PlanID = &planIDCopy
+		} else {
+			acq.PlanID = nil
+		}
 		acq.PlanCode = plan.PlanCode
 		acq.PlanName = plan.Name
 		acq.PlanGeomWKT = plan.BoundaryWKT
 		acq.PlanAreaM2 = plan.AreaM2
 		acq.GeometryWKT = newWKT
+		// Шинэ хилийн талбайг автоматаар тооцно (гараас оруулсныг үл хэрэгсэнэ).
+		acq.AreaM2 = s.computeAreaM2(ctx, newWKT)
 	} else if req.PlanCode != "" {
 		// Shapefile өгөөгүй атал план солихыг хүсвэл алдаа
 		return nil, false, domain.ErrInvalidInput
@@ -446,18 +464,8 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		if err := s.landRepo.DeleteAUs(ctx, acq.ID); err != nil {
 			return nil, false, domain.ErrInternalServer
 		}
-		aus, err := s.landRepo.FindIntersectingAU3(ctx, acq.GeometryWKT)
-		if err == nil {
-			for i := range aus {
-				aus[i].LandAcquisitionID = acq.ID
-				_ = s.landRepo.CreateAU(ctx, &aus[i])
-			}
-			acq.AUs = aus
-		}
-		srcParcels, err := s.planRepo.GetSourceParcels(ctx, acq.PlanCode)
-		if err == nil && len(srcParcels) > 0 {
-			_ = s.landRepo.BulkInsertParcels(ctx, acq.ID, srcParcels, acq.GeometryWKT)
-		}
+		acq.AUs = s.saveIntersectingAUs(ctx, acq.ID, acq.GeometryWKT)
+		s.saveSourceParcels(ctx, acq.ID, acq.PlanCode, acq.GeometryWKT)
 
 		// BulkInsertParcels шинэ нэгж талбар нэмсэн байж болзошгүй тул acq.ParcelCount
 		// (шинэ хилтэй давхцах parcel-үүд нэмэгдэхээс ӨМНӨ уншсан хуучин утга) хуучирсан
@@ -473,6 +481,175 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		"geometry_changed": geometryChanged,
 	})
 	return acq, geometryChanged, nil
+}
+
+// computeAreaM2 — чөлөөлөх хилийн талбайг (м²) shapefile-ийн геометрээс
+// PostGIS-аар автоматаар тооцно. Хэрэглэгч гараас оруулах шаардлагагүй.
+//
+// Тооцоолол бүтэлгүйтвэл 0 буцаана — талбайн утга бүртгэлийг зогсоох шалтгаан
+// биш (гэхдээ шалтгааныг логлоно).
+func (s *landService) computeAreaM2(ctx context.Context, geomWKT string) float64 {
+	if strings.TrimSpace(geomWKT) == "" {
+		return 0
+	}
+	areaM2, err := s.landRepo.ComputeAreaM2(ctx, geomWKT)
+	if err != nil {
+		slog.Error("чөлөөлөх хилийн талбай тооцоолоход алдаа", "error", err)
+		return 0
+	}
+	return areaM2
+}
+
+// saveIntersectingAUs — чөлөөлөлтийн ГЕОМЕТРЭЭР огтлолцох баг/хороо (au3)-г
+// олж land_acquisition_au-д хадгална. Аймаг (au1) / сум-дүүрэг (au2)-ийг au3
+// мөрөн дээрх код + эх хүснэгтийн нэрээр авна (FindIntersectingAU3).
+//
+// Чөлөөлөлт үүсэх/шинэчлэгдэхийг ЗОГСООХГҮЙ (нэмэлт мэдээлэл) — гэхдээ өмнө
+// нь алдаа бүрэн залгигдаж, баг хоосон үлдсэн нь хаана ч мэдэгддэггүй байсан
+// тул логлоно.
+func (s *landService) saveIntersectingAUs(ctx context.Context, acquisitionID uuid.UUID, geomWKT string) []domain.LandAcquisitionAU {
+	aus, err := s.landRepo.FindIntersectingAU3(ctx, geomWKT)
+	if err != nil {
+		slog.Error("огтлолцох au3 хайхад алдаа", "acquisition_id", acquisitionID, "error", err)
+		return nil
+	}
+	if len(aus) == 0 {
+		slog.Warn("чөлөөлөлтийн геометртэй огтлолцох au3 олдсонгүй", "acquisition_id", acquisitionID)
+		return nil
+	}
+	saved := make([]domain.LandAcquisitionAU, 0, len(aus))
+	for i := range aus {
+		aus[i].LandAcquisitionID = acquisitionID
+		if err := s.landRepo.CreateAU(ctx, &aus[i]); err != nil {
+			slog.Error("au3 хадгалахад алдаа",
+				"acquisition_id", acquisitionID, "au3_code", aus[i].AU3Code, "error", err)
+			continue
+		}
+		saved = append(saved, aus[i])
+	}
+	return saved
+}
+
+// resolvePlan — төлөвлөгөөг дугаараар шийдэж, MAIN DB-ийн plan хүснэгтэд
+// хадгална (чөлөөлөлт үүсгэх/хил шинэчлэх урсгалд).
+//
+// Эх сурвалж нь ЗӨВХӨН дундын сервис (middleware /plan/project). Тэндээс
+// олдоогүй бол хадгалагдсан plan хүснэгтээс ч, auth DB-ээс ч хайхгүй — алдаа
+// шууд дамжиж, чөлөөлөлт үүсгэх урсгал тэндээ тасална.
+//
+// Дундын сервис ТОХИРУУЛААГҮЙ үед (зөвхөн unit тест — production-д main.go
+// үргэлж тохируулдаг) auth DB-ийн planRepo руу унана.
+//
+// Олдсон мэдээллийг plan хүснэгтэд upsert хийж, land_acquisition.plan_id-д
+// холбогдох ID-тай мөрийг буцаана.
+func (s *landService) resolvePlan(ctx context.Context, planCode string) (*domain.Plan, error) {
+	planCode = strings.TrimSpace(planCode)
+	if planCode == "" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	var plan *domain.Plan
+	if s.planProjects != nil {
+		fromMiddleware, err := s.planProjects.GetPlanProject(ctx, planCode)
+		if err != nil {
+			return nil, err
+		}
+		if fromMiddleware == nil {
+			return nil, domain.ErrNotFound
+		}
+		plan = fromMiddleware
+	} else {
+		fromAuth, err := s.planRepo.GetByCode(ctx, planCode)
+		if err != nil {
+			return nil, domain.ErrNotFound
+		}
+		plan = fromAuth
+	}
+	if plan.PlanCode == "" {
+		plan.PlanCode = planCode
+	}
+
+	// Main DB-д хадгалах. Upsert нь хоосон утгаар хуучныг дарж бичихгүй тул
+	// хил/талбай зэрэг өмнө нь татагдсан мэдээлэл хадгалагдана.
+	if s.planStore != nil {
+		saved, err := s.planStore.Upsert(ctx, plan)
+		if err != nil {
+			return nil, domain.ErrInternalServer
+		}
+		return saved, nil
+	}
+	return plan, nil
+}
+
+// listSourceParcelsByAcquisition — чөлөөлөх ХИЛЭЭР дундын сервисээс нэгж
+// талбарын ДУГААРУУДЫГ (/parcels/by/acquisition) авч, дугаар тус бүрээр
+// мэдээллийг (/parcel/info) татна. Нэгж талбарын мэдээлэл ингэж ЗӨВХӨН
+// дугаараар үүснэ.
+//
+// Нэг дугаарын мэдээлэл татагдахгүй бол ЗӨВХӨН тэр дугаарыг л алгасна —
+// өмнө нь бүх багц хаягдаж, жагсаалт хоосон үлддэг байсан.
+func (s *landService) listSourceParcelsByAcquisition(ctx context.Context, planCode, acquisitionWKT string) ([]*domain.SourceParcel, error) {
+	if s.parcelInfo == nil {
+		return s.planRepo.GetSourceParcels(ctx, planCode)
+	}
+
+	parcelIDs, err := s.parcelInfo.ListParcelIDsByAcquisition(ctx, acquisitionWKT)
+	if err != nil {
+		return nil, err
+	}
+	if len(parcelIDs) == 0 {
+		return nil, nil
+	}
+
+	parcels := make([]*domain.SourceParcel, 0, len(parcelIDs))
+	seen := make(map[string]struct{}, len(parcelIDs))
+	for _, parcelID := range parcelIDs {
+		parcelID = strings.TrimSpace(parcelID)
+		if parcelID == "" {
+			continue
+		}
+		if _, dup := seen[parcelID]; dup {
+			continue
+		}
+		seen[parcelID] = struct{}{}
+
+		src, err := s.parcelInfo.GetParcelInfo(ctx, parcelID)
+		if err != nil {
+			slog.Warn("нэгж талбарын мэдээлэл татахад алдаа",
+				"parcel_id", parcelID, "error", err)
+			continue
+		}
+		if src == nil {
+			continue
+		}
+		// Дундын сервис дугаарыг буцаагаагүй ч дуудсан дугаараар бүртгэнэ.
+		if strings.TrimSpace(src.ParcelID) == "" {
+			src.ParcelID = parcelID
+		}
+		parcels = append(parcels, src)
+	}
+	return parcels, nil
+}
+
+// saveSourceParcels — чөлөөлөх хилээр олдсон нэгж талбаруудыг main DB-д
+// бүртгэнэ. Чөлөөлөлт үүсэх/шинэчлэгдэхийг ЗОГСООХГҮЙ — гэхдээ жагсаалт
+// хоосон үлдсэн шалтгааныг олох боломжтой байхын тулд логлоно.
+func (s *landService) saveSourceParcels(ctx context.Context, acquisitionID uuid.UUID, planCode, acquisitionWKT string) {
+	srcParcels, err := s.listSourceParcelsByAcquisition(ctx, planCode, acquisitionWKT)
+	if err != nil {
+		slog.Error("чөлөөлөх хилээр нэгж талбар хайхад алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+		return
+	}
+	if len(srcParcels) == 0 {
+		slog.Warn("чөлөөлөх хилтэй давхцах нэгж талбар олдсонгүй",
+			"acquisition_id", acquisitionID)
+		return
+	}
+	if err := s.landRepo.BulkInsertParcels(ctx, acquisitionID, srcParcels, acquisitionWKT); err != nil {
+		slog.Error("нэгж талбар хадгалахад алдаа",
+			"acquisition_id", acquisitionID, "count", len(srcParcels), "error", err)
+	}
 }
 
 func (s *landService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
@@ -782,8 +959,64 @@ func (s *landService) GetReportSummary(ctx context.Context, filter domain.Report
 	return summary, nil
 }
 
-// SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг auth DB-аас татаж хадгална.
-// Чөлөөлөлтийн бүстэй давхцах геометрийг PostGIS-р тооцоолж парцел дээр хадгална.
+// DiscoverParcels — чөлөөлөх ХИЛЭЭР дундын сервисээс (/parcels/by/acquisition)
+// нэгж талбарын ДУГААРУУДЫГ татаж, main DB-д бүртгэнэ.
+//
+// Энэ алхам дэлгэрэнгүй мэдээлэл ТАТАХГҮЙ — зөвхөн "аль нэгж талбарууд энэ
+// чөлөөлөлтөд хамаарах вэ" гэдгийг тодорхойлно (нэг хүсэлт). Дэлгэрэнгүйг
+// дараа нь дугаар тус бүрээр SyncParcel татна — дундын сервис зэрэг олон
+// хүсэлтэд дүүрдэг тул тэр алхмыг дараалуулж, зайлуулж явуулна.
+//
+// Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгадаг тул дахин дуудахад
+// давхардал үүсэхгүй (repo дээрх InsertParcelCodes).
+func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error) {
+	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if strings.TrimSpace(acq.GeometryWKT) == "" {
+		// Хилгүй чөлөөлөлтөөс нэгж талбар хайх боломжгүй.
+		return nil, domain.ErrInvalidInput
+	}
+	if s.parcelInfo == nil {
+		return nil, domain.ErrInternalServer
+	}
+
+	codes, err := s.parcelInfo.ListParcelIDsByAcquisition(ctx, acq.GeometryWKT)
+	if err != nil {
+		slog.Error("чөлөөлөх хилээр нэгж талбарын дугаар татахад алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+
+	res, err := s.landRepo.InsertParcelCodes(ctx, acquisitionID, codes, acq.GeometryWKT)
+	if err != nil {
+		slog.Error("нэгж талбарын дугаар бүртгэхэд алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+		// Хэсэг нь амжилттай бүртгэгдсэн бол үр дүнг буцаана — бүх багцыг
+		// хаяхгүй (нэг дугаарын алдаанаас болж жагсаалт хоосон үлдэхгүй).
+		if res == nil || len(res.ParcelIDs) == 0 {
+			return nil, domain.ErrInternalServer
+		}
+	}
+	return res, nil
+}
+
+// SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг дундын сервисээс татаж
+// хадгална. Чөлөөлөлтийн бүстэй давхцах геометрийг PostGIS-р тооцоолно.
+//
+// Алхам:
+//  1. /parcel/info/{parcel_id} — нэгж талбарын дэлгэрэнгүй
+//  2. Дэлгэрэнгүйг хадгална (parcel + parcel_detail)
+//  3. Дэлгэрэнгүй дээрх app_no-гоор /application/persons — ЭЗЭМШИГЧИД
+//     (нэг хүсэлт дээр төрөл өөр олон хүн байж болно) → бүгдийг хадгална
+//
+// Sync нь ОРЛУУЛАХ (replace) үйлдэл: хуучин parcel_detail болон эзэмшигчдийн
+// мөрүүд УСТГАГДАЖ, дундын сервисийн одоогийн мэдээллээр шинээр үүснэ. Ингэснээр
+// эх системд байхаа больсон эзэмшигч/гэрээ хоцрогдож үлдэхгүй.
+//
+// Хэрэглэгчийн оруулсан өгөгдөл (үнэлгээ, нөхөх олговор, хөрөнгө, төлөв,
+// баримт) хөндөгдөхгүй.
 func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
@@ -795,13 +1028,17 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 		return domain.ErrNotFound
 	}
 
-	if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, p.ID, acq.GeometryWKT); err != nil {
-		return domain.ErrInternalServer
+	var src *domain.SourceParcel
+	if s.parcelInfo != nil {
+		src, err = s.parcelInfo.GetParcelInfo(ctx, parcelCode)
+	} else {
+		src, err = s.planRepo.GetSourceParcelByID(ctx, parcelCode)
 	}
-
-	src, err := s.planRepo.GetSourceParcelByID(ctx, parcelCode)
 	if err != nil {
-		return domain.ErrNotFound
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrInternalServer
 	}
 
 	holderID, err := s.landRepo.UpsertHolder(ctx, src)
@@ -809,13 +1046,157 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 		return domain.ErrInternalServer
 	}
 
-	if err := s.landRepo.UpsertParcelRight(ctx, p.ID, acq.ID, holderID, src); err != nil {
+	if err := s.landRepo.ReplaceParcelDetail(ctx, p.ID, acq.ID, holderID, src); err != nil {
 		return err
 	}
-	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(), uuidPtr(acq.ID), uuidPtr(p.ID), map[string]any{
-		"parcel_code": parcelCode,
-	})
+
+	// Ирсэн геометрээр чөлөөлөгдөх талбайн хил/хэмжээ, үлдэх талбай, AU кодыг тооцно.
+	geom := s.applyParcelGeometry(ctx, p.ID, src.GeometryWKT, acq.GeometryWKT)
+
+	// Дэлгэрэнгүйг хадгалсны ДАРАА app_no-гоор эзэмшигчдийг татаж хадгална.
+	holderCount := s.syncParcelHolders(ctx, p.ID, acq.ID, parcelCode, src.AppNo)
+
+	audit := map[string]any{
+		"parcel_code":  parcelCode,
+		"app_no":       src.AppNo,
+		"holder_count": holderCount,
+	}
+	if geom != nil {
+		audit["acquisition_area_m2"] = geom.AcquisitionAreaM2
+		audit["remaining_area_m2"] = geom.RemainingAreaM2
+	}
+	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(), uuidPtr(acq.ID), uuidPtr(p.ID), audit)
 	return nil
+}
+
+// applyParcelGeometry — эх системээс ирсэн нэгж талбарын геометрийг хадгалж,
+// чөлөөлөлтийн бүстэй давхцах хэсгийг тооцно:
+//
+//   - чөлөөлөгдөх талбайн ХИЛ (parcel.acquisition_geom)
+//   - чөлөөлөгдөх талбайн ХЭМЖЭЭ (parcel.acquisition_area_m2)
+//   - үлдэх талбай (parcel.remaining_area_m2)
+//   - геометрээр харьяалах аймаг/сум/багийн код
+//
+// Геометр ирээгүй үед хадгалагдсан геометрээр л давхцлыг шинэчилнэ.
+// Тооцоолол sync-ийг ЗОГСООХГҮЙ — дэлгэрэнгүй аль хэдийн хадгалагдсан.
+func (s *landService) applyParcelGeometry(ctx context.Context, parcelID uuid.UUID, parcelWKT, acqWKT string) *domain.ParcelGeometryResult {
+	if strings.TrimSpace(parcelWKT) == "" {
+		slog.Warn("эх системээс нэгж талбарын геометр ирсэнгүй, хадгалагдсан геометрээр тооцно",
+			"parcel_id", parcelID)
+		if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, parcelID, acqWKT); err != nil {
+			slog.Error("чөлөөлөгдөх талбайг тооцоолоход алдаа", "parcel_id", parcelID, "error", err)
+		}
+		return nil
+	}
+
+	result, err := s.landRepo.ApplyParcelGeometry(ctx, parcelID, parcelWKT, acqWKT)
+	if err != nil {
+		// Геометр невалид эсвэл polygon биш (MULTIPOLYGON) байж болно — чимээгүй
+		// үлдэхгүйн тулд логлоно.
+		slog.Error("нэгж талбарын геометрээр чөлөөлөгдөх талбайг тооцоолоход алдаа",
+			"parcel_id", parcelID, "error", err)
+		return nil
+	}
+	if !result.HasOverlap {
+		slog.Warn("нэгж талбар чөлөөлөлтийн бүстэй давхцахгүй",
+			"parcel_id", parcelID, "parcel_area_m2", result.ParcelAreaM2)
+	}
+
+	// Аймаг/сум/баг — эх систем зөвхөн au2-ыг буцаадаг тул геометрээс нөхнө.
+	if au, err := s.landRepo.FillParcelAUCodesFromGeometry(ctx, parcelID); err != nil {
+		if !errors.Is(err, domain.ErrNotFound) {
+			slog.Error("нэгж талбарын АУ кодыг тооцоолоход алдаа", "parcel_id", parcelID, "error", err)
+		} else {
+			slog.Warn("нэгж талбарын геометртэй огтлолцох баг/хороо олдсонгүй", "parcel_id", parcelID)
+		}
+	} else {
+		slog.Debug("нэгж талбарын АУ код тодорхойлогдов", "parcel_id", parcelID,
+			"au1", au.AU1Code, "au2", au.AU2Code, "au3", au.AU3Code)
+	}
+	return result
+}
+
+// syncParcelHolders — хүсэлтийн дугаараар (app_no) эзэмшигчдийг татаж, БҮГДИЙГ
+// parcel_holder-д хадгална. Үндсэн хүсэлт гаргагч parcel_detail.holder_id-д
+// холбогдоно.
+//
+// Эзэмшигч татах нь sync-ийг ЗОГСООХГҮЙ (нэгж талбарын дэлгэрэнгүй аль хэдийн
+// хадгалагдсан) — алдааг логлож, хадгалагдсан эзэмшигчийн тоог буцаана.
+func (s *landService) syncParcelHolders(ctx context.Context, parcelID, acquisitionID uuid.UUID, parcelCode, appNo string) int {
+	if s.parcelInfo == nil {
+		return 0
+	}
+	appNo = strings.TrimSpace(appNo)
+
+	holders, err := s.parcelInfo.ListApplicationPersons(ctx, appNo, parcelCode)
+	if err != nil {
+		// Дуудалт бүтэлгүйтсэн — хадгалагдсан эзэмшигчдийг ХӨНДӨХГҮЙ
+		// (орлуулах мэдээлэл байхгүй тул устгах нь өгөгдөл гээхэд хүргэнэ).
+		slog.Error("эзэмшигчийн мэдээлэл татахад алдаа",
+			"parcel_id", parcelID, "parcel_code", parcelCode, "app_no", appNo, "error", err)
+		return 0
+	}
+	if len(holders) == 0 {
+		// Эх системд эзэмшигч байхгүй — хуучин мөрүүд устгагдана.
+		slog.Warn("хүсэлт дээр эзэмшигч олдсонгүй, хадгалагдсан эзэмшигчид устгагдана",
+			"parcel_id", parcelID, "parcel_code", parcelCode, "app_no", appNo)
+	}
+
+	// Регистрийн дугаар давхцсаныг хадгалахгүй алгасна (эх системд нэг хүн
+	// хэд хэдэн үүрэгтэйгээр давхардаж ирж болно).
+	holders, skippedRegisterNos := dedupeHoldersByRegisterNo(holders)
+	if len(skippedRegisterNos) > 0 {
+		slog.Warn("регистрийн дугаар давхцсан эзэмшигч алгасагдав",
+			"parcel_id", parcelID, "app_no", appNo, "register_no", skippedRegisterNos)
+	}
+
+	for _, h := range holders {
+		if h != nil && h.AppNo == "" {
+			h.AppNo = appNo
+		}
+	}
+
+	mainHolderID, err := s.landRepo.ReplaceParcelHolders(ctx, parcelID, acquisitionID, appNo, holders)
+	if err != nil {
+		slog.Error("эзэмшигчдийг хадгалахад алдаа",
+			"parcel_id", parcelID, "count", len(holders), "error", err)
+		return 0
+	}
+	if err := s.landRepo.SetParcelDetailHolder(ctx, parcelID, mainHolderID); err != nil {
+		slog.Error("үндсэн эзэмшигчийг холбоход алдаа",
+			"parcel_id", parcelID, "holder_id", mainHolderID, "error", err)
+	}
+	return len(holders)
+}
+
+// dedupeHoldersByRegisterNo — регистрийн дугаараар давхцсан эзэмшигчийг
+// алгасна: эхний тохиолдол хадгалагдаж, дараачийнх нь хаягдана.
+//
+// Эрэмбэ хадгалагдана (үндсэн хүсэлт гаргагч эхэнд ирдэг тул давхцалд
+// ҮНДСЭН нь үлдэнэ). Регистргүй хүнийг давхцал гэж үзэхгүй — тэднийг
+// нэр+утсаар тааруулна.
+//
+// Хоёрдахь буцах утга нь алгасагдсан регистрийн дугаарууд (логлоход).
+func dedupeHoldersByRegisterNo(holders []*domain.ParcelHolder) ([]*domain.ParcelHolder, []string) {
+	kept := make([]*domain.ParcelHolder, 0, len(holders))
+	var skipped []string
+	seen := make(map[string]struct{}, len(holders))
+
+	for _, h := range holders {
+		if h == nil {
+			continue
+		}
+		registerNo := strings.ToUpper(strings.TrimSpace(h.RegisterNo))
+		if registerNo != "" {
+			if _, dup := seen[registerNo]; dup {
+				skipped = append(skipped, h.RegisterNo)
+				continue
+			}
+			seen[registerNo] = struct{}{}
+		}
+		kept = append(kept, h)
+	}
+	return kept, skipped
 }
 
 func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {

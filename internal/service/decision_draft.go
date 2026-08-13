@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -295,10 +296,29 @@ func (s *decisionDraftService) LinkParcel(ctx context.Context, draftID, parcelUU
 	if _, err := s.repo.LinkParcel(ctx, draftID, parcelUUID, fundingLinkID, actor); err != nil {
 		return err
 	}
+
+	// Сонгосон эх үүсвэрийг нэгж талбарын ЧӨЛӨӨЛӨЛТӨД хадгална — чөлөөлөлт
+	// бүртгэхэд санхүүгийн эх үүсвэр асуухаа больсон тул санхүүжилтийн мэдээлэл
+	// эндээс бүрдэнэ. Холбоос аль хэдийн үүссэн тул алдаа гарвал үйлдлийг
+	// бүтэлгүйтүүлэхгүй, зөвхөн логлоно.
+	s.bindFundingSourceToAcquisition(ctx, fundingLinkID, parcel.AcquisitionID)
+
 	if draft.AcquisitionID == nil {
 		return s.repo.SetAcquisition(ctx, draftID, parcel.AcquisitionID)
 	}
 	return nil
+}
+
+// bindFundingSourceToAcquisition — эх үүсвэрийг чөлөөлөлтийн санхүүжилт болгож
+// хадгална (нэгж талбар холбох / эх үүсвэр солих үед).
+func (s *decisionDraftService) bindFundingSourceToAcquisition(ctx context.Context, fundingLinkID, acquisitionID string) {
+	if strings.TrimSpace(fundingLinkID) == "" || strings.TrimSpace(acquisitionID) == "" {
+		return
+	}
+	if err := s.repo.BindFundingSourceToAcquisition(ctx, fundingLinkID, acquisitionID); err != nil {
+		slog.Error("санхүүгийн эх үүсвэрийг чөлөөлөлтөд хадгалахад алдаа",
+			"funding_link_id", fundingLinkID, "acquisition_id", acquisitionID, "error", err)
+	}
 }
 
 // UnlinkParcel — холбоосыг түүх үлдээж хасна. Хасагдсан нэгж талбар өөр
@@ -403,7 +423,14 @@ func (s *decisionDraftService) SetParcelFundingSource(ctx context.Context, draft
 	if !belongs {
 		return domain.ErrFundingSourceRequired
 	}
-	return s.repo.SetParcelFundingLink(ctx, draftID, linkID, fundingLinkID)
+	if err := s.repo.SetParcelFundingLink(ctx, draftID, linkID, fundingLinkID); err != nil {
+		return err
+	}
+	// Сольсон эх үүсвэрийг ч чөлөөлөлтийн санхүүжилтэд тусгана.
+	if draft.AcquisitionID != nil {
+		s.bindFundingSourceToAcquisition(ctx, fundingLinkID, *draft.AcquisitionID)
+	}
+	return nil
 }
 
 // zeroToNil — 0 сонголтыг NULL болгоно (frontend "сонгоогүй"-г 0-ээр илэрхийлнэ).

@@ -118,12 +118,20 @@ func (s *S3Storage) EnsureBucket(ctx context.Context) error {
 
 	policy := `{
 	  "Version": "2012-10-17",
-	  "Statement": [{
-	    "Effect": "Allow",
-	    "Principal": {"AWS": ["*"]},
-	    "Action": ["s3:GetObject"],
-	    "Resource": ["arn:aws:s3:::` + s.bucket + `/*"]
-	  }]
+	  "Statement": [
+	    {
+	      "Effect": "Allow",
+	      "Principal": {"AWS": ["*"]},
+	      "Action": ["s3:GetBucketLocation"],
+	      "Resource": ["arn:aws:s3:::` + s.bucket + `"]
+	    },
+	    {
+	      "Effect": "Allow",
+	      "Principal": {"AWS": ["*"]},
+	      "Action": ["s3:GetObject"],
+	      "Resource": ["arn:aws:s3:::` + s.bucket + `/*"]
+	    }
+	  ]
 	}`
 	if err := s.client.SetBucketPolicy(ctx, s.bucket, policy); err != nil {
 		return fmt.Errorf("bucket policy failed: %w", err)
