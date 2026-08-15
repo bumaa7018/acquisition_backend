@@ -74,6 +74,9 @@ const (
 	ErrNonFinalParcels         Key = "non_final_parcels"
 	ErrAssetPhotoRequired      Key = "asset_photo_required"
 	ErrReportBeforeApproval    Key = "report_before_approval"
+	ErrParcelAppNoMissing      Key = "parcel_app_no_missing"
+	ErrParcelOwnedNoPayment    Key = "parcel_owned_no_payment"
+	ErrSourceFileUnavailable   Key = "source_file_unavailable"
 
 	// Document / file errors
 	ErrFileRequired           Key = "file_required"
@@ -148,6 +151,9 @@ var messages = map[Key][2]string{
 	ErrNonFinalParcels:         {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
 	ErrAssetPhotoRequired:      {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
 	ErrReportBeforeApproval:    {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
+	ErrParcelAppNoMissing:      {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
+	ErrParcelOwnedNoPayment:    {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
+	ErrSourceFileUnavailable:   {"Эх системийн файл сервер тохируулагдаагүй тул хавсралтын файлыг харах боломжгүй.", "The source file server is not configured, so the attachment cannot be opened."},
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge:           {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил

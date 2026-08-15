@@ -291,11 +291,16 @@ func NewRouter(
 			// Дэлгэрэнгүйг дараа нь дугаар тус бүрээр доорх /sync-ээр татна.
 			land.POST("/:id/parcels/by-acquisition", middleware.RequirePermission("land:create"), assignedOrSenior, landH.DiscoverParcels)
 			land.POST("/:id/parcels/:parcel_id/sync", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncParcel)
-			land.POST("/:id/parcels/:parcel_id/sync/contract-act", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncContractAct)
+			// Хавсралт татах: эх системд байгаа боловч энд байхгүй баримт л
+			// нэмэгдэнэ (хадгалагдсан хавсралт хөндөгдөхгүй).
+			land.POST("/:id/parcels/:parcel_id/sync/documents", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelDocuments)
+			land.POST("/:id/parcels/:parcel_id/sync/holders", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelHolders)
+			land.POST("/:id/parcels/:parcel_id/sync/base-price", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelBasePrice)
+			land.POST("/:id/parcels/:parcel_id/sync/invoices", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelInvoices)
+			land.POST("/:id/parcels/:parcel_id/sync/mortgages", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMortgages)
+			land.POST("/:id/parcels/:parcel_id/sync/court-decisions", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelCourtDecisions)
+			land.POST("/:id/parcels/:parcel_id/sync/monitoring", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMonitorings)
 			land.POST("/:id/parcels/:parcel_id/sync/valuation", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncValuation)
-			land.POST("/:id/parcels/:parcel_id/sync/settlement-act", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncSettlementAct)
-			land.POST("/:id/parcels/:parcel_id/sync/location-valuation", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncLocationValuation)
-			land.POST("/:id/parcels/:parcel_id/sync/monitoring", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncMonitoring)
 			land.PATCH("/:id/parcels/:parcel_id/valuation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateParcelValuation)
 			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.SetParcelCompensation)
 			land.PATCH("/:id/parcels/:parcel_id/meta", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateParcelMeta)
@@ -314,6 +319,8 @@ func NewRouter(
 			land.GET("/:id/parcels/:parcel_id/representatives", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAuthorizedRepresentatives)
 			land.POST("/:id/parcels/:parcel_id/representatives", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateAuthorizedRepresentative)
 			land.DELETE("/:id/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAuthorizedRepresentative)
+			// Нөхөн төлбөр хүлээн авах эзэмшигчийг сонгох (үндсэн эзэмшигч олон байх үед)
+			land.PUT("/:id/parcels/:parcel_id/payment-recipient", middleware.RequirePermission("land:update"), assignedOrSenior, landH.SetParcelPaymentRecipient)
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAcquisitionDocuments)
 			land.POST("/:id/documents", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadAcquisitionDocument)
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
@@ -363,6 +370,7 @@ func NewRouter(
 					profLandItem.GET("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:read"), profParcelMemberByParam, landH.ListAuthorizedRepresentatives)
 					profLandItem.POST("/parcels/:parcel_id/representatives", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.CreateAuthorizedRepresentative)
 					profLandItem.DELETE("/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.DeleteAuthorizedRepresentative)
+					profLandItem.PUT("/parcels/:parcel_id/payment-recipient", middleware.RequirePermission("compensation:update"), profParcelMemberByParam, landH.SetParcelPaymentRecipient)
 					// Байгааламж — үнэлгээ (valuation:create/update)
 					profLandItem.GET("/assets", middleware.RequirePermission("compensation:read"), landH.ListAssets)
 					profLandItem.POST("/assets", middleware.RequirePermission("compensation:create"), landH.CreateAsset)
@@ -399,6 +407,7 @@ func NewRouter(
 			profParcels.Use(profParcelMember)
 			{
 				profParcels.GET("/:id/documents", middleware.RequirePermission("compensation:read"), landH.ListParcelDocuments)
+				profParcels.GET("/:id/documents/:doc_id/file", middleware.RequirePermission("compensation:read"), landH.GetParcelDocumentFile)
 				profParcels.POST("/:id/documents", middleware.RequirePermission("compensation:update"), landH.UploadParcelDocument)
 				profParcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("compensation:update"), landH.DeleteParcelDocument)
 			}
@@ -564,6 +573,9 @@ func NewRouter(
 			// Үнэлгээний тайлан Нөхөх олговор табд харагддаг тул гадаад ролиуд (санхүү/МИКА)
 			// мөн уншина; мэрг. байгууллага өөрийн /prof (гишүүнчлэлтэй) замаа ашиглана.
 			parcels.GET("/:id/documents", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.ListParcelDocuments)
+			// Эх системээс татсан хавсралтын файл — API нь эх системийн файл
+			// серверээс уншиж дамжуулна (?download=1 бол татна).
+			parcels.GET("/:id/documents/:doc_id/file", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.GetParcelDocumentFile)
 			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.UploadParcelDocument)
 			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.DeleteParcelDocument)
 		}

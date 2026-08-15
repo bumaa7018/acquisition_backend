@@ -168,7 +168,23 @@ func main() {
 		middlewareBaseURL = "http://localhost:8081"
 	}
 	parcelInfoClient := service.NewHTTPParcelInfoClient(middlewareBaseURL)
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo)
+
+	// Эх системийн файл сервер — татсан хавсралтын ФАЙЛ тэнд байдаг.
+	// Тохируулаагүй бол хавсралт татах/бүртгэх нь ажиллах ч файл нээх үед
+	// ErrSourceFileNotConfigured буцна.
+	var sourceFileClient service.SourceFileClient
+	if cfg.SourceFile.Enabled() {
+		byFtpID := cfg.SourceFile.BaseURLByFtpID()
+		sourceFileClient = service.NewHTTPSourceFileClient(
+			cfg.SourceFile.BaseURL, byFtpID, cfg.SourceFile.Timeout)
+		slog.Info("source file server ready",
+			"default_base_url", cfg.SourceFile.BaseURL, "ftp_hosts", len(byFtpID))
+	} else {
+		slog.Warn("source file server тохируулаагүй — татсан хавсралтын файл нээгдэхгүй " +
+			"(SOURCE_FTP_BASE_URL эсвэл SOURCE_FTP_BASE_URLS)")
+	}
+
+	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient)
 	planSvc := service.NewPlanService(planRepo, parcelInfoClient, planStoreRepo)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)

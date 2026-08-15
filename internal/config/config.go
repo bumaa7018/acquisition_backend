@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -21,6 +22,7 @@ type Config struct {
 	FileServer      FileServerConfig
 	GeoServer       GeoServerConfig
 	Middleware      MiddlewareConfig
+	SourceFile      SourceFileConfig
 }
 
 type AppConfig struct {
@@ -128,6 +130,47 @@ type GeoServerConfig struct {
 
 type MiddlewareConfig struct {
 	BaseURL string `env:"MIDDLEWARE_BASE_URL" envDefault:""`
+}
+
+// SourceFileConfig — ЭХ СИСТЕМИЙН файл сервер (хавсралт хадгалагддаг).
+//
+// Дундын сервисээс ирэх хавсралт нь хоёр талбартай:
+//   - file_url — харьцангуй зам, ж: mgis/011/01107/…/…-6a7e697d329b7.pdf
+//   - ftp_id   — АЛЬ сервер дээр байгааг заана, ж: 3
+//
+// Тиймээс хостыг ftp_id-гаар сонгоно. BaseURLs нь "ftp_id=хаяг" хосуудыг
+// таслалаар зааглаж авна; тохирох ftp_id олдоогүй эсвэл ftp_id хоосон үед
+// BaseURL (ганц/анхдагч сервер) хэрэглэгдэнэ.
+//
+// Файлыг browser руу ШУУД өгдөггүй — API нь эндээс уншиж дамжуулна
+// (сервер дотоод сүлжээнд байж болох ба хандалтын эрх шалгагдана).
+type SourceFileConfig struct {
+	// BaseURL — анхдагч хаяг. Ж: http://10.0.0.5:8080
+	BaseURL string `env:"SOURCE_FTP_BASE_URL" envDefault:""`
+	// BaseURLs — ftp_id тус бүрийн хаяг. Ж: "1=http://ftp1:8080,3=http://ftp3:8080"
+	BaseURLs string `env:"SOURCE_FTP_BASE_URLS" envDefault:""`
+	// Timeout — нэг файл татах хугацааны хязгаар.
+	Timeout time.Duration `env:"SOURCE_FTP_TIMEOUT" envDefault:"30s"`
+}
+
+// BaseURLByFtpID — "1=http://a,3=http://b" хэлбэрийг map болгоно. Буруу
+// бичигдсэн хэсгийг чимээгүй алгасна (сервис асахаа болихгүй).
+func (s SourceFileConfig) BaseURLByFtpID() map[string]string {
+	result := map[string]string{}
+	for _, pair := range strings.Split(s.BaseURLs, ",") {
+		id, rawURL, found := strings.Cut(strings.TrimSpace(pair), "=")
+		id, rawURL = strings.TrimSpace(id), strings.TrimSpace(rawURL)
+		if !found || id == "" || rawURL == "" {
+			continue
+		}
+		result[id] = strings.TrimRight(rawURL, "/")
+	}
+	return result
+}
+
+// Enabled — хавсралт татах боломжтой эсэх (ядаж нэг хаяг тохируулсан).
+func (s SourceFileConfig) Enabled() bool {
+	return strings.TrimSpace(s.BaseURL) != "" || len(s.BaseURLByFtpID()) > 0
 }
 
 func (e EmailConfig) Enabled() bool {

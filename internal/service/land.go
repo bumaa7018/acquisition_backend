@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"path"
 	"strings"
 	"time"
 
@@ -113,6 +114,19 @@ type LandDocumentService interface {
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
+	// SyncParcelDocuments — эх системээс хавсралт татах. ЗӨВХӨН ШИНИЙГ нэмнэ.
+	SyncParcelDocuments(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, roles []string) (*domain.ParcelDocumentSyncResult, error)
+	// SyncParcelHolders — эзэмшигчдийг app_no-гоор ТУСАД НЬ татна.
+	SyncParcelHolders(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelHolderSyncResult, error)
+	// Газрын төлбөр үнэлгээний бүлгийн дуудалтууд
+	SyncParcelBasePrice(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelBasePrice, error)
+	SyncParcelInvoices(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.ParcelInvoice, error)
+	SyncParcelMortgages(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
+	SyncParcelCourtDecisions(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
+	SyncParcelMonitorings(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
+	// OpenParcelDocumentFile — эх системээс татсан хавсралтын файлыг нээнэ
+	// (харах/татах). Дуудагч Content-ийг хаана.
+	OpenParcelDocumentFile(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.DocumentFile, error)
 }
 
 type LandAssigneeService interface {
@@ -174,10 +188,16 @@ type LandFundingService interface {
 	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
 }
 
+// LandAuthorizedRepresentativeService — итгэмжлэгдсэн төлөөлөгч нь эзэмшигчийн
+// НЭГ ТӨРӨЛ (parcel_holder.holder_role='representative') болж хадгалагдана.
+// Ингэснээр эзэмшигчидтэй нэг жагсаалтад орж, нөхөн төлбөр авагчийн сонголтод
+// оролцоно. URL дахь parcel_id нь нэгж талбарын ДУГААР (код) байна.
 type LandAuthorizedRepresentativeService interface {
-	ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error)
-	CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error)
-	DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error
+	ListParcelRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]domain.ParcelHolder, error)
+	CreateParcelRepresentative(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, holder *domain.ParcelHolder) (*domain.ParcelHolder, error)
+	DeleteParcelRepresentative(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, parcelHolderID uuid.UUID) error
+	// SetParcelPaymentRecipient — нөхөн төлбөр хүлээн авах эзэмшигчийг сонгоно.
+	SetParcelPaymentRecipient(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, parcelHolderID uuid.UUID) error
 }
 
 type LandService interface {
@@ -218,6 +238,10 @@ type landService struct {
 	// drone — дроны ортофотог хадгалах хавтас + GeoServer-ийн мозайк.
 	// Тохируулаагүй үед дроны зургийн үйлдэл ErrDroneNotConfigured буцаана.
 	drone DroneStorage
+	// sourceFiles — ЭХ СИСТЕМИЙН файл сервер. Татсан хавсралтын файл тэнд
+	// байдаг тул харах/татахад эндээс уншина. nil үед (.env тохируулаагүй)
+	// ErrSourceFileNotConfigured буцаана.
+	sourceFiles SourceFileClient
 }
 
 func NewLandService(
@@ -245,6 +269,8 @@ func NewLandService(
 			s.drone = v
 		case repository.PlanStoreRepository:
 			s.planStore = v
+		case SourceFileClient:
+			s.sourceFiles = v
 		}
 		// PlanProjectClient-ийг ParcelInfoClient-тай ижил обьект хэрэгжүүлдэг тул
 		// switch-ийн салангид case болгож биш, тусад нь шалгана.
@@ -304,10 +330,11 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 
 	// 3. Төлөвлөгөөний хилтэй давхцуулах шалгалт ХИЙХГҮЙ.
 	//
-	// Төлөвлөгөө нь дундын сервисээс (/plan/project) татагддаг болсон бөгөөд
-	// тэр нь хил (boundary) буцаадаггүй. Мөн чөлөөлөх хил төлөвлөгөөнөөс
-	// хамааралгүй тогтоогддог тул давхцлыг шаардах нь бүртгэлийг хориглох
-	// шалтгаан болох ёсгүй.
+	// /plan/project нь хилийг (geometry_wkt) буцаадаг болсон ч чөлөөлөх хил
+	// төлөвлөгөөнөөс хамааралгүй тогтоогддог тул давхцлыг ШААРДАХГҮЙ —
+	// давхцахгүй байх нь бүртгэлийг хориглох шалтгаан болох ёсгүй.
+	// Төлөвлөгөөний хил нь зөвхөн ЛАВЛАХ мэдээлэл болж (PlanGeomWKT)
+	// хадгалагдана.
 
 	// 4. land_acquisition үүсгэх
 	now := time.Now()
@@ -1053,13 +1080,14 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 	// Ирсэн геометрээр чөлөөлөгдөх талбайн хил/хэмжээ, үлдэх талбай, AU кодыг тооцно.
 	geom := s.applyParcelGeometry(ctx, p.ID, src.GeometryWKT, acq.GeometryWKT)
 
-	// Дэлгэрэнгүйг хадгалсны ДАРАА app_no-гоор эзэмшигчдийг татаж хадгална.
-	holderCount := s.syncParcelHolders(ctx, p.ID, acq.ID, parcelCode, src.AppNo)
+	// ЭЗЭМШИГЧ ЭНД ТАТАГДАХГҮЙ — тусад нь SyncParcelHolders-оор татагдана
+	// (дэлгэц дээр "Иргэн, хуулийн этгээдийн мэдээлэл" гэсэн тусдаа алхам).
+	// Бөөн импортын урсгал сэргэхэд /sync-ийн ДАРАА /sync/holders-ыг мөн
+	// дуудах ёстойг анхаарна уу.
 
 	audit := map[string]any{
-		"parcel_code":  parcelCode,
-		"app_no":       src.AppNo,
-		"holder_count": holderCount,
+		"parcel_code": parcelCode,
+		"app_no":      src.AppNo,
 	}
 	if geom != nil {
 		audit["acquisition_area_m2"] = geom.AcquisitionAreaM2
@@ -1116,57 +1144,261 @@ func (s *landService) applyParcelGeometry(ctx context.Context, parcelID uuid.UUI
 	return result
 }
 
-// syncParcelHolders — хүсэлтийн дугаараар (app_no) эзэмшигчдийг татаж, БҮГДИЙГ
-// parcel_holder-д хадгална. Үндсэн хүсэлт гаргагч parcel_detail.holder_id-д
-// холбогдоно.
+// SyncParcelHolders — нэгж талбарын эзэмшигчдийг (иргэн, хуулийн этгээд)
+// хадгалагдсан app_no-гоор ГУС-аас татаж шинэчилнэ.
 //
-// Эзэмшигч татах нь sync-ийг ЗОГСООХГҮЙ (нэгж талбарын дэлгэрэнгүй аль хэдийн
-// хадгалагдсан) — алдааг логлож, хадгалагдсан эзэмшигчийн тоог буцаана.
-func (s *landService) syncParcelHolders(ctx context.Context, parcelID, acquisitionID uuid.UUID, parcelCode, appNo string) int {
+// SyncParcel-аас ТУСАД НЬ дуудагдана: хэрэглэгч зөвхөн эзэмшигчийг шинэчлэх
+// боломжтой байх ёстой. app_no нь /sync-ээр хадгалагддаг тул түүнийг эхлээд
+// ажиллуулсан байх шаардлагатай (эс бөгөөс 422).
+func (s *landService) SyncParcelHolders(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	parcelCode string,
+) (*domain.ParcelHolderSyncResult, error) {
 	if s.parcelInfo == nil {
-		return 0
+		return nil, domain.ErrInternalServer
 	}
-	appNo = strings.TrimSpace(appNo)
-
-	holders, err := s.parcelInfo.ListApplicationPersons(ctx, appNo, parcelCode)
+	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
-		// Дуудалт бүтэлгүйтсэн — хадгалагдсан эзэмшигчдийг ХӨНДӨХГҮЙ
-		// (орлуулах мэдээлэл байхгүй тул устгах нь өгөгдөл гээхэд хүргэнэ).
+		return nil, domain.ErrNotFound
+	}
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	full, err := s.landRepo.GetParcelDetailByID(ctx, p.ID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	var appNo string
+	if full.Detail != nil {
+		appNo = strings.TrimSpace(full.Detail.AppNo)
+	}
+	if appNo == "" {
+		slog.Warn("нэгж талбарт app_no байхгүй тул эзэмшигч татагдсангүй",
+			"parcel_id", p.ID, "parcel_code", parcelCode)
+		return nil, domain.ErrParcelAppNoMissing
+	}
+
+	holders, err := s.parcelInfo.ListApplicationPersons(ctx, appNo)
+	if err != nil {
 		slog.Error("эзэмшигчийн мэдээлэл татахад алдаа",
-			"parcel_id", parcelID, "parcel_code", parcelCode, "app_no", appNo, "error", err)
-		return 0
-	}
-	if len(holders) == 0 {
-		// Эх системд эзэмшигч байхгүй — хуучин мөрүүд устгагдана.
-		slog.Warn("хүсэлт дээр эзэмшигч олдсонгүй, хадгалагдсан эзэмшигчид устгагдана",
-			"parcel_id", parcelID, "parcel_code", parcelCode, "app_no", appNo)
+			"parcel_id", p.ID, "app_no", appNo, "error", err)
+		return nil, domain.ErrInternalServer
 	}
 
-	// Регистрийн дугаар давхцсаныг хадгалахгүй алгасна (эх системд нэг хүн
-	// хэд хэдэн үүрэгтэйгээр давхардаж ирж болно).
+	found := len(holders)
+	// Регистр давхцсаныг хадгалахгүй алгасна (нэг хүн хэд хэдэн үүрэгтэй ирж болно).
 	holders, skippedRegisterNos := dedupeHoldersByRegisterNo(holders)
-	if len(skippedRegisterNos) > 0 {
-		slog.Warn("регистрийн дугаар давхцсан эзэмшигч алгасагдав",
-			"parcel_id", parcelID, "app_no", appNo, "register_no", skippedRegisterNos)
-	}
-
 	for _, h := range holders {
 		if h != nil && h.AppNo == "" {
 			h.AppNo = appNo
 		}
 	}
 
-	mainHolderID, err := s.landRepo.ReplaceParcelHolders(ctx, parcelID, acquisitionID, appNo, holders)
+	mainHolderID, err := s.landRepo.ReplaceParcelHolders(ctx, p.ID, acq.ID, appNo, holders)
 	if err != nil {
 		slog.Error("эзэмшигчдийг хадгалахад алдаа",
-			"parcel_id", parcelID, "count", len(holders), "error", err)
-		return 0
+			"parcel_id", p.ID, "count", len(holders), "error", err)
+		return nil, domain.ErrInternalServer
 	}
-	if err := s.landRepo.SetParcelDetailHolder(ctx, parcelID, mainHolderID); err != nil {
+	if err := s.landRepo.SetParcelDetailHolder(ctx, p.ID, mainHolderID); err != nil {
 		slog.Error("үндсэн эзэмшигчийг холбоход алдаа",
-			"parcel_id", parcelID, "holder_id", mainHolderID, "error", err)
+			"parcel_id", p.ID, "holder_id", mainHolderID, "error", err)
 	}
-	return len(holders)
+
+	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(),
+		uuidPtr(acq.ID), uuidPtr(p.ID), map[string]any{
+			"parcel_code":  parcelCode,
+			"app_no":       appNo,
+			"holder_count": len(holders),
+		})
+
+	return &domain.ParcelHolderSyncResult{
+		Found:   found,
+		Saved:   len(holders),
+		Skipped: len(skippedRegisterNos),
+	}, nil
+}
+
+// SyncParcelDocuments — нэгж талбарын ХАВСРАЛТЫГ эх системээс татна.
+//
+// Хүсэлтийн дугаар (app_no) нь нэгж талбарын дэлгэрэнгүйгээс авагдана —
+// эхлээд SyncParcel хийгдсэн байх ёстой.
+//
+// ЗӨВХӨН НЭМЭХ үйлдэл: эх системд байгаа боловч энд байхгүй баримт л шинээр
+// бүртгэгдэнэ. Гараар оруулсан болон өмнө татсан хавсралт УСТГАГДАХГҮЙ,
+// ДАРАГДАХГҮЙ — тиймээс дахин дуудахад аюулгүй (идемпотент).
+//
+// roles — баримтын үүргийн код (doc_code). Хоосон бол бүх хавсралт татагдана.
+func (s *landService) SyncParcelDocuments(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, roles []string) (*domain.ParcelDocumentSyncResult, error) {
+	if s.parcelInfo == nil {
+		return nil, domain.ErrInternalServer
+	}
+	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return nil, domain.ErrNotFound
+	}
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+
+	full, err := s.landRepo.GetParcelDetailByID(ctx, p.ID)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	var appNo string
+	if full.Detail != nil {
+		appNo = strings.TrimSpace(full.Detail.AppNo)
+	}
+	if appNo == "" {
+		// Хүсэлтийн дугааргүй бол ямар хавсралт татахыг тодорхойлох аргагүй.
+		slog.Warn("нэгж талбарт app_no байхгүй тул хавсралт татагдсангүй",
+			"parcel_id", p.ID, "parcel_code", parcelCode)
+		return nil, domain.ErrParcelAppNoMissing
+	}
+
+	srcDocs, err := s.parcelInfo.ListApplicationDocuments(ctx, appNo, roles)
+	if err != nil {
+		slog.Error("хавсралт татахад алдаа",
+			"parcel_id", p.ID, "app_no", appNo, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+
+	docs := make([]*domain.Document, 0, len(srcDocs))
+	now := time.Now()
+	for _, src := range srcDocs {
+		if src == nil {
+			continue
+		}
+		docs = append(docs, &domain.Document{
+			ID:            uuid.New(),
+			Name:          sourceDocumentName(src),
+			FileType:      fileTypeFromURL(src.FileURL),
+			FileURL:       strings.TrimSpace(src.FileURL),
+			UploadedBy:    "system",
+			UploadedAt:    now,
+			SourceDocID:   src.DocID,
+			SourceFtpID:   src.FtpID,
+			SourceDocCode: strings.TrimSpace(src.DocCode),
+		})
+	}
+
+	saved, err := s.landRepo.AddSourceParcelDocuments(ctx, p.ID, docs)
+	if err != nil {
+		slog.Error("хавсралт хадгалахад алдаа",
+			"parcel_id", p.ID, "app_no", appNo, "count", len(docs), "error", err)
+		return nil, domain.ErrInternalServer
+	}
+
+	list, err := s.landRepo.ListParcelDocuments(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.auditLog(ctx, "synced", domain.AuditResourceDocument, p.ID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
+			"parcel_code": parcelCode,
+			"app_no":      appNo,
+			"roles":       roles,
+			"found":       len(docs),
+			"saved":       saved,
+		})
+
+	return &domain.ParcelDocumentSyncResult{
+		Found:     len(docs),
+		Saved:     saved,
+		Skipped:   len(docs) - saved,
+		Documents: list,
+	}, nil
+}
+
+// OpenParcelDocumentFile — эх системээс татсан хавсралтын ФАЙЛЫГ нээнэ.
+//
+// Файл нь эх системийн файл сервер дээр байдаг (энд зөвхөн зам + ftp_id
+// хадгалагдана) тул API нь тэндээс уншиж дамжуулна. Дуудагч Content-ийг
+// ХААХ хариуцлагатай.
+//
+// Зөвхөн ЭХ СИСТЕМИЙН хавсралтад зориулагдсан: гараар оруулсан файл нь
+// файлын систем (MinIO) дээр байдаг ба frontend-ийн /api/files-ээр тараагдана.
+func (s *landService) OpenParcelDocumentFile(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.DocumentFile, error) {
+	if s.sourceFiles == nil {
+		return nil, domain.ErrSourceFileNotConfigured
+	}
+
+	doc, err := s.landRepo.GetParcelDocument(ctx, parcelID, documentID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(doc.SourceDocID) == "" {
+		// Эх системийнх биш — энэ зам түүнд зориулагдаагүй.
+		return nil, domain.ErrNotFound
+	}
+
+	src, err := s.sourceFiles.Open(ctx, doc.SourceFtpID, doc.FileURL)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrInvalidInput) ||
+			errors.Is(err, domain.ErrSourceFileNotConfigured) {
+			return nil, err
+		}
+		slog.Error("эх системээс хавсралт унших боломжгүй",
+			"parcel_id", parcelID, "document_id", documentID,
+			"ftp_id", doc.SourceFtpID, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+
+	return &domain.DocumentFile{
+		Name:        downloadFileName(doc),
+		ContentType: src.ContentType,
+		SizeBytes:   src.SizeBytes,
+		Content:     src.Content,
+	}, nil
+}
+
+// downloadFileName — татахад харагдах нэр: баримтын нэр + эх файлын өргөтгөл.
+// Эх зам дахь нэр нь hash (…-6a7e697d329b7.pdf) тул хэрэглэгчид ойлгомжгүй.
+func downloadFileName(doc *domain.Document) string {
+	name := strings.TrimSpace(doc.Name)
+	if name == "" {
+		name = "document"
+	}
+	// Файлын нэрэнд орох боломжгүй тэмдэгтүүдийг цэвэрлэнэ.
+	name = strings.NewReplacer("/", "-", "\\", "-", "\"", "", "\r", "", "\n", "").Replace(name)
+
+	ext := strings.TrimSpace(doc.FileType)
+	if ext == "" {
+		ext = fileTypeFromURL(doc.FileURL)
+	}
+	if ext == "" || strings.HasSuffix(strings.ToLower(name), "."+strings.ToLower(ext)) {
+		return name
+	}
+	return name + "." + ext
+}
+
+// sourceDocumentName — харагдах нэр: үүргийн тайлбар, байхгүй бол код.
+func sourceDocumentName(src *domain.SourceDocument) string {
+	if name := strings.TrimSpace(src.DocName); name != "" {
+		return name
+	}
+	if code := strings.TrimSpace(src.DocCode); code != "" {
+		return "Хавсралт " + code
+	}
+	return "Хавсралт"
+}
+
+// fileTypeFromURL — файлын өргөтгөл. Тодорхойгүй бол хоосон (баганад NOT NULL
+// хязгаар байхгүй ч хоосон мөр эмх цэгцтэй).
+func fileTypeFromURL(fileURL string) string {
+	fileURL = strings.TrimSpace(fileURL)
+	if i := strings.IndexAny(fileURL, "?#"); i >= 0 {
+		fileURL = fileURL[:i]
+	}
+	ext := strings.TrimPrefix(strings.ToLower(path.Ext(fileURL)), ".")
+	if len(ext) > 10 {
+		return ""
+	}
+	return ext
 }
 
 // dedupeHoldersByRegisterNo — регистрийн дугаараар давхцсан эзэмшигчийг

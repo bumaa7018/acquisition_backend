@@ -22,6 +22,13 @@ var (
 	ErrNonFinalParcels         = errors.New("all parcels must be in final status before confirming acquisition")
 	ErrAssetPhotoRequired      = errors.New("real estate assets must have photos before submitting valuation")
 	ErrReportBeforeApproval    = errors.New("valuation must be approved before attaching the report")
+	// Хавсралт нь хүсэлтийн дугаараар (app_no) татагддаг тул нэгж талбарын
+	// дэлгэрэнгүй эхлээд татагдсан байх ёстой.
+	ErrParcelAppNoMissing = errors.New("parcel has no application number yet, sync the parcel first")
+	// Өмчлөлийн (right_type=3) газарт төлбөрийн нэхэмжлэл байдаггүй.
+	ErrParcelOwnedNoPayment = errors.New("owned parcel has no land payment")
+	// Эх системийн файл серверийн хаяг (.env) тохируулаагүй.
+	ErrSourceFileNotConfigured = errors.New("source file server is not configured")
 
 	// Захирамжийн төсөл
 	ErrDecisionConfirmed   = errors.New("confirmed decision draft cannot be modified")

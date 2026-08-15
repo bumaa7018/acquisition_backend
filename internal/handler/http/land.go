@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -193,7 +194,14 @@ func (h *LandHandler) Create(c *gin.Context) {
 		}
 	}
 
-	planCode := c.PostForm("plan_code")
+	// Төлөвлөгөөг ТӨЛӨВЛӨГӨӨНИЙ НЭГЖ ТАЛБАРЫН ДУГААРААР хайна — дундын
+	// сервисийн /plan/project нь pl_project_parcel.parcel_id-гаар хайдаг.
+	// Хуучин `plan_code` талбарыг зөвхөн нийцлийн үүднээс хүлээж авна.
+	planParcelID := strings.TrimSpace(c.PostForm("plan_parcel_id"))
+	if planParcelID == "" {
+		planParcelID = strings.TrimSpace(c.PostForm("plan_code"))
+	}
+	planCode := planParcelID
 	startStr := c.PostForm("start_date")
 	endStr := c.PostForm("end_date")
 	projectName := c.PostForm("acquisition_name")
@@ -618,19 +626,6 @@ func (h *LandHandler) SyncParcel(c *gin.Context) {
 	response.OKMsg(c, nil, i18n.MsgSynced)
 }
 
-func (h *LandHandler) SyncContractAct(c *gin.Context) {
-	if _, err := uuid.Parse(c.Param("id")); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
-		return
-	}
-	response.OK(c, gin.H{
-		"file_name":   "contract_act_БА-2024-001.pdf",
-		"contract_no": "БА-ГГ-2024-001",
-		"issued_by":   "Багануур дүүргийн Газрын алба",
-		"issued_date": "2024-03-15",
-	})
-}
-
 func (h *LandHandler) SyncValuation(c *gin.Context) {
 	if _, err := uuid.Parse(c.Param("id")); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
@@ -642,46 +637,6 @@ func (h *LandHandler) SyncValuation(c *gin.Context) {
 		"auction_coeff":     1.2,
 		"auction_price":     1020000,
 		"valuation_date":    "2024-01-20",
-	})
-}
-
-func (h *LandHandler) SyncSettlementAct(c *gin.Context) {
-	if _, err := uuid.Parse(c.Param("id")); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
-		return
-	}
-	response.OK(c, gin.H{
-		"file_name":    "settlement_act_БА-2024-001.pdf",
-		"total_amount": 12500000,
-		"settled_date": "2024-04-10",
-		"bank_account": "5000****1234",
-	})
-}
-
-func (h *LandHandler) SyncLocationValuation(c *gin.Context) {
-	if _, err := uuid.Parse(c.Param("id")); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
-		return
-	}
-	response.OK(c, gin.H{
-		"zone_code":      "UB-03-B",
-		"zone_name":      "Нийслэл хотын гуравдугаар бүс",
-		"location_coeff": 1.15,
-		"adjusted_value": 1173000,
-	})
-}
-
-func (h *LandHandler) SyncMonitoring(c *gin.Context) {
-	if _, err := uuid.Parse(c.Param("id")); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
-		return
-	}
-	response.OK(c, gin.H{
-		"conclusion_file": "monitoring_conclusion_БА-2024-001.pdf",
-		"inspector_name":  "Б. Батболд",
-		"inspection_date": "2024-05-08",
-		"status":          "Дууссан",
-		"notes":           "Газрыг чөлөөлөх нөхцөл бүрдсэн байна",
 	})
 }
 
@@ -2475,6 +2430,255 @@ func (h *LandHandler) ListParcelDocuments(c *gin.Context) {
 	response.OK(c, result)
 }
 
+// SyncParcelHolders godoc
+//
+//	@Summary		Нэгж талбарын эзэмшигчдийг татах
+//	@Description	Хадгалагдсан app_no-гоор иргэн/хуулийн этгээдийн мэдээллийг ГУС-аас татна.
+//	@Tags			land-acquisitions
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id			path	string	true	"LandAcquisition UUID"
+//	@Param			parcel_id	path	string	true	"Нэгж талбарын дугаар"
+//	@Success		200	{object}	response.Response
+//	@Failure		422	{object}	response.Response	"app_no байхгүй — эхлээд /sync"
+//	@Router			/land-acquisitions/{id}/parcels/{parcel_id}/sync/holders [post]
+func (h *LandHandler) SyncParcelHolders(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	parcelCode := c.Param("parcel_id")
+
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelHolders(ctx, acqID, parcelCode)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, gin.H{
+		"found":   res.Found,
+		"saved":   res.Saved,
+		"skipped": res.Skipped,
+	}, i18n.MsgSynced)
+}
+
+// SyncParcelBasePrice — газрын суурь үнэ (ГУС data_cama)
+func (h *LandHandler) SyncParcelBasePrice(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelBasePrice(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, res, i18n.MsgSynced)
+}
+
+// SyncParcelInvoices — газрын төлбөр. Өмчлөлийн газарт 422 буцна.
+func (h *LandHandler) SyncParcelInvoices(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	items, err := h.svc.SyncParcelInvoices(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if items == nil {
+		items = []*domain.ParcelInvoice{}
+	}
+	response.OKMsg(c, gin.H{"found": len(items), "invoices": items}, i18n.MsgSynced)
+}
+
+// SyncParcelMortgages — барьцааны бүртгэл (давхар барьцаатай)
+func (h *LandHandler) SyncParcelMortgages(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelMortgages(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, res, i18n.MsgSynced)
+}
+
+// SyncParcelCourtDecisions — шүүхийн шийдвэрийн бүртгэл
+func (h *LandHandler) SyncParcelCourtDecisions(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelCourtDecisions(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, res, i18n.MsgSynced)
+}
+
+// SyncParcelMonitorings — хянан баталгааны мэдээлэл
+func (h *LandHandler) SyncParcelMonitorings(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelMonitorings(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, res, i18n.MsgSynced)
+}
+
+// SyncParcelDocuments godoc
+//
+//	@Summary		Нэгж талбарын хавсралтыг эх системээс татах
+//	@Description	Хүсэлтийн дугаараар (app_no) хавсралт татна. ЗӨВХӨН ШИНЭ хавсралт нэмэгдэнэ — хадгалагдсан хавсралт устгагдахгүй, дарагдахгүй. role параметрээр баримтын үүргээр шүүж болно (давтаж эсвэл таслалаар зааглаж).
+//	@Tags			land-acquisitions
+//	@Produce		json
+//	@Param			id			path		string	true	"Газар чөлөөлөлтийн ID"
+//	@Param			parcel_id	path		string	true	"Нэгж талбарын дугаар (код)"
+//	@Param			role		query		[]string	false	"Баримтын үүргийн код"
+//	@Success		200			{object}	response.Response
+//	@Failure		400			{object}	response.Response
+//	@Failure		404			{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/land-acquisitions/{id}/parcels/{parcel_id}/sync/documents [post]
+func (h *LandHandler) SyncParcelDocuments(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	parcelCode := c.Param("parcel_id")
+
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelDocuments(ctx, acqID, parcelCode, documentRoleQuery(c))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+
+	docs := make([]documentResponse, 0, len(res.Documents))
+	for _, d := range res.Documents {
+		docs = append(docs, toDocumentResponse(d))
+	}
+	response.OKMsg(c, gin.H{
+		"found":     res.Found,
+		"saved":     res.Saved,
+		"skipped":   res.Skipped,
+		"documents": docs,
+	}, i18n.MsgSynced)
+}
+
+// GetParcelDocumentFile godoc
+//
+//	@Summary		Эх системээс татсан хавсралтын файлыг харах/татах
+//	@Description	Файл нь эх системийн файл сервер дээр байдаг — API тэндээс уншиж дамжуулна. Анхдагчаар браузерт нээгдэхээр (inline) буцна; ?download=1 үед татагдана. Зөвхөн эх системээс татсан хавсралтад ажиллана.
+//	@Tags			parcels
+//	@Produce		octet-stream
+//	@Param			id			path	string	true	"Нэгж талбарын UUID"
+//	@Param			doc_id		path	string	true	"Баримтын UUID"
+//	@Param			download	query	bool	false	"1 бол татна, эс бөгөөс браузерт нээнэ"
+//	@Success		200
+//	@Failure		404	{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/parcels/{id}/documents/{doc_id}/file [get]
+func (h *LandHandler) GetParcelDocumentFile(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	docID, err := uuid.Parse(c.Param("doc_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+
+	file, err := h.svc.OpenParcelDocumentFile(c.Request.Context(), parcelID, docID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	defer file.Content.Close()
+
+	contentType := file.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	disposition := "inline"
+	if isTruthyQuery(c.Query("download")) {
+		disposition = "attachment"
+	}
+	// Нэр нь кирилл байж болох тул RFC 5987 (filename*) хэлбэрээр илгээнэ.
+	headers := map[string]string{
+		"Content-Disposition": disposition +
+			`; filename="` + sanitizeASCIIFilename(file.Name) + `"` +
+			`; filename*=UTF-8''` + url.PathEscape(file.Name),
+	}
+
+	// Хэмжээ мэдэгдэхгүй үед (-1) Content-Length тавихгүй — chunked дамжина.
+	c.DataFromReader(http.StatusOK, file.SizeBytes, contentType, file.Content, headers)
+}
+
+// isTruthyQuery — "1", "true", "yes" зэргийг үнэн гэж үзнэ.
+func isTruthyQuery(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "y":
+		return true
+	}
+	return false
+}
+
+// sanitizeASCIIFilename — Content-Disposition-ий ASCII нөөц нэр. Кирилл болон
+// тусгай тэмдэгтийг зайгаар солино (filename* нь бүтэн нэрийг агуулна).
+func sanitizeASCIIFilename(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r < 32 || r > 126 || r == '"' || r == '\\' {
+			b.WriteByte('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	if b.Len() == 0 {
+		return "document"
+	}
+	return b.String()
+}
+
+// documentRoleQuery — ?role=10&role=20 болон ?role=10,20 хоёуланг задална.
+func documentRoleQuery(c *gin.Context) []string {
+	values := c.QueryArray("role")
+	roles := make([]string, 0, len(values))
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				roles = append(roles, part)
+			}
+		}
+	}
+	return roles
+}
+
 func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 	parcelID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -2844,16 +3048,54 @@ func (h *LandHandler) ListAuthorizedRepresentatives(c *gin.Context) {
 		return
 	}
 	parcelID := c.Param("parcel_id")
-	reps, err := h.svc.ListAuthorizedRepresentatives(c.Request.Context(), acqID, parcelID)
+	reps, err := h.svc.ListParcelRepresentatives(c.Request.Context(), acqID, parcelID)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	result := make([]authorizedRepresentativeResponse, 0, len(reps))
+	result := make([]parcelHolderResponse, 0, len(reps))
 	for _, rep := range reps {
-		result = append(result, toAuthorizedRepresentativeResponse(rep))
+		result = append(result, toParcelHolderResponse(rep))
 	}
 	response.OK(c, result)
+}
+
+// SetParcelPaymentRecipient godoc
+// @Summary      Нөхөн төлбөр хүлээн авах эзэмшигчийг сонгох
+// @Description  Үндсэн эзэмшигч олон байх үед төлбөрийг хэнд олгохыг сонгоно.
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path  string  true  "LandAcquisition UUID"
+// @Param        parcel_id  path  string  true  "Нэгж талбарын дугаар"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Router       /land-acquisitions/{id}/parcels/{parcel_id}/payment-recipient [put]
+func (h *LandHandler) SetParcelPaymentRecipient(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Param("parcel_id")
+	var body struct {
+		HolderID string `json:"holder_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	holderRowID, err := uuid.Parse(body.HolderID)
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.SetParcelPaymentRecipient(c.Request.Context(), acqID, parcelID, holderRowID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, nil)
 }
 
 // CreateAuthorizedRepresentative godoc
@@ -2887,24 +3129,24 @@ func (h *LandHandler) CreateAuthorizedRepresentative(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	rep := &domain.AuthorizedRepresentative{
-		AcquisitionID: acqID,
-		ParcelID:      parcelID,
-		LastName:      body.LastName,
-		FirstName:     body.FirstName,
-		RegisterNo:    body.RegisterNo,
-		Phone:         body.Phone,
-		Email:         body.Email,
-		Address:       body.Address,
-		Note:          body.Note,
-		CreatedBy:     c.GetString("user_id"),
+	// Итгэмжлэгдсэн төлөөлөгч нь эзэмшигчийн нэг төрөл болж хадгалагдана —
+	// FirstName нь right_holder.name-д тохирно.
+	rep := &domain.ParcelHolder{
+		LastName:   body.LastName,
+		Name:       body.FirstName,
+		RegisterNo: body.RegisterNo,
+		Phone:      body.Phone,
+		Email:      body.Email,
+		Address:    body.Address,
+		Note:       body.Note,
+		PersonType: domain.ParcelHolderPersonTypeRepresentative,
 	}
-	created, err := h.svc.CreateAuthorizedRepresentative(c.Request.Context(), rep)
+	created, err := h.svc.CreateParcelRepresentative(c.Request.Context(), acqID, parcelID, rep)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"code": 200, "data": toAuthorizedRepresentativeResponse(created), "message": "success"})
+	c.JSON(http.StatusCreated, gin.H{"code": 200, "data": toParcelHolderResponse(*created), "message": "success"})
 }
 
 // ListAllCompensations godoc
@@ -2977,12 +3219,17 @@ func (h *LandHandler) GetGlobalCompensation(c *gin.Context) {
 // @Failure      400  {object}  response.Response
 // @Router       /land-acquisitions/{id}/parcels/{parcel_id}/representatives/{rep_id} [delete]
 func (h *LandHandler) DeleteAuthorizedRepresentative(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	repID, err := uuid.Parse(c.Param("rep_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteAuthorizedRepresentative(c.Request.Context(), repID); err != nil {
+	if err := h.svc.DeleteParcelRepresentative(c.Request.Context(), acqID, c.Param("parcel_id"), repID); err != nil {
 		response.Error(c, err)
 		return
 	}

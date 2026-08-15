@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"acquisition_backend/internal/domain"
@@ -51,7 +52,33 @@ func (s *planService) Search(ctx context.Context, code string) (*domain.Plan, er
 	if s.projects == nil {
 		return nil, domain.ErrNotFound
 	}
-	return s.projects.GetPlanProject(ctx, code)
+	plan, err := s.projects.GetPlanProject(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, domain.ErrNotFound
+	}
+	// Дундын сервис нэгж талбарын дугаарыг буцаагаагүй ч хайсан дугаараар бүртгэнэ.
+	if strings.TrimSpace(plan.ParcelID) == "" {
+		plan.ParcelID = code
+	}
+
+	// ОЛДМОГЦ MAIN DB-д хадгална — чөлөөлөлт үүсгэх үед дахин татах шаардлагагүй.
+	// Upsert нь plan_code дээр ON CONFLICT DO UPDATE хийдэг тул давхардсан
+	// төлөвлөгөө шинэ мөр үүсгэхгүй, зөвхөн хоосон биш талбарууд шинэчлэгдэнэ.
+	if s.store != nil {
+		saved, err := s.store.Upsert(ctx, plan)
+		if err != nil {
+			// Хадгалалт унасан ч хайлтыг тасалдуулахгүй — чөлөөлөлт үүсгэх үед
+			// төлөвлөгөө дахин татагдаж хадгалагдана.
+			slog.Error("төлөвлөгөөг хадгалахад алдаа",
+				"parcel_id", code, "plan_code", plan.PlanCode, "error", err)
+			return plan, nil
+		}
+		return saved, nil
+	}
+	return plan, nil
 }
 
 // Suggest — хадгалагдсан төлөвлөгөөнүүдээс хайна (жагсаалт/шүүлтүүрийн сонголт).

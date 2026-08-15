@@ -20,15 +20,21 @@ func NewPlanHandler(svc service.PlanService) *PlanHandler {
 }
 
 type planResponse struct {
-	ID           string  `json:"id"`
-	ProjectID    string  `json:"project_id,omitempty"`
-	Code         string  `json:"code"`
-	PlanCode     string  `json:"plan_code"`
-	Name         string  `json:"name"`
-	PlanTypeName string  `json:"plan_type_name,omitempty"`
-	AreaM2       float64 `json:"area_m2"`
-	Status       int     `json:"status"`
-	BoundaryWKT  string  `json:"boundary_wkt"`
+	ID           string `json:"id"`
+	ProjectID    string `json:"project_id,omitempty"`
+	Code         string `json:"code"`
+	PlanCode     string `json:"plan_code"`
+	Name         string `json:"name"`
+	PlanTypeName string `json:"plan_type_name,omitempty"`
+	// ParcelID — төлөвлөгөөний нэгж талбарын дугаар (үүгээр хайдаг)
+	ParcelID string `json:"parcel_id,omitempty"`
+	// Gazner — бүтээн байгуулалтын ажлын нэр
+	Gazner string  `json:"gazner,omitempty"`
+	AreaM2 float64 `json:"area_m2"`
+	Status int     `json:"status"`
+	// Хилийн геометр (boundary_wkt) ЗОРИУД буцаагдахгүй: дэлгэц дээр
+	// хэрэглэгддэггүй, харин хариултыг олон зуун КБ болгож хүндрүүлдэг.
+	// Хил нь backend-д plan хүснэгтэд хадгалагдана.
 	StartDate    *string `json:"start_date,omitempty"`
 	EndDate      *string `json:"end_date,omitempty"`
 	StartData    *string `json:"start_data,omitempty"`
@@ -71,9 +77,10 @@ func (h *PlanHandler) Search(c *gin.Context) {
 		PlanCode:     plan.PlanCode,
 		Name:         plan.Name,
 		PlanTypeName: plan.PlanTypeName,
+		ParcelID:     plan.ParcelID,
+		Gazner:       plan.Gazner,
 		AreaM2:       plan.AreaM2,
 		Status:       plan.Status,
-		BoundaryWKT:  plan.BoundaryWKT,
 		StartDate:    plan.StartData,
 		EndDate:      plan.EndData,
 		StartData:    plan.StartData,
@@ -108,6 +115,8 @@ func (h *PlanHandler) Suggest(c *gin.Context) {
 			Code:     planCode(p),
 			PlanCode: p.PlanCode,
 			Name:     p.Name,
+			ParcelID: p.ParcelID,
+			Gazner:   p.Gazner,
 		})
 	}
 	response.OK(c, result)

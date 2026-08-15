@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,8 +68,14 @@ type Plan struct {
 	StartData    *string
 	EndData      *string
 	ApprovedDate *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// ParcelID — төлөвлөгөөний нэгж талбарын дугаар
+	// (data_plan.pl_project_parcel.parcel_id). Төлөвлөгөөг ҮҮГЭЭР хайдаг.
+	ParcelID string
+	// Gazner — тухайн төлөвлөгөөний нэгж талбар дээр хийгдэх бүтээн
+	// байгуулалтын ажлын нэр, ж: "Дамбадаржаа дэд төвийн бүтээн байгуулалтын ажил".
+	Gazner    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // SourceParcel — нэгж талбарын эх мэдээлэл (auth DB-д хадгалагдана)
@@ -116,6 +123,81 @@ type SourceParcel struct {
 	RecordCertificateNo string     `json:"record_certificate_no"`
 	RecordStatus        string     `json:"record_status"`
 	CreatedAt           time.Time  `json:"created_at"`
+}
+
+// ParcelBasePrice — газрын СУУРЬ ҮНЭ (ГУС data_cama).
+type ParcelBasePrice struct {
+	BasePrice     float64 `json:"base_price"`
+	BasePriceM2   float64 `json:"base_price_m2"`
+	CalculateYear int     `json:"calculate_year"`
+}
+
+// ParcelInvoice — газрын төлбөрийн нэхэмжлэл (ГУС data_estimate).
+type ParcelInvoice struct {
+	InvoiceNo   string  `json:"invoice_no"`
+	Description string  `json:"description"`
+	Amount      float64 `json:"amount"`
+	PaidAmount  float64 `json:"paid_amount"`
+	StatusID    int     `json:"status_id"`
+	StatusName  string  `json:"status_name"`
+}
+
+// ParcelMortgage — барьцааны бүртгэл. SourceParentID утгатай бол ДАВХАР
+// барьцаа — эцэг барьцааныхаа SourceID-г заана.
+type ParcelMortgage struct {
+	ID                  uuid.UUID `json:"id"`
+	SourceID            string    `json:"source_id"`
+	SourceParentID      string    `json:"source_parent_id"`
+	AppNo               string    `json:"app_no"`
+	StartMortgagePeriod string    `json:"start_mortgage_period"`
+	EndMortgagePeriod   string    `json:"end_mortgage_period"`
+	LoanContractNo      string    `json:"loan_contract_no"`
+	MortgageContractNo  string    `json:"mortgage_contract_no"`
+	LoanContractAmount  float64   `json:"loan_contract_amount"`
+	MonetaryUnitValue   float64   `json:"monetary_unit_value"`
+	UnitType            string    `json:"unit_type"`
+	MortgageType        string    `json:"mortgage_type"`
+	StatusID            string    `json:"status_id"`
+	StatusName          string    `json:"status_name"`
+}
+
+// ParcelCourtDecision — нэгж талбарт хамаарах шүүхийн шийдвэр.
+type ParcelCourtDecision struct {
+	ID              uuid.UUID `json:"id"`
+	SourceID        string    `json:"source_id"`
+	AppNo           string    `json:"app_no"`
+	StartPeriod     string    `json:"start_period"`
+	EndPeriod       string    `json:"end_period"`
+	CourtStatus     string    `json:"court_status"`
+	StatusName      string    `json:"status_name"`
+	CourtDecisionNo string    `json:"court_decision_no"`
+}
+
+// ParcelMonitoring — хянан баталгааны мэдээлэл (data_monitoring).
+type ParcelMonitoring struct {
+	ID           uuid.UUID `json:"id"`
+	MonitoringID string    `json:"monitoring_id"`
+	PageNo       string    `json:"page_no"`
+	StatusName   string    `json:"status_name"`
+	CompanyName  string    `json:"company_name"`
+	CreatedAt    string    `json:"created_at"`
+}
+
+// ParcelSyncCountResult — татаж хадгалсан бичлэгийн тоо.
+type ParcelSyncCountResult struct {
+	Found int `json:"found"`
+	Saved int `json:"saved"`
+}
+
+// ErrParcelOwned — өмчлөлийн (right_type=3) газарт төлбөр байхгүй.
+// ParcelHolderSyncResult — эзэмшигчийн мэдээлэл татсаны үр дүн.
+//   - Found   — ГУС-аас ирсэн нийт
+//   - Saved   — хадгалагдсан (регистрийн давхардал хассаны дараах)
+//   - Skipped — регистр давхцсан тул алгасагдсан
+type ParcelHolderSyncResult struct {
+	Found   int `json:"found"`
+	Saved   int `json:"saved"`
+	Skipped int `json:"skipped"`
 }
 
 // ParcelDiscoveryResult — чөлөөлөх ХИЛЭЭР дундын сервисээс нэгж талбарын
@@ -440,7 +522,32 @@ type ParcelHolder struct {
 	// right_holder.holder_type-д хадгалагдана.
 	PersonType string
 	AppNo      string
+	// HolderRole — ГУС-аас татагдсан эзэмшигч эсвэл гараар бүртгэсэн
+	// итгэмжлэгдсэн төлөөлөгч эсэх (ParcelHolderRole* тогтмолууд).
+	HolderRole string
+	// PaymentRecipient — нөхөн төлбөрийг ХҮЛЭЭН АВАХ эзэмшигч. Нэгж талбар
+	// тутамд зөвхөн НЭГ мөр TRUE (DB-д partial unique index-ээр хамгаалагдсан).
+	PaymentRecipient bool
+	// Note — итгэмжлэгдсэн төлөөлөгчийн тэмдэглэл
+	Note string
+	// Address — right_holder.address (төлөөлөгч бүртгэхэд хадгалагдана)
+	Address string
 }
+
+// Нэгж талбарын эзэмшигчийн төрөл.
+const (
+	// ParcelHolderRoleHolder — ГУС-аас /application/persons-оор татагдсан
+	// эзэмшигч. Дахин sync хийхэд бүгд шинэчлэгдэнэ.
+	ParcelHolderRoleHolder = "holder"
+	// ParcelHolderRoleRepresentative — итгэмжлэгдсэн төлөөлөгч. Гараар
+	// бүртгэгддэг тул sync хийхэд ХАДГАЛАГДАЖ үлдэнэ.
+	ParcelHolderRoleRepresentative = "representative"
+)
+
+// ParcelHolderPersonTypeRepresentative — right_holder.holder_type-д бичигдэх
+// утга. ГУС-аас ирдэг "2: Монгол улсын иргэн" зэрэг утгуудтай нэг талбарт
+// хамт хадгалагдах тул дэлгэц дээр шууд уншигдахаар монголоор бичнэ.
+const ParcelHolderPersonTypeRepresentative = "Итгэмжлэгдсэн төлөөлөгч"
 
 // ParcelGeometryResult — нэгж талбарын геометрээс PostGIS-аар тооцоолсон
 // утгууд (чөлөөлөлтийн бүстэй давхцуулсны дараа).
@@ -461,6 +568,11 @@ type ParcelFull struct {
 	StatusID   int
 	StatusName string
 	Detail     *ParcelDetailInfo
+	// ГУС-аас татагдсан санхүү, эрх зүйн бүртгэлүүд
+	Mortgages      []ParcelMortgage
+	CourtDecisions []ParcelCourtDecision
+	Invoices       []ParcelInvoice
+	Monitorings    []ParcelMonitoring
 	// Holders — БҮХ эзэмшигч (үндсэн нь эхэнд). Detail нь зөвхөн үндсэнийг агуулна.
 	Holders []ParcelHolder
 }
@@ -487,6 +599,47 @@ type Document struct {
 	UploadedBy     string
 	UploadedAt     time.Time
 	DocumentTypeID int
+	// SourceDocID — эх системийн баримтын дугаар (ct_document.id). Гараар
+	// оруулсан хавсралт дээр хоосон. Дахин татахад давхардлыг үүгээр таньдаг.
+	SourceDocID string
+	SourceFtpID string
+	// SourceDocCode — ГУС-ийн баримтын үүргийн код (ж: "1"=Өргөдөл,
+	// "11"=Кадастрын зураг). Хавсралтыг бүлэглэхэд ашиглана. Гараар оруулсан
+	// дээр хоосон. document_type_id-тай ХАМААРАЛГҮЙ — дугаарлалт нь өөр.
+	SourceDocCode string
+}
+
+// DocumentFile — татаж/харуулахаар нээсэн файлын урсгал. Дуудагч Content-ийг
+// ХААХ хариуцлагатай. SizeBytes нь мэдэгдэхгүй үед -1.
+type DocumentFile struct {
+	Name        string
+	ContentType string
+	SizeBytes   int64
+	Content     io.ReadCloser
+}
+
+// SourceDocument — дундын сервисийн /application/documents-ийн нэг мөр:
+// хүсэлтэд хавсаргасан эх системийн баримт.
+type SourceDocument struct {
+	AppNo   string
+	DocName string
+	DocCode string
+	DocID   string
+	FileURL string
+	FtpID   string
+}
+
+// ParcelDocumentSyncResult — хавсралт татсаны үр дүн. Татах нь ЗӨВХӨН НЭМЭХ
+// үйлдэл тул хадгалагдсан хавсралт устгагдахгүй.
+type ParcelDocumentSyncResult struct {
+	// Found — эх системд олдсон баримтын тоо
+	Found int
+	// Saved — ШИНЭЭР бүртгэгдсэн баримтын тоо
+	Saved int
+	// Skipped — өмнө нь татагдсан тул алгасагдсан баримтын тоо
+	Skipped int
+	// Documents — нэгж талбарын одоогийн БҮХ хавсралт (шинэчилсний дараах)
+	Documents []*Document
 }
 
 // GlobalParcel — parcel joined with acquisition info

@@ -1,5 +1,21 @@
 basePath: /api/v1
 definitions:
+  domain.ParcelDiscoveryResult:
+    properties:
+      created:
+        type: integer
+      existing:
+        type: integer
+      parcel_ids:
+        description: Энэ чөлөөлөлтөд бүртгэлтэй болсон дугаарууд (created + existing)
+        items:
+          type: string
+        type: array
+      skipped:
+        type: integer
+      total:
+        type: integer
+    type: object
   http.assignPermissionBody:
     properties:
       permission_id:
@@ -798,6 +814,48 @@ paths:
       summary: Холбогдсон нэгж талбарын санхүүгийн эх үүсвэрийг солих
       tags:
       - decision-draft
+  /decision-drafts/{id}/progress:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн явц нэмэх (хянагдаж буй)
+      tags:
+      - decision-draft
+  /decision-drafts/{id}/progress-history:
+    get:
+      parameters:
+      - description: Захирамжийн төслийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Захирамжийн төслийн явцын түүх
+      tags:
+      - decision-draft
   /funding-sources:
     get:
       produces:
@@ -915,8 +973,10 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад
-        чөлөөлөлт үүсгэнэ
+      description: |-
+        plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ.
+        Талбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
+        Нэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).
       parameters:
       - description: Газар зохион байгуулалтын төлөвлөгөөний дугаар
         in: formData
@@ -1673,6 +1733,38 @@ paths:
       summary: Нэгж талбарын нөхөн төлбөрийн төлөв шинэчлэх
       tags:
       - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}/payment-recipient:
+    put:
+      consumes:
+      - application/json
+      description: Үндсэн эзэмшигч олон байх үед төлбөрийг хэнд олгохыг сонгоно.
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Нэгж талбарын дугаар
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нөхөн төлбөр хүлээн авах эзэмшигчийг сонгох
+      tags:
+      - land-acquisitions
   /land-acquisitions/{id}/parcels/{parcel_id}/representatives:
     get:
       parameters:
@@ -1764,8 +1856,14 @@ paths:
       - land-acquisitions
   /land-acquisitions/{id}/parcels/{parcel_id}/sync:
     post:
-      description: Эзэмшигч болон эрх зүйн мэдээллийг auth DB-аас татаж main DB-д
-        хадгална
+      description: |-
+        1) /parcel/info/{parcel_id}-аар нэгж талбарын дэлгэрэнгүйг татаж хадгална.
+        2) Дэлгэрэнгүй дээрх app_no-гоор /application/persons дуудаж, ЭЗЭМШИГЧДИЙГ
+        (нэг хүсэлт дээр төрөл өөр олон хүн байж болно) бүгдийг хадгална.
+        Үндсэн хүсэлт гаргагч нь parcel_detail.holder_id-д холбогдоно; бүх эзэмшигч
+        нэгж талбарын дэлгэрэнгүй хариултын holders дотор харагдана.
+        Sync нь ОРЛУУЛАХ үйлдэл: хуучин дэлгэрэнгүй болон эзэмшигчид устгагдаж шинээр
+        үүснэ. Хэрэглэгчийн оруулсан үнэлгээ/олговор/хөрөнгө/төлөв хөндөгдөхгүй.
       parameters:
       - description: LandAcquisition UUID
         in: path
@@ -1790,7 +1888,50 @@ paths:
             $ref: '#/definitions/response.Response'
       security:
       - BearerAuth: []
-      summary: Нэгж талбарын дэлгэрэнгүй мэдээллийг secondary DB-аас татах
+      summary: Нэгж талбарын дэлгэрэнгүй мэдээллийг дундын сервисээс татах
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/{parcel_id}/sync/documents:
+    post:
+      description: Хүсэлтийн дугаараар (app_no) хавсралт татна. ЗӨВХӨН ШИНЭ хавсралт
+        нэмэгдэнэ — хадгалагдсан хавсралт устгагдахгүй, дарагдахгүй. role параметрээр
+        баримтын үүргээр шүүж болно (давтаж эсвэл таслалаар зааглаж).
+      parameters:
+      - description: Газар чөлөөлөлтийн ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Нэгж талбарын дугаар (код)
+        in: path
+        name: parcel_id
+        required: true
+        type: string
+      - collectionFormat: csv
+        description: Баримтын үүргийн код
+        in: query
+        items:
+          type: string
+        name: role
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Нэгж талбарын хавсралтыг эх системээс татах
       tags:
       - land-acquisitions
   /land-acquisitions/{id}/parcels/{parcel_id}/valuation:
@@ -1822,6 +1963,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Нэгж талбарын үнэлгээний мэдээлэл шинэчлэх
+      tags:
+      - land-acquisitions
+  /land-acquisitions/{id}/parcels/by-acquisition:
+    post:
+      description: |-
+        Чөлөөлөлтийн хилээр дундын сервисийн /parcels/by/acquisition-ыг дуудаж,
+        давхцах нэгж талбарын ДУГААРУУДЫГ авч бүртгэнэ. Дэлгэрэнгүй мэдээлэл
+        ЭНД татагдахгүй — дараа нь дугаар тус бүрээр
+        /land-acquisitions/{id}/parcels/{parcel_id}/sync дуудна.
+        Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгах тул давхардал үүсэхгүй.
+      parameters:
+      - description: LandAcquisition UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/domain.ParcelDiscoveryResult'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Чөлөөлөх хилээр нэгж талбарыг тодорхойлж бүртгэх
       tags:
       - land-acquisitions
   /land-acquisitions/{id}/progress:
@@ -1978,6 +2158,14 @@ paths:
         in: query
         name: status
         type: integer
+      - description: Нэгж талбарын төлөв
+        in: query
+        name: status_id
+        type: integer
+      - description: Идэвхтэй захирамжид холбогдоогүй нэгж талбар
+        in: query
+        name: unlinked_only
+        type: boolean
       produces:
       - application/json
       responses:
@@ -2010,6 +2198,40 @@ paths:
       summary: Нэгж талбарт холбогдсон захирамжууд (нэгж талбарын "Захирамж" таб)
       tags:
       - decision-draft
+  /parcels/{id}/documents/{doc_id}/file:
+    get:
+      description: Файл нь эх системийн файл сервер дээр байдаг — API тэндээс уншиж
+        дамжуулна. Анхдагчаар браузерт нээгдэхээр (inline) буцна; ?download=1 үед
+        татагдана. Зөвхөн эх системээс татсан хавсралтад ажиллана.
+      parameters:
+      - description: Нэгж талбарын UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Баримтын UUID
+        in: path
+        name: doc_id
+        required: true
+        type: string
+      - description: 1 бол татна, эс бөгөөс браузерт нээнэ
+        in: query
+        name: download
+        type: boolean
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      security:
+      - BearerAuth: []
+      summary: Эх системээс татсан хавсралтын файлыг харах/татах
+      tags:
+      - parcels
   /parcels/{id}/payments:
     get:
       parameters:

@@ -852,6 +852,75 @@
                 }
             }
         },
+        "/decision-drafts/{id}/progress": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн явц нэмэх (хянагдаж буй)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/decision-drafts/{id}/progress-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "decision-draft"
+                ],
+                "summary": "Захирамжийн төслийн явцын түүх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Захирамжийн төслийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/funding-sources": {
             "get": {
                 "security": [
@@ -1045,7 +1114,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ",
+                "description": "plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ.\nТалбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.\nНэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -2152,6 +2221,64 @@
                 }
             }
         },
+        "/land-acquisitions/{id}/parcels/by-acquisition": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Чөлөөлөлтийн хилээр дундын сервисийн /parcels/by/acquisition-ыг дуудаж,\nдавхцах нэгж талбарын ДУГААРУУДЫГ авч бүртгэнэ. Дэлгэрэнгүй мэдээлэл\nЭНД татагдахгүй — дараа нь дугаар тус бүрээр\n/land-acquisitions/{id}/parcels/{parcel_id}/sync дуудна.\nДугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгах тул давхардал үүсэхгүй.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Чөлөөлөх хилээр нэгж талбарыг тодорхойлж бүртгэх",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/domain.ParcelDiscoveryResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/land-acquisitions/{id}/parcels/{parcel_id}": {
             "get": {
                 "security": [
@@ -2239,6 +2366,56 @@
                         "schema": {
                             "type": "object"
                         }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}/payment-recipient": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Үндсэн эзэмшигч олон байх үед төлбөрийг хэнд олгохыг сонгоно.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нөхөн төлбөр хүлээн авах эзэмшигчийг сонгох",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "LandAcquisition UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын дугаар",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -2404,14 +2581,14 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Эзэмшигч болон эрх зүйн мэдээллийг auth DB-аас татаж main DB-д хадгална",
+                "description": "1) /parcel/info/{parcel_id}-аар нэгж талбарын дэлгэрэнгүйг татаж хадгална.\n2) Дэлгэрэнгүй дээрх app_no-гоор /application/persons дуудаж, ЭЗЭМШИГЧДИЙГ\n(нэг хүсэлт дээр төрөл өөр олон хүн байж болно) бүгдийг хадгална.\nҮндсэн хүсэлт гаргагч нь parcel_detail.holder_id-д холбогдоно; бүх эзэмшигч\nнэгж талбарын дэлгэрэнгүй хариултын holders дотор харагдана.\nSync нь ОРЛУУЛАХ үйлдэл: хуучин дэлгэрэнгүй болон эзэмшигчид устгагдаж шинээр\nүүснэ. Хэрэглэгчийн оруулсан үнэлгээ/олговор/хөрөнгө/төлөв хөндөгдөхгүй.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "land-acquisitions"
                 ],
-                "summary": "Нэгж талбарын дэлгэрэнгүй мэдээллийг secondary DB-аас татах",
+                "summary": "Нэгж талбарын дэлгэрэнгүй мэдээллийг дундын сервисээс татах",
                 "parameters": [
                     {
                         "type": "string",
@@ -2431,6 +2608,69 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/land-acquisitions/{id}/parcels/{parcel_id}/sync/documents": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Хүсэлтийн дугаараар (app_no) хавсралт татна. ЗӨВХӨН ШИНЭ хавсралт нэмэгдэнэ — хадгалагдсан хавсралт устгагдахгүй, дарагдахгүй. role параметрээр баримтын үүргээр шүүж болно (давтаж эсвэл таслалаар зааглаж).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "land-acquisitions"
+                ],
+                "summary": "Нэгж талбарын хавсралтыг эх системээс татах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Газар чөлөөлөлтийн ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын дугаар (код)",
+                        "name": "parcel_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "Баримтын үүргийн код",
+                        "name": "role",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -2721,6 +2961,18 @@
                         "description": "Чөлөөлөлтийн статус",
                         "name": "status",
                         "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Нэгж талбарын төлөв",
+                        "name": "status_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Идэвхтэй захирамжид холбогдоогүй нэгж талбар",
+                        "name": "unlinked_only",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2759,6 +3011,56 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/parcels/{id}/documents/{doc_id}/file": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Файл нь эх системийн файл сервер дээр байдаг — API тэндээс уншиж дамжуулна. Анхдагчаар браузерт нээгдэхээр (inline) буцна; ?download=1 үед татагдана. Зөвхөн эх системээс татсан хавсралтад ажиллана.",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "parcels"
+                ],
+                "summary": "Эх системээс татсан хавсралтын файлыг харах/татах",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Нэгж талбарын UUID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Баримтын UUID",
+                        "name": "doc_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "1 бол татна, эс бөгөөс браузерт нээнэ",
+                        "name": "download",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -4123,6 +4425,30 @@
         }
     },
     "definitions": {
+        "domain.ParcelDiscoveryResult": {
+            "type": "object",
+            "properties": {
+                "created": {
+                    "type": "integer"
+                },
+                "existing": {
+                    "type": "integer"
+                },
+                "parcel_ids": {
+                    "description": "Энэ чөлөөлөлтөд бүртгэлтэй болсон дугаарууд (created + existing)",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "skipped": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "http.assignPermissionBody": {
             "type": "object",
             "properties": {

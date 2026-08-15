@@ -38,10 +38,22 @@ func authorizationFromContext(ctx context.Context) string {
 type ParcelInfoClient interface {
 	GetParcelInfo(ctx context.Context, parcelID string) (*domain.SourceParcel, error)
 	ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error)
-	// ListApplicationPersons — хүсэлтийн дугаараар (app_no) эзэмшигчдийн
-	// мэдээлэл. Нэг хүсэлт дээр хэд хэдэн хүн байж болно. appNo хоосон бол
-	// нэгж талбарын дугаараар хайна.
-	ListApplicationPersons(ctx context.Context, appNo, parcelID string) ([]*domain.ParcelHolder, error)
+	// ListApplicationPersons — ЗӨВХӨН хүсэлтийн дугаараар (app_no)
+	// эзэмшигчдийн мэдээлэл. Нэг хүсэлт дээр хэд хэдэн хүн байж болно.
+	//
+	// Нэгж талбарын дугаараар хайх нөөц зам БАЙХГҮЙ: нэг талбар дээр хүсэлт
+	// олон удаа гардаг тул өөр өөр хүсэлтийн эзэмшигчид хольцолдоно.
+	ListApplicationPersons(ctx context.Context, appNo string) ([]*domain.ParcelHolder, error)
+	// ListApplicationDocuments — хүсэлтийн дугаараар (app_no) хавсаргасан
+	// баримтууд. roles өгвөл баримтын үүргээр (doc_code) нэмж шүүнэ; хоосон
+	// бол бүх үүрэг буцна.
+	ListApplicationDocuments(ctx context.Context, appNo string, roles []string) ([]*domain.SourceDocument, error)
+	// Газрын суурь үнэ, төлбөр, барьцаа, шүүхийн шийдвэр — ГУС-ийн тусдаа гарцууд
+	GetParcelBasePrice(ctx context.Context, parcelID string) (*domain.ParcelBasePrice, error)
+	ListParcelInvoices(ctx context.Context, parcelID string) ([]*domain.ParcelInvoice, error)
+	ListParcelMortgages(ctx context.Context, parcelID string) ([]*domain.ParcelMortgage, error)
+	ListCourtDecisions(ctx context.Context, appNo string) ([]*domain.ParcelCourtDecision, error)
+	ListParcelMonitorings(ctx context.Context, parcelID string) ([]*domain.ParcelMonitoring, error)
 }
 
 type PlanProjectClient interface {
@@ -120,19 +132,14 @@ func (c *httpParcelInfoClient) GetParcelInfo(ctx context.Context, parcelID strin
 
 // ListApplicationPersons — middleware /application/persons. Нэгж талбарын
 // дэлгэрэнгүйгээс гарсан app_no-гоор эзэмшигчдийг (олон хүн) татна.
-func (c *httpParcelInfoClient) ListApplicationPersons(ctx context.Context, appNo, parcelID string) ([]*domain.ParcelHolder, error) {
+func (c *httpParcelInfoClient) ListApplicationPersons(ctx context.Context, appNo string) ([]*domain.ParcelHolder, error) {
 	appNo = strings.TrimSpace(appNo)
-	parcelID = strings.TrimSpace(parcelID)
-	if c.baseURL == "" || (appNo == "" && parcelID == "") {
+	if c.baseURL == "" || appNo == "" {
 		return nil, domain.ErrInvalidInput
 	}
 
 	query := url.Values{}
-	if appNo != "" {
-		query.Set("app_no", appNo)
-	} else {
-		query.Set("parcel_id", parcelID)
-	}
+	query.Set("app_no", appNo)
 
 	reqURL := c.baseURL + "/application/persons?" + query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -216,6 +223,94 @@ func (c *httpParcelInfoClient) ListApplicationPersons(ctx context.Context, appNo
 	return holders, nil
 }
 
+// ListApplicationDocuments — middleware /application/documents. Нэгж талбарын
+// дэлгэрэнгүйгээс гарсан app_no-гоор хавсралтуудыг татна.
+func (c *httpParcelInfoClient) ListApplicationDocuments(ctx context.Context, appNo string, roles []string) ([]*domain.SourceDocument, error) {
+	appNo = strings.TrimSpace(appNo)
+	if c.baseURL == "" || appNo == "" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	query := url.Values{}
+	query.Set("app_no", appNo)
+	for _, role := range roles {
+		if role = strings.TrimSpace(role); role != "" {
+			query.Add("role", role)
+		}
+	}
+
+	reqURL := c.baseURL + "/application/documents?" + query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if authorization := authorizationFromContext(ctx); authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxParcelInfoResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxParcelInfoResponseBytes {
+		return nil, fmt.Errorf("application documents response is too large")
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, domain.ErrInternalServer
+	}
+
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+	if len(envelope.Data) == 0 {
+		return nil, nil
+	}
+
+	// Эх системийн баганууд шууд дамждаг тул кодууд тоо ч, текст ч байж болно.
+	var payload []struct {
+		AppNo   flexString `json:"app_no"`
+		DocName flexString `json:"doc_name"`
+		DocCode flexString `json:"doc_code"`
+		DocID   flexString `json:"doc_id"`
+		FileURL flexString `json:"file_url"`
+		FtpID   flexString `json:"ftp_id"`
+	}
+	if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+		return nil, err
+	}
+
+	docs := make([]*domain.SourceDocument, 0, len(payload))
+	for _, p := range payload {
+		// Баримтын дугааргүй мөр давхардлыг таних боломжгүй тул хэрэггүй.
+		docID := p.DocID.valueNoZero()
+		if docID == "" {
+			continue
+		}
+		docs = append(docs, &domain.SourceDocument{
+			AppNo:   firstNonEmpty(p.AppNo.value(), appNo),
+			DocName: p.DocName.value(),
+			DocCode: p.DocCode.value(),
+			DocID:   docID,
+			FileURL: p.FileURL.value(),
+			FtpID:   p.FtpID.valueNoZero(),
+		})
+	}
+	return docs, nil
+}
+
 func (c *httpParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error) {
 	if c.baseURL == "" || acquisitionWKT == "" {
 		return nil, domain.ErrInvalidInput
@@ -275,6 +370,118 @@ func (c *httpParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, a
 	return parcelIDs, nil
 }
 
+// getJSON — ГУС-ийн дундын сервисээс JSON уншиж, envelope-ийн data-г out руу
+// задална. 404 үед notFoundNil=true бол (nil, nil) буцна (хоосон жагсаалт).
+func (c *httpParcelInfoClient) getJSON(ctx context.Context, path string, out any, notFoundNil bool) error {
+	if c.baseURL == "" {
+		return domain.ErrInvalidInput
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	if authorization := authorizationFromContext(ctx); authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxParcelInfoResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxParcelInfoResponseBytes {
+		return fmt.Errorf("response is too large")
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		if notFoundNil {
+			return nil
+		}
+		return domain.ErrNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return domain.ErrInternalServer
+	}
+
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return err
+	}
+	if len(envelope.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(envelope.Data, out)
+}
+
+func (c *httpParcelInfoClient) GetParcelBasePrice(ctx context.Context, parcelID string) (*domain.ParcelBasePrice, error) {
+	parcelID = strings.TrimSpace(parcelID)
+	if parcelID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	bp := &domain.ParcelBasePrice{}
+	if err := c.getJSON(ctx, "/parcel/base-price/"+url.PathEscape(parcelID), bp, false); err != nil {
+		return nil, err
+	}
+	return bp, nil
+}
+
+func (c *httpParcelInfoClient) ListParcelInvoices(ctx context.Context, parcelID string) ([]*domain.ParcelInvoice, error) {
+	parcelID = strings.TrimSpace(parcelID)
+	if parcelID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	var out []*domain.ParcelInvoice
+	if err := c.getJSON(ctx, "/parcel/invoices/"+url.PathEscape(parcelID), &out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *httpParcelInfoClient) ListParcelMortgages(ctx context.Context, parcelID string) ([]*domain.ParcelMortgage, error) {
+	parcelID = strings.TrimSpace(parcelID)
+	if parcelID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	q := url.Values{}
+	q.Set("parcel_id", parcelID)
+	var out []*domain.ParcelMortgage
+	if err := c.getJSON(ctx, "/application/mortgages?"+q.Encode(), &out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *httpParcelInfoClient) ListCourtDecisions(ctx context.Context, appNo string) ([]*domain.ParcelCourtDecision, error) {
+	appNo = strings.TrimSpace(appNo)
+	if appNo == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	q := url.Values{}
+	q.Set("app_no", appNo)
+	var out []*domain.ParcelCourtDecision
+	if err := c.getJSON(ctx, "/application/court-decisions?"+q.Encode(), &out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *httpParcelInfoClient) ListParcelMonitorings(ctx context.Context, parcelID string) ([]*domain.ParcelMonitoring, error) {
+	parcelID = strings.TrimSpace(parcelID)
+	if parcelID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	var out []*domain.ParcelMonitoring
+	if err := c.getJSON(ctx, "/parcel/monitoring/"+url.PathEscape(parcelID), &out, true); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *httpParcelInfoClient) GetPlanProject(ctx context.Context, code string) (*domain.Plan, error) {
 	if c.baseURL == "" || code == "" {
 		return nil, domain.ErrInvalidInput
@@ -321,15 +528,22 @@ func (c *httpParcelInfoClient) GetPlanProject(ctx context.Context, code string) 
 	}
 
 	var project struct {
-		ProjectID    string  `json:"project_id"`
-		Code         string  `json:"code"`
-		Name         string  `json:"name"`
-		PlanTypeName string  `json:"plan_type_name"`
-		StartDate    *string `json:"start_date"`
-		EndDate      *string `json:"end_date"`
-		StartData    *string `json:"start_data"`
-		EndData      *string `json:"end_data"`
-		ApprovedDate *string `json:"approved_date"`
+		// ParcelID нь тоогоор ч ирж болно (эх багана numeric).
+		ParcelID     flexString `json:"parcel_id"`
+		ProjectID    flexString `json:"project_id"`
+		Code         string     `json:"code"`
+		Name         string     `json:"name"`
+		PlanTypeName string     `json:"plan_type_name"`
+		// Gazner — төлөвлөгөөний нэгж талбар дээрх бүтээн байгуулалтын ажил.
+		Gazner string `json:"gazner"`
+		// GeometryWKT — төлөвлөгөөний нэгж талбарын ХИЛ
+		// (data_plan.pl_project_parcel.polygon_geom). Хоосон байж болно.
+		GeometryWKT  flexString `json:"geometry_wkt"`
+		StartDate    *string    `json:"start_date"`
+		EndDate      *string    `json:"end_date"`
+		StartData    *string    `json:"start_data"`
+		EndData      *string    `json:"end_data"`
+		ApprovedDate *string    `json:"approved_date"`
 	}
 	if err := json.Unmarshal(envelope.Data, &project); err != nil {
 		return nil, err
@@ -346,11 +560,15 @@ func (c *httpParcelInfoClient) GetPlanProject(ctx context.Context, code string) 
 	}
 
 	return &domain.Plan{
-		ProjectID:    project.ProjectID,
+		ProjectID:    project.ProjectID.value(),
 		Code:         project.Code,
 		PlanCode:     project.Code,
 		Name:         project.Name,
 		PlanTypeName: project.PlanTypeName,
+		// Хариултад дугаар ирээгүй бол хайсан дугаараар бүртгэнэ.
+		ParcelID:     firstNonEmpty(project.ParcelID.value(), code),
+		Gazner:       strings.TrimSpace(project.Gazner),
+		BoundaryWKT:  sanitizeWKT(project.GeometryWKT.value()),
 		StartData:    project.StartData,
 		EndData:      project.EndData,
 		ApprovedDate: project.ApprovedDate,

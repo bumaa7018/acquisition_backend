@@ -8,6 +8,8 @@ package service_test
 //   - Төлөвлөгөөгөөр хайх/сонгох (Suggest) нь plan хүснэгтээс уншина
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -21,13 +23,16 @@ import (
 )
 
 func middlewarePlan() *domain.Plan {
-	// /plan/project нь хил (boundary) буцаадаггүй
 	return &domain.Plan{
 		ProjectID:    "PRJ-9",
 		Code:         testPlanCode,
 		PlanCode:     testPlanCode,
 		Name:         "Дундын сервисийн төлөвлөгөө",
 		PlanTypeName: "Хэсэгчилсэн ерөнхий төлөвлөгөө",
+		ParcelID:     "5029776",
+		Gazner:       "Дамбадаржаа дэд төвийн бүтээн байгуулалтын ажил",
+		// /plan/project нь хилийг буцаадаг болсон
+		BoundaryWKT: "POLYGON((106.9274 47.9846,106.9259 47.9831,106.9280 47.9820,106.9274 47.9846))",
 	}
 }
 
@@ -42,7 +47,13 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
 	// Дундын сервисийн мэдээлэл plan хүснэгтэд хадгалагдаж, ID-тай мөр буцна
 	planStore.On("Upsert", ctx, mock.MatchedBy(func(p *domain.Plan) bool {
-		return p.PlanCode == testPlanCode && p.ProjectID == "PRJ-9" && p.Name == "Дундын сервисийн төлөвлөгөө"
+		// Дундын сервисийн БҮХ талбар (хил, нэгж талбарын дугаар, ажлын нэр
+		// зэрэг шинэ талбарууд орсон эсэх) хадгалахаар дамжина
+		return p.PlanCode == testPlanCode && p.ProjectID == "PRJ-9" &&
+			p.Name == "Дундын сервисийн төлөвлөгөө" &&
+			p.ParcelID == "5029776" &&
+			p.Gazner == "Дамбадаржаа дэд төвийн бүтээн байгуулалтын ажил" &&
+			strings.HasPrefix(p.BoundaryWKT, "POLYGON((106.9274")
 	})).Return(&domain.Plan{
 		ID:       storedID,
 		PlanCode: testPlanCode,
@@ -65,7 +76,7 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 	assert.Equal(t, testPlanCode, acq.PlanCode)
 	require.NotNil(t, acq.PlanID, "plan_id нь plan хүснэгтийн мөрийг хэлэх ёстой")
 	assert.Equal(t, storedID, *acq.PlanID)
-	// Хил байхгүй тул давхцлын шалгалт дуудагдахгүй
+	// Хил ирсэн ч давхцлын шалгалт хийгдэхгүй (шалгалт хасагдсан)
 	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
 	// Дундын сервисээс олдсон тул auth DB-ийн plan уншигдахгүй
 	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
@@ -175,11 +186,52 @@ func TestPlanService_Search_UsesMiddlewareAndRequiresCode(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidInput)
 	projects.AssertNotCalled(t, "GetPlanProject", mock.Anything, mock.Anything)
 
-	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
+	// Олдмогц MAIN DB-д ШУУД хадгалагдана — чөлөөлөлт үүсгэх үед дахин
+	// татах шаардлагагүй болно.
+	found := middlewarePlan()
+	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
+	planStore.On("Upsert", ctx, found).Return(found, nil)
+
 	plan, err := svc.Search(ctx, testPlanCode)
 	require.NoError(t, err)
 	assert.Equal(t, "PRJ-9", plan.ProjectID)
 	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
+	planStore.AssertExpectations(t)
+}
+
+// Хадгалалт унасан ч хайлт БҮТЭЛГҮЙТЭХГҮЙ — дэлгэц дээр төлөвлөгөө харагдана.
+func TestPlanService_Search_StoreFailureDoesNotBreakSearch(t *testing.T) {
+	planStore := &mocks.MockPlanStoreRepository{}
+	projects := &mocks.MockPlanProjectClient{}
+	svc := service.NewPlanService(&mocks.MockPlanRepository{}, projects, planStore)
+
+	found := middlewarePlan()
+	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
+	planStore.On("Upsert", ctx, found).Return(nil, errors.New("db down"))
+
+	plan, err := svc.Search(ctx, testPlanCode)
+
+	require.NoError(t, err)
+	assert.Equal(t, "PRJ-9", plan.ProjectID)
+}
+
+// Дундын сервис нэгж талбарын дугаар буцаагаагүй бол ХАЙСАН дугаараар бүртгэнэ.
+func TestPlanService_Search_FillsParcelIDFromQuery(t *testing.T) {
+	planStore := &mocks.MockPlanStoreRepository{}
+	projects := &mocks.MockPlanProjectClient{}
+	svc := service.NewPlanService(&mocks.MockPlanRepository{}, projects, planStore)
+
+	found := middlewarePlan()
+	found.ParcelID = ""
+	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
+	planStore.On("Upsert", ctx, mock.MatchedBy(func(p *domain.Plan) bool {
+		return p.ParcelID == testPlanCode
+	})).Return(found, nil)
+
+	_, err := svc.Search(ctx, testPlanCode)
+
+	require.NoError(t, err)
+	planStore.AssertExpectations(t)
 }
 
 // Хайлт нь ЗӨВХӨН дундын сервисээс — олдоогүй/алдаа гарсан үед хадгалагдсан

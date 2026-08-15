@@ -23,14 +23,16 @@ func NewPlanStoreRepo(db *pgxpool.Pool) repository.PlanStoreRepository {
 const planStoreColumns = `
 	id, plan_code, COALESCE(project_id, ''), COALESCE(name, ''), COALESCE(plan_type_name, ''),
 	COALESCE(ST_AsText(boundary_wkt), ''), COALESCE(area_m2, 0), status,
-	start_data, end_data, approved_date, created_at, updated_at`
+	start_data, end_data, approved_date,
+	COALESCE(parcel_id, ''), COALESCE(gazner, ''), created_at, updated_at`
 
 func scanPlan(row pgx.Row) (*domain.Plan, error) {
 	var p domain.Plan
 	err := row.Scan(
 		&p.ID, &p.PlanCode, &p.ProjectID, &p.Name, &p.PlanTypeName,
 		&p.BoundaryWKT, &p.AreaM2, &p.Status,
-		&p.StartData, &p.EndData, &p.ApprovedDate, &p.CreatedAt, &p.UpdatedAt,
+		&p.StartData, &p.EndData, &p.ApprovedDate,
+		&p.ParcelID, &p.Gazner, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -44,9 +46,10 @@ func scanPlan(row pgx.Row) (*domain.Plan, error) {
 
 // Upsert — plan_code-оор нэгтгэнэ (идемпотент).
 //
-// Хоосон утга ХУУЧНЫГ дарж бичихгүй: /plan/project хил (boundary) буцаадаггүй
-// тул шинэ дуудалт хуучин хилийг NULL болгох ёсгүй. Мөн ID нь хуучин мөрийнх
-// хэвээр үлдэнэ — land_acquisition.plan_id түүнд холбогддог.
+// Хоосон утга ХУУЧНЫГ дарж бичихгүй: /plan/project нь хилийг (geometry_wkt)
+// заримдаа хоосон буцаадаг тул шинэ дуудалт хадгалагдсан хилийг NULL болгох
+// ёсгүй. Мөн ID нь хуучин мөрийнх хэвээр үлдэнэ — land_acquisition.plan_id
+// түүнд холбогддог.
 func (r *planStoreRepo) Upsert(ctx context.Context, p *domain.Plan) (*domain.Plan, error) {
 	if p == nil || p.PlanCode == "" {
 		return nil, domain.ErrInvalidInput
@@ -68,11 +71,12 @@ func (r *planStoreRepo) Upsert(ctx context.Context, p *domain.Plan) (*domain.Pla
 	row := r.db.QueryRow(ctx, `
 		INSERT INTO plan (
 			id, plan_code, project_id, name, plan_type_name,
-			boundary_wkt, area_m2, status, start_data, end_data, approved_date
+			boundary_wkt, area_m2, status, start_data, end_data, approved_date,
+			parcel_id, gazner
 		) VALUES (
 			$1, $2, NULLIF($3, ''), $4, NULLIF($5, ''),
 			CASE WHEN $6::text IS NULL THEN NULL ELSE ST_GeomFromText($6, 4326) END,
-			$7, $8, $9, $10, $11
+			$7, $8, $9, $10, $11, NULLIF($12, ''), NULLIF($13, '')
 		)
 		ON CONFLICT (plan_code) DO UPDATE SET
 			project_id     = COALESCE(NULLIF(EXCLUDED.project_id, ''), plan.project_id),
@@ -84,10 +88,13 @@ func (r *planStoreRepo) Upsert(ctx context.Context, p *domain.Plan) (*domain.Pla
 			start_data     = COALESCE(EXCLUDED.start_data, plan.start_data),
 			end_data       = COALESCE(EXCLUDED.end_data, plan.end_data),
 			approved_date  = COALESCE(EXCLUDED.approved_date, plan.approved_date),
+			parcel_id      = COALESCE(EXCLUDED.parcel_id, plan.parcel_id),
+			gazner         = COALESCE(EXCLUDED.gazner, plan.gazner),
 			updated_at     = NOW()
 		RETURNING `+planStoreColumns,
 		id, p.PlanCode, p.ProjectID, p.Name, p.PlanTypeName,
 		boundary, area, p.Status, p.StartData, p.EndData, p.ApprovedDate,
+		p.ParcelID, p.Gazner,
 	)
 	return scanPlan(row)
 }
@@ -103,6 +110,7 @@ func (r *planStoreRepo) Suggest(ctx context.Context, q string) ([]*domain.Plan, 
 		SELECT `+planStoreColumns+`
 		FROM plan
 		WHERE plan_code ILIKE $1 OR name ILIKE $1
+		   OR parcel_id ILIKE $1 OR gazner ILIKE $1
 		ORDER BY plan_code
 		LIMIT 20
 	`, "%"+q+"%")

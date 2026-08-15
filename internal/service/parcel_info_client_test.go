@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/service"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ func TestHTTPParcelInfoClient_ListApplicationPersons(t *testing.T) {
 	defer srv.Close()
 
 	client := service.NewHTTPParcelInfoClient(srv.URL)
-	holders, err := client.ListApplicationPersons(ctx, "2024-0001", "010101000001")
+	holders, err := client.ListApplicationPersons(ctx, "2024-0001")
 	require.NoError(t, err)
 
 	assert.Equal(t, "/application/persons", gotPath)
@@ -58,7 +59,7 @@ func TestHTTPParcelInfoClient_ListApplicationPersons_LegalEntity(t *testing.T) {
 	defer srv.Close()
 
 	holders, err := service.NewHTTPParcelInfoClient(srv.URL).
-		ListApplicationPersons(ctx, "2024-0001", "010101000001")
+		ListApplicationPersons(ctx, "2024-0001")
 	require.NoError(t, err)
 	require.Len(t, holders, 1)
 
@@ -69,8 +70,54 @@ func TestHTTPParcelInfoClient_ListApplicationPersons_LegalEntity(t *testing.T) {
 	assert.Equal(t, "3: Монгол улсын хуулийн этгээд", holders[0].PersonType)
 }
 
-// app_no хоосон бол нэгж талбарын дугаараар хайна.
-func TestHTTPParcelInfoClient_ListApplicationPersons_ByParcelID(t *testing.T) {
+// app_no хоосон бол ДУУДАЛТ ХИЙГДЭХГҮЙ: нэгж талбарын дугаараар шүүх нөөц
+// зам байхгүй (тухайн талбарын бүх хүсэлтийн эзэмшигчид хольцолдоно).
+func TestHTTPParcelInfoClient_ListApplicationPersons_RequiresAppNo(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	holders, err := service.NewHTTPParcelInfoClient(srv.URL).
+		ListApplicationPersons(ctx, "  ")
+	assert.Equal(t, domain.ErrInvalidInput, err)
+	assert.Empty(t, holders)
+	assert.False(t, called, "дундын сервис рүү хүсэлт явуулахгүй")
+}
+
+// /application/documents — хавсралт. Кодууд тоогоор ирж болно, doc_id-гүй
+// мөр алгасагдана (давхардлыг таних боломжгүй).
+func TestHTTPParcelInfoClient_ListApplicationDocuments(t *testing.T) {
+	var gotPath, gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"code":200,"data":[
+			{"app_no":"01107-10-00109-26","doc_name":"Өргөдөл","doc_code":10,"doc_id":5001,"file_url":"https://ftp/a.pdf","ftp_id":77},
+			{"app_no":"01107-10-00109-26","doc_name":"","doc_code":"20","doc_id":"5002","file_url":"https://ftp/b.png","ftp_id":0},
+			{"app_no":"01107-10-00109-26","doc_name":"Дугааргүй","doc_code":"30","doc_id":null}
+		],"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	docs, err := service.NewHTTPParcelInfoClient(srv.URL).
+		ListApplicationDocuments(ctx, "01107-10-00109-26", []string{"10", " ", "20"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "/application/documents", gotPath)
+	assert.Equal(t, "app_no=01107-10-00109-26&role=10&role=20", gotQuery, "хоосон role алгасагдана")
+
+	require.Len(t, docs, 2, "doc_id-гүй мөр алгасагдана")
+	assert.Equal(t, "5001", docs[0].DocID, "тоогоор ирсэн ч текст болно")
+	assert.Equal(t, "10", docs[0].DocCode)
+	assert.Equal(t, "Өргөдөл", docs[0].DocName)
+	assert.Equal(t, "77", docs[0].FtpID)
+	assert.Equal(t, "5002", docs[1].DocID)
+	assert.Empty(t, docs[1].FtpID, "ftp_id=0 нь хоосон")
+}
+
+// role өгөөгүй бол зөвхөн app_no илгээнэ; app_no хоосон бол дуудлага хийхгүй.
+func TestHTTPParcelInfoClient_ListApplicationDocuments_NoRoles(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotQuery = r.URL.RawQuery
@@ -78,11 +125,14 @@ func TestHTTPParcelInfoClient_ListApplicationPersons_ByParcelID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	holders, err := service.NewHTTPParcelInfoClient(srv.URL).
-		ListApplicationPersons(ctx, "  ", "1781111606")
+	client := service.NewHTTPParcelInfoClient(srv.URL)
+	docs, err := client.ListApplicationDocuments(ctx, "01107-10-00109-26", nil)
 	require.NoError(t, err)
-	assert.Empty(t, holders)
-	assert.Equal(t, "parcel_id=1781111606", gotQuery)
+	assert.Empty(t, docs)
+	assert.Equal(t, "app_no=01107-10-00109-26", gotQuery)
+
+	_, err = client.ListApplicationDocuments(ctx, "  ", nil)
+	assert.Equal(t, domain.ErrInvalidInput, err)
 }
 
 // Эх системийн SQL-ийн баганууд ЯГ ТЭР хэлбэрээрээ ирэхэд зөв уншигдах эсэх:
@@ -184,4 +234,92 @@ func TestHTTPParcelInfoClient_GetParcelInfo_DateEdgeCases(t *testing.T) {
 	assert.Nil(t, src.ValidTill, "infinity → nil")
 	require.NotNil(t, src.ContractEnd, "9999 он нь main DB-д хадгалагдана")
 	assert.Nil(t, src.RecordDate, "танигдаагүй хэлбэр → nil (алдаа биш)")
+}
+
+// /plan/project — эх системд нэмэгдсэн parcel_id, gazner уншигдана.
+// Төлөвлөгөөг НЭГЖ ТАЛБАРЫН дугаараар хайдаг болсон тул code параметр нь
+// талбарын дугаар (5029776), хариултын code нь төлөвлөгөөний дугаар.
+func TestHTTPParcelInfoClient_GetPlanProject_ParcelAndGazner(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"code":200,"data":{
+			"parcel_id":"5029776",
+			"project_id":"9878",
+			"code":"2026-04-011-9878",
+			"name":"Нийслэлийн 2026 оны Газар зохион байгуулалтын төлөвлөгөө",
+			"plan_type_name":"Нийслэлийн газар зохион байгуулалтын тухайн жилийн төлөвлөгөө",
+			"gazner":"Дамбадаржаа дэд төвийн  бүтээн байгуулалтын ажил",
+			"geometry_wkt":"POLYGON((106.9274161763 47.984622518684,106.92594091522 47.983096200842,106.9280 47.9820,106.9274161763 47.984622518684))",
+			"start_date":"2026-01-01",
+			"end_date":"2026-12-31",
+			"approved_date":"2025-12-05"
+		},"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	plan, err := service.NewHTTPParcelInfoClient(srv.URL).(service.PlanProjectClient).
+		GetPlanProject(ctx, "5029776")
+	require.NoError(t, err)
+
+	assert.Equal(t, "code=5029776", gotQuery)
+	assert.Equal(t, "5029776", plan.ParcelID)
+	assert.Equal(t, "Дамбадаржаа дэд төвийн  бүтээн байгуулалтын ажил", plan.Gazner)
+	assert.Equal(t, "2026-04-011-9878", plan.PlanCode)
+	assert.Equal(t, "9878", plan.ProjectID)
+	assert.Equal(t,
+		"POLYGON((106.9274161763 47.984622518684,106.92594091522 47.983096200842,106.9280 47.9820,106.9274161763 47.984622518684))",
+		plan.BoundaryWKT, "төлөвлөгөөний хил хадгалагдана")
+	require.NotNil(t, plan.StartData)
+	assert.Equal(t, "2026-01-01", *plan.StartData)
+}
+
+// Хуучин хариулт (parcel_id / gazner байхгүй) ч эвдрэхгүй — parcel_id нь
+// хайсан дугаараар бөглөгдөнө, кодууд тоогоор ирж болно.
+func TestHTTPParcelInfoClient_GetPlanProject_BackwardCompatible(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"data":{
+			"project_id":9878,
+			"code":"2026-04-011-9878",
+			"name":"Төлөвлөгөө"
+		},"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	plan, err := service.NewHTTPParcelInfoClient(srv.URL).(service.PlanProjectClient).
+		GetPlanProject(ctx, "5029776")
+	require.NoError(t, err)
+	assert.Equal(t, "5029776", plan.ParcelID, "хариултад байхгүй бол хайсан дугаараар")
+	assert.Empty(t, plan.Gazner)
+	assert.Empty(t, plan.BoundaryWKT, "хил ирээгүй бол хоосон (хуучин хувилбар)")
+	assert.Equal(t, "9878", plan.ProjectID, "тоогоор ирсэн ч текст болно")
+}
+
+// Алдаатай геометр ирвэл ХАЯГДАНА: ST_GeomFromText унаж, төлөвлөгөө
+// хадгалагдахгүй болбол чөлөөлөлт огт үүсэхээ болино.
+func TestHTTPParcelInfoClient_GetPlanProject_DropsInvalidGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, geometry, want string
+	}{
+		{"polygon", `"POLYGON((1 1,2 1,2 2,1 1))"`, "POLYGON((1 1,2 1,2 2,1 1))"},
+		{"multipolygon", `"MULTIPOLYGON(((1 1,2 1,2 2,1 1)))"`, "MULTIPOLYGON(((1 1,2 1,2 2,1 1)))"},
+		{"srid угтвартай", `"SRID=4326;POLYGON((1 1,2 1,2 2,1 1))"`, "SRID=4326;POLYGON((1 1,2 1,2 2,1 1))"},
+		{"хог утга", `"[object Object]"`, ""},
+		{"хоосон", `""`, ""},
+		{"null", `null`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"code":200,"data":{
+					"code":"2026-04-011-9878","name":"Төлөвлөгөө","geometry_wkt":` + tc.geometry + `
+				},"message":"OK"}`))
+			}))
+			defer srv.Close()
+
+			plan, err := service.NewHTTPParcelInfoClient(srv.URL).(service.PlanProjectClient).
+				GetPlanProject(ctx, "5029776")
+			require.NoError(t, err, "геометр буруу байсан ч төлөвлөгөө олдох ёстой")
+			assert.Equal(t, tc.want, plan.BoundaryWKT)
+		})
+	}
 }

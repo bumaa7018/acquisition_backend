@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"acquisition_backend/internal/domain"
 
@@ -108,28 +109,124 @@ func (s *landService) DeleteFundingSource(ctx context.Context, id uuid.UUID) err
 	return nil
 }
 
-func (s *landService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
-	return s.landRepo.ListAuthorizedRepresentatives(ctx, acquisitionID, parcelID)
+// resolveParcelRow — URL дахь нэгж талбарын ДУГААРААС parcel мөрийг олно.
+// Тухайн нэгж талбар заасан чөлөөлөлтөд харьяалагдаж байгааг ШАЛГАНА — эс
+// бөгөөс өөр чөлөөлөлтийн эзэмшигчийг өөрчлөх боломж үүснэ.
+func (s *landService) resolveParcelRow(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.Parcel, error) {
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if p.AcquisitionID != acquisitionID {
+		return nil, domain.ErrNotFound
+	}
+	return p, nil
 }
 
-func (s *landService) CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error) {
-	if err := s.landRepo.CreateAuthorizedRepresentative(ctx, rep); err != nil {
+func (s *landService) ListParcelRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]domain.ParcelHolder, error) {
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
+	if err != nil {
 		return nil, err
 	}
-	s.auditLog(ctx, "created", domain.AuditResourceRepresentative, rep.ID.String(), uuidPtr(rep.AcquisitionID), nil, map[string]any{
-		"parcel_id":   rep.ParcelID,
-		"first_name":  rep.FirstName,
-		"last_name":   rep.LastName,
-		"register_no": rep.RegisterNo,
-	})
-	return rep, nil
+	holders, err := s.landRepo.ListParcelHolders(ctx, p.ID)
+	if err != nil {
+		return nil, domain.ErrInternalServer
+	}
+	reps := make([]domain.ParcelHolder, 0, len(holders))
+	for _, h := range holders {
+		if h.HolderRole == domain.ParcelHolderRoleRepresentative {
+			reps = append(reps, h)
+		}
+	}
+	return reps, nil
 }
 
-func (s *landService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
-	if err := s.landRepo.DeleteAuthorizedRepresentative(ctx, id); err != nil {
+// CreateParcelRepresentative — итгэмжлэгдсэн төлөөлөгчийг эзэмшигчийн төрөл
+// болгож бүртгэнэ. Бүртгэмэгц ШУУД нөхөн төлбөр авагч болно.
+func (s *landService) CreateParcelRepresentative(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	parcelCode string,
+	holder *domain.ParcelHolder,
+) (*domain.ParcelHolder, error) {
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
+	if err != nil {
+		return nil, err
+	}
+
+	rowID, err := s.landRepo.AddParcelRepresentative(ctx, p.ID, acquisitionID, holder)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidInput) {
+			return nil, domain.ErrInvalidInput
+		}
+		return nil, domain.ErrInternalServer
+	}
+
+	s.auditLog(ctx, "created", domain.AuditResourceRepresentative, rowID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
+			"parcel_id":         parcelCode,
+			"name":              holder.Name,
+			"last_name":         holder.LastName,
+			"register_no":       holder.RegisterNo,
+			"payment_recipient": true,
+		})
+
+	holders, err := s.landRepo.ListParcelHolders(ctx, p.ID)
+	if err != nil {
+		return nil, domain.ErrInternalServer
+	}
+	for i := range holders {
+		if holders[i].ID == rowID {
+			return &holders[i], nil
+		}
+	}
+	return nil, domain.ErrInternalServer
+}
+
+func (s *landService) DeleteParcelRepresentative(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	parcelCode string,
+	parcelHolderID uuid.UUID,
+) error {
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
+	if err != nil {
 		return err
 	}
-	s.auditLog(ctx, "deleted", domain.AuditResourceRepresentative, id.String(), nil, nil, nil)
+	if err := s.landRepo.DeleteParcelHolder(ctx, p.ID, parcelHolderID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrInternalServer
+	}
+	s.auditLog(ctx, "deleted", domain.AuditResourceRepresentative, parcelHolderID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{"parcel_id": parcelCode})
+	return nil
+}
+
+// SetParcelPaymentRecipient — үндсэн эзэмшигч олон байх үед нөхөн төлбөрийг
+// хэнд олгохыг сонгоно.
+func (s *landService) SetParcelPaymentRecipient(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	parcelCode string,
+	parcelHolderID uuid.UUID,
+) error {
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
+	if err != nil {
+		return err
+	}
+	if err := s.landRepo.SetParcelPaymentRecipient(ctx, p.ID, parcelHolderID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrNotFound
+		}
+		return domain.ErrInternalServer
+	}
+	s.auditLog(ctx, "updated", domain.AuditResourceParcel, p.ID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
+			"parcel_id":         parcelCode,
+			"payment_recipient": parcelHolderID.String(),
+		})
 	return nil
 }
 

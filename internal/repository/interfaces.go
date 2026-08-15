@@ -170,6 +170,24 @@ type LandAcquisitionWriteRepository interface {
 	// үндсэн хүсэлт гаргагчийн right_holder.id-г буцаана.
 	ReplaceParcelHolders(ctx context.Context, parcelID, acquisitionID uuid.UUID, appNo string, holders []*domain.ParcelHolder) (uuid.UUID, error)
 	ListParcelHolders(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelHolder, error)
+	// SetParcelPaymentRecipient — нөхөн төлбөр хүлээн авах эзэмшигчийг сонгоно
+	// (нэгж талбар тутамд зөвхөн нэг).
+	SetParcelPaymentRecipient(ctx context.Context, parcelID, parcelHolderID uuid.UUID) error
+	// AddParcelRepresentative — итгэмжлэгдсэн төлөөлөгчийг эзэмшигчийн НЭГ
+	// ТӨРӨЛ болгож бүртгэнэ; бүртгэмэгц шууд төлбөр авагч болно.
+	AddParcelRepresentative(ctx context.Context, parcelID, acquisitionID uuid.UUID, holder *domain.ParcelHolder) (uuid.UUID, error)
+	// DeleteParcelHolder — ЗӨВХӨН итгэмжлэгдсэн төлөөлөгчийн мөрийг устгана
+	// (ГУС-аас татагдсан эзэмшигч sync дээр дахин үүсэх тул устгах утгагүй).
+	DeleteParcelHolder(ctx context.Context, parcelID, parcelHolderID uuid.UUID) error
+	// Барьцаа, шүүхийн шийдвэр — ГУС-аас татагдаж ОРЛУУЛАХ семантикаар хадгалагдана
+	ReplaceParcelMortgages(ctx context.Context, parcelID, acquisitionID uuid.UUID, appNo string, items []*domain.ParcelMortgage) (int, error)
+	ListParcelMortgages(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelMortgage, error)
+	ReplaceParcelCourtDecisions(ctx context.Context, parcelID, acquisitionID uuid.UUID, appNo string, items []*domain.ParcelCourtDecision) (int, error)
+	ListParcelCourtDecisions(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelCourtDecision, error)
+	ReplaceParcelInvoices(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelInvoice) (int, error)
+	ListParcelInvoices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelInvoice, error)
+	UpsertParcelMonitorings(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelMonitoring) (int, error)
+	ListParcelMonitorings(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelMonitoring, error)
 	// SetParcelDetailHolder — parcel_detail.holder_id-г үндсэн эзэмшигчид холбоно.
 	SetParcelDetailHolder(ctx context.Context, parcelID, holderID uuid.UUID) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
@@ -248,9 +266,16 @@ type LandDocumentRepository interface {
 	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
+	// AddSourceParcelDocuments — эх системээс татсан хавсралтуудаас ЗӨВХОН
+	// ШИНИЙГ бүртгэнэ (source_doc_id-ээр таних). Хадгалагдсан хавсралт
+	// устгагдахгүй, дарагдахгүй. Шинээр бүртгэгдсэн тоог буцаана.
+	AddSourceParcelDocuments(ctx context.Context, parcelID uuid.UUID, docs []*domain.Document) (int, error)
 	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
 	GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error)
+	// GetParcelDocument — баримт ТУХАЙН нэгж талбарт холбогдсон эсэхийг
+	// шалгаж уншина (IDOR-оос сэргийлнэ).
+	GetParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.Document, error)
 	GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error)
 }
 

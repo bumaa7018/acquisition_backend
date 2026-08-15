@@ -632,30 +632,76 @@ func syncHolderSvc(t *testing.T, acqID, parcelID uuid.UUID, parcelCode, appNo st
 	return svc, landRepo, parcelInfo, src
 }
 
-// Дэлгэрэнгүй хадгалагдсаны дараа app_no-гоор эзэмшигчид татагдаж, БҮГД
-// хадгалагдаж, үндсэн хүсэлт гаргагч parcel_detail-д холбогдоно.
-func TestLandService_SyncParcel_SavesAllHoldersByAppNo(t *testing.T) {
+// SyncParcel нь эзэмшигчийг ТАТАХГҮЙ — тэр нь SyncParcelHolders-ийн ажил
+// (дэлгэц дээр тусдаа алхам болсон).
+func TestLandService_SyncParcel_DoesNotSyncHolders(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	parcelCode, appNo := "010101000001", "2024-0001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, appNo)
+
+	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
+
+	parcelInfo.AssertNotCalled(t, "ListApplicationPersons", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "ReplaceParcelHolders",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertExpectations(t)
+}
+
+// SyncParcelHolders — хадгалагдсан app_no-гоор эзэмшигчдийг татаж, БҮГДИЙГ
+// хадгалж, үндсэн хүсэлт гаргагчийг parcel_detail-д холбоно.
+func TestLandService_SyncParcelHolders_SavesAllByAppNo(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	parcelCode, appNo := "010101000001", "2024-0001"
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	svc := service.NewLandService(&mocks.MockPlanRepository{}, landRepo, nil, nil, parcelInfo)
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).
+		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode}, nil)
+	landRepo.On("GetParcelDetailByID", ctx, parcelID).
+		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: appNo}}, nil)
 
 	persons := []*domain.ParcelHolder{
 		{LastName: "Дорж", Name: "Бат", RegisterNo: "УА00112233", MainApplicant: true},
 		{LastName: "Дорж", Name: "Болд", RegisterNo: "УА00445566"},
 	}
-	// Эзэмшигчийг ЗӨВХӨН app_no-гоор дуудна (нэгж талбарын код нь нөөц түлхүүр)
-	parcelInfo.On("ListApplicationPersons", ctx, appNo, parcelCode).Return(persons, nil)
+	parcelInfo.On("ListApplicationPersons", ctx, appNo).Return(persons, nil)
 
 	mainHolderID := uuid.New()
 	landRepo.On("ReplaceParcelHolders", ctx, parcelID, acqID, appNo, persons).Return(mainHolderID, nil)
 	landRepo.On("SetParcelDetailHolder", ctx, parcelID, mainHolderID).Return(nil)
 
-	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
+	res, err := svc.SyncParcelHolders(ctx, acqID, parcelCode)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, res.Found)
+	assert.Equal(t, 2, res.Saved)
 	landRepo.AssertExpectations(t)
 	parcelInfo.AssertExpectations(t)
 	// Хадгалахаар илгээсэн эзэмшигч бүр app_no-гоор тэмдэглэгдэнэ
 	assert.Equal(t, appNo, persons[0].AppNo)
 	assert.Equal(t, appNo, persons[1].AppNo)
+}
+
+// app_no хадгалагдаагүй бол 422 — эхлээд /sync ажиллуулах шаардлагатай.
+func TestLandService_SyncParcelHolders_AppNoMissing(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	parcelCode := "010101000001"
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	svc := service.NewLandService(&mocks.MockPlanRepository{}, landRepo, nil, nil, parcelInfo)
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(&domain.Parcel{ID: parcelID}, nil)
+	landRepo.On("GetParcelDetailByID", ctx, parcelID).
+		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: "  "}}, nil)
+
+	res, err := svc.SyncParcelHolders(ctx, acqID, parcelCode)
+
+	assert.Nil(t, res)
+	assert.ErrorIs(t, err, domain.ErrParcelAppNoMissing)
+	parcelInfo.AssertNotCalled(t, "ListApplicationPersons", mock.Anything, mock.Anything)
 }
 
 // Эзэмшигч татахад алдаа гарвал sync унахгүй — дэлгэрэнгүй нь хадгалагдсан.
@@ -664,7 +710,7 @@ func TestLandService_SyncParcel_HolderFetchFailureDoesNotFailSync(t *testing.T) 
 	parcelCode, appNo := "010101000001", "2024-0001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, appNo)
 
-	parcelInfo.On("ListApplicationPersons", ctx, appNo, parcelCode).
+	parcelInfo.On("ListApplicationPersons", ctx, appNo).
 		Return(nil, domain.ErrInternalServer)
 
 	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
@@ -673,47 +719,51 @@ func TestLandService_SyncParcel_HolderFetchFailureDoesNotFailSync(t *testing.T) 
 	landRepo.AssertNotCalled(t, "SetParcelDetailHolder", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// app_no хоосон байсан ч эзэмшигчийг нэгж талбарын дугаараар хайна.
-func TestLandService_SyncParcel_FallsBackToParcelCodeWhenAppNoEmpty(t *testing.T) {
+// app_no хоосон бол эзэмшигч ОГТ татагдахгүй: нэгж талбарын дугаараар шүүвэл
+// тухайн талбарын бүх хүсэлтийн эзэмшигчид хольцолдоно. Хадгалагдсан
+// эзэмшигчид ХӨНДӨГДӨХГҮЙ (устгах нь өгөгдөл гээхэд хүргэнэ), sync унахгүй.
+func TestLandService_SyncParcel_SkipsHoldersWhenAppNoEmpty(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	parcelCode := "010101000001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, "")
 
-	persons := []*domain.ParcelHolder{{LastName: "Дорж", Name: "Бат", MainApplicant: true}}
-	parcelInfo.On("ListApplicationPersons", ctx, "", parcelCode).Return(persons, nil)
-
-	mainHolderID := uuid.New()
-	landRepo.On("ReplaceParcelHolders", ctx, parcelID, acqID, "", persons).Return(mainHolderID, nil)
-	landRepo.On("SetParcelDetailHolder", ctx, parcelID, mainHolderID).Return(nil)
-
 	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
-	parcelInfo.AssertExpectations(t)
+
+	parcelInfo.AssertNotCalled(t, "ListApplicationPersons", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "ReplaceParcelHolders",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "SetParcelDetailHolder", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // Эх системд эзэмшигч үлдээгүй бол хадгалагдсан эзэмшигчид УСТГАГДАНА
 // (sync нь орлуулах үйлдэл).
-func TestLandService_SyncParcel_ClearsHoldersWhenSourceEmpty(t *testing.T) {
+func TestLandService_SyncParcelHolders_ClearsWhenSourceEmpty(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	parcelCode, appNo := "010101000001", "2024-0001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, appNo)
+	landRepo.On("GetParcelDetailByID", ctx, parcelID).
+		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: appNo}}, nil)
 
-	parcelInfo.On("ListApplicationPersons", ctx, appNo, parcelCode).
+	parcelInfo.On("ListApplicationPersons", ctx, appNo).
 		Return([]*domain.ParcelHolder{}, nil)
 	landRepo.On("ReplaceParcelHolders", ctx, parcelID, acqID, appNo, []*domain.ParcelHolder{}).
 		Return(uuid.Nil, nil)
 	landRepo.On("SetParcelDetailHolder", ctx, parcelID, uuid.Nil).Return(nil)
 
-	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
+	_, err := svc.SyncParcelHolders(ctx, acqID, parcelCode)
+	require.NoError(t, err)
 	landRepo.AssertCalled(t, "ReplaceParcelHolders", ctx, parcelID, acqID, appNo, []*domain.ParcelHolder{})
 }
 
 // Регистрийн дугаар давхцсан эзэмшигчийг хадгалахгүй алгасна (эхний нь үлдэнэ).
-func TestLandService_SyncParcel_SkipsDuplicateRegisterNo(t *testing.T) {
+func TestLandService_SyncParcelHolders_SkipsDuplicateRegisterNo(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	parcelCode, appNo := "010101000001", "2024-0001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, appNo)
+	landRepo.On("GetParcelDetailByID", ctx, parcelID).
+		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: appNo}}, nil)
 
-	parcelInfo.On("ListApplicationPersons", ctx, appNo, parcelCode).Return([]*domain.ParcelHolder{
+	parcelInfo.On("ListApplicationPersons", ctx, appNo).Return([]*domain.ParcelHolder{
 		{LastName: "Дорж", Name: "Бат", RegisterNo: "УА00112233", MainApplicant: true},
 		// Ижил регистр (том/жижиг үсэг, зай хамаарахгүй) → алгасагдана
 		{LastName: "Дорж", Name: "Бат", RegisterNo: " уа00112233 "},
@@ -731,7 +781,8 @@ func TestLandService_SyncParcel_SkipsDuplicateRegisterNo(t *testing.T) {
 		}).Return(mainHolderID, nil)
 	landRepo.On("SetParcelDetailHolder", ctx, parcelID, mainHolderID).Return(nil)
 
-	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
+	_, err := svc.SyncParcelHolders(ctx, acqID, parcelCode)
+	require.NoError(t, err)
 
 	require.Len(t, saved, 4, "давхцсан регистртэй нэг мөр л хаягдана")
 	assert.Equal(t, "УА00112233", saved[0].RegisterNo)
@@ -775,11 +826,6 @@ func TestLandService_SyncParcel_ComputesAcquisitionAreaFromSourceGeometry(t *tes
 	landRepo.On("FillParcelAUCodesFromGeometry", ctx, parcelID).
 		Return(domain.LandAcquisitionAU{AU1Code: "011", AU2Code: "01116", AU3Code: "0111659"}, nil)
 
-	parcelInfo.On("ListApplicationPersons", ctx, src.AppNo, parcelCode).
-		Return([]*domain.ParcelHolder{}, nil)
-	landRepo.On("ReplaceParcelHolders", ctx, parcelID, acqID, src.AppNo, mock.Anything).Return(uuid.Nil, nil)
-	landRepo.On("SetParcelDetailHolder", ctx, parcelID, uuid.Nil).Return(nil)
-
 	require.NoError(t, svc.SyncParcel(ctx, acqID, parcelCode))
 	landRepo.AssertExpectations(t)
 	// Хадгалагдсан геометрээр тооцох нөөц арга хэрэглэгдэхгүй
@@ -792,7 +838,7 @@ func TestLandService_SyncParcel_FallsBackWhenSourceGeometryMissing(t *testing.T)
 	parcelCode := "010101000001"
 	svc, landRepo, parcelInfo, _ := syncHolderSvc(t, acqID, parcelID, parcelCode, "2024-0001")
 
-	parcelInfo.On("ListApplicationPersons", ctx, "2024-0001", parcelCode).
+	parcelInfo.On("ListApplicationPersons", ctx, "2024-0001").
 		Return([]*domain.ParcelHolder{}, nil)
 	landRepo.On("ReplaceParcelHolders", ctx, parcelID, acqID, "2024-0001", mock.Anything).Return(uuid.Nil, nil)
 	landRepo.On("SetParcelDetailHolder", ctx, parcelID, uuid.Nil).Return(nil)

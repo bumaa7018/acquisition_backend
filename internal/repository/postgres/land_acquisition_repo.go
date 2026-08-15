@@ -967,6 +967,20 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	if holders, hErr := r.ListParcelHolders(ctx, id); hErr == nil {
 		pf.Holders = holders
 	}
+	// ГУС-аас татагдсан санхүү/эрх зүйн бүртгэлүүд. Алдаа гарсан ч
+	// дэлгэрэнгүйг буцаана — тухайн жагсаалт хоосон үлдэнэ.
+	if items, mErr := r.ListParcelMortgages(ctx, id); mErr == nil {
+		pf.Mortgages = items
+	}
+	if items, cErr := r.ListParcelCourtDecisions(ctx, id); cErr == nil {
+		pf.CourtDecisions = items
+	}
+	if items, iErr := r.ListParcelInvoices(ctx, id); iErr == nil {
+		pf.Invoices = items
+	}
+	if items, monErr := r.ListParcelMonitorings(ctx, id); monErr == nil {
+		pf.Monitorings = items
+	}
 	return pf, nil
 }
 
@@ -1183,7 +1197,23 @@ func (r *landAcqRepo) ReplaceParcelHolders(
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, "DELETE FROM parcel_holder WHERE parcel_id = $1", parcelID); err != nil {
+	// Нөхөн төлбөр авагчийн сонголт нь ГУС-аас ирдэггүй, ГАРААР хийгддэг тул
+	// sync түүнийг устгаж болохгүй — устгахын өмнө сэргээхээр хадгална.
+	var prevPaymentHolderID *uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		SELECT holder_id FROM parcel_holder
+		WHERE parcel_id = $1 AND payment_recipient
+		LIMIT 1
+	`, parcelID).Scan(&prevPaymentHolderID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, err
+	}
+
+	// ЗӨВХӨН ГУС-аас татагдсан эзэмшигчийг устгана — гараар бүртгэсэн
+	// итгэмжлэгдсэн төлөөлөгч sync дээр хадгалагдаж үлдэнэ.
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM parcel_holder WHERE parcel_id = $1 AND holder_role = $2",
+		parcelID, domain.ParcelHolderRoleHolder,
+	); err != nil {
 		return uuid.Nil, err
 	}
 
@@ -1201,18 +1231,23 @@ func (r *landAcqRepo) ReplaceParcelHolders(
 			continue
 		}
 
+		// ON CONFLICT дээр holder_role/payment_recipient-ыг ЗОРИУД хөндөхгүй:
+		// эзэмшигч нь итгэмжлэгдсэн төлөөлөгчөөр бүртгэгдсэн байж болох ба
+		// гараар хийсэн тэмдэглэгээг sync дарж бичих ёсгүй.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO parcel_holder (
 				id, parcel_id, acquisition_id, holder_id, app_no, main_applicant,
-				created_by, updated_by
-			) VALUES (uuid_generate_v4(), $1, $2, $3, NULLIF($4, ''), $5, 'system', 'system')
+				holder_role, created_by, updated_by
+			) VALUES (uuid_generate_v4(), $1, $2, $3, NULLIF($4, ''), $5, $6, 'system', 'system')
 			ON CONFLICT (parcel_id, holder_id) DO UPDATE SET
 				acquisition_id = EXCLUDED.acquisition_id,
 				app_no         = EXCLUDED.app_no,
 				main_applicant = parcel_holder.main_applicant OR EXCLUDED.main_applicant,
 				updated_at     = NOW(),
 				updated_by     = 'system'
-		`, parcelID, acquisitionID, holderID, appNo, h.MainApplicant); err != nil {
+		`, parcelID, acquisitionID, holderID, appNo, h.MainApplicant,
+			domain.ParcelHolderRoleHolder,
+		); err != nil {
 			return uuid.Nil, err
 		}
 
@@ -1221,6 +1256,19 @@ func (r *landAcqRepo) ReplaceParcelHolders(
 			mainHolderID, foundMain = holderID, true
 		case mainHolderID == uuid.Nil:
 			mainHolderID = holderID
+		}
+	}
+
+	// Гараар сонгосон төлбөр авагчийг сэргээнэ. Тухайн хүн шинэ жагсаалтад
+	// байхгүй бол (эх системээс хасагдсан) сонголт сэргэхгүй — дэлгэц дээр
+	// дахин сонгуулна. Итгэмжлэгдсэн төлөөлөгч мөр устаагүй тул түүний
+	// payment_recipient=TRUE хэвээр үлдэж, доорх UPDATE зүгээр дахин баталгаажна.
+	if prevPaymentHolderID != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE parcel_holder SET payment_recipient = TRUE, updated_at = NOW()
+			WHERE parcel_id = $1 AND holder_id = $2
+		`, parcelID, *prevPaymentHolderID); err != nil {
+			return uuid.Nil, err
 		}
 	}
 
@@ -1306,11 +1354,14 @@ func (r *landAcqRepo) ListParcelHolders(ctx context.Context, parcelID uuid.UUID)
 		       COALESCE(rh.last_name,''), COALESCE(rh.name,''),
 		       COALESCE(rh.register_no,''), COALESCE(rh.phone,''),
 		       COALESCE(rh.email,''), COALESCE(rh.holder_type,''),
-		       COALESCE(ph.app_no,'')
+		       COALESCE(ph.app_no,''),
+		       ph.holder_role, ph.payment_recipient,
+		       COALESCE(ph.note,''), COALESCE(rh.address,'')
 		FROM parcel_holder ph
 		JOIN right_holder rh ON rh.id = ph.holder_id
 		WHERE ph.parcel_id = $1
-		ORDER BY ph.main_applicant DESC, rh.last_name, rh.name
+		ORDER BY ph.payment_recipient DESC, ph.main_applicant DESC,
+		         ph.holder_role, rh.last_name, rh.name
 	`, parcelID)
 	if err != nil {
 		return nil, err
@@ -1325,12 +1376,135 @@ func (r *landAcqRepo) ListParcelHolders(ctx context.Context, parcelID uuid.UUID)
 			&h.LastName, &h.Name,
 			&h.RegisterNo, &h.Phone,
 			&h.Email, &h.PersonType, &h.AppNo,
+			&h.HolderRole, &h.PaymentRecipient,
+			&h.Note, &h.Address,
 		); err != nil {
 			return nil, err
 		}
 		result = append(result, h)
 	}
 	return result, rows.Err()
+}
+
+// SetParcelPaymentRecipient — нөхөн төлбөр хүлээн авах эзэмшигчийг сонгоно.
+// Нэгж талбар тутамд ЗӨВХӨН нэг байх тул эхлээд бусдыг цэвэрлэнэ (DB-ийн
+// partial unique index-тэй зөрчилдөхөөс сэргийлж НЭГ гүйлгээнд хийнэ).
+func (r *landAcqRepo) SetParcelPaymentRecipient(ctx context.Context, parcelID, parcelHolderID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel_holder SET payment_recipient = FALSE, updated_at = NOW()
+		WHERE parcel_id = $1 AND payment_recipient AND id <> $2
+	`, parcelID, parcelHolderID); err != nil {
+		return err
+	}
+
+	ct, err := tx.Exec(ctx, `
+		UPDATE parcel_holder SET payment_recipient = TRUE, updated_at = NOW()
+		WHERE id = $1 AND parcel_id = $2
+	`, parcelHolderID, parcelID)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return tx.Commit(ctx)
+}
+
+// AddParcelRepresentative — итгэмжлэгдсэн төлөөлөгчийг эзэмшигчийн нэг төрөл
+// болгож бүртгэнэ. Бүртгэмэгц ШУУД нөхөн төлбөр хүлээн авагч болно (өмнөх
+// сонголт автоматаар цуцлагдана).
+func (r *landAcqRepo) AddParcelRepresentative(
+	ctx context.Context,
+	parcelID, acquisitionID uuid.UUID,
+	holder *domain.ParcelHolder,
+) (uuid.UUID, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	holderID, err := upsertHolderTx(ctx, tx, &domain.ParcelHolder{
+		LastName:   holder.LastName,
+		Name:       holder.Name,
+		RegisterNo: holder.RegisterNo,
+		Phone:      holder.Phone,
+		Email:      holder.Email,
+		PersonType: holder.PersonType,
+	})
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if holderID == uuid.Nil {
+		return uuid.Nil, domain.ErrInvalidInput
+	}
+
+	// Хаяг нь зөвхөн төлөөлөгчид бөглөгддөг тул тусад нь бичнэ (upsertHolderTx
+	// нь ГУС-аас ирдэг талбаруудыг л мэднэ).
+	if strings.TrimSpace(holder.Address) != "" {
+		if _, err := tx.Exec(ctx,
+			"UPDATE right_holder SET address = $2, updated_at = NOW() WHERE id = $1",
+			holderID, holder.Address,
+		); err != nil {
+			return uuid.Nil, err
+		}
+	}
+
+	// Шинэ төлөөлөгч төлбөр авагч болох тул өмнөх сонголтыг цуцална.
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel_holder SET payment_recipient = FALSE, updated_at = NOW()
+		WHERE parcel_id = $1 AND payment_recipient
+	`, parcelID); err != nil {
+		return uuid.Nil, err
+	}
+
+	var id uuid.UUID
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO parcel_holder (
+			id, parcel_id, acquisition_id, holder_id, main_applicant,
+			holder_role, payment_recipient, note, created_by, updated_by
+		) VALUES (uuid_generate_v4(), $1, $2, $3, FALSE, $4, TRUE, $5, 'user', 'user')
+		ON CONFLICT (parcel_id, holder_id) DO UPDATE SET
+			acquisition_id    = EXCLUDED.acquisition_id,
+			holder_role       = EXCLUDED.holder_role,
+			payment_recipient = TRUE,
+			note              = EXCLUDED.note,
+			updated_at        = NOW(),
+			updated_by        = 'user'
+		RETURNING id
+	`, parcelID, acquisitionID, holderID,
+		domain.ParcelHolderRoleRepresentative, holder.Note,
+	).Scan(&id); err != nil {
+		return uuid.Nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// DeleteParcelHolder — гараар бүртгэсэн итгэмжлэгдсэн төлөөлөгчийг устгана.
+// ГУС-аас татагдсан эзэмшигчийг (holder_role='holder') устгахыг зөвшөөрөхгүй —
+// тэр нь дараагийн sync дээр ямар ч байсан дахин үүснэ.
+func (r *landAcqRepo) DeleteParcelHolder(ctx context.Context, parcelID, parcelHolderID uuid.UUID) error {
+	ct, err := r.db.Exec(ctx, `
+		DELETE FROM parcel_holder
+		WHERE id = $1 AND parcel_id = $2 AND holder_role = $3
+	`, parcelHolderID, parcelID, domain.ParcelHolderRoleRepresentative)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 
 // ReplaceParcelDetail — нэгж талбарын эрх зүйн дэлгэрэнгүйг дундын сервисийн
@@ -2133,7 +2307,9 @@ func (r *landAcqRepo) GetDocumentType(ctx context.Context, id int) (*domain.Docu
 func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at,
-		       COALESCE(d.document_type_id, 0)
+		       COALESCE(d.document_type_id, 0),
+		       COALESCE(d.source_doc_id, ''), COALESCE(d.source_ftp_id, ''),
+		       COALESCE(d.source_doc_code, '')
 		FROM document d
 		JOIN parcel_document pd ON pd.document_id = d.id
 		WHERE pd.parcel_id = $1
@@ -2146,7 +2322,8 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 	var result []*domain.Document
 	for rows.Next() {
 		d := &domain.Document{}
-		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID); err != nil {
+		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID,
+			&d.SourceDocID, &d.SourceFtpID, &d.SourceDocCode); err != nil {
 			return nil, err
 		}
 		result = append(result, d)
@@ -2183,6 +2360,85 @@ func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID,
 	return nil
 }
 
+// AddSourceParcelDocuments — эх системээс татсан хавсралтуудыг бүртгэнэ.
+//
+// ЗӨВХӨН НЭМНЭ: аль хэдийн татагдсан баримт (source_doc_id давхцсан) алгасагдаж,
+// хадгалагдсан хавсралт хөндөгдөхгүй. Тиймээс дахин дахин дуудахад аюулгүй.
+//
+// Баримт нь эх системд НЭГ л удаа үүсдэг тул document мөр давхардуулахгүй —
+// өөр нэгж талбар мөн ижил баримтад холбогдвол одоо байгаа мөрөнд холбогдоно.
+func (r *landAcqRepo) AddSourceParcelDocuments(ctx context.Context, parcelID uuid.UUID, docs []*domain.Document) (int, error) {
+	if len(docs) == 0 {
+		return 0, nil
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // commit хийгдсэн бол no-op
+
+	saved := 0
+	for _, doc := range docs {
+		if doc == nil || strings.TrimSpace(doc.SourceDocID) == "" {
+			continue
+		}
+
+		// 1. Баримтын мөр — эх дугаараар давхцвал одоо байгааг нь авна.
+		var documentID uuid.UUID
+		err := tx.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO document (id, name, file_type, file_url, size_bytes, note,
+				                      uploaded_by, uploaded_at, document_type_id,
+				                      source_doc_id, source_ftp_id, source_doc_code)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9::int, 0), $10, NULLIF($11, ''), NULLIF($12, ''))
+				-- Аль хэдийн татагдсан баримтыг ИРСЭН УТГААР ШИНЭЧИЛНЭ: эх системд
+				-- нэр солигдох, файлын хаяг өөрчлөгдөх, урьд нь байгаагүй талбар
+				-- (source_doc_code) нэмэгдэх боломжтой.
+				--
+				-- Хоосон ирсэн утгаар хуучныг ДАРЖ БИЧИХГҮЙ (NULLIF+COALESCE) —
+				-- эх систем зарим талбарыг буцаахгүй байх нь хадгалсныг гээх
+				-- шалтгаан болох ёсгүй. document_type_id нь ГУС-аас ирдэггүй,
+				-- гараар тавигддаг тул ХӨНДӨХГҮЙ.
+				ON CONFLICT (source_doc_id) WHERE source_doc_id IS NOT NULL DO UPDATE SET
+					name            = COALESCE(NULLIF(EXCLUDED.name, ''), document.name),
+					file_type       = COALESCE(NULLIF(EXCLUDED.file_type, ''), document.file_type),
+					file_url        = COALESCE(NULLIF(EXCLUDED.file_url, ''), document.file_url),
+					source_ftp_id   = COALESCE(NULLIF(EXCLUDED.source_ftp_id, ''), document.source_ftp_id),
+					source_doc_code = COALESCE(NULLIF(EXCLUDED.source_doc_code, ''), document.source_doc_code)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM document WHERE source_doc_id = $10
+			LIMIT 1
+		`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note,
+			doc.UploadedBy, doc.UploadedAt, doc.DocumentTypeID,
+			doc.SourceDocID, doc.SourceFtpID, doc.SourceDocCode).Scan(&documentID)
+		if err != nil {
+			return saved, err
+		}
+
+		// 2. Нэгж талбартай холбоно. Аль хэдийн холбогдсон бол ШИНЭ биш.
+		ct, err := tx.Exec(ctx, `
+			INSERT INTO parcel_document (parcel_id, document_id)
+			VALUES ($1, $2)
+			ON CONFLICT (parcel_id, document_id) DO NOTHING
+		`, parcelID, documentID)
+		if err != nil {
+			return saved, err
+		}
+		if ct.RowsAffected() > 0 {
+			saved++
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return saved, nil
+}
+
 func (r *landAcqRepo) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
 	ct, err := r.db.Exec(ctx, `
 		DELETE FROM document d
@@ -2217,6 +2473,32 @@ func (r *landAcqRepo) DeleteParcelDocument(ctx context.Context, parcelID, docume
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// GetParcelDocument — баримтыг ТУХАЙН нэгж талбарт холбогдсон эсэхийг нь
+// шалгаж уншина. Зөвхөн document_id-гаар уншвал өөр талбарын баримтыг
+// татах боломжтой болно (IDOR).
+func (r *landAcqRepo) GetParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.Document, error) {
+	d := &domain.Document{}
+	err := r.db.QueryRow(ctx, `
+		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''),
+		       d.uploaded_by, d.uploaded_at, COALESCE(d.document_type_id, 0),
+		       COALESCE(d.source_doc_id, ''), COALESCE(d.source_ftp_id, '')
+		FROM document d
+		JOIN parcel_document pd ON pd.document_id = d.id
+		WHERE d.id = $1 AND pd.parcel_id = $2
+	`, documentID, parcelID).Scan(
+		&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note,
+		&d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID,
+		&d.SourceDocID, &d.SourceFtpID,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return d, nil
 }
 
 func (r *landAcqRepo) GetDocument(ctx context.Context, documentID uuid.UUID) (*domain.Document, error) {

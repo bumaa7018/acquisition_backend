@@ -151,6 +151,43 @@ func (p *parcelInfoPayload) toSourceParcel(parcelID string) *domain.SourceParcel
 	return src
 }
 
+// wktGeometryTypes — эх системээс ирж болох геометрийн төрлүүд.
+var wktGeometryTypes = []string{
+	"POINT", "LINESTRING", "POLYGON",
+	"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON",
+	"GEOMETRYCOLLECTION", "SRID=",
+}
+
+// sanitizeWKT — эх системийн геометрийг хадгалахын өмнө хэлбэрийг нь шалгана.
+//
+// plan.boundary_wkt нь ST_GeomFromText-ээр бичигддэг: алдаатай текст ирвэл
+// query УНАЖ, төлөвлөгөө хадгалагдахгүй → чөлөөлөлт огт үүсэхгүй болно.
+// Танигдахгүй утгыг хаяж (логлож) хилгүй үргэлжлүүлэх нь аюулгүй.
+func sanitizeWKT(raw string) string {
+	wkt := strings.TrimSpace(raw)
+	if wkt == "" {
+		return ""
+	}
+	upper := strings.ToUpper(wkt)
+	for _, prefix := range wktGeometryTypes {
+		if strings.HasPrefix(upper, prefix) {
+			return wkt
+		}
+	}
+	slog.Warn("геометрийн хэлбэр танигдсангүй, хил хадгалагдахгүй",
+		"value", truncateForLog(wkt))
+	return ""
+}
+
+// truncateForLog — геометр нь мянган тэмдэгт байж болох тул логт таслана.
+func truncateForLog(s string) string {
+	const max = 120
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if v != "" {

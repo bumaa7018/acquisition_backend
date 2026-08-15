@@ -472,6 +472,70 @@ func (m *MockLandService) DeleteParcelDocument(ctx context.Context, parcelID, do
 	return m.Called(ctx, parcelID, documentID).Error(0)
 }
 
+func (m *MockLandService) SyncParcelBasePrice(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelBasePrice, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelBasePrice), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelInvoices(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.ParcelInvoice, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ParcelInvoice), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelMortgages(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelSyncCountResult), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelCourtDecisions(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelSyncCountResult), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelMonitorings(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelSyncCountResult), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelHolders(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelHolderSyncResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelHolderSyncResult), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelDocuments(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, roles []string) (*domain.ParcelDocumentSyncResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode, roles)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelDocumentSyncResult), args.Error(1)
+}
+
+func (m *MockLandService) OpenParcelDocumentFile(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.DocumentFile, error) {
+	args := m.Called(ctx, parcelID, documentID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.DocumentFile), args.Error(1)
+}
+
 func (m *MockLandService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
 	args := m.Called(ctx, filter)
 	if args.Get(0) == nil {
@@ -625,21 +689,28 @@ func (m *MockLandService) DeleteFundingSource(ctx context.Context, id uuid.UUID)
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockLandService) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
-	args := m.Called(ctx, acquisitionID, parcelID)
-	return args.Get(0).([]*domain.AuthorizedRepresentative), args.Error(1)
-}
-
-func (m *MockLandService) CreateAuthorizedRepresentative(ctx context.Context, rep *domain.AuthorizedRepresentative) (*domain.AuthorizedRepresentative, error) {
-	args := m.Called(ctx, rep)
+func (m *MockLandService) ListParcelRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]domain.ParcelHolder, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*domain.AuthorizedRepresentative), args.Error(1)
+	return args.Get(0).([]domain.ParcelHolder), args.Error(1)
 }
 
-func (m *MockLandService) DeleteAuthorizedRepresentative(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandService) CreateParcelRepresentative(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, holder *domain.ParcelHolder) (*domain.ParcelHolder, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode, holder)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelHolder), args.Error(1)
+}
+
+func (m *MockLandService) DeleteParcelRepresentative(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, parcelHolderID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, parcelCode, parcelHolderID).Error(0)
+}
+
+func (m *MockLandService) SetParcelPaymentRecipient(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, parcelHolderID uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, parcelCode, parcelHolderID).Error(0)
 }
 
 func (m *MockLandService) ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error) {

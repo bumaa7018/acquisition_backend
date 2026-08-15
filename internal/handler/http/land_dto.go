@@ -106,6 +106,11 @@ type parcelFullResponse struct {
 	// Holders — БҮХ эзэмшигч (нэг хүсэлт дээр төрөл өөр олон хүн байж болно).
 	// detail дотрох holder_* талбарууд нь зөвхөн үндсэн хүсэлт гаргагчийг заана.
 	Holders []parcelHolderResponse `json:"holders"`
+	// ГУС-аас татагдсан санхүү, эрх зүйн бүртгэлүүд
+	Mortgages      []domain.ParcelMortgage      `json:"mortgages"`
+	CourtDecisions []domain.ParcelCourtDecision `json:"court_decisions"`
+	Invoices       []domain.ParcelInvoice       `json:"invoices"`
+	Monitorings    []domain.ParcelMonitoring    `json:"monitorings"`
 }
 
 type parcelHolderResponse struct {
@@ -120,6 +125,31 @@ type parcelHolderResponse struct {
 	// Хуулийн этгээд үед last_name хоосон, name-д байгууллагын бүтэн нэр байна.
 	PersonType string `json:"person_type"`
 	AppNo      string `json:"app_no"`
+	// HolderRole — "holder" (ГУС-аас татагдсан эзэмшигч) эсвэл
+	// "representative" (гараар бүртгэсэн итгэмжлэгдсэн төлөөлөгч).
+	HolderRole string `json:"holder_role"`
+	// PaymentRecipient — нөхөн төлбөр хүлээн авах эзэмшигч (нэгж талбарт НЭГ).
+	PaymentRecipient bool   `json:"payment_recipient"`
+	Note             string `json:"note,omitempty"`
+	Address          string `json:"address,omitempty"`
+}
+
+func toParcelHolderResponse(h domain.ParcelHolder) parcelHolderResponse {
+	return parcelHolderResponse{
+		ID:               h.ID.String(),
+		MainApplicant:    h.MainApplicant,
+		LastName:         h.LastName,
+		Name:             h.Name,
+		RegisterNo:       h.RegisterNo,
+		Phone:            h.Phone,
+		Email:            h.Email,
+		PersonType:       h.PersonType,
+		AppNo:            h.AppNo,
+		HolderRole:       h.HolderRole,
+		PaymentRecipient: h.PaymentRecipient,
+		Note:             h.Note,
+		Address:          h.Address,
+	}
 }
 
 type parcelDetailInfo struct {
@@ -183,6 +213,12 @@ type documentResponse struct {
 	UploadedBy     string `json:"uploaded_by"`
 	UploadedAt     string `json:"uploaded_at"`
 	DocumentTypeID int    `json:"document_type_id,omitempty"`
+	// SourceDocID — эх системээс татагдсан хавсралт дээр л утгатай. Гараар
+	// оруулсан хавсралтаас ялгахад хэрэглэнэ.
+	SourceDocID string `json:"source_doc_id,omitempty"`
+	// SourceDocCode — ГУС-ийн баримтын үүргийн код. Хавсралтыг Кадастр/
+	// Төлбөр/Мониторинг гэж бүлэглэхэд хэрэглэнэ. document_type_id-тай ХАМААРАЛГҮЙ.
+	SourceDocCode string `json:"source_doc_code,omitempty"`
 }
 
 func toDocumentResponse(d *domain.Document) documentResponse {
@@ -196,6 +232,8 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 		UploadedBy:     d.UploadedBy,
 		DocumentTypeID: d.DocumentTypeID,
 		UploadedAt:     d.UploadedAt.Format(time.RFC3339),
+		SourceDocID:    d.SourceDocID,
+		SourceDocCode:  d.SourceDocCode,
 	}
 }
 
@@ -665,6 +703,10 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 
 func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	r := parcelFullResponse{
+		Mortgages:          pf.Mortgages,
+		CourtDecisions:     pf.CourtDecisions,
+		Invoices:           pf.Invoices,
+		Monitorings:        pf.Monitorings,
 		ID:                 pf.ID.String(),
 		ParcelID:           pf.ParcelID,
 		OldParcelID:        pf.OldParcelID,
@@ -764,17 +806,7 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	}
 	r.Holders = make([]parcelHolderResponse, 0, len(pf.Holders))
 	for _, h := range pf.Holders {
-		r.Holders = append(r.Holders, parcelHolderResponse{
-			ID:            h.ID.String(),
-			MainApplicant: h.MainApplicant,
-			LastName:      h.LastName,
-			Name:          h.Name,
-			RegisterNo:    h.RegisterNo,
-			Phone:         h.Phone,
-			Email:         h.Email,
-			PersonType:    h.PersonType,
-			AppNo:         h.AppNo,
-		})
+		r.Holders = append(r.Holders, toParcelHolderResponse(h))
 	}
 	return r
 }
@@ -829,38 +861,6 @@ func toFundingSourceResponse(fs *domain.FundingSource) fundingSourceResponse {
 		Note:             fs.Note,
 		CreatedAt:        fs.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		CreatedBy:        fs.CreatedBy,
-	}
-}
-
-type authorizedRepresentativeResponse struct {
-	ID            string `json:"id"`
-	AcquisitionID string `json:"acquisition_id"`
-	ParcelID      string `json:"parcel_id"`
-	LastName      string `json:"last_name"`
-	FirstName     string `json:"first_name"`
-	RegisterNo    string `json:"register_no"`
-	Phone         string `json:"phone"`
-	Email         string `json:"email"`
-	Address       string `json:"address"`
-	Note          string `json:"note"`
-	CreatedAt     string `json:"created_at"`
-	CreatedBy     string `json:"created_by"`
-}
-
-func toAuthorizedRepresentativeResponse(rep *domain.AuthorizedRepresentative) authorizedRepresentativeResponse {
-	return authorizedRepresentativeResponse{
-		ID:            rep.ID.String(),
-		AcquisitionID: rep.AcquisitionID.String(),
-		ParcelID:      rep.ParcelID,
-		LastName:      rep.LastName,
-		FirstName:     rep.FirstName,
-		RegisterNo:    rep.RegisterNo,
-		Phone:         rep.Phone,
-		Email:         rep.Email,
-		Address:       rep.Address,
-		Note:          rep.Note,
-		CreatedAt:     rep.CreatedAt.Format(time.RFC3339),
-		CreatedBy:     rep.CreatedBy,
 	}
 }
 
