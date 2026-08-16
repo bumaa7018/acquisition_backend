@@ -157,6 +157,12 @@ WHERE COALESCE(role_type_code, '') = ''
         AND nr."name" LIKE '%\_' || sdplatform.sd_role."name"
   );
 
+-- sd_user_role-д гадаад түлхүүр байдаггүй тул устгасан хуучин ролиудын
+-- өнчин мөрүүдийг гараар цэвэрлэнэ (эс тэгвээс sequence дахин ашиглахад
+-- буруу роль хавсрах эрсдэлтэй).
+DELETE FROM sdplatform.sd_user_role ur
+WHERE NOT EXISTS (SELECT 1 FROM sdplatform.sd_role r WHERE r.role_id = ur.role_id);
+
 -- ---------------------------------------------------------------------------
 -- 3. HR лавлах: public → sdplatform (төрөлх бүтэц, int4 түлхүүр)
 -- ---------------------------------------------------------------------------

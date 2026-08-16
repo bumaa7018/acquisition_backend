@@ -293,6 +293,92 @@ BEGIN
     END IF;
 END $$;
 
+
+-- Аль хэдийн sdplatform-д шилжсэн боловч ХУУЧИН хэлбэртэй (эрхийн нэр
+-- "нөөц:үйлдэл", ролийн role_type_code хоосон) өгөгдлийг байрандаа хөрвүүлнэ.
+-- Шинэ DB дээр энэ нь юу ч хийхгүй.
+DO $$
+DECLARE
+    r         record;
+    new_role  int4;
+    new_perm  int4;
+    role_name text;
+BEGIN
+    FOR r IN
+        SELECT DISTINCT
+               ro.role_id                   AS old_role_id,
+               COALESCE(ro."name", '')      AS level,
+               split_part(p."name", ':', 1) AS resource,
+               split_part(p."name", ':', 2) AS action
+        FROM sdplatform.sd_role_permission rp
+        JOIN sdplatform.sd_role ro      ON ro.role_id = rp.role_id
+        JOIN sdplatform.sd_permission p ON p.permission_id = rp.permission_id
+        WHERE p."name" LIKE '%:%'
+          AND COALESCE(ro.role_type_code, '') = ''
+          AND COALESCE(ro."name", '') <> ''
+    LOOP
+        role_name := r.resource || '_' || r.level;
+
+        SELECT role_id INTO new_role FROM sdplatform.sd_role WHERE "name" = LEFT(role_name, 250);
+        IF new_role IS NULL THEN
+            INSERT INTO sdplatform.sd_role ("name", role_type_code, description, created_at, updated_at)
+            VALUES (LEFT(role_name, 250), LEFT(r.resource, 45), r.level || ' — ' || r.resource, NOW(), NOW())
+            RETURNING role_id INTO new_role;
+        END IF;
+
+        INSERT INTO sdplatform.sd_system_role (system_id, role_id, created_at)
+        SELECT 10, new_role, NOW()
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sdplatform.sd_system_role WHERE system_id = 10 AND role_id = new_role
+        );
+
+        SELECT permission_id INTO new_perm FROM sdplatform.sd_permission WHERE "name" = LEFT(r.action, 250);
+        IF new_perm IS NULL THEN
+            INSERT INTO sdplatform.sd_permission (code, "name", created_at)
+            VALUES (LEFT(r.action, 45), LEFT(r.action, 250), NOW())
+            RETURNING permission_id INTO new_perm;
+        END IF;
+
+        INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, created_at)
+        SELECT new_role, new_perm, NOW()
+        WHERE NOT EXISTS (
+            SELECT 1 FROM sdplatform.sd_role_permission
+            WHERE role_id = new_role AND permission_id = new_perm AND menu_id IS NULL
+        );
+
+        INSERT INTO sdplatform.sd_user_role (user_id, role_id, created_at, updated_at)
+        SELECT ur.user_id, new_role, NOW(), NOW()
+        FROM sdplatform.sd_user_role ur
+        WHERE ur.role_id = r.old_role_id
+        ON CONFLICT DO NOTHING;
+    END LOOP;
+END $$;
+
+DELETE FROM sdplatform.sd_role_permission rp
+USING sdplatform.sd_permission p
+WHERE rp.permission_id = p.permission_id AND p."name" LIKE '%:%';
+
+DELETE FROM sdplatform.sd_permission WHERE "name" LIKE '%:%';
+
+DELETE FROM sdplatform.sd_role
+WHERE COALESCE(role_type_code, '') = ''
+  AND EXISTS (
+      SELECT 1 FROM sdplatform.sd_role nr
+      WHERE nr.role_type_code IS NOT NULL
+        AND nr."name" LIKE '%\_' || sdplatform.sd_role."name"
+  );
+
+-- sd_user_role-д гадаад түлхүүр байдаггүй тул устгасан хуучин ролиудын
+-- өнчин мөрүүдийг гараар цэвэрлэнэ (эс тэгвээс sequence дахин ашиглахад
+-- буруу роль хавсрах эрсдэлтэй).
+DELETE FROM sdplatform.sd_user_role ur
+WHERE NOT EXISTS (SELECT 1 FROM sdplatform.sd_role r WHERE r.role_id = ur.role_id);
+
+-- Хуучин *_api_meta хүснэгтүүд (000092-оор үүсээгүй бол байхгүй).
+DROP TABLE IF EXISTS sdplatform.sd_user_api_meta;
+DROP TABLE IF EXISTS sdplatform.sd_role_api_meta;
+DROP TABLE IF EXISTS sdplatform.sd_permission_api_meta;
+
 -- ---------------------------------------------------------------------------
 -- Хэрэглэгчийн ID заадаг багануудыг uuid → int4
 -- ---------------------------------------------------------------------------
@@ -309,6 +395,7 @@ BEGIN
             ('land_acquisition_assignee', 'assigned_by'),
             ('land_acquisition_assignee', 'user_id'),
             ('notification', 'actor_id'),
+            ('notification', 'recipient_id'),
             ('parcel', 'independent_org_id')
         ) AS t(tbl, col)
     LOOP
