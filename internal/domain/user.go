@@ -6,15 +6,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// User — sdplatform.sd_user. ID нь user_id (serial4).
 type User struct {
-	ID         uuid.UUID  `db:"id" json:"id"`
+	ID         ID         `db:"user_id" json:"id"`
 	Username   string     `db:"username" json:"username"`
 	Email      string     `db:"email" json:"email"`
 	Password   string     `db:"password" json:"-"`
-	FirstName  string     `db:"first_name" json:"first_name"`
-	LastName   string     `db:"last_name" json:"last_name"`
-	Position   string     `db:"position" json:"position"`
-	EmployeeID *uuid.UUID `db:"employee_id" json:"employee_id,omitempty"`
+	FirstName  string     `db:"firstname" json:"first_name"`
+	LastName   string     `db:"lastname" json:"last_name"`
+	Position   string     `json:"position"`
+	EmployeeID *ID        `json:"employee_id,omitempty"`
 	Employee   *Employee  `json:"employee,omitempty"`
 	IsActive   bool       `db:"is_active" json:"is_active"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
@@ -23,9 +24,11 @@ type User struct {
 	Roles      []Role     `json:"roles,omitempty"`
 }
 
+// PasswordResetToken — энэ системийн өөрийн хүснэгт (sdplatform.password_reset_tokens).
+// Токены өөрийн ID нь uuid хэвээр; user_id нь sd_user.user_id-г заана.
 type PasswordResetToken struct {
 	ID        uuid.UUID `db:"id"`
-	UserID    uuid.UUID `db:"user_id"`
+	UserID    ID        `db:"user_id"`
 	Token     string    `db:"token"`
 	ExpiresAt time.Time `db:"expires_at"`
 	Used      bool      `db:"used"`
@@ -34,7 +37,7 @@ type PasswordResetToken struct {
 
 type RevokedToken struct {
 	JTI       string    `db:"jti"`
-	UserID    uuid.UUID `db:"user_id"`
+	UserID    ID        `db:"user_id"`
 	TokenType string    `db:"token_type"`
 	ExpiresAt time.Time `db:"expires_at"`
 	RevokedAt time.Time `db:"revoked_at"`

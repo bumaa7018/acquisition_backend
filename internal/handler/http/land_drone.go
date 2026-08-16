@@ -152,9 +152,9 @@ func (h *LandHandler) RegisterDroneImage(c *gin.Context) {
 		return
 	}
 
-	var uploadedBy *uuid.UUID
+	var uploadedBy *domain.ID
 	if raw, ok := c.Get(middleware.CtxUserID); ok {
-		if uid, ok := raw.(uuid.UUID); ok && uid != uuid.Nil {
+		if uid, ok := raw.(domain.ID); ok && uid != 0 {
 			uploadedBy = &uid
 		}
 	}

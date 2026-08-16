@@ -6,6 +6,7 @@ import (
 	"acquisition_backend/internal/config"
 	"acquisition_backend/internal/pkg/filestorage"
 	"acquisition_backend/internal/repository"
+	"acquisition_backend/internal/repository/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -211,6 +212,31 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000023_plan_backfill",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedPlanBackfill(ctx)
+			},
+		},
+		{
+			name: "000024_system10_access_policy",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedSystem10AccessPolicy(ctx)
+			},
+		},
+		{
+			name: "000025_main_external_valuation_users",
+			run: func(ctx context.Context) error {
+				return NewSeeder(
+					mainDB,
+					postgres.NewUserRepo(mainDB),
+					postgres.NewRoleRepo(mainDB),
+					postgres.NewPermissionRepo(mainDB),
+				).SeedExternalValuationOrgUsers(ctx)
+			},
+		},
+		{
+			name: "000026_legacy_sdplatform_system10_seed",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedLegacySDPlatformSystem10(ctx)
 			},
 		},
 	})

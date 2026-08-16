@@ -9,7 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 )
 
 type PermissionHandler struct {
@@ -96,8 +95,8 @@ func (h *PermissionHandler) Create(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /permissions/{id} [delete]
 func (h *PermissionHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}

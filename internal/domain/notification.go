@@ -29,8 +29,8 @@ const (
 
 type Notification struct {
 	ID           uuid.UUID  `json:"id"`
-	RecipientID  uuid.UUID  `json:"recipient_id"`
-	ActorID      *uuid.UUID `json:"actor_id,omitempty"`
+	RecipientID  ID         `json:"recipient_id"`
+	ActorID      *ID        `json:"actor_id,omitempty"`
 	ActorName    string     `json:"actor_name"`
 	Type         string     `json:"type"`
 	Title        string     `json:"title"`

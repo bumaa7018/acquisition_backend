@@ -10,7 +10,6 @@ import (
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type HRHandler struct {
@@ -25,33 +24,21 @@ func NewHRHandler(org service.OrganizationService, dep service.DepartmentService
 	return &HRHandler{orgSvc: org, depSvc: dep, posSvc: pos, perSvc: per, empSvc: emp}
 }
 
+// sd_organization-д зөвхөн name багана байдаг.
 type organizationBody struct {
-	ParentID   *uuid.UUID `json:"parent_id"`
-	Name       string     `json:"name"`
-	ShortName  *string    `json:"short_name"`
-	RegisterNo *string    `json:"register_no"`
-	Address    *string    `json:"address"`
-	Phone      *string    `json:"phone"`
-	Email      *string    `json:"email"`
-	ExternalID *string    `json:"external_id"`
-	Source     string     `json:"source"`
-	IsActive   *bool      `json:"is_active"`
+	Name string `json:"name"`
 }
 
 type departmentBody struct {
-	OrganizationID uuid.UUID  `json:"organization_id"`
-	ParentID       *uuid.UUID `json:"parent_id"`
+	OrganizationID domain.ID  `json:"organization_id"`
+	ParentID       *domain.ID `json:"parent_id"`
 	Code           *string    `json:"code"`
 	Name           string     `json:"name"`
-	SortOrder      int        `json:"sort_order"`
-	IsActive       *bool      `json:"is_active"`
 }
 
 type positionBody struct {
-	Code      *string `json:"code"`
-	Name      string  `json:"name"`
-	SortOrder int     `json:"sort_order"`
-	IsActive  *bool   `json:"is_active"`
+	Code *string `json:"code"`
+	Name string  `json:"name"`
 }
 
 type personBody struct {
@@ -66,23 +53,19 @@ type personBody struct {
 	Phone      *string `json:"phone"`
 	Email      *string `json:"email"`
 	Address    *string `json:"address"`
-	ExternalID *string `json:"external_id"`
-	Source     string  `json:"source"`
-	IsActive   *bool   `json:"is_active"`
 }
 
+// hr_employee-д байгууллагын багана байхгүй — байгууллага нь хэлтсээр дамжина.
 type employeeBody struct {
-	PersonID       *uuid.UUID  `json:"person_id"`
-	Person         *personBody `json:"person"`
-	OrganizationID uuid.UUID   `json:"organization_id"`
-	DepartmentID   *uuid.UUID  `json:"department_id"`
-	PositionID     uuid.UUID   `json:"position_id"`
-	EmployeeNo     *string     `json:"employee_no"`
-	WorkEmail      *string     `json:"work_email"`
-	WorkPhone      *string     `json:"work_phone"`
-	HiredAt        *string     `json:"hired_at"`
-	ReleasedAt     *string     `json:"released_at"`
-	IsActive       *bool       `json:"is_active"`
+	PersonID     *domain.ID  `json:"person_id"`
+	Person       *personBody `json:"person"`
+	DepartmentID *domain.ID  `json:"department_id"`
+	PositionID   domain.ID   `json:"position_id"`
+	WorkEmail    *string     `json:"work_email"`
+	WorkPhone    *string     `json:"work_phone"`
+	HiredAt      *string     `json:"hired_at"`
+	ReleasedAt   *string     `json:"released_at"`
+	IsActive     *bool       `json:"is_active"`
 }
 
 func parseOptionalDate(raw *string) (*time.Time, error) {
@@ -104,7 +87,7 @@ func personReqFromBody(b personBody) (service.PersonRequest, error) {
 	if err != nil {
 		return service.PersonRequest{}, err
 	}
-	return service.PersonRequest{PersonType: b.PersonType, RegisterNo: b.RegisterNo, LastName: b.LastName, FirstName: b.FirstName, LegalName: b.LegalName, CivilID: b.CivilID, BirthDate: birthDate, Gender: b.Gender, Phone: b.Phone, Email: b.Email, Address: b.Address, ExternalID: b.ExternalID, Source: b.Source, IsActive: b.IsActive}, nil
+	return service.PersonRequest{PersonType: b.PersonType, RegisterNo: b.RegisterNo, LastName: b.LastName, FirstName: b.FirstName, LegalName: b.LegalName, CivilID: b.CivilID, BirthDate: birthDate, Gender: b.Gender, Phone: b.Phone, Email: b.Email, Address: b.Address}, nil
 }
 
 func employeeReqFromBody(b employeeBody) (service.CreateEmployeeRequest, error) {
@@ -124,22 +107,22 @@ func employeeReqFromBody(b employeeBody) (service.CreateEmployeeRequest, error) 
 		}
 		p = &req
 	}
-	return service.CreateEmployeeRequest{PersonID: b.PersonID, Person: p, OrganizationID: b.OrganizationID, DepartmentID: b.DepartmentID, PositionID: b.PositionID, EmployeeNo: b.EmployeeNo, WorkEmail: b.WorkEmail, WorkPhone: b.WorkPhone, HiredAt: hiredAt, ReleasedAt: releasedAt, IsActive: b.IsActive}, nil
+	return service.CreateEmployeeRequest{PersonID: b.PersonID, Person: p, DepartmentID: b.DepartmentID, PositionID: b.PositionID, WorkEmail: b.WorkEmail, WorkPhone: b.WorkPhone, HiredAt: hiredAt, ReleasedAt: releasedAt}, nil
 }
 
 func hrFilter(c *gin.Context) (domain.HRFilter, bool) {
 	f := domain.HRFilter{Search: c.Query("search"), Page: queryInt(c, "page", 1), PageSize: queryInt(c, "page_size", 20)}
 	if v := c.Query("organization_id"); v != "" {
-		id, err := uuid.Parse(v)
-		if err != nil {
+		id, ok := parseID(v)
+		if !ok {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return f, false
 		}
 		f.OrganizationID = &id
 	}
 	if v := c.Query("department_id"); v != "" {
-		id, err := uuid.Parse(v)
-		if err != nil {
+		id, ok := parseID(v)
+		if !ok {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return f, false
 		}
@@ -150,15 +133,6 @@ func hrFilter(c *gin.Context) (domain.HRFilter, bool) {
 		f.IsActive = &active
 	}
 	return f, true
-}
-
-func parseUUIDParam(c *gin.Context) (uuid.UUID, bool) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
-		return uuid.Nil, false
-	}
-	return id, true
 }
 
 func (h *HRHandler) ListOrganizations(c *gin.Context) {
@@ -174,7 +148,7 @@ func (h *HRHandler) ListOrganizations(c *gin.Context) {
 	response.Paginated(c, list, total, f.Page, f.PageSize)
 }
 func (h *HRHandler) GetOrganization(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -199,7 +173,7 @@ func (h *HRHandler) CreateOrganization(c *gin.Context) {
 	response.Created(c, item)
 }
 func (h *HRHandler) UpdateOrganization(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -216,7 +190,7 @@ func (h *HRHandler) UpdateOrganization(c *gin.Context) {
 	response.OK(c, item)
 }
 func (h *HRHandler) DeleteOrganization(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -253,7 +227,7 @@ func (h *HRHandler) CreateDepartment(c *gin.Context) {
 	response.Created(c, item)
 }
 func (h *HRHandler) UpdateDepartment(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -270,7 +244,7 @@ func (h *HRHandler) UpdateDepartment(c *gin.Context) {
 	response.OK(c, item)
 }
 func (h *HRHandler) DeleteDepartment(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -307,7 +281,7 @@ func (h *HRHandler) CreatePosition(c *gin.Context) {
 	response.Created(c, item)
 }
 func (h *HRHandler) UpdatePosition(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -324,7 +298,7 @@ func (h *HRHandler) UpdatePosition(c *gin.Context) {
 	response.OK(c, item)
 }
 func (h *HRHandler) DeletePosition(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -358,8 +332,6 @@ func (h *HRHandler) CreatePerson(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	req.CreatedBy = currentUserEmail(c)
-	req.UpdatedBy = req.CreatedBy
 	item, err := h.perSvc.Create(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, err)
@@ -368,7 +340,7 @@ func (h *HRHandler) CreatePerson(c *gin.Context) {
 	response.Created(c, item)
 }
 func (h *HRHandler) UpdatePerson(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -382,7 +354,6 @@ func (h *HRHandler) UpdatePerson(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	req.UpdatedBy = currentUserEmail(c)
 	item, err := h.perSvc.Update(c.Request.Context(), id, req)
 	if err != nil {
 		response.Error(c, err)
@@ -391,7 +362,7 @@ func (h *HRHandler) UpdatePerson(c *gin.Context) {
 	response.OK(c, item)
 }
 func (h *HRHandler) DeletePerson(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -415,7 +386,7 @@ func (h *HRHandler) ListEmployees(c *gin.Context) {
 	response.Paginated(c, list, total, f.Page, f.PageSize)
 }
 func (h *HRHandler) GetEmployee(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -437,8 +408,6 @@ func (h *HRHandler) CreateEmployee(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	req.CreatedBy = currentUserEmail(c)
-	req.UpdatedBy = req.CreatedBy
 	item, err := h.empSvc.Create(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, err)
@@ -447,7 +416,7 @@ func (h *HRHandler) CreateEmployee(c *gin.Context) {
 	response.Created(c, item)
 }
 func (h *HRHandler) UpdateEmployee(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}
@@ -466,7 +435,7 @@ func (h *HRHandler) UpdateEmployee(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	req := service.UpdateEmployeeRequest{PersonID: b.PersonID, OrganizationID: &b.OrganizationID, DepartmentID: b.DepartmentID, PositionID: &b.PositionID, EmployeeNo: b.EmployeeNo, WorkEmail: b.WorkEmail, WorkPhone: b.WorkPhone, HiredAt: hiredAt, ReleasedAt: releasedAt, IsActive: b.IsActive, UpdatedBy: currentUserEmail(c)}
+	req := service.UpdateEmployeeRequest{PersonID: b.PersonID, DepartmentID: b.DepartmentID, PositionID: &b.PositionID, WorkEmail: b.WorkEmail, WorkPhone: b.WorkPhone, HiredAt: hiredAt, ReleasedAt: releasedAt, IsActive: b.IsActive}
 	item, err := h.empSvc.Update(c.Request.Context(), id, req)
 	if err != nil {
 		response.Error(c, err)
@@ -475,7 +444,7 @@ func (h *HRHandler) UpdateEmployee(c *gin.Context) {
 	response.OK(c, item)
 }
 func (h *HRHandler) DeleteEmployee(c *gin.Context) {
-	id, ok := parseUUIDParam(c)
+	id, ok := parseIDParam(c)
 	if !ok {
 		return
 	}

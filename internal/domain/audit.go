@@ -20,7 +20,7 @@ const (
 
 type AuditLog struct {
 	ID            uuid.UUID       `json:"id"`
-	ActorID       *uuid.UUID      `json:"actor_id,omitempty"`
+	ActorID       *ID             `json:"actor_id,omitempty"`
 	ActorName     string          `json:"actor_name"`
 	ActorPosition string          `json:"actor_position"`
 	ActorRoles    []string        `json:"actor_roles"`
@@ -36,7 +36,7 @@ type AuditLog struct {
 }
 
 type AuditLogFilter struct {
-	ActorID       *uuid.UUID
+	ActorID       *ID
 	Action        string
 	ResourceType  string
 	ResourceID    string

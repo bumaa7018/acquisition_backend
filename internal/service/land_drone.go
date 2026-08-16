@@ -187,7 +187,7 @@ func (s *landService) RegisterDroneImage(
 	acquisitionID uuid.UUID,
 	storedName string,
 	originalName string,
-	uploadedBy *uuid.UUID,
+	uploadedBy *domain.ID,
 ) (*domain.DroneImage, error, error) {
 	if s.drone.Publisher == nil || !s.drone.Publisher.Configured() {
 		return nil, nil, ErrDroneNotConfigured

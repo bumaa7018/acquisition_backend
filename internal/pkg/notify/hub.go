@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"acquisition_backend/internal/domain"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -22,16 +20,16 @@ const (
 
 type Hub struct {
 	mu   sync.RWMutex
-	subs map[uuid.UUID]map[chan *domain.Notification]struct{}
+	subs map[domain.ID]map[chan *domain.Notification]struct{}
 }
 
 func NewHub() *Hub {
-	return &Hub{subs: make(map[uuid.UUID]map[chan *domain.Notification]struct{})}
+	return &Hub{subs: make(map[domain.ID]map[chan *domain.Notification]struct{})}
 }
 
 // Subscribe — хэрэглэгчийн стрийм суваг нээнэ. Хязгаар хэтэрсэн бол nil суваг
 // буцаана (дуудагч нь холболтыг татгалзана). unsubscribe-ийг заавал дуудна.
-func (h *Hub) Subscribe(userID uuid.UUID) (<-chan *domain.Notification, func()) {
+func (h *Hub) Subscribe(userID domain.ID) (<-chan *domain.Notification, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

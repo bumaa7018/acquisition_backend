@@ -1,0 +1,21 @@
+-- Restore migration rollback intentionally drops only the legacy mirror tables it restores.
+DROP TABLE IF EXISTS sdplatform.hr_employee;
+DROP TABLE IF EXISTS sdplatform.hr_department;
+DROP TABLE IF EXISTS sdplatform.hr_position;
+DROP TABLE IF EXISTS sdplatform.sd_menu_form;
+DROP TABLE IF EXISTS sdplatform.sd_form;
+DROP TABLE IF EXISTS sdplatform.sd_menu_role;
+DROP TABLE IF EXISTS sdplatform.sd_role_permission;
+DROP TABLE IF EXISTS sdplatform.sd_system_role;
+DROP TABLE IF EXISTS sdplatform.sd_menu;
+DROP TABLE IF EXISTS sdplatform.sd_permission;
+DROP TABLE IF EXISTS sdplatform.sd_system;
+DROP TABLE IF EXISTS sdplatform.sd_user_role;
+DROP TABLE IF EXISTS sdplatform.sd_role;
+DROP TABLE IF EXISTS sdplatform.sd_user;
+DROP TABLE IF EXISTS sdplatform.sd_organization;
+DROP TABLE IF EXISTS base.bs_person;
+DROP TABLE IF EXISTS codelists.cl_legal_entity_type;
+DROP TABLE IF EXISTS codelists.cl_person_type;
+DROP SEQUENCE IF EXISTS sdplatform.sd_role_id_seq;
+DROP SEQUENCE IF EXISTS base.ps_person_person_id_seq;

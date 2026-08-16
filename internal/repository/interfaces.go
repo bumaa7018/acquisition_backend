@@ -12,86 +12,95 @@ import (
 type UserRepository interface {
 	Create(ctx context.Context, user *domain.User) error
 	CreateWithEmployee(ctx context.Context, user *domain.User, employee *domain.Employee, person *domain.Person) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	GetByID(ctx context.Context, id domain.ID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
-	GetByEmployeeID(ctx context.Context, employeeID uuid.UUID) (*domain.User, error)
+	GetByEmployeeID(ctx context.Context, employeeID domain.ID) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	// UpdatePassword — Update() нь password баганыг хөндөхгүй тул нууц үг
 	// шинэчлэхэд тусад нь хэрэглэнэ.
-	UpdatePassword(ctx context.Context, id uuid.UUID, hashed string) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	UpdatePassword(ctx context.Context, id domain.ID, hashed string) error
+	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
-	GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error)
-	GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error)
+	GetPermissions(ctx context.Context, userID domain.ID) ([]string, error)
+	GetRoles(ctx context.Context, userID domain.ID) ([]string, error)
 	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
 	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
-	InvalidateSessions(ctx context.Context, userID uuid.UUID) error
+	InvalidateSessions(ctx context.Context, userID domain.ID) error
 	// IsSessionValid — тухайн issuedAt хугацаанд олгогдсон токен хэрэглэгчийн
 	// эх цэгээс хойш байвал (буюу эх цэг тавиагүй бол) true.
-	IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
+	IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error)
 }
 
 type OrganizationRepository interface {
 	ListOrganizations(ctx context.Context, filter domain.HRFilter) ([]*domain.Organization, int64, error)
-	GetOrganizationByID(ctx context.Context, id uuid.UUID) (*domain.Organization, error)
+	GetOrganizationByID(ctx context.Context, id domain.ID) (*domain.Organization, error)
 	CreateOrganization(ctx context.Context, org *domain.Organization) error
 	UpdateOrganization(ctx context.Context, org *domain.Organization) error
-	DeleteOrganization(ctx context.Context, id uuid.UUID) error
+	DeleteOrganization(ctx context.Context, id domain.ID) error
 }
 
 type DepartmentRepository interface {
 	ListDepartments(ctx context.Context, filter domain.HRFilter) ([]*domain.Department, int64, error)
-	GetDepartmentByID(ctx context.Context, id uuid.UUID) (*domain.Department, error)
+	GetDepartmentByID(ctx context.Context, id domain.ID) (*domain.Department, error)
 	CreateDepartment(ctx context.Context, dep *domain.Department) error
 	UpdateDepartment(ctx context.Context, dep *domain.Department) error
-	DeleteDepartment(ctx context.Context, id uuid.UUID) error
+	DeleteDepartment(ctx context.Context, id domain.ID) error
 }
 
 type PositionRepository interface {
 	ListPositions(ctx context.Context, filter domain.HRFilter) ([]*domain.Position, int64, error)
-	GetPositionByID(ctx context.Context, id uuid.UUID) (*domain.Position, error)
+	GetPositionByID(ctx context.Context, id domain.ID) (*domain.Position, error)
 	CreatePosition(ctx context.Context, pos *domain.Position) error
 	UpdatePosition(ctx context.Context, pos *domain.Position) error
-	DeletePosition(ctx context.Context, id uuid.UUID) error
+	DeletePosition(ctx context.Context, id domain.ID) error
 }
 
 type PersonRepository interface {
 	ListPersons(ctx context.Context, filter domain.HRFilter) ([]*domain.Person, int64, error)
-	GetPersonByID(ctx context.Context, id uuid.UUID) (*domain.Person, error)
+	GetPersonByID(ctx context.Context, id domain.ID) (*domain.Person, error)
 	CreatePerson(ctx context.Context, person *domain.Person) error
 	UpdatePerson(ctx context.Context, person *domain.Person) error
-	DeletePerson(ctx context.Context, id uuid.UUID) error
+	DeletePerson(ctx context.Context, id domain.ID) error
 }
 
 type EmployeeRepository interface {
 	ListEmployees(ctx context.Context, filter domain.HRFilter) ([]*domain.Employee, int64, error)
-	GetEmployeeByID(ctx context.Context, id uuid.UUID) (*domain.Employee, error)
+	GetEmployeeByID(ctx context.Context, id domain.ID) (*domain.Employee, error)
 	CreateEmployee(ctx context.Context, employee *domain.Employee) error
 	CreateEmployeeWithPerson(ctx context.Context, employee *domain.Employee, person *domain.Person) error
 	UpdateEmployee(ctx context.Context, employee *domain.Employee) error
-	DeleteEmployee(ctx context.Context, id uuid.UUID) error
+	DeleteEmployee(ctx context.Context, id domain.ID) error
 }
 
 type RoleRepository interface {
 	Create(ctx context.Context, role *domain.Role) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error)
+	GetByID(ctx context.Context, id domain.ID) (*domain.Role, error)
 	GetByName(ctx context.Context, name string) (*domain.Role, error)
 	Update(ctx context.Context, role *domain.Role) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context) ([]*domain.Role, error)
-	AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error
-	RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error
-	AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error
-	RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error
+	AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error
+	RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error
+	AssignToUser(ctx context.Context, userID, roleID domain.ID) error
+	RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error
 }
 
 type PermissionRepository interface {
 	Create(ctx context.Context, p *domain.Permission) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error)
+	GetByID(ctx context.Context, id domain.ID) (*domain.Permission, error)
 	GetByName(ctx context.Context, name string) (*domain.Permission, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context) ([]*domain.Permission, error)
+}
+
+// MenuRepository — эрхийн 1-р давхарга: цэс харагдах эсэх (sd_menu / sd_menu_role).
+type MenuRepository interface {
+	List(ctx context.Context) ([]*domain.Menu, error)
+	ListByRole(ctx context.Context, roleID domain.ID) ([]*domain.Menu, error)
+	ListByUser(ctx context.Context, userID domain.ID) ([]*domain.Menu, error)
+	AttachToRole(ctx context.Context, roleID, menuID domain.ID) error
+	DetachFromRole(ctx context.Context, roleID, menuID domain.ID) error
 }
 
 type PasswordResetRepository interface {
@@ -161,8 +170,8 @@ type LandAcquisitionWriteRepository interface {
 	// FillParcelAUCodesFromGeometry — геометрээр харьяалах баг/хороог олж
 	// аймаг/сум/багийн кодыг хадгална.
 	FillParcelAUCodesFromGeometry(ctx context.Context, parcelID uuid.UUID) (domain.LandAcquisitionAU, error)
-	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
-	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error
+	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error
+	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
 	// ReplaceParcelDetail — parcel_detail-ийг хуучин мөрүүдийг устгаж бүрэн шинэчилнэ.
 	ReplaceParcelDetail(ctx context.Context, parcelID, acquisitionID, holderID uuid.UUID, src *domain.SourceParcel) error
@@ -282,10 +291,10 @@ type LandDocumentRepository interface {
 type LandAssigneeRepository interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
-	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
 }
 
 type LandWorkflowRepository interface {
@@ -411,10 +420,10 @@ type DocumentTypeRepository interface {
 // өөрийн мэдэгдэлд ханддаг.
 type NotificationRepository interface {
 	CreateBatch(ctx context.Context, ns []*domain.Notification) error
-	ListByRecipient(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
-	UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error)
-	MarkRead(ctx context.Context, recipientID, id uuid.UUID) error
-	MarkAllRead(ctx context.Context, recipientID uuid.UUID) error
+	ListByRecipient(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error)
+	MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, recipientID domain.ID) error
 }
 
 // AuditLogRepository — ажилтны бизнес үйлдлийн append-only лог.

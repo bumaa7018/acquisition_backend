@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -42,8 +44,8 @@ func (s *landService) notifyAsync(reqCtx context.Context, fn func(ctx context.Co
 	}()
 }
 
-func actorPtr(a actorctx.Actor) *uuid.UUID {
-	if a.ID == uuid.Nil {
+func actorPtr(a actorctx.Actor) *domain.ID {
+	if a.ID == 0 {
 		return nil
 	}
 	id := a.ID
@@ -52,8 +54,8 @@ func actorPtr(a actorctx.Actor) *uuid.UUID {
 
 // acquisitionRecipients — чөлөөлөлттэй холбоотой хэрэглэгчид:
 // хуваарилагдсан ажилтнууд + (сонголтоор) оноогдсон мэргэжлийн байгууллага.
-func (s *landService) acquisitionRecipients(ctx context.Context, acqID uuid.UUID, includeProfOrg bool) []uuid.UUID {
-	var out []uuid.UUID
+func (s *landService) acquisitionRecipients(ctx context.Context, acqID uuid.UUID, includeProfOrg bool) []domain.ID {
+	var out []domain.ID
 	if assignees, err := s.landRepo.GetAssignees(ctx, acqID); err == nil {
 		for _, a := range assignees {
 			out = append(out, a.UserID)
@@ -68,7 +70,7 @@ func (s *landService) acquisitionRecipients(ctx context.Context, acqID uuid.UUID
 }
 
 // usersByRole — тухайн ролтой бүх идэвхтэй хэрэглэгч (auth DB).
-func (s *landService) usersByRole(ctx context.Context, role string) []uuid.UUID {
+func (s *landService) usersByRole(ctx context.Context, role string) []domain.ID {
 	if s.userRepo == nil {
 		return nil
 	}
@@ -78,7 +80,7 @@ func (s *landService) usersByRole(ctx context.Context, role string) []uuid.UUID 
 		slog.Error("notification recipient lookup failed", "role", role, "error", err)
 		return nil
 	}
-	out := make([]uuid.UUID, 0, len(users))
+	out := make([]domain.ID, 0, len(users))
 	for _, u := range users {
 		out = append(out, u.ID)
 	}
@@ -135,7 +137,7 @@ func (s *landService) notifyParcelStatusChanged(reqCtx context.Context, acqID, p
 		if parcel.StatusID != domain.ParcelStatusEvaluating {
 			return
 		}
-		var orgs []uuid.UUID
+		var orgs []domain.ID
 		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil && acq.ProfessionalOrgID != nil {
 			orgs = append(orgs, *acq.ProfessionalOrgID)
 		}
@@ -174,7 +176,7 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 		}
 
 		var (
-			recipients []uuid.UUID
+			recipients []domain.ID
 			nType      string
 			title      string
 			body       string
@@ -214,13 +216,13 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 
 // valuationParticipants — үнэлгээний урсгалд оролцогчид: илгээсэн этгээд,
 // оноогдсон байгууллагууд, хуваарилагдсан ажилтнууд.
-func (s *landService) valuationParticipants(ctx context.Context, acqID, parcelPK uuid.UUID, sub *domain.ValuationSubmission) []uuid.UUID {
+func (s *landService) valuationParticipants(ctx context.Context, acqID, parcelPK uuid.UUID, sub *domain.ValuationSubmission) []domain.ID {
 	recipients := s.acquisitionRecipients(ctx, acqID, true)
 	if parcel, err := s.landRepo.GetParcelByID(ctx, parcelPK); err == nil && parcel.IndependentOrgID != nil {
 		recipients = append(recipients, *parcel.IndependentOrgID)
 	}
 	if sub != nil && sub.SubmittedBy != "" {
-		if submitter, err := uuid.Parse(sub.SubmittedBy); err == nil {
+		if submitter, err := parseUserID(sub.SubmittedBy); err == nil {
 			recipients = append(recipients, submitter)
 		}
 	}
@@ -253,7 +255,7 @@ func (s *landService) notifyCompensationReviewed(reqCtx context.Context, acqID, 
 		parcelCode := ""
 		if comp, err := s.landRepo.GetCompensation(ctx, compID); err == nil {
 			parcelCode = comp.ParcelID
-			if creator, err := uuid.Parse(comp.CreatedBy); err == nil {
+			if creator, err := parseUserID(comp.CreatedBy); err == nil {
 				recipients = append(recipients, creator)
 			}
 		}
@@ -282,11 +284,11 @@ func (s *landService) notifyCompensationReviewed(reqCtx context.Context, acqID, 
 // Ажилтан хуваарилагдах → шинээр хуваарилагдсан хэрэглэгч бүрд.
 func (s *landService) notifyAssigneesSet(reqCtx context.Context, acqID uuid.UUID, previous, current []domain.AcquisitionAssignee) {
 	s.notifyAsync(reqCtx, func(ctx context.Context, actor actorctx.Actor) {
-		prevSet := make(map[uuid.UUID]struct{}, len(previous))
+		prevSet := make(map[domain.ID]struct{}, len(previous))
 		for _, a := range previous {
 			prevSet[a.UserID] = struct{}{}
 		}
-		var added []uuid.UUID
+		var added []domain.ID
 		for _, a := range current {
 			if _, existed := prevSet[a.UserID]; !existed {
 				added = append(added, a.UserID)
@@ -313,7 +315,7 @@ func (s *landService) notifyAssigneesSet(reqCtx context.Context, acqID uuid.UUID
 }
 
 // Мэргэжлийн / хөндлөнгийн байгууллага оноогдох → тухайн байгууллагын хэрэглэгчид.
-func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID, parcelPK *uuid.UUID, orgUserID *uuid.UUID, independent bool) {
+func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID, parcelPK *uuid.UUID, orgUserID *domain.ID, independent bool) {
 	if orgUserID == nil {
 		return
 	}
@@ -332,7 +334,7 @@ func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID,
 			resourceType = domain.NotifResourceParcel
 			resourceID = parcelPK.String()
 		}
-		s.notifier.Notify(ctx, []uuid.UUID{orgID}, domain.Notification{
+		s.notifier.Notify(ctx, []domain.ID{orgID}, domain.Notification{
 			ActorID:       actorPtr(actor),
 			ActorName:     actor.Name,
 			Type:          domain.NotifOrgAssigned,
@@ -344,4 +346,13 @@ func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID,
 			ParcelID:      parcelPK,
 		})
 	})
+}
+
+// parseUserID — хэрэглэгчийн ID нь sdplatform-д int4 тул текстээс хөрвүүлнэ.
+func parseUserID(s string) (domain.ID, error) {
+	v, err := strconv.ParseInt(strings.TrimSpace(s), 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return domain.ID(v), nil
 }

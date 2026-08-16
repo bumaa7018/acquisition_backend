@@ -30,8 +30,8 @@ func (h *AuditHandler) List(c *gin.Context) {
 		PageSize:     queryInt(c, "page_size", 20),
 	}
 	if v := c.Query("actor_id"); v != "" {
-		id, err := uuid.Parse(v)
-		if err != nil {
+		id, ok := parseID(v)
+		if !ok {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return
 		}

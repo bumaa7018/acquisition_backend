@@ -55,7 +55,7 @@ func (r *NotificationRepo) CreateBatch(ctx context.Context, ns []*domain.Notific
 	return err
 }
 
-func (r *NotificationRepo) ListByRecipient(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
+func (r *NotificationRepo) ListByRecipient(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -96,7 +96,7 @@ func (r *NotificationRepo) ListByRecipient(ctx context.Context, recipientID uuid
 	return out, total, rows.Err()
 }
 
-func (r *NotificationRepo) UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error) {
+func (r *NotificationRepo) UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error) {
 	var count int64
 	err := r.db.QueryRow(ctx,
 		"SELECT count(*) FROM notification WHERE recipient_id = $1 AND is_read = FALSE",
@@ -104,7 +104,7 @@ func (r *NotificationRepo) UnreadCount(ctx context.Context, recipientID uuid.UUI
 	return count, err
 }
 
-func (r *NotificationRepo) MarkRead(ctx context.Context, recipientID, id uuid.UUID) error {
+func (r *NotificationRepo) MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error {
 	res, err := r.db.Exec(ctx,
 		"UPDATE notification SET is_read = TRUE, read_at = now() WHERE id = $1 AND recipient_id = $2 AND is_read = FALSE",
 		id, recipientID)
@@ -127,7 +127,7 @@ func (r *NotificationRepo) MarkRead(ctx context.Context, recipientID, id uuid.UU
 	return nil
 }
 
-func (r *NotificationRepo) MarkAllRead(ctx context.Context, recipientID uuid.UUID) error {
+func (r *NotificationRepo) MarkAllRead(ctx context.Context, recipientID domain.ID) error {
 	_, err := r.db.Exec(ctx,
 		"UPDATE notification SET is_read = TRUE, read_at = now() WHERE recipient_id = $1 AND is_read = FALSE",
 		recipientID)

@@ -7,13 +7,12 @@ import (
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/repository"
 
-	"github.com/google/uuid"
 )
 
 type PermissionService interface {
 	Create(ctx context.Context, req CreatePermissionRequest) (*domain.Permission, error)
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	GetByID(ctx context.Context, id domain.ID) (*domain.Permission, error)
+	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context) ([]*domain.Permission, error)
 }
 
@@ -34,7 +33,6 @@ func NewPermissionService(permRepo repository.PermissionRepository) PermissionSe
 
 func (s *permissionService) Create(ctx context.Context, req CreatePermissionRequest) (*domain.Permission, error) {
 	p := &domain.Permission{
-		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
 		Resource:    req.Resource,
@@ -47,11 +45,11 @@ func (s *permissionService) Create(ctx context.Context, req CreatePermissionRequ
 	return p, nil
 }
 
-func (s *permissionService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error) {
+func (s *permissionService) GetByID(ctx context.Context, id domain.ID) (*domain.Permission, error) {
 	return s.permRepo.GetByID(ctx, id)
 }
 
-func (s *permissionService) Delete(ctx context.Context, id uuid.UUID) error {
+func (s *permissionService) Delete(ctx context.Context, id domain.ID) error {
 	return s.permRepo.Delete(ctx, id)
 }
 

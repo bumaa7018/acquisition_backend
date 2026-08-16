@@ -52,8 +52,8 @@ type LandAcquisitionService interface {
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
-	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error
-	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error
+	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error
+	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error
 }
 
 type LandAssetService interface {
@@ -132,15 +132,15 @@ type LandDocumentService interface {
 type LandAssigneeService interface {
 	SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
-	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
 	// IsProfMemberOfParcelByCode — parcel_id (код)-оор parcel-ийг олж, тухайн хэрэглэгч
 	// уг acquisition-д харьяалагдах parcel-ийн гишүүн мөн эсэхийг шалгана.
 	// ImportValuation зэрэг parcel_id-г JSON body-гоор хүлээн авдаг route-уудад ашиглана
 	// (URL param биш тул профParcelMemberByParam middleware-ээр шалгах боломжгүй).
-	IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error)
+	IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID domain.ID) (bool, error)
 }
 
 type LandWorkflowService interface {
@@ -173,7 +173,7 @@ type LandDroneService interface {
 	// бүтсэн (файл хадгалалтад бүтэн) тул error БИШ — гэхдээ шалтгааныг
 	// хэрэглэгчид харуулахгүй бол зөвхөн серверийн лог дээр үлдэж, асуудлыг
 	// олох боломжгүй болно.
-	RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error, error)
+	RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *domain.ID) (*domain.DroneImage, error, error)
 	RefreshDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error)
 	DeleteDroneImage(ctx context.Context, acquisitionID, imageID uuid.UUID) error
 	// DroneLayerName — frontend WMS дуудахад хэрэглэх давхаргын нэр ("land:drone")
@@ -1462,23 +1462,23 @@ func (s *landService) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 	return s.landRepo.GetAssignees(ctx, acquisitionID)
 }
 
-func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsAssigned(ctx, acquisitionID, userID)
 }
 
-func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsAssignedToParcel(ctx, parcelID, userID)
 }
 
-func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsProfMemberOfAcquisition(ctx, acquisitionID, userID)
 }
 
-func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsProfMemberOfParcel(ctx, parcelID, userID)
 }
 
-func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error) {
+func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID domain.ID) (bool, error) {
 	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
 	if err != nil {
 		return false, err
@@ -1489,7 +1489,7 @@ func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitio
 	return s.landRepo.IsProfMemberOfParcel(ctx, p.ID, userID)
 }
 
-func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
 	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgUserID); err != nil {
 		return err
 	}
@@ -1500,7 +1500,7 @@ func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisi
 	return nil
 }
 
-func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
 	if err := s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgUserID); err != nil {
 		return err
 	}

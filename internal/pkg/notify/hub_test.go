@@ -12,7 +12,7 @@ import (
 
 func TestHubPublishReachesSubscriber(t *testing.T) {
 	h := NewHub()
-	userID := uuid.New()
+	userID := domain.ID(42)
 
 	ch, unsub := h.Subscribe(userID)
 	require.NotNil(t, ch)
@@ -27,17 +27,17 @@ func TestHubPublishReachesSubscriber(t *testing.T) {
 
 func TestHubPublishSkipsOtherUsers(t *testing.T) {
 	h := NewHub()
-	ch, unsub := h.Subscribe(uuid.New())
+	ch, unsub := h.Subscribe(domain.ID(101))
 	require.NotNil(t, ch)
 	defer unsub()
 
-	h.Publish(&domain.Notification{ID: uuid.New(), RecipientID: uuid.New()})
+	h.Publish(&domain.Notification{ID: uuid.New(), RecipientID: domain.ID(301)})
 	assert.Empty(t, ch)
 }
 
 func TestHubUnsubscribeClosesChannel(t *testing.T) {
 	h := NewHub()
-	userID := uuid.New()
+	userID := domain.ID(42)
 	ch, unsub := h.Subscribe(userID)
 	require.NotNil(t, ch)
 
@@ -53,7 +53,7 @@ func TestHubUnsubscribeClosesChannel(t *testing.T) {
 
 func TestHubPerUserConnectionLimit(t *testing.T) {
 	h := NewHub()
-	userID := uuid.New()
+	userID := domain.ID(42)
 
 	var cleanups []func()
 	for i := 0; i < maxSubsPerUser; i++ {
@@ -76,7 +76,7 @@ func TestHubPerUserConnectionLimit(t *testing.T) {
 
 func TestHubFullBufferDoesNotBlock(t *testing.T) {
 	h := NewHub()
-	userID := uuid.New()
+	userID := domain.ID(42)
 	ch, unsub := h.Subscribe(userID)
 	require.NotNil(t, ch)
 	defer unsub()

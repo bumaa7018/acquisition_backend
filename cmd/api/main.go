@@ -87,10 +87,12 @@ func main() {
 	// Auth repo-ууд → authDB
 	userRepo := postgres.NewUserRepo(authDB)
 	roleRepo := postgres.NewRoleRepo(authDB)
+	menuRepo := postgres.NewMenuRepo(authDB)
 	permRepo := postgres.NewPermissionRepo(authDB)
 	pwdResetRepo := postgres.NewPasswordResetRepo(authDB)
 	revokedTokenRepo := postgres.NewRevokedTokenRepo(authDB)
 	hrRepo := postgres.NewHRRepo(authDB)
+	externalUserRepo := postgres.NewUserRepo(mainDB)
 
 	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
 	planRepo := postgres.NewPlanRepo(authDB)
@@ -122,11 +124,12 @@ func main() {
 		emailSender = email.NoopSender{}
 	}
 
-	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
+	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo, externalUserRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
 	jwtManager.SetSessionValidator(userRepo)
 	userSvc := service.NewUserService(userRepo, hrRepo)
 	roleSvc := service.NewRoleService(roleRepo)
+	menuSvc := service.NewMenuService(menuRepo, roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
 	organizationSvc := service.NewOrganizationService(hrRepo)
 	departmentSvc := service.NewDepartmentService(hrRepo)
@@ -216,7 +219,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, decisionSvcs)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, decisionSvcs, menuSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

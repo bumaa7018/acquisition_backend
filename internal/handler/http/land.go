@@ -680,8 +680,8 @@ func (h *LandHandler) SetAssignees(c *gin.Context) {
 
 	assignees := make([]domain.AcquisitionAssignee, 0, len(req.Users))
 	for _, u := range req.Users {
-		uid, err := uuid.Parse(u.UserID)
-		if err != nil {
+		uid, ok := parseID(u.UserID)
+		if !ok {
 			continue
 		}
 		assignees = append(assignees, domain.AcquisitionAssignee{
@@ -1714,10 +1714,10 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 	}
 
 	createdBy := ""
-	var callerID uuid.UUID
+	var callerID domain.ID
 	if uid, ok := c.Get("userID"); ok {
-		callerID = uid.(uuid.UUID)
-		createdBy = callerID.String()
+		callerID, _ = uid.(domain.ID)
+		createdBy = strconv.FormatInt(int64(callerID), 10)
 	}
 	if mikaOnlyCaller(c) {
 		body.ValuationType = domain.ValuationTypeMika
@@ -2865,7 +2865,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		}
 		if isProf {
 			if userUUID, ok := middleware.GetCallerID(c); ok {
-				filter.ProfessionalOrgUserID = userUUID.String()
+				filter.ProfessionalOrgUserID = strconv.FormatInt(int64(userUUID), 10)
 			} else {
 				response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
 				return
@@ -3260,7 +3260,7 @@ func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 		response.Abort(c, http.StatusUnauthorized, i18n.ErrUnauthorized)
 		return
 	}
-	userIDStr := userUUID.String()
+	userIDStr := strconv.FormatInt(int64(userUUID), 10)
 
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
@@ -3302,10 +3302,10 @@ func (h *LandHandler) SetAcquisitionProfessionalOrg(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
 		return
 	}
-	var orgUID *uuid.UUID
+	var orgUID *domain.ID
 	if body.OrgUserID != nil && *body.OrgUserID != "" {
-		parsed, err := uuid.Parse(*body.OrgUserID)
-		if err != nil {
+		parsed, ok := parseID(*body.OrgUserID)
+		if !ok {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return
 		}
@@ -3336,10 +3336,10 @@ func (h *LandHandler) SetParcelIndependentOrg(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
 		return
 	}
-	var orgUID *uuid.UUID
+	var orgUID *domain.ID
 	if body.OrgUserID != nil && *body.OrgUserID != "" {
-		parsed, err := uuid.Parse(*body.OrgUserID)
-		if err != nil {
+		parsed, ok := parseID(*body.OrgUserID)
+		if !ok {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return
 		}

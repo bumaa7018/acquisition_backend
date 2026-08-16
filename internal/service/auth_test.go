@@ -42,7 +42,7 @@ func TestAuthService_Login_Success(t *testing.T) {
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	userID := uuid.New()
+	userID := domain.ID(42)
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782" // "secret"
 	user := &domain.User{ID: userID, Username: "testuser", Password: hashedPwd, IsActive: true}
 
@@ -66,7 +66,7 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 	es := &mockEmailSender{}
 
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782"
-	user := &domain.User{ID: uuid.New(), Username: "testuser", Password: hashedPwd, IsActive: true}
+	user := &domain.User{ID: domain.ID(7), Username: "testuser", Password: hashedPwd, IsActive: true}
 	userRepo.On("GetByUsername", context.Background(), "testuser").Return(user, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
@@ -100,7 +100,7 @@ func TestAuthService_ForgotPassword_SendsEmail(t *testing.T) {
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	user := &domain.User{ID: uuid.New(), Email: "test@example.com"}
+	user := &domain.User{ID: domain.ID(7), Email: "test@example.com"}
 	userRepo.On("GetByEmail", context.Background(), "test@example.com").Return(user, nil)
 	pwdRepo.On("Create", context.Background(), mock.MatchedBy(func(t *domain.PasswordResetToken) bool { return t != nil })).Return(nil)
 	es.On("SendPasswordReset", "test@example.com", mock.AnythingOfType("string")).Return(nil)
@@ -136,7 +136,7 @@ func TestAuthService_ResetPassword_ExpiredToken(t *testing.T) {
 
 	resetToken := &domain.PasswordResetToken{
 		ID:        uuid.New(),
-		UserID:    uuid.New(),
+		UserID:    domain.ID(7),
 		Token:     "sometoken",
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
 		Used:      false,

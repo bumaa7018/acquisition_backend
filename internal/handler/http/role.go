@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 )
 
 type RoleHandler struct {
@@ -51,8 +50,8 @@ func (h *RoleHandler) List(c *gin.Context) {
 // @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [get]
 func (h *RoleHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -112,8 +111,8 @@ func (h *RoleHandler) Create(c *gin.Context) {
 // @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [put]
 func (h *RoleHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -147,8 +146,8 @@ func (h *RoleHandler) Update(c *gin.Context) {
 // @Failure      404  {object}  response.Response
 // @Router       /roles/{id} [delete]
 func (h *RoleHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -171,8 +170,8 @@ func (h *RoleHandler) Delete(c *gin.Context) {
 // @Failure      400  {object}  response.Response
 // @Router       /roles/{id}/permissions [post]
 func (h *RoleHandler) AssignPermission(c *gin.Context) {
-	roleID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	roleID, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -183,19 +182,22 @@ func (h *RoleHandler) AssignPermission(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	permID, err := uuid.Parse(req.PermissionID)
-	if err != nil {
+	permID, okID := parseID(req.PermissionID)
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	// Эрх нэмэгдүүлэлтээс сэргийлэх: дуудагч зөвхөн өөрт нь байгаа эрхийг л
-	// роль-д олгож чадна. (Админ бүх эрхтэй тул юуг ч олгож чадна.)
+	role, err := h.roleSvc.GetByID(c.Request.Context(), roleID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
 	perm, err := h.permSvc.GetByID(c.Request.Context(), permID)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
-	if !callerHasPermission(c, perm.Name) {
+	if !callerCanConfigureRolePermission(c, role, perm) {
 		response.Error(c, domain.ErrForbidden)
 		return
 	}
@@ -229,6 +231,25 @@ func callerHasPermission(c *gin.Context, permName string) bool {
 	return false
 }
 
+func callerCanConfigureRolePermission(c *gin.Context, role *domain.Role, perm *domain.Permission) bool {
+	if role == nil || perm == nil {
+		return false
+	}
+	if callerHasRole(c, "admin") && permissionIsSystem10(perm) {
+		return true
+	}
+	return callerHasPermission(c, perm.Name)
+}
+
+func permissionIsSystem10(perm *domain.Permission) bool {
+	switch perm.Resource {
+	case "land", "compensation", "decision":
+		return true
+	default:
+		return false
+	}
+}
+
 // RemovePermission godoc
 // @Summary      Remove permission from role
 // @Tags         Roles
@@ -240,14 +261,28 @@ func callerHasPermission(c *gin.Context, permName string) bool {
 // @Failure      400  {object}  response.Response
 // @Router       /roles/{id}/permissions/{permission_id} [delete]
 func (h *RoleHandler) RemovePermission(c *gin.Context) {
-	roleID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	roleID, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	permID, err := uuid.Parse(c.Param("permission_id"))
-	if err != nil {
+	permID, okID := parseID(c.Param("permission_id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	role, err := h.roleSvc.GetByID(c.Request.Context(), roleID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	perm, err := h.permSvc.GetByID(c.Request.Context(), permID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if !callerCanConfigureRolePermission(c, role, perm) {
+		response.Error(c, domain.ErrForbidden)
 		return
 	}
 	if err := h.roleSvc.RemovePermission(c.Request.Context(), roleID, permID); err != nil {

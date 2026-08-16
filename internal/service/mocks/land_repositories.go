@@ -691,22 +691,22 @@ func (m *MockLandAcquisitionRepository) GetAssignees(ctx context.Context, acquis
 	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandAcquisitionRepository) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandAcquisitionRepository) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandAcquisitionRepository) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandAcquisitionRepository) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)
 }
@@ -883,11 +883,11 @@ func (m *MockLandAcquisitionRepository) ListAssetCalculations(ctx context.Contex
 	return args.Get(0).([]*domain.AssetCalculation), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+func (m *MockLandAcquisitionRepository) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
 	return m.Called(ctx, acquisitionID, orgUserID).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+func (m *MockLandAcquisitionRepository) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
 	return m.Called(ctx, acqID, parcelID, orgUserID).Error(0)
 }
 

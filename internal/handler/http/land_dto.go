@@ -1,6 +1,7 @@
 package http
 
 import (
+	"strconv"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -643,7 +644,7 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		r.DecreeDate = &s
 	}
 	if acq.ProfessionalOrgID != nil {
-		s := acq.ProfessionalOrgID.String()
+		s := strconv.FormatInt(int64(*acq.ProfessionalOrgID), 10)
 		r.ProfessionalOrgID = &s
 	}
 	r.ProfessionalOrgName = acq.ProfessionalOrgName
@@ -695,7 +696,7 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 		LandGrantCount:     p.LandGrantCount,
 	}
 	if p.IndependentOrgID != nil {
-		s := p.IndependentOrgID.String()
+		s := strconv.FormatInt(int64(*p.IndependentOrgID), 10)
 		r.IndependentOrgID = &s
 	}
 	return r
@@ -733,7 +734,7 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		CreatedBy:          pf.CreatedBy,
 	}
 	if pf.IndependentOrgID != nil {
-		s := pf.IndependentOrgID.String()
+		s := strconv.FormatInt(int64(*pf.IndependentOrgID), 10)
 		r.IndependentOrgID = &s
 	}
 	if pf.SelectedValuationType != nil {

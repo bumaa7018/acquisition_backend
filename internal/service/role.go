@@ -7,19 +7,18 @@ import (
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/repository"
 
-	"github.com/google/uuid"
 )
 
 type RoleService interface {
 	Create(ctx context.Context, req CreateRoleRequest) (*domain.Role, error)
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error)
-	Update(ctx context.Context, id uuid.UUID, req UpdateRoleRequest) (*domain.Role, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	GetByID(ctx context.Context, id domain.ID) (*domain.Role, error)
+	Update(ctx context.Context, id domain.ID, req UpdateRoleRequest) (*domain.Role, error)
+	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context) ([]*domain.Role, error)
-	AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error
-	RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error
-	AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error
-	RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error
+	AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error
+	RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error
+	AssignToUser(ctx context.Context, userID, roleID domain.ID) error
+	RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error
 }
 
 type CreateRoleRequest struct {
@@ -43,7 +42,6 @@ func NewRoleService(roleRepo repository.RoleRepository) RoleService {
 func (s *roleService) Create(ctx context.Context, req CreateRoleRequest) (*domain.Role, error) {
 	now := time.Now()
 	role := &domain.Role{
-		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
 		CreatedAt:   now,
@@ -55,11 +53,11 @@ func (s *roleService) Create(ctx context.Context, req CreateRoleRequest) (*domai
 	return role, nil
 }
 
-func (s *roleService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error) {
+func (s *roleService) GetByID(ctx context.Context, id domain.ID) (*domain.Role, error) {
 	return s.roleRepo.GetByID(ctx, id)
 }
 
-func (s *roleService) Update(ctx context.Context, id uuid.UUID, req UpdateRoleRequest) (*domain.Role, error) {
+func (s *roleService) Update(ctx context.Context, id domain.ID, req UpdateRoleRequest) (*domain.Role, error) {
 	role, err := s.roleRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -77,7 +75,7 @@ func (s *roleService) Update(ctx context.Context, id uuid.UUID, req UpdateRoleRe
 	return role, nil
 }
 
-func (s *roleService) Delete(ctx context.Context, id uuid.UUID) error {
+func (s *roleService) Delete(ctx context.Context, id domain.ID) error {
 	return s.roleRepo.Delete(ctx, id)
 }
 
@@ -85,18 +83,18 @@ func (s *roleService) List(ctx context.Context) ([]*domain.Role, error) {
 	return s.roleRepo.List(ctx)
 }
 
-func (s *roleService) AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+func (s *roleService) AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	return s.roleRepo.AssignPermission(ctx, roleID, permissionID)
 }
 
-func (s *roleService) RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+func (s *roleService) RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	return s.roleRepo.RemovePermission(ctx, roleID, permissionID)
 }
 
-func (s *roleService) AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error {
+func (s *roleService) AssignToUser(ctx context.Context, userID, roleID domain.ID) error {
 	return s.roleRepo.AssignToUser(ctx, userID, roleID)
 }
 
-func (s *roleService) RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error {
+func (s *roleService) RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error {
 	return s.roleRepo.RemoveFromUser(ctx, userID, roleID)
 }

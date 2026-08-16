@@ -556,27 +556,27 @@ func (m *MockLandService) GetAssignees(ctx context.Context, acquisitionID uuid.U
 	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
 }
 
-func (m *MockLandService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (m *MockLandService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID uuid.UUID) (bool, error) {
+func (m *MockLandService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, acquisitionID, parcelCode, userID)
 	return args.Bool(0), args.Error(1)
 }
@@ -754,11 +754,11 @@ func (m *MockLandService) UploadCompensationReport(ctx context.Context, acqID, c
 	return args.Get(0).(*domain.Compensation), args.Error(1)
 }
 
-func (m *MockLandService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+func (m *MockLandService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
 	return m.Called(ctx, acquisitionID, orgUserID).Error(0)
 }
 
-func (m *MockLandService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+func (m *MockLandService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
 	return m.Called(ctx, acqID, parcelID, orgUserID).Error(0)
 }
 
@@ -766,7 +766,7 @@ type MockUserService struct {
 	mock.Mock
 }
 
-func (m *MockUserService) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (m *MockUserService) GetByID(ctx context.Context, id domain.ID) (*domain.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -790,7 +790,7 @@ func (m *MockUserService) Create(ctx context.Context, req service.CreateUserRequ
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserService) Update(ctx context.Context, id uuid.UUID, req service.UpdateUserRequest) (*domain.User, error) {
+func (m *MockUserService) Update(ctx context.Context, id domain.ID, req service.UpdateUserRequest) (*domain.User, error) {
 	args := m.Called(ctx, id, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -798,20 +798,20 @@ func (m *MockUserService) Update(ctx context.Context, id uuid.UUID, req service.
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserService) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *MockUserService) Delete(ctx context.Context, id domain.ID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
 
-func (m *MockUserService) ChangePassword(ctx context.Context, id uuid.UUID, newPassword string) error {
+func (m *MockUserService) ChangePassword(ctx context.Context, id domain.ID, newPassword string) error {
 	return m.Called(ctx, id, newPassword).Error(0)
 }
 
-func (m *MockUserService) InvalidateSessions(ctx context.Context, id uuid.UUID) error {
+func (m *MockUserService) InvalidateSessions(ctx context.Context, id domain.ID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockUserService) GetPermissions(ctx context.Context, id uuid.UUID) ([]string, error) {
+func (m *MockUserService) GetPermissions(ctx context.Context, id domain.ID) ([]string, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -829,7 +829,7 @@ func (m *MockRoleService) List(ctx context.Context) ([]*domain.Role, error) {
 	return args.Get(0).([]*domain.Role), args.Error(1)
 }
 
-func (m *MockRoleService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Role, error) {
+func (m *MockRoleService) GetByID(ctx context.Context, id domain.ID) (*domain.Role, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -845,7 +845,7 @@ func (m *MockRoleService) Create(ctx context.Context, req service.CreateRoleRequ
 	return args.Get(0).(*domain.Role), args.Error(1)
 }
 
-func (m *MockRoleService) Update(ctx context.Context, id uuid.UUID, req service.UpdateRoleRequest) (*domain.Role, error) {
+func (m *MockRoleService) Update(ctx context.Context, id domain.ID, req service.UpdateRoleRequest) (*domain.Role, error) {
 	args := m.Called(ctx, id, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -853,23 +853,23 @@ func (m *MockRoleService) Update(ctx context.Context, id uuid.UUID, req service.
 	return args.Get(0).(*domain.Role), args.Error(1)
 }
 
-func (m *MockRoleService) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *MockRoleService) Delete(ctx context.Context, id domain.ID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
-func (m *MockRoleService) AssignPermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+func (m *MockRoleService) AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	return m.Called(ctx, roleID, permissionID).Error(0)
 }
 
-func (m *MockRoleService) RemovePermission(ctx context.Context, roleID, permissionID uuid.UUID) error {
+func (m *MockRoleService) RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	return m.Called(ctx, roleID, permissionID).Error(0)
 }
 
-func (m *MockRoleService) AssignToUser(ctx context.Context, userID, roleID uuid.UUID) error {
+func (m *MockRoleService) AssignToUser(ctx context.Context, userID, roleID domain.ID) error {
 	return m.Called(ctx, userID, roleID).Error(0)
 }
 
-func (m *MockRoleService) RemoveFromUser(ctx context.Context, userID, roleID uuid.UUID) error {
+func (m *MockRoleService) RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error {
 	return m.Called(ctx, userID, roleID).Error(0)
 }
 
@@ -883,7 +883,7 @@ func (m *MockPermissionService) List(ctx context.Context) ([]*domain.Permission,
 	return args.Get(0).([]*domain.Permission), args.Error(1)
 }
 
-func (m *MockPermissionService) GetByID(ctx context.Context, id uuid.UUID) (*domain.Permission, error) {
+func (m *MockPermissionService) GetByID(ctx context.Context, id domain.ID) (*domain.Permission, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -899,7 +899,7 @@ func (m *MockPermissionService) Create(ctx context.Context, req service.CreatePe
 	return args.Get(0).(*domain.Permission), args.Error(1)
 }
 
-func (m *MockPermissionService) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *MockPermissionService) Delete(ctx context.Context, id domain.ID) error {
 	return m.Called(ctx, id).Error(0)
 }
 
@@ -1053,7 +1053,7 @@ func (m *MockLandService) CreateDroneUploadURL(ctx context.Context, acquisitionI
 	return args.Get(0).(*filestorage.PresignedUpload), args.Error(1)
 }
 
-func (m *MockLandService) RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *uuid.UUID) (*domain.DroneImage, error, error) {
+func (m *MockLandService) RegisterDroneImage(ctx context.Context, acquisitionID uuid.UUID, storedName, originalName string, uploadedBy *domain.ID) (*domain.DroneImage, error, error) {
 	args := m.Called(ctx, acquisitionID, storedName, originalName, uploadedBy)
 	if args.Get(0) == nil {
 		return nil, nil, args.Error(2)

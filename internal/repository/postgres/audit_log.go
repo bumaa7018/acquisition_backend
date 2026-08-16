@@ -92,7 +92,7 @@ func buildAuditWhere(filter domain.AuditLogFilter) (string, []any) {
 		args = append(args, value)
 		conds = append(conds, fmt.Sprintf(cond, len(args)))
 	}
-	if filter.ActorID != nil && *filter.ActorID != uuid.Nil {
+	if filter.ActorID != nil && *filter.ActorID != 0 {
 		add("actor_id = $%d", *filter.ActorID)
 	}
 	if filter.Action != "" {

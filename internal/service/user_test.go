@@ -8,7 +8,6 @@ import (
 	"acquisition_backend/internal/service"
 	"acquisition_backend/internal/service/mocks"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -16,7 +15,7 @@ import (
 
 func TestUserService_GetByID_Success(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	id := uuid.New()
+	id := domain.ID(1)
 	user := &domain.User{ID: id, Email: "u@example.com", Password: "hashed"}
 	repo.On("GetByID", context.Background(), id).Return(user, nil)
 
@@ -31,7 +30,7 @@ func TestUserService_GetByID_Success(t *testing.T) {
 
 func TestUserService_GetByID_NotFound(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	id := uuid.New()
+	id := domain.ID(2)
 	repo.On("GetByID", context.Background(), id).Return(nil, domain.ErrNotFound)
 
 	svc := service.NewUserService(repo)
@@ -63,7 +62,7 @@ func TestUserService_Create_Success(t *testing.T) {
 
 func TestUserService_Create_DuplicateUsername(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	existing := &domain.User{ID: uuid.New(), Username: "duplicate"}
+	existing := &domain.User{ID: domain.ID(3), Username: "duplicate"}
 	repo.On("GetByUsername", context.Background(), "duplicate").Return(existing, nil)
 
 	svc := service.NewUserService(repo)
@@ -78,7 +77,7 @@ func TestUserService_Create_DuplicateUsername(t *testing.T) {
 
 func TestUserService_Delete_Success(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	id := uuid.New()
+	id := domain.ID(4)
 	repo.On("Delete", context.Background(), id).Return(nil)
 	// Устгасны дараа сесс тасалдана — устгагдсан хэрэглэгчийн токен хүчинтэй
 	// хэвээр байхаас сэргийлнэ.
@@ -93,7 +92,7 @@ func TestUserService_Delete_Success(t *testing.T) {
 
 func TestUserService_List_DefaultPagination(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	users := []*domain.User{{ID: uuid.New(), Email: "a@a.com", Password: "h"}}
+	users := []*domain.User{{ID: domain.ID(5), Email: "a@a.com", Password: "h"}}
 	// Expect page=1, pageSize=20 defaults
 	repo.On("List", context.Background(), domain.UserFilter{Page: 1, PageSize: 20}).
 		Return(users, int64(1), nil)
@@ -110,7 +109,7 @@ func TestUserService_List_DefaultPagination(t *testing.T) {
 // Нууц үг солиход хуучин токенууд хүчингүй болно.
 func TestUserService_ChangePassword_InvalidatesSessions(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	id := uuid.New()
+	id := domain.ID(6)
 	repo.On("GetByID", context.Background(), id).Return(&domain.User{ID: id}, nil)
 	repo.On("UpdatePassword", context.Background(), id, mock.MatchedBy(func(hashed string) bool {
 		// Түүхий нууц үг хадгалагдахгүй — hash болсон байх ёстой.
@@ -127,7 +126,7 @@ func TestUserService_ChangePassword_InvalidatesSessions(t *testing.T) {
 // Байхгүй хэрэглэгчийн нууц үг солигдохгүй.
 func TestUserService_ChangePassword_NotFound(t *testing.T) {
 	repo := &mocks.MockUserRepository{}
-	id := uuid.New()
+	id := domain.ID(7)
 	repo.On("GetByID", context.Background(), id).Return(nil, domain.ErrNotFound)
 
 	svc := service.NewUserService(repo)

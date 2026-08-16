@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS form_permissions;
+DROP TABLE IF EXISTS menu_forms;
+DROP TABLE IF EXISTS menu_roles;
+DROP TABLE IF EXISTS forms;
+DROP TABLE IF EXISTS menus;
+DROP TABLE IF EXISTS system_roles;
+DROP TABLE IF EXISTS systems;
+

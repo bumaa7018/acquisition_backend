@@ -13,7 +13,7 @@ import (
 
 // AssignmentChecker — IsAssigned шалгах интерфейс (LandService-ийг тойруулан дамжуулахад ашиглана)
 type AssignmentChecker interface {
-	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 }
 
 // AcquisitionLockChecker — баталгаажсан чөлөөлөлтийн хаалтыг шалгах интерфейс
@@ -31,13 +31,13 @@ type ParcelLockChecker interface {
 // ProfMemberChecker — professional_org хэрэглэгч тухайн чөлөөлөлтийн
 // үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгах интерфейс
 type ProfMemberChecker interface {
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 }
 
 // ProfParcelMemberChecker — professional_org хэрэглэгч parcel-ээр дамжуулан тухайн
 // чөлөөлөлтийн үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгана.
 type ProfParcelMemberChecker interface {
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
 }
 
 // хяналтын (байгууллага даяар харах эрхтэй) ролиуд — санхүүгийн мэргэжилтэн, МИКА
@@ -83,7 +83,7 @@ func RequireAssignedOrSenior(svc AssignmentChecker, extraWriteRoles ...string) g
 		}
 
 		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(uuid.UUID)
+		userID, ok := userIDRaw.(domain.ID)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
@@ -115,9 +115,9 @@ func IsSenior(c *gin.Context) bool {
 }
 
 // GetCallerID — контекстоос userID авна
-func GetCallerID(c *gin.Context) (uuid.UUID, bool) {
+func GetCallerID(c *gin.Context) (domain.ID, bool) {
 	raw, _ := c.Get(CtxUserID)
-	id, ok := raw.(uuid.UUID)
+	id, ok := raw.(domain.ID)
 	return id, ok
 }
 
@@ -131,7 +131,7 @@ func GetCallerName(c *gin.Context) string {
 // ParcelAssignmentChecker — хэрэглэгч parcel-ийн харгалзах чөлөөлөлтөд
 // хуваарилагдсан эсэхийг шалгах интерфейс (routes where :id = parcel_id).
 type ParcelAssignmentChecker interface {
-	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error)
+	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
 }
 
 // RequireParcelAssignedOrSenior — /parcels/:id/* бичих маршрутуудад: ахлах
@@ -154,7 +154,7 @@ func RequireParcelAssignedOrSenior(svc ParcelAssignmentChecker) gin.HandlerFunc 
 			return
 		}
 		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(uuid.UUID)
+		userID, ok := userIDRaw.(domain.ID)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
@@ -311,7 +311,7 @@ func RequireProfOrgMember(svc ProfMemberChecker) gin.HandlerFunc {
 		}
 
 		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(uuid.UUID)
+		userID, ok := userIDRaw.(domain.ID)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
@@ -348,7 +348,7 @@ func RequireProfParcelMemberParam(svc ProfParcelMemberChecker, param string) gin
 		}
 
 		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(uuid.UUID)
+		userID, ok := userIDRaw.(domain.ID)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return

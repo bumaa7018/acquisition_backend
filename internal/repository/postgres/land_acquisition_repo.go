@@ -206,10 +206,10 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	}
 	if filter.ProfessionalOrgUserID != "" {
 		where += fmt.Sprintf(` AND (
-			la.professional_org_id = $%d::uuid
+			la.professional_org_id = $%d::int4
 			OR EXISTS (
 				SELECT 1 FROM parcel p_org
-				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::uuid
+				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::int4
 			)
 		)`, i, i)
 		args = append(args, filter.ProfessionalOrgUserID)
@@ -3330,10 +3330,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	if filter.ProfessionalOrgUserID != "" {
 		profParam = i
 		where += fmt.Sprintf(` AND (
-			la.professional_org_id = $%d::uuid
+			la.professional_org_id = $%d::int4
 			OR EXISTS (
 				SELECT 1 FROM parcel p_org
-				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::uuid
+				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::int4
 			)
 		)`, i, i)
 		args = append(args, filter.ProfessionalOrgUserID)
@@ -3349,12 +3349,12 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		parcelScopeCond += fmt.Sprintf(` AND (
 			EXISTS (
 				SELECT 1 FROM land_acquisition la_scope
-				WHERE la_scope.id = p.acquisition_id AND la_scope.professional_org_id = $%d::uuid
+				WHERE la_scope.id = p.acquisition_id AND la_scope.professional_org_id = $%d::int4
 			)
-			OR p.independent_org_id = $%d::uuid
+			OR p.independent_org_id = $%d::int4
 		)`, profParam, profParam)
 		acqParcelScopeCond += fmt.Sprintf(` AND (
-			la.professional_org_id = $%d::uuid OR p_scope.independent_org_id = $%d::uuid
+			la.professional_org_id = $%d::int4 OR p_scope.independent_org_id = $%d::int4
 		)`, profParam, profParam)
 	}
 	if acqParcelScopeCond != "" {
@@ -3774,7 +3774,7 @@ func (r *landAcqRepo) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 }
 
 // IsAssignedToParcel — хэрэглэгч parcel-ийн харгалзах чөлөөлөлтөд хуваарилагдсан эсэх.
-func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -3786,7 +3786,7 @@ func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID
 	return exists, err
 }
 
-func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -3800,7 +3800,7 @@ func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, u
 // IsProfMemberOfAcquisition — professional_org хэрэглэгч тухайн чөлөөлөлтийн
 // үндсэн байгуулга (professional_org_id) эсвэл аль нэгэн нэгж талбарын
 // хөндлөнгийн байгуулга (independent_org_id) мөн эсэхийг шалгана.
-func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -3814,7 +3814,7 @@ func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisition
 
 // IsProfMemberOfParcel — professional_org хэрэглэгч parcel-ийн чөлөөлөлтийн
 // үндсэн байгуулга эсвэл тухайн parcel-ийн хөндлөнгийн байгуулга мөн эсэхийг шалгана.
-func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID uuid.UUID) (bool, error) {
+func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -4753,7 +4753,7 @@ func (r *landAcqRepo) DeleteAssetCalcType(ctx context.Context, id int) error {
 	return err
 }
 
-func (r *landAcqRepo) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *uuid.UUID) error {
+func (r *landAcqRepo) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
 	_, err := r.db.Exec(ctx,
 		`UPDATE land_acquisition SET professional_org_id = $2, updated_at = NOW() WHERE id = $1`,
 		acquisitionID, orgUserID,
@@ -4761,7 +4761,7 @@ func (r *landAcqRepo) SetAcquisitionProfessionalOrg(ctx context.Context, acquisi
 	return err
 }
 
-func (r *landAcqRepo) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *uuid.UUID) error {
+func (r *landAcqRepo) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
 	_, err := r.db.Exec(ctx,
 		`UPDATE parcel SET independent_org_id = $3 WHERE id = $2 AND acquisition_id = $1`,
 		acqID, parcelID, orgUserID,

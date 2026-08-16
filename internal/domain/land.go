@@ -321,10 +321,10 @@ type AcquisitionWorkflow struct {
 
 // AcquisitionAssignee — чөлөөлөлтэд хуваарилагдсан ажилтан
 type AcquisitionAssignee struct {
-	UserID         uuid.UUID `json:"user_id"`
+	UserID         ID        `json:"user_id"`
 	UserName       string    `json:"user_name"`
 	UserPosition   string    `json:"user_position"`
-	AssignedBy     uuid.UUID `json:"assigned_by"`
+	AssignedBy     ID        `json:"assigned_by"`
 	AssignedByName string    `json:"assigned_by_name"`
 	AssignedAt     time.Time `json:"assigned_at"`
 }
@@ -361,7 +361,7 @@ type LandAcquisition struct {
 	Parcels             []*Parcel
 	ParcelCount         int64
 	AssignedUsers       []AcquisitionAssignee
-	ProfessionalOrgID   *uuid.UUID
+	ProfessionalOrgID   *ID
 	ProfessionalOrgName string
 }
 
@@ -451,7 +451,7 @@ type Parcel struct {
 	ChangedParcelID       string
 	StatusID              int
 	StatusName            string
-	IndependentOrgID      *uuid.UUID
+	IndependentOrgID      *ID
 	IndependentOrgName    string
 	SelectedValuationType *string           // санхүү зөвшөөрсөн үндсэн үнэлгээний урсгал (asset/independent/mika)
 	ValuationStatuses     map[string]string // урсгал бүрийн илгээх төлөв: valuation_type → draft|submitted|approved|returned
@@ -1026,7 +1026,7 @@ type DroneImage struct {
 	MaxY          *float64   `json:"max_y,omitempty"`
 	Published     bool       `json:"published"`
 	UploadedAt    time.Time  `json:"uploaded_at"`
-	UploadedBy    *uuid.UUID `json:"uploaded_by,omitempty"`
+	UploadedBy    *ID        `json:"uploaded_by,omitempty"`
 }
 
 // AuthorizedRepresentative — нэгж талбарын итгэмжлэгдсэн төлөөлөгч

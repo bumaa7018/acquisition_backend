@@ -6,7 +6,6 @@ import (
 
 	"acquisition_backend/internal/domain"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -24,7 +23,7 @@ func (m *MockUserRepository) CreateWithEmployee(ctx context.Context, user *domai
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+func (m *MockUserRepository) GetByID(ctx context.Context, id domain.ID) (*domain.User, error) {
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -45,11 +44,11 @@ func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) erro
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) UpdatePassword(ctx context.Context, id uuid.UUID, hashed string) error {
+func (m *MockUserRepository) UpdatePassword(ctx context.Context, id domain.ID, hashed string) error {
 	return m.Called(ctx, id, hashed).Error(0)
 }
 
-func (m *MockUserRepository) Delete(ctx context.Context, id uuid.UUID) error {
+func (m *MockUserRepository) Delete(ctx context.Context, id domain.ID) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
@@ -70,7 +69,7 @@ func (m *MockUserRepository) GetByUsername(ctx context.Context, username string)
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserRepository) GetByEmployeeID(ctx context.Context, employeeID uuid.UUID) (*domain.User, error) {
+func (m *MockUserRepository) GetByEmployeeID(ctx context.Context, employeeID domain.ID) (*domain.User, error) {
 	args := m.Called(ctx, employeeID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -78,7 +77,7 @@ func (m *MockUserRepository) GetByEmployeeID(ctx context.Context, employeeID uui
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
-func (m *MockUserRepository) GetRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
+func (m *MockUserRepository) GetRoles(ctx context.Context, userID domain.ID) ([]string, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -86,7 +85,7 @@ func (m *MockUserRepository) GetRoles(ctx context.Context, userID uuid.UUID) ([]
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockUserRepository) GetPermissions(ctx context.Context, userID uuid.UUID) ([]string, error) {
+func (m *MockUserRepository) GetPermissions(ctx context.Context, userID domain.ID) ([]string, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -94,12 +93,12 @@ func (m *MockUserRepository) GetPermissions(ctx context.Context, userID uuid.UUI
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockUserRepository) InvalidateSessions(ctx context.Context, userID uuid.UUID) error {
+func (m *MockUserRepository) InvalidateSessions(ctx context.Context, userID domain.ID) error {
 	args := m.Called(ctx, userID)
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error) {
+func (m *MockUserRepository) IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error) {
 	args := m.Called(ctx, userID, issuedAt)
 	return args.Bool(0), args.Error(1)
 }

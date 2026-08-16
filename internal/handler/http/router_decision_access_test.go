@@ -133,7 +133,7 @@ func decisionRouter(t *testing.T, stub *stubDecisionDraftService) (*gin.Engine, 
 func decisionToken(t *testing.T, m *jwtpkg.Manager, perms ...string) string {
 	t.Helper()
 	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(1),
 		Username:    "specialist",
 		Roles:       []string{"senior_specialist"},
 		Permissions: perms,

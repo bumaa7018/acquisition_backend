@@ -8,7 +8,6 @@ import (
 	"acquisition_backend/internal/domain"
 	jwtpkg "acquisition_backend/internal/pkg/jwt"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +31,7 @@ func newManager() *jwtpkg.Manager {
 
 func TestGenerateAndValidateTokenPair(t *testing.T) {
 	m := newManager()
-	userID := uuid.New()
+	userID := domain.ID(42)
 	perms := []string{"users:read", "users:write"}
 
 	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID, Username: "testuser", Permissions: perms})
@@ -48,7 +47,7 @@ func TestGenerateAndValidateTokenPair(t *testing.T) {
 
 func TestValidateRefreshToken(t *testing.T) {
 	m := newManager()
-	userID := uuid.New()
+	userID := domain.ID(42)
 
 	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 	require.NoError(t, err)
@@ -66,7 +65,7 @@ func TestInvalidAccessTokenReturnsError(t *testing.T) {
 
 func TestWrongSecretRefreshToken(t *testing.T) {
 	m := newManager()
-	userID := uuid.New()
+	userID := domain.ID(42)
 	pair, _ := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 
 	// Access token should fail refresh validation
@@ -81,7 +80,7 @@ func TestExpiredToken(t *testing.T) {
 		-1*time.Second, // already expired
 		168*time.Hour,
 	)
-	userID := uuid.New()
+	userID := domain.ID(42)
 	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: userID})
 	require.NoError(t, err)
 
@@ -91,7 +90,7 @@ func TestExpiredToken(t *testing.T) {
 
 func TestValidateAccessTokenRejectsRevokedToken(t *testing.T) {
 	m := newManager()
-	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: uuid.New()})
+	pair, err := m.GenerateTokenPair(jwtpkg.UserInfo{ID: domain.ID(201)})
 	require.NoError(t, err)
 
 	claims, err := m.ParseAccessToken(pair.AccessToken)

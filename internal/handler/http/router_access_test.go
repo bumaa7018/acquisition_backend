@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestRouter_AcquisitionCategoriesList_AllowsAuthenticatedUserWithoutPermissi
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(1),
 		Username:    "employee",
 		Permissions: []string{},
 	})
@@ -69,7 +70,7 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	userID := uuid.New()
+	userID := domain.ID(501)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
 		Username:    "professional_primary",
@@ -81,7 +82,7 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	acq := &domain.LandAcquisition{ID: uuid.New(), PlanCode: "LA-2024-001"}
 	landSvc.On("List", mock.Anything, mock.MatchedBy(func(filter domain.LandAcquisitionFilter) bool {
-		return filter.ProfessionalOrgUserID == userID.String() &&
+		return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
 			filter.Page == 1 &&
 			filter.PageSize == 20
 	})).Return([]*domain.LandAcquisition{acq}, int64(1), nil)
@@ -114,7 +115,7 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	userID := uuid.New()
+	userID := domain.ID(502)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
 		Username:    "professional_primary",
@@ -125,7 +126,7 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
-		return filter.ProfessionalOrgUserID == userID.String() &&
+		return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
 			filter.FilterByParcelStatus &&
 			filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 			filter.Status == 0
@@ -169,7 +170,7 @@ func TestRouter_Dashboard_ScopesFinanceSpecialist(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(3),
 		Username:    "finance",
 		Roles:       []string{"finance_specialist"},
 		Permissions: []string{"compensation:read"},
@@ -222,7 +223,7 @@ func TestRouter_Dashboard_AdminKeepsLegacyShape(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(4),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{"land:read"},
@@ -325,7 +326,7 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-			userID := uuid.New()
+			userID := domain.ID(503)
 			tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 				ID:          userID,
 				Username:    tc.name,
@@ -350,7 +351,7 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 					}
 
 					if tc.wantProfessionalScope {
-						return filter.ProfessionalOrgUserID == userID.String() &&
+						return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
 							filter.FilterByParcelStatus &&
 							filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 							filter.Status == 0
@@ -499,7 +500,7 @@ func TestRouter_ProfLandAcquisitions_DeniesAdmin(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(5),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{"land:read"},
@@ -535,7 +536,7 @@ func TestRouter_GeneralLandAcquisition_DeniesProfessionalOrgWhenNotAssigned(t *t
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	userID := uuid.New()
+	userID := domain.ID(504)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
 		Username:    "professional_primary",
@@ -578,7 +579,7 @@ func TestRouter_GeneralLandAcquisitionList_DeniesProfessionalOrg(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(6),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -614,7 +615,7 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	userID := uuid.New()
+	userID := domain.ID(505)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
 		Username:    "professional_primary",
@@ -657,7 +658,7 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testin
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	userID := uuid.New()
+	userID := domain.ID(506)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
 		Username:    "professional_primary",
@@ -707,7 +708,7 @@ func TestRouter_ParcelStatuses_AllowsProfessionalOrgRead(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(8),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -748,7 +749,7 @@ func TestRouter_ParcelStatuses_AllowsAuthenticatedUserWithoutPermissions(t *test
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(9),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{},
@@ -789,7 +790,7 @@ func TestRouter_DocumentTypes_AllowsAuthenticatedUserWithoutPermissions(t *testi
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(10),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{},
@@ -830,7 +831,7 @@ func TestRouter_AssetSpecTypes_AllowsAuthenticatedUserWithoutPermissions(t *test
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(11),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{},
@@ -871,7 +872,7 @@ func TestRouter_AssetCalcTypes_AllowsAuthenticatedUserWithoutPermissions(t *test
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(12),
 		Username:    "admin",
 		Roles:       []string{"admin"},
 		Permissions: []string{},
@@ -912,7 +913,7 @@ func TestRouter_ParcelStatuses_DeniesProfessionalOrgWrite(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          uuid.New(),
+		ID:          domain.ID(13),
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read", "compensation:update"},

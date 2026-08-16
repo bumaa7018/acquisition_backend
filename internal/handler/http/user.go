@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
 )
 
 type UserHandler struct {
@@ -25,28 +24,63 @@ func NewUserHandler(userSvc service.UserService, roleSvc service.RoleService) *U
 	return &UserHandler{userSvc: userSvc, roleSvc: roleSvc, validate: validator.New()}
 }
 
-// callerID — JWT context-оос дуудагчийн ID. Байхгүй бол uuid.Nil.
-func callerID(c *gin.Context) uuid.UUID {
+// callerID — JWT context-оос дуудагчийн ID. Байхгүй бол 0.
+func callerID(c *gin.Context) domain.ID {
 	raw, ok := c.Get(middleware.CtxUserID)
 	if !ok {
-		return uuid.Nil
+		return 0
 	}
-	id, _ := raw.(uuid.UUID)
+	id, _ := raw.(domain.ID)
 	return id
 }
 
 // isSelf — үйлдлийн бай нь дуудагч өөрөө эсэх.
-func isSelf(c *gin.Context, target uuid.UUID) bool {
+func isSelf(c *gin.Context, target domain.ID) bool {
 	caller := callerID(c)
-	return caller != uuid.Nil && caller == target
+	return caller != 0 && caller == target
 }
 
 // callerCanGrantRole — эрх нэмэгдүүлэлтээс сэргийлнэ: дуудагч зөвхөн өөрт нь
 // бүрэн байгаа эрхийн багцтай роль-ыг л бусдад олгож чадна. (Админ бүх эрхтэй
 // тул ямар ч роль олгоно.) roles:AssignPermission-ийн адил зарчим.
 func (h *UserHandler) callerCanGrantRole(c *gin.Context, role *domain.Role) bool {
+	if callerHasRole(c, "admin") && roleIsSystem10Only(role) {
+		return true
+	}
 	for _, perm := range role.Permissions {
 		if !callerHasPermission(c, perm.Name) {
+			return false
+		}
+	}
+	return true
+}
+
+func callerHasRole(c *gin.Context, roleName string) bool {
+	rolesAny, ok := c.Get(middleware.CtxRoles)
+	if !ok {
+		return false
+	}
+	roles, ok := rolesAny.([]string)
+	if !ok {
+		return false
+	}
+	for _, role := range roles {
+		if role == roleName {
+			return true
+		}
+	}
+	return false
+}
+
+func roleIsSystem10Only(role *domain.Role) bool {
+	if role == nil || len(role.Permissions) == 0 {
+		return false
+	}
+	for _, perm := range role.Permissions {
+		switch perm.Resource {
+		case "land", "compensation", "decision":
+			continue
+		default:
 			return false
 		}
 	}
@@ -62,7 +96,7 @@ func (h *UserHandler) callerCanGrantRole(c *gin.Context, role *domain.Role) bool
 // /auth/forgot-password-оор reset token хүлээн авах. Иймд зөвхөн users:update
 // эрхтэй хэрэглэгч админыг гартаа авч эрхээ нэмэгдүүлэхээс сэргийлж, өөрөөсөө
 // өндөр эрхтэй бүртгэлийг өөрчлөхийг хориглоно.
-func (h *UserHandler) callerOutranksTarget(c *gin.Context, targetID uuid.UUID) (bool, error) {
+func (h *UserHandler) callerOutranksTarget(c *gin.Context, targetID domain.ID) (bool, error) {
 	targetPerms, err := h.userSvc.GetPermissions(c.Request.Context(), targetID)
 	if err != nil {
 		return false, err
@@ -86,7 +120,7 @@ func (h *UserHandler) callerOutranksTarget(c *gin.Context, targetID uuid.UUID) (
 // @Router       /users/me [get]
 func (h *UserHandler) GetMe(c *gin.Context) {
 	userID, _ := c.Get(middleware.CtxUserID)
-	id, _ := userID.(uuid.UUID)
+	id, _ := userID.(domain.ID)
 
 	user, err := h.userSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
@@ -147,8 +181,8 @@ func (h *UserHandler) List(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /users/{id} [get]
 func (h *UserHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -182,7 +216,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		FirstName  string        `json:"first_name"`
 		LastName   string        `json:"last_name"`
 		Position   string        `json:"position"`
-		EmployeeID *uuid.UUID    `json:"employee_id"`
+		EmployeeID *domain.ID    `json:"employee_id"`
 		Employee   *employeeBody `json:"employee"`
 		IsActive   *bool         `json:"is_active"`
 		RoleIDs    []string      `json:"role_ids"`
@@ -200,8 +234,8 @@ func (h *UserHandler) Create(c *gin.Context) {
 	// хагас биелж (хэрэглэгч роль-гүй үүсээд) үлдэхээс сэргийлнэ.
 	roles := make([]*domain.Role, 0, len(req.RoleIDs))
 	for _, raw := range req.RoleIDs {
-		roleID, err := uuid.Parse(raw)
-		if err != nil {
+		roleID, okID := parseID(raw)
+		if !okID {
 			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 			return
 		}
@@ -224,8 +258,6 @@ func (h *UserHandler) Create(c *gin.Context) {
 			response.AbortValidation(c, err)
 			return
 		}
-		converted.CreatedBy = currentUserEmail(c)
-		converted.UpdatedBy = converted.CreatedBy
 		employeeReq = &converted
 	}
 	user, err := h.userSvc.Create(c.Request.Context(), service.CreateUserRequest{
@@ -269,8 +301,8 @@ func (h *UserHandler) Create(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /users/{id} [put]
 func (h *UserHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -343,8 +375,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /users/{id} [delete]
 func (h *UserHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -376,8 +408,8 @@ func (h *UserHandler) Delete(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /users/{id}/password [put]
 func (h *UserHandler) ChangePassword(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	id, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -432,8 +464,8 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 // @Failure      404  {object}  errorResponse
 // @Router       /users/{id}/roles [post]
 func (h *UserHandler) AssignRole(c *gin.Context) {
-	userID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	userID, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -444,8 +476,8 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	roleID, err := uuid.Parse(req.RoleID)
-	if err != nil {
+	roleID, okID := parseID(req.RoleID)
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
@@ -495,13 +527,13 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 // @Failure      403  {object}  errorResponse
 // @Router       /users/{id}/roles/{role_id} [delete]
 func (h *UserHandler) RemoveRole(c *gin.Context) {
-	userID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
+	userID, okID := parseID(c.Param("id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	roleID, err := uuid.Parse(c.Param("role_id"))
-	if err != nil {
+	roleID, okID := parseID(c.Param("role_id"))
+	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 type Claims struct {
-	UserID      uuid.UUID `json:"user_id"`
+	UserID      domain.ID `json:"user_id"`
 	Username    string    `json:"username"`
 	Email       string    `json:"email"`
 	FullName    string    `json:"full_name"`
@@ -45,7 +45,7 @@ type RevocationChecker interface {
 // SessionValidator — тухайн хэрэглэгчийн токен эх цэгийг шалгаж, нууц үг
 // сэргээх / албадан гаргах үед олгогдсон бүх хуучин токеныг хүчингүй болгоно.
 type SessionValidator interface {
-	IsSessionValid(ctx context.Context, userID uuid.UUID, issuedAt time.Time) (bool, error)
+	IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error)
 }
 
 func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *Manager {
@@ -66,7 +66,7 @@ func (m *Manager) SetSessionValidator(v SessionValidator) {
 }
 
 type UserInfo struct {
-	ID          uuid.UUID
+	ID          domain.ID
 	Username    string
 	Email       string
 	FullName    string

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -13,7 +14,6 @@ import (
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func TestRoleHandler_List(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	roles := []*domain.Role{{ID: uuid.New(), Name: "admin"}}
+	roles := []*domain.Role{{ID: domain.ID(1), Name: "admin"}}
 	mockSvc.On("List", mock.Anything).Return(roles, nil)
 
 	w := httptest.NewRecorder()
@@ -43,14 +43,14 @@ func TestRoleHandler_GetByID_Success(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	id := uuid.New()
+	id := domain.ID(2)
 	role := &domain.Role{ID: id, Name: "admin"}
 	mockSvc.On("GetByID", mock.Anything, id).Return(role, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/roles/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/roles/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.GetByID(c)
 
@@ -76,13 +76,13 @@ func TestRoleHandler_GetByID_NotFound(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	id := uuid.New()
+	id := domain.ID(3)
 	mockSvc.On("GetByID", mock.Anything, id).Return(nil, domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/roles/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/roles/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.GetByID(c)
 
@@ -93,7 +93,7 @@ func TestRoleHandler_Create_Success(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	role := &domain.Role{ID: uuid.New(), Name: "editor"}
+	role := &domain.Role{ID: domain.ID(4), Name: "editor"}
 	mockSvc.On("Create", mock.Anything, service.CreateRoleRequest{Name: "editor", Description: "Editor role"}).Return(role, nil)
 
 	w := httptest.NewRecorder()
@@ -127,16 +127,16 @@ func TestRoleHandler_Update_Success(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	id := uuid.New()
+	id := domain.ID(5)
 	role := &domain.Role{ID: id, Name: "editor-updated"}
 	mockSvc.On("Update", mock.Anything, id, service.UpdateRoleRequest{Name: "editor-updated", Description: ""}).Return(role, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	body := `{"name":"editor-updated"}`
-	c.Request = httptest.NewRequest(http.MethodPut, "/roles/"+id.String(), bytes.NewBufferString(body))
+	c.Request = httptest.NewRequest(http.MethodPut, "/roles/"+strconv.Itoa(int(id)), bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.Update(c)
 
@@ -163,13 +163,13 @@ func TestRoleHandler_Delete_Success(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	id := uuid.New()
+	id := domain.ID(6)
 	mockSvc.On("Delete", mock.Anything, id).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.Delete(c)
 
@@ -181,13 +181,13 @@ func TestRoleHandler_Delete_NotFound(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
 	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
 
-	id := uuid.New()
+	id := domain.ID(7)
 	mockSvc.On("Delete", mock.Anything, id).Return(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.Delete(c)
 
@@ -199,19 +199,20 @@ func TestRoleHandler_AssignPermission_Success(t *testing.T) {
 	mockPerm := &mocks.MockPermissionService{}
 	h := handler.NewRoleHandler(mockSvc, mockPerm)
 
-	roleID := uuid.New()
-	permID := uuid.New()
+	roleID := domain.ID(8)
+	permID := domain.ID(9)
 	// Дуудагч тухайн эрхийг өөрөө эзэмшиж байж л олгож чадна (escalation хамгаалалт).
-	mockPerm.On("GetByID", mock.Anything, permID).Return(&domain.Permission{ID: permID, Name: "land:update"}, nil)
+	mockSvc.On("GetByID", mock.Anything, roleID).Return(&domain.Role{ID: roleID}, nil)
+	mockPerm.On("GetByID", mock.Anything, permID).Return(&domain.Permission{ID: permID, Name: "land:update", Resource: "land"}, nil)
 	mockSvc.On("AssignPermission", mock.Anything, roleID, permID).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Set("permissions", []string{"land:update"})
-	body, _ := json.Marshal(map[string]string{"permission_id": permID.String()})
-	c.Request = httptest.NewRequest(http.MethodPost, "/roles/"+roleID.String()+"/permissions", bytes.NewBuffer(body))
+	body, _ := json.Marshal(map[string]string{"permission_id": strconv.Itoa(int(permID))})
+	c.Request = httptest.NewRequest(http.MethodPost, "/roles/"+strconv.Itoa(int(roleID))+"/permissions", bytes.NewBuffer(body))
 	c.Request.Header.Set("Content-Type", "application/json")
-	c.Params = gin.Params{gin.Param{Key: "id", Value: roleID.String()}}
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(roleID))}}
 
 	h.AssignPermission(c)
 
@@ -236,18 +237,22 @@ func TestRoleHandler_AssignPermission_InvalidRoleUUID(t *testing.T) {
 
 func TestRoleHandler_RemovePermission_Success(t *testing.T) {
 	mockSvc := &mocks.MockRoleService{}
-	h := handler.NewRoleHandler(mockSvc, &mocks.MockPermissionService{})
+	mockPerm := &mocks.MockPermissionService{}
+	h := handler.NewRoleHandler(mockSvc, mockPerm)
 
-	roleID := uuid.New()
-	permID := uuid.New()
+	roleID := domain.ID(10)
+	permID := domain.ID(11)
+	mockSvc.On("GetByID", mock.Anything, roleID).Return(&domain.Role{ID: roleID}, nil)
+	mockPerm.On("GetByID", mock.Anything, permID).Return(&domain.Permission{ID: permID, Name: "land:update", Resource: "land"}, nil)
 	mockSvc.On("RemovePermission", mock.Anything, roleID, permID).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+roleID.String()+"/permissions/"+permID.String(), nil)
+	c.Set("permissions", []string{"land:update"})
+	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/"+strconv.Itoa(int(roleID))+"/permissions/"+strconv.Itoa(int(permID)), nil)
 	c.Params = gin.Params{
-		{Key: "id", Value: roleID.String()},
-		{Key: "permission_id", Value: permID.String()},
+		{Key: "id", Value: strconv.Itoa(int(roleID))},
+		{Key: "permission_id", Value: strconv.Itoa(int(permID))},
 	}
 
 	h.RemovePermission(c)
@@ -264,9 +269,9 @@ func TestRoleHandler_RemovePermission_InvalidUUID(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Params = gin.Params{
 		{Key: "id", Value: "bad"},
-		{Key: "permission_id", Value: uuid.New().String()},
+		{Key: "permission_id", Value: "12"},
 	}
-	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/bad/permissions/"+uuid.New().String(), nil)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/roles/bad/permissions/"+"13", nil)
 
 	h.RemovePermission(c)
 

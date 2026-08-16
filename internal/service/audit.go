@@ -48,8 +48,8 @@ func (s *auditService) Log(ctx context.Context, entry AuditEntry) {
 	if err != nil || len(details) == 0 || string(details) == "null" {
 		details = []byte("{}")
 	}
-	var actorID *uuid.UUID
-	if actor.ID != uuid.Nil {
+	var actorID *domain.ID
+	if actor.ID != 0 {
 		id := actor.ID
 		actorID = &id
 	}

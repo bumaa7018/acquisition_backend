@@ -13,16 +13,16 @@ import (
 )
 
 type NotificationService interface {
-	List(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
-	UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error)
-	MarkRead(ctx context.Context, recipientID, id uuid.UUID) error
-	MarkAllRead(ctx context.Context, recipientID uuid.UUID) error
+	List(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error)
+	MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, recipientID domain.ID) error
 	// Subscribe — SSE стрийм суваг. Хязгаар хэтэрвэл nil суваг буцаана.
-	Subscribe(userID uuid.UUID) (<-chan *domain.Notification, func())
+	Subscribe(userID domain.ID) (<-chan *domain.Notification, func())
 	// Notify — мэдэгдлийг олон хүлээн авагчид үүсгэж, DB-д хадгалаад
 	// идэвхтэй SSE холболтууд руу шууд түгээнэ. Actor өөрөө хүлээн авагчдаас
 	// хасагдана, давхардсан хүлээн авагч нэг л мэдэгдэл авна.
-	Notify(ctx context.Context, recipients []uuid.UUID, n domain.Notification)
+	Notify(ctx context.Context, recipients []domain.ID, n domain.Notification)
 }
 
 type notificationService struct {
@@ -34,33 +34,33 @@ func NewNotificationService(repo repository.NotificationRepository, hub *notify.
 	return &notificationService{repo: repo, hub: hub}
 }
 
-func (s *notificationService) List(ctx context.Context, recipientID uuid.UUID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
+func (s *notificationService) List(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
 	return s.repo.ListByRecipient(ctx, recipientID, onlyUnread, page, pageSize)
 }
 
-func (s *notificationService) UnreadCount(ctx context.Context, recipientID uuid.UUID) (int64, error) {
+func (s *notificationService) UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error) {
 	return s.repo.UnreadCount(ctx, recipientID)
 }
 
-func (s *notificationService) MarkRead(ctx context.Context, recipientID, id uuid.UUID) error {
+func (s *notificationService) MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error {
 	return s.repo.MarkRead(ctx, recipientID, id)
 }
 
-func (s *notificationService) MarkAllRead(ctx context.Context, recipientID uuid.UUID) error {
+func (s *notificationService) MarkAllRead(ctx context.Context, recipientID domain.ID) error {
 	return s.repo.MarkAllRead(ctx, recipientID)
 }
 
-func (s *notificationService) Subscribe(userID uuid.UUID) (<-chan *domain.Notification, func()) {
+func (s *notificationService) Subscribe(userID domain.ID) (<-chan *domain.Notification, func()) {
 	return s.hub.Subscribe(userID)
 }
 
-func (s *notificationService) Notify(ctx context.Context, recipients []uuid.UUID, n domain.Notification) {
+func (s *notificationService) Notify(ctx context.Context, recipients []domain.ID, n domain.Notification) {
 	// Хүлээн авагчдыг цэвэрлэх: давхардал ба actor-ийг хасна.
-	seen := make(map[uuid.UUID]struct{}, len(recipients))
+	seen := make(map[domain.ID]struct{}, len(recipients))
 	var rows []*domain.Notification
 	now := time.Now()
 	for _, rid := range recipients {
-		if rid == uuid.Nil {
+		if rid == 0 {
 			continue
 		}
 		if n.ActorID != nil && rid == *n.ActorID {

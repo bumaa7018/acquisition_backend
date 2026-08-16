@@ -35,6 +35,7 @@ type LoginRequest struct {
 
 type authService struct {
 	userRepo            repository.UserRepository
+	externalUserRepo    repository.UserRepository
 	pwdResetRepo        repository.PasswordResetRepository
 	tokenRevocationRepo repository.TokenRevocationRepository
 	jwtManager          *jwt.Manager
@@ -49,15 +50,22 @@ func NewAuthService(
 	jwtManager *jwt.Manager,
 	emailSender email.Sender,
 	resetBaseURL string,
-	tokenRevocationRepo ...repository.TokenRevocationRepository,
+	optionalRepos ...any,
 ) AuthService {
 	var revocationRepo repository.TokenRevocationRepository
-	if len(tokenRevocationRepo) > 0 {
-		revocationRepo = tokenRevocationRepo[0]
-		jwtManager.SetRevocationChecker(revocationRepo)
+	var externalUserRepo repository.UserRepository
+	for _, repo := range optionalRepos {
+		switch v := repo.(type) {
+		case repository.TokenRevocationRepository:
+			revocationRepo = v
+			jwtManager.SetRevocationChecker(revocationRepo)
+		case repository.UserRepository:
+			externalUserRepo = v
+		}
 	}
 	return &authService{
 		userRepo:            userRepo,
+		externalUserRepo:    externalUserRepo,
 		pwdResetRepo:        pwdResetRepo,
 		tokenRevocationRepo: revocationRepo,
 		jwtManager:          jwtManager,
@@ -73,10 +81,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	if s.loginLimiter.blocked(req.Username) {
 		return nil, domain.ErrTooManyRequests
 	}
-	user, err := s.userRepo.GetByUsername(ctx, req.Username)
-	if err == domain.ErrNotFound {
-		user, err = s.userRepo.GetByEmail(ctx, req.Username)
-	}
+	user, sourceRepo, err := s.findLoginUser(ctx, req.Username)
 	if err != nil {
 		if err == domain.ErrNotFound {
 			s.loginLimiter.recordFailure(req.Username)
@@ -94,11 +99,11 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	// Амжилттай — тоолуурыг цэвэрлэнэ.
 	s.loginLimiter.reset(req.Username)
 
-	perms, err := s.userRepo.GetPermissions(ctx, user.ID)
+	perms, err := sourceRepo.GetPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
-	roles, err := s.userRepo.GetRoles(ctx, user.ID)
+	roles, err := sourceRepo.GetRoles(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,12 +127,48 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	return tokens, nil
 }
 
+func (s *authService) findLoginUser(ctx context.Context, login string) (*domain.User, repository.UserRepository, error) {
+	user, err := s.userRepo.GetByUsername(ctx, login)
+	if err == domain.ErrNotFound {
+		user, err = s.userRepo.GetByEmail(ctx, login)
+	}
+	if err == nil {
+		return user, s.userRepo, nil
+	}
+	if err != domain.ErrNotFound || s.externalUserRepo == nil {
+		return nil, nil, err
+	}
+	user, err = s.externalUserRepo.GetByUsername(ctx, login)
+	if err == domain.ErrNotFound {
+		user, err = s.externalUserRepo.GetByEmail(ctx, login)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, s.externalUserRepo, nil
+}
+
+func (s *authService) getUserForToken(ctx context.Context, userID domain.ID) (*domain.User, repository.UserRepository, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err == nil {
+		return user, s.userRepo, nil
+	}
+	if err != domain.ErrNotFound || s.externalUserRepo == nil {
+		return nil, nil, err
+	}
+	user, err = s.externalUserRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, s.externalUserRepo, nil
+}
+
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
 	claims, err := s.jwtManager.ValidateRefreshTokenContext(ctx, refreshToken)
 	if err != nil {
 		return nil, err
 	}
-	user, err := s.userRepo.GetByID(ctx, claims.UserID)
+	user, sourceRepo, err := s.getUserForToken(ctx, claims.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -135,11 +176,11 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if !user.IsActive {
 		return nil, domain.ErrForbidden
 	}
-	perms, err := s.userRepo.GetPermissions(ctx, user.ID)
+	perms, err := sourceRepo.GetPermissions(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
-	roles, err := s.userRepo.GetRoles(ctx, user.ID)
+	roles, err := sourceRepo.GetRoles(ctx, user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +230,9 @@ func (s *authService) Logout(ctx context.Context, accessToken, refreshToken stri
 func (s *authService) ForgotPassword(ctx context.Context, emailAddr string) error {
 	user, err := s.userRepo.GetByEmail(ctx, emailAddr)
 	if err != nil {
-		// email олдохгүй ч мэдэгдэхгүй — чимээгүй буцаана
+		// email олдохгүй эсвэл main DB-д байрлах гадны хэрэглэгч бол мэдэгдэхгүй.
+		// Одоогийн password_reset_tokens нь authDB.users FK-тэй тул external
+		// хэрэглэгчийн reset урсгалыг тусад нь хийх шаардлагатай.
 		return nil
 	}
 

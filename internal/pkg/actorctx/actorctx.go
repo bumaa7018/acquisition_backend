@@ -5,13 +5,13 @@
 package actorctx
 
 import (
-	"context"
+	"acquisition_backend/internal/domain"
 
-	"github.com/google/uuid"
+	"context"
 )
 
 type Actor struct {
-	ID        uuid.UUID
+	ID        domain.ID
 	Name      string
 	Position  string
 	Roles     []string
@@ -27,5 +27,5 @@ func With(ctx context.Context, a Actor) context.Context {
 
 func From(ctx context.Context) (Actor, bool) {
 	a, ok := ctx.Value(ctxKey{}).(Actor)
-	return a, ok && a.ID != uuid.Nil
+	return a, ok && a.ID != 0
 }

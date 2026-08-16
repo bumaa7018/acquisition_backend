@@ -37,7 +37,7 @@ func (r *captureAuditRepo) List(ctx context.Context, filter domain.AuditLogFilte
 func TestAuditService_LogPersistsActorMetadataAndDetails(t *testing.T) {
 	repo := newCaptureAuditRepo()
 	svc := NewAuditService(repo)
-	actorID := uuid.New()
+	actorID := domain.ID(42)
 	acqID := uuid.New()
 	parcelID := uuid.New()
 	ctx := actorctx.With(context.Background(), actorctx.Actor{

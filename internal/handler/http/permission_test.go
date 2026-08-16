@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -13,7 +14,6 @@ import (
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,7 +23,7 @@ func TestPermissionHandler_List(t *testing.T) {
 	mockSvc := &mocks.MockPermissionService{}
 	h := handler.NewPermissionHandler(mockSvc)
 
-	perms := []*domain.Permission{{ID: uuid.New(), Name: "users:read"}}
+	perms := []*domain.Permission{{ID: domain.ID(1), Name: "users:read"}}
 	mockSvc.On("List", mock.Anything).Return(perms, nil)
 
 	w := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestPermissionHandler_Create_Success(t *testing.T) {
 	mockSvc := &mocks.MockPermissionService{}
 	h := handler.NewPermissionHandler(mockSvc)
 
-	perm := &domain.Permission{ID: uuid.New(), Name: "land:read"}
+	perm := &domain.Permission{ID: domain.ID(2), Name: "land:read"}
 	mockSvc.On("Create", mock.Anything, service.CreatePermissionRequest{
 		Name:     "land:read",
 		Resource: "land",
@@ -98,13 +98,13 @@ func TestPermissionHandler_Delete_Success(t *testing.T) {
 	mockSvc := &mocks.MockPermissionService{}
 	h := handler.NewPermissionHandler(mockSvc)
 
-	id := uuid.New()
+	id := domain.ID(3)
 	mockSvc.On("Delete", mock.Anything, id).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/permissions/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/permissions/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.Delete(c)
 
@@ -130,13 +130,13 @@ func TestPermissionHandler_Delete_NotFound(t *testing.T) {
 	mockSvc := &mocks.MockPermissionService{}
 	h := handler.NewPermissionHandler(mockSvc)
 
-	id := uuid.New()
+	id := domain.ID(4)
 	mockSvc.On("Delete", mock.Anything, id).Return(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodDelete, "/permissions/"+id.String(), nil)
-	c.Params = gin.Params{gin.Param{Key: "id", Value: id.String()}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/permissions/"+strconv.Itoa(int(id)), nil)
+	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
 	h.Delete(c)
 

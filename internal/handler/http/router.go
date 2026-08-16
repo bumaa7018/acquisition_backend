@@ -88,10 +88,13 @@ func NewRouter(
 		var personSvc service.PersonService
 		var employeeSvc service.EmployeeService
 		var decisionSvcs service.DecisionServices
+		var menuSvc service.MenuService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.DecisionServices:
 				decisionSvcs = v
+			case service.MenuService:
+				menuSvc = v
 			case service.NotificationService:
 				notificationSvc = v
 			case service.AuditService:
@@ -143,7 +146,7 @@ func NewRouter(
 			{
 				organizations.GET("", middleware.RequirePermission("hr:read"), hrH.ListOrganizations)
 				organizations.GET("/:id", middleware.RequirePermission("hr:read"), hrH.GetOrganization)
-				organizations.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreateOrganization)
+				organizations.POST("", middleware.RequirePermission("hr:structure:create"), adminOnly, hrH.CreateOrganization)
 				organizations.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdateOrganization)
 				organizations.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeleteOrganization)
 			}
@@ -152,7 +155,7 @@ func NewRouter(
 			departments.Use(denyExternal)
 			{
 				departments.GET("", middleware.RequirePermission("hr:read"), hrH.ListDepartments)
-				departments.POST("", middleware.RequirePermission("hr:create"), adminOnly, hrH.CreateDepartment)
+				departments.POST("", middleware.RequirePermission("hr:structure:create"), adminOnly, hrH.CreateDepartment)
 				departments.PUT("/:id", middleware.RequirePermission("hr:update"), adminOnly, hrH.UpdateDepartment)
 				departments.DELETE("/:id", middleware.RequirePermission("hr:delete"), adminOnly, hrH.DeleteDepartment)
 			}
@@ -209,8 +212,25 @@ func NewRouter(
 			roles.POST("", middleware.RequirePermission("roles:create"), roleH.Create)
 			roles.PUT("/:id", middleware.RequirePermission("roles:update"), roleH.Update)
 			roles.DELETE("/:id", middleware.RequirePermission("roles:delete"), roleH.Delete)
-			roles.POST("/:id/permissions", middleware.RequirePermission("roles:update"), roleH.AssignPermission)
-			roles.DELETE("/:id/permissions/:permission_id", middleware.RequirePermission("roles:update"), roleH.RemovePermission)
+			roles.POST("/:id/permissions", middleware.RequirePermissionOrRole("roles:update", "admin"), roleH.AssignPermission)
+			roles.DELETE("/:id/permissions/:permission_id", middleware.RequirePermissionOrRole("roles:update", "admin"), roleH.RemovePermission)
+			// Цэс холбох (эрхийн 1-р давхарга) — menuSvc өгсөн үед л.
+			if menuSvc != nil {
+				menuH := NewMenuHandler(menuSvc)
+				roles.GET("/:id/menus", middleware.RequirePermission("roles:read"), menuH.ListByRole)
+				roles.POST("/:id/menus", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.Attach)
+				roles.DELETE("/:id/menus/:menu_id", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.Detach)
+			}
+		}
+
+		if menuSvc != nil {
+			menuH := NewMenuHandler(menuSvc)
+			menus := protected.Group("/menus")
+			{
+				// Хэрэглэгчид ЗӨВХӨН өөрт харагдах цэс — эрх шаардахгүй.
+				menus.GET("/me", menuH.Mine)
+				menus.GET("", middleware.RequirePermission("roles:read"), menuH.List)
+			}
 		}
 
 		permissions := protected.Group("/permissions")

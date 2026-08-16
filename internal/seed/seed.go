@@ -2,6 +2,7 @@ package seed
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -10,70 +11,49 @@ import (
 	"acquisition_backend/internal/pkg/hash"
 	"acquisition_backend/internal/repository"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var defaultPermissions = []domain.Permission{
-	{Name: "users:read", Description: "Read users", Resource: "users", Action: "read"},
-	{Name: "users:create", Description: "Create users", Resource: "users", Action: "create"},
-	{Name: "users:update", Description: "Update users", Resource: "users", Action: "update"},
-	{Name: "users:delete", Description: "Delete users", Resource: "users", Action: "delete"},
-	{Name: "roles:read", Description: "Read roles", Resource: "roles", Action: "read"},
-	{Name: "roles:create", Description: "Create roles", Resource: "roles", Action: "create"},
-	{Name: "roles:update", Description: "Update roles", Resource: "roles", Action: "update"},
-	{Name: "roles:delete", Description: "Delete roles", Resource: "roles", Action: "delete"},
-	{Name: "permissions:read", Description: "Read permissions", Resource: "permissions", Action: "read"},
-	{Name: "permissions:create", Description: "Create permissions", Resource: "permissions", Action: "create"},
-	{Name: "permissions:delete", Description: "Delete permissions", Resource: "permissions", Action: "delete"},
-	{Name: "admin:read", Description: "Системийн тохиргоо харах", Resource: "admin", Action: "read"},
-	{Name: "admin:create", Description: "Лавлах мэдээлэл нэмэх", Resource: "admin", Action: "create"},
-	{Name: "admin:update", Description: "Лавлах мэдээлэл засах", Resource: "admin", Action: "update"},
-	{Name: "admin:delete", Description: "Лавлах мэдээлэл устгах", Resource: "admin", Action: "delete"},
-	{Name: "hr:read", Description: "Хүний нөөцийн бүртгэл харах", Resource: "hr", Action: "read"},
-	{Name: "hr:create", Description: "Хүний нөөцийн бүртгэл нэмэх", Resource: "hr", Action: "create"},
-	{Name: "hr:update", Description: "Хүний нөөцийн бүртгэл засах", Resource: "hr", Action: "update"},
-	{Name: "hr:delete", Description: "Хүний нөөцийн бүртгэл устгах", Resource: "hr", Action: "delete"},
-	{Name: "audit:read", Description: "Ажилтны үйлдлийн лог харах", Resource: "audit", Action: "read"},
-	{Name: "land:read", Description: "Read land acquisitions", Resource: "land", Action: "read"},
-	{Name: "land:create", Description: "Create land acquisitions", Resource: "land", Action: "create"},
-	{Name: "land:update", Description: "Update land acquisitions", Resource: "land", Action: "update"},
-	{Name: "land:delete", Description: "Delete land acquisitions", Resource: "land", Action: "delete"},
-	// Нөхөх олговрын (үнэлгээний) эрхүүд — гадаад ролиуд (мэрг. байгууллага,
-	// МИКА, санхүүгийн мэргэжилтэн) ЗӨВХӨН эдгээр эрхтэй ажиллана.
-	{Name: "compensation:read", Description: "Нөхөх олговор/үнэлгээ харах", Resource: "compensation", Action: "read"},
-	{Name: "compensation:create", Description: "Нөхөх олговор/үнэлгээ бүртгэх", Resource: "compensation", Action: "create"},
-	{Name: "compensation:update", Description: "Нөхөх олговор/үнэлгээ засах, төлөв шилжүүлэх", Resource: "compensation", Action: "update"},
-	// Захирамжийн төслийн эрхүүд — захирамжийн төсөлтэй ажиллах мэргэжилтэн
-	// ЗӨВХӨН эдгээрээр ажиллана. Өмнө нь land:* эрхээр удирдагдаж байсан тул
-	// газар чөлөөлөлт засах эрхтэй хүн бүр захирамжийн төсөлд хүрдэг байв.
-	{Name: "decision:read", Description: "Захирамжийн төсөл харах", Resource: "decision", Action: "read"},
-	{Name: "decision:create", Description: "Захирамжийн төсөл үүсгэх", Resource: "decision", Action: "create"},
-	{Name: "decision:update", Description: "Захирамжийн төсөл засах, батлах", Resource: "decision", Action: "update"},
-	{Name: "decision:delete", Description: "Захирамжийн төсөл устгах", Resource: "decision", Action: "delete"},
+// defaultPermissions — системийн бүх эрх "нөөц:үйлдэл" хэлбэрээр.
+// sdplatform-д нөөц нь роль дээр, үйлдэл нь эрх дээр бүртгэгддэг тул эдгээр нь
+// grantLevel()-ээр (role=<нөөц>_<түвшин>, permission=<үйлдэл>) болж задарна.
+var defaultPermissions = []string{
+	"users:read", "users:create", "users:update", "users:delete",
+	"roles:read", "roles:create", "roles:update", "roles:delete",
+	"permissions:read", "permissions:create", "permissions:delete",
+	"admin:read", "admin:create", "admin:update", "admin:delete",
+	"hr:read", "hr:create", "hr:update", "hr:delete",
+	"audit:read",
+	"land:read", "land:create", "land:update", "land:delete",
+	// Нөхөх олговрын (үнэлгээний) эрхүүд — гадаад ролиуд ЗӨВХӨН эдгээртэй.
+	"compensation:read", "compensation:create", "compensation:update",
+	// Захирамжийн төслийн эрхүүд.
+	"decision:read", "decision:create", "decision:update", "decision:delete",
 }
 
+// seniorSpecialistPermissions / employeePermissions — дотоод түвшингүүдийн багц.
+var seniorSpecialistPermissions = []string{
+	"land:read", "land:create", "land:update",
+	"decision:read", "decision:create", "decision:update",
+	"users:read",
+}
+
+var employeePermissions = []string{"land:read"}
+
 func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
-	if _, err := s.seedPermissions(ctx); err != nil {
+	if err := s.grantLevel(ctx, "admin", []string{"hr:read", "hr:create", "hr:update", "hr:delete"}); err != nil {
 		return err
 	}
-	role, err := s.roleRepo.GetByName(ctx, "admin")
-	if err != nil {
-		return err
-	}
-	for _, name := range []string{"hr:read", "hr:create", "hr:update", "hr:delete"} {
-		perm, err := s.permRepo.GetByName(ctx, name)
-		if err != nil {
-			return err
-		}
-		if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
-			return err
-		}
-	}
-	slog.Info("hr permissions granted", "role", "admin")
+	slog.Info("hr permissions granted", "level", "admin")
 	return nil
 }
 
+// SeedHRBackfill — ажилтны бүртгэлгүй хэрэглэгч бүрт хүн/ажилтныг үүсгэж,
+// hr_employee.user_id-аар холбоно (sdplatform-д хэрэглэгч↔ажилтны холбоос
+// яг энэ багана дээр байдаг).
+//
+// bs_person.person_register нь varchar(10) тул регистрийг хэрэглэгчийн
+// дугаараас богиноор («U<user_id>») үүсгэнэ.
 func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -81,38 +61,44 @@ func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var orgID uuid.UUID
-	err = tx.QueryRow(ctx, `
+	const orgName = "Нийслэлийн Газрын алба"
+	var orgID domain.ID
+	if err := tx.QueryRow(ctx, `
 		WITH ins AS (
-			INSERT INTO organization (name, short_name, register_no, source)
-			SELECT 'Нийслэлийн Газрын алба', 'НГА', 'HR-BACKFILL-ORG', 'backfill'
-			WHERE NOT EXISTS (SELECT 1 FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL)
+			INSERT INTO sdplatform.sd_organization (name)
+			SELECT LEFT($1::text, 250)
+			WHERE NOT EXISTS (SELECT 1 FROM sdplatform.sd_organization WHERE name = LEFT($1::text, 250))
 			RETURNING id
 		)
 		SELECT id FROM ins
 		UNION ALL
-		SELECT id FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL
-		LIMIT 1`).Scan(&orgID)
-	if err != nil {
+		SELECT id FROM sdplatform.sd_organization WHERE name = LEFT($1::text, 250)
+		LIMIT 1`, orgName).Scan(&orgID); err != nil {
 		return err
 	}
 
-	rows, err := tx.Query(ctx, `SELECT id, username, email, first_name, last_name, COALESCE(position,'Ажилтан') FROM users WHERE deleted_at IS NULL AND employee_id IS NULL`)
+	rows, err := tx.Query(ctx, `
+		SELECT u.user_id, COALESCE(u.firstname, ''), COALESCE(u.lastname, ''), COALESCE(u.email, '')
+		FROM sdplatform.sd_user u
+		WHERE u.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM sdplatform.hr_employee e
+			WHERE e.user_id = u.user_id AND COALESCE(e.is_active, 1) <> 0
+		)`)
 	if err != nil {
 		return err
 	}
 	type backfillUser struct {
-		id           uuid.UUID
-		username     string
-		email        string
-		firstName    string
-		lastName     string
-		positionName string
+		id        domain.ID
+		firstName string
+		lastName  string
+		email     string
 	}
 	var users []backfillUser
 	for rows.Next() {
 		var u backfillUser
-		if err := rows.Scan(&u.id, &u.username, &u.email, &u.firstName, &u.lastName, &u.positionName); err != nil {
+		if err := rows.Scan(&u.id, &u.firstName, &u.lastName, &u.email); err != nil {
+			rows.Close()
 			return err
 		}
 		users = append(users, u)
@@ -121,59 +107,56 @@ func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+
+	const defaultPosition = "Ажилтан"
+	var posID domain.ID
+	if err := tx.QueryRow(ctx, `
+		WITH ins AS (
+			INSERT INTO sdplatform.hr_position (name, created_at, updated_at)
+			SELECT LEFT($1, 250), NOW(), NOW()
+			WHERE NOT EXISTS (SELECT 1 FROM sdplatform.hr_position WHERE name = LEFT($1, 250))
+			RETURNING position_id
+		)
+		SELECT position_id FROM ins
+		UNION ALL
+		SELECT position_id FROM sdplatform.hr_position WHERE name = LEFT($1, 250)
+		LIMIT 1`, defaultPosition).Scan(&posID); err != nil {
+		return err
+	}
+
 	for _, u := range users {
-		var posID uuid.UUID
+		register := fmt.Sprintf("U%d", u.id)
+		var personID domain.ID
 		if err := tx.QueryRow(ctx, `
 			WITH ins AS (
-				INSERT INTO position (name)
-				SELECT $1
-				WHERE NOT EXISTS (SELECT 1 FROM position WHERE name=$1 AND deleted_at IS NULL)
-				RETURNING id
+				INSERT INTO base.bs_person ("type", "name", first_name, person_register, email_address, created_at, updated_at)
+				SELECT 1, LEFT($2, 250), LEFT($3, 50), LEFT($1, 10), LEFT($4, 256), NOW(), NOW()
+				WHERE NOT EXISTS (SELECT 1 FROM base.bs_person WHERE person_register = LEFT($1, 10))
+				RETURNING person_id
 			)
-			SELECT id FROM ins
+			SELECT person_id FROM ins
 			UNION ALL
-			SELECT id FROM position WHERE name=$1 AND deleted_at IS NULL
-			LIMIT 1`, u.positionName).Scan(&posID); err != nil {
+			SELECT person_id FROM base.bs_person WHERE person_register = LEFT($1, 10)
+			LIMIT 1`, register, u.lastName, u.firstName, u.email).Scan(&personID); err != nil {
 			return err
 		}
-		var personID uuid.UUID
-		registerNo := "EMP-" + u.username
-		if err := tx.QueryRow(ctx, `
-			WITH ins AS (
-				INSERT INTO person (person_type, register_no, last_name, first_name, email, source, created_by, updated_by)
-				SELECT 'citizen', $1, $2, $3, $4, 'backfill', 'seed', 'seed'
-				WHERE NOT EXISTS (SELECT 1 FROM person WHERE register_no=$1 AND deleted_at IS NULL)
-				RETURNING id
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO sdplatform.hr_employee (
+				person_id, position_id, user_id, email,
+				firstname, lastname, is_active, created_at, updated_at
 			)
-			SELECT id FROM ins
-			UNION ALL
-			SELECT id FROM person WHERE register_no=$1 AND deleted_at IS NULL
-			LIMIT 1`, registerNo, u.lastName, u.firstName, u.email).Scan(&personID); err != nil {
-			return err
-		}
-		var employeeID uuid.UUID
-		employeeNo := "EMP-" + u.username
-		if err := tx.QueryRow(ctx, `
-			WITH ins AS (
-				INSERT INTO employee (person_id, organization_id, position_id, employee_no, work_email, created_by, updated_by)
-				SELECT $1, $2, $3, $4, $5, 'seed', 'seed'
-				WHERE NOT EXISTS (SELECT 1 FROM employee WHERE person_id=$1 AND deleted_at IS NULL)
-				RETURNING id
-			)
-			SELECT id FROM ins
-			UNION ALL
-			SELECT id FROM employee WHERE person_id=$1 AND deleted_at IS NULL
-			LIMIT 1`, personID, orgID, posID, employeeNo, u.email).Scan(&employeeID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE users SET employee_id=$1, position=$2, updated_at=NOW() WHERE id=$3 AND employee_id IS NULL`, employeeID, u.positionName, u.id); err != nil {
+			SELECT $1::int4, $2::int4, $3::int4, LEFT($4, 250), LEFT($5, 250), LEFT($6, 250), 1, NOW(), NOW()
+			WHERE NOT EXISTS (
+				SELECT 1 FROM sdplatform.hr_employee
+				WHERE person_id = $1 AND COALESCE(is_active, 1) <> 0
+			)`, personID, posID, u.id, u.email, u.firstName, u.lastName); err != nil {
 			return err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	slog.Info("hr backfill applied")
+	slog.Info("hr backfill applied", "users", len(users), "organization_id", orgID)
 	return nil
 }
 
@@ -182,17 +165,16 @@ func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
 // organization_id/name/code/sort_order-ыг тохируулдаг тул бүтцийг хавтгай
 // байлгав — үгүй бол UI-аас засах боломжгүй мөр үүснэ.
 var hrSampleDepartments = []struct {
-	code      string
-	name      string
-	sortOrder int
+	code string
+	name string
 }{
-	{"ADM", "Захиргаа, удирдлагын хэлтэс", 1},
-	{"GCH", "Газар чөлөөлөлтийн хэлтэс", 2},
-	{"UNO", "Үнэлгээ, нөхөх олговрын хэлтэс", 3},
-	{"GZZ", "Геодези, зураг зүйн хэлтэс", 4},
-	{"SHO", "Санхүү, хөрөнгө оруулалтын хэлтэс", 5},
-	{"HSH", "Хяналт, шинжилгээний хэлтэс", 6},
-	{"MTH", "Мэдээллийн технологийн хэлтэс", 7},
+	{"ADM", "Захиргаа, удирдлагын хэлтэс"},
+	{"GCH", "Газар чөлөөлөлтийн хэлтэс"},
+	{"UNO", "Үнэлгээ, нөхөх олговрын хэлтэс"},
+	{"GZZ", "Геодези, зураг зүйн хэлтэс"},
+	{"SHO", "Санхүү, хөрөнгө оруулалтын хэлтэс"},
+	{"HSH", "Хяналт, шинжилгээний хэлтэс"},
+	{"MTH", "Мэдээллийн технологийн хэлтэс"},
 }
 
 // Албан тушаал → хэлтсийн харгалзаа. Тохирохгүй/хоосон тушаал нь
@@ -219,6 +201,11 @@ const hrDefaultDepartmentCode = "ADM"
 // Идемпотент: хэлтсийг (organization_id, name)-аар, ажилтны холбоосыг
 // department_id IS NULL шалгуураар л хийнэ — гараар зассан өгөгдлийг
 // дарж бичихгүй.
+// SeedHRDepartments — "Алба, хэлтэс" лавлахыг жишээ өгөгдлөөр бөглөж, хэлтэсгүй
+// ажилтан бүрийг албан тушаалынх нь дагуу хэлтэст холбоно.
+//
+// Ажилтны БАЙГУУЛЛАГА нь хэлтсээр дамждаг (hr_employee-д байгууллагын багана
+// байхгүй) тул энэ алхам нь ажилтныг байгууллагатай холбох цорын ганц зам.
 func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -226,48 +213,47 @@ func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var orgID uuid.UUID
+	const orgName = "Нийслэлийн Газрын алба"
+	var orgID domain.ID
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM organization WHERE register_no='HR-BACKFILL-ORG' AND deleted_at IS NULL LIMIT 1`,
-	).Scan(&orgID); err != nil {
-		// Байгууллага байхгүй бол 000019 ажиллаагүй байна — холбох ажилтан ч байхгүй.
+		`SELECT id FROM sdplatform.sd_organization WHERE name = $1 LIMIT 1`, orgName).Scan(&orgID); err != nil {
 		slog.Warn("hr departments skipped: base organization not found", "error", err)
 		return nil
 	}
 
-	deptIDs := make(map[string]uuid.UUID, len(hrSampleDepartments))
+	deptIDs := make(map[string]domain.ID, len(hrSampleDepartments))
 	for _, d := range hrSampleDepartments {
-		var id uuid.UUID
+		var id domain.ID
 		if err := tx.QueryRow(ctx, `
 			WITH ins AS (
-				INSERT INTO department (organization_id, code, name, sort_order)
-				SELECT $1, $2, $3, $4
+				INSERT INTO sdplatform.hr_department (organization, code, name, created_at, updated_at)
+				SELECT $1, LEFT($2, 45), LEFT($3, 250), NOW(), NOW()
 				WHERE NOT EXISTS (
-					SELECT 1 FROM department
-					WHERE organization_id=$1 AND name=$3 AND deleted_at IS NULL
+					SELECT 1 FROM sdplatform.hr_department
+					WHERE organization = $1 AND name = LEFT($3, 250)
 				)
-				RETURNING id
+				RETURNING department_id
 			)
-			SELECT id FROM ins
+			SELECT department_id FROM ins
 			UNION ALL
-			SELECT id FROM department
-			WHERE organization_id=$1 AND name=$3 AND deleted_at IS NULL
-			LIMIT 1`, orgID, d.code, d.name, d.sortOrder).Scan(&id); err != nil {
+			SELECT department_id FROM sdplatform.hr_department
+			WHERE organization = $1 AND name = LEFT($3, 250)
+			LIMIT 1`, orgID, d.code, d.name).Scan(&id); err != nil {
 			return err
 		}
 		deptIDs[d.code] = id
 	}
 
 	rows, err := tx.Query(ctx, `
-		SELECT e.id, COALESCE(p.name, '')
-		FROM employee e
-		JOIN position p ON p.id = e.position_id
-		WHERE e.deleted_at IS NULL AND e.department_id IS NULL AND e.organization_id = $1`, orgID)
+		SELECT e.employee_id, COALESCE(pos.name, '')
+		FROM sdplatform.hr_employee e
+		JOIN sdplatform.hr_position pos ON pos.position_id = e.position_id
+		WHERE COALESCE(e.is_active, 1) <> 0 AND e.department_id IS NULL`)
 	if err != nil {
 		return err
 	}
 	type pending struct {
-		id       uuid.UUID
+		id       domain.ID
 		position string
 	}
 	var employees []pending
@@ -290,8 +276,8 @@ func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 			code = hrDefaultDepartmentCode
 		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE employee SET department_id=$1, updated_at=NOW(), updated_by='seed'
-			 WHERE id=$2 AND department_id IS NULL`, deptIDs[code], e.id); err != nil {
+			`UPDATE sdplatform.hr_employee SET department_id = $1, updated_at = NOW()
+			 WHERE employee_id = $2 AND department_id IS NULL`, deptIDs[code], e.id); err != nil {
 			return err
 		}
 	}
@@ -314,41 +300,191 @@ var externalRolePermissions = map[string]struct {
 	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
 }
 
+var system10AdminPermissions = []string{
+	"users:read",
+	"users:create",
+	"roles:read",
+	"permissions:read",
+	"hr:read",
+	"hr:create",
+}
+
+var system10RoleNames = []string{
+	"admin",
+	"senior_specialist",
+	"employee",
+}
+
+var system10MenuSeeds = []struct {
+	code      string
+	name      string
+	url       string
+	sortOrder int
+}{
+	{"A010", "Газар чөлөөлөлт", "/land-acquisitions", 1},
+	{"A010001", "Газар чөлөөлөлтийн жагсаалт", "/land-acquisitions", 1},
+	{"A010002", "Нэгж талбар", "/land-acquisitions/:id/parcels", 2},
+	{"A010003", "Хөрөнгө, үнэлгээ", "/land-acquisitions/:id/assets", 3},
+	{"A010004", "Нөхөх олговор", "/land-acquisitions/:id/compensations", 4},
+	{"A010005", "Баримт бичиг", "/land-acquisitions/:id/documents", 5},
+}
+
+func (s *Seeder) SeedSystem10AccessPolicy(ctx context.Context) error {
+	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
+		return err
+	}
+	return s.SeedLegacySDPlatformSystem10(ctx)
+}
+
+func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
+	if err := s.SeedCompensationAccess(ctx); err != nil {
+		return err
+	}
+	users := []struct {
+		username string
+		email    string
+		first    string
+		last     string
+	}{
+		{"valuation_org_1", "valuation.org1@example.mn", "Үнэлгээний", "Байгууллага 1"},
+		{"valuation_org_2", "valuation.org2@example.mn", "Үнэлгээний", "Байгууллага 2"},
+		{"valuation_org_3", "valuation.org3@example.mn", "Үнэлгээний", "Байгууллага 3"},
+	}
+	for _, u := range users {
+		if err := s.seedRoleUser(ctx, "professional_org", u.username, u.email, "Testpass123!", u.first, u.last, "Мэргэжлийн байгууллага"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SeedLegacySDPlatformSystem10 — систем (system_id=10), цэсний мод болон
+// маягтуудыг sdplatform-д бүртгэж, энэ системийн БҮХ роль дээр цэсийг холбоно.
+//
+// Эрхийн загварын 1-р давхарга нь ЦЭС (sd_menu / sd_menu_role): хэрэглэгчид
+// эхлээд цэс харагдах эсэх шийдэгдэж, дараа нь роль (нөөц) ба эрх (үйлдэл)
+// шалгагдана. Роль/эрх нь grantLevel()-ээр удирдагдана — энд зөвхөн цэс.
+func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var legacyTablesExist bool
+	if err := tx.QueryRow(ctx, `
+		SELECT to_regclass('sdplatform.sd_system') IS NOT NULL
+		   AND to_regclass('sdplatform.sd_menu') IS NOT NULL
+		   AND to_regclass('sdplatform.sd_menu_role') IS NOT NULL
+	`).Scan(&legacyTablesExist); err != nil {
+		return err
+	}
+	if !legacyTablesExist {
+		slog.Info("sdplatform menu tables are absent; skipping menu sync")
+		return nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sdplatform.sd_system (system_id, "name", description)
+		VALUES (10, 'Газар чөлөөлөлт', 'Газар чөлөөлөлтийн систем')
+		ON CONFLICT (system_id) DO UPDATE SET
+			"name" = EXCLUDED."name",
+			description = EXCLUDED.description
+	`); err != nil {
+		return err
+	}
+
+	for _, m := range system10MenuSeeds {
+		parentCode := ""
+		if m.code != "A010" {
+			parentCode = "A010"
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO sdplatform.sd_menu (code, "name", menu_url, sort_order, created_at, parent_code)
+			VALUES (LEFT($1, 32), LEFT($2, 250), LEFT($3, 250), $4, NOW(), NULLIF($5, ''))
+			ON CONFLICT (code) DO UPDATE SET
+				"name" = EXCLUDED."name",
+				menu_url = EXCLUDED.menu_url,
+				sort_order = EXCLUDED.sort_order,
+				parent_code = EXCLUDED.parent_code,
+				updated_at = NOW()`,
+			m.code, m.name, m.url, m.sortOrder, parentCode); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE sdplatform.sd_menu child
+		SET parent_id = parent.menu_id
+		FROM sdplatform.sd_menu parent
+		WHERE child.parent_code = parent.code AND child.parent_id IS DISTINCT FROM parent.menu_id`); err != nil {
+		return err
+	}
+
+	// Маягтууд (sd_form) — цэс бүрт нэг.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sdplatform.sd_form (form_name, code, created_at)
+		SELECT m."name", m.code, NOW()
+		FROM sdplatform.sd_menu m
+		WHERE m.code = ANY($1)
+		  AND NOT EXISTS (SELECT 1 FROM sdplatform.sd_form f WHERE f.code = m.code)`,
+		system10MenuCodes()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sdplatform.sd_menu_form (form_id, menu_id, form_code, menu_code, created_at)
+		SELECT f.form_id, m.menu_id, f.code, m.code, NOW()
+		FROM sdplatform.sd_form f
+		JOIN sdplatform.sd_menu m ON m.code = f.code
+		WHERE m.code = ANY($1)
+		  AND NOT EXISTS (
+			SELECT 1 FROM sdplatform.sd_menu_form mf
+			WHERE mf.form_code = f.code AND mf.menu_code = m.code
+		  )`, system10MenuCodes()); err != nil {
+		return err
+	}
+
+	// Энэ системийн бүх роль дээр цэсийг холбоно.
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO sdplatform.sd_menu_role (menu_id, role_id, created_at)
+		SELECT m.menu_id, r.role_id, NOW()
+		FROM sdplatform.sd_menu m
+		CROSS JOIN sdplatform.sd_role r
+		WHERE m.code = ANY($1)
+		  AND EXISTS (
+			SELECT 1 FROM sdplatform.sd_system_role sr
+			WHERE sr.role_id = r.role_id AND sr.system_id = 10
+		  )
+		ON CONFLICT DO NOTHING`, system10MenuCodes())
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	slog.Info("sdplatform system 10 menus synced", "menus", len(system10MenuSeeds), "menu_role_links", tag.RowsAffected())
+	return nil
+}
+
+func system10MenuCodes() []string {
+	out := make([]string, 0, len(system10MenuSeeds))
+	for _, m := range system10MenuSeeds {
+		out = append(out, m.code)
+	}
+	return out
+}
+
 // SeedPermissionFixes — эрхийн нэршлийн зөрчлүүдийг засна:
 //  1. admin:* permission үүсгэж admin роль-д олгоно (лавлах CRUD + Тохиргоо цэс)
 //  2. users:read-ийг senior_specialist-д олгоно (ажилтан/байгууллага сонгох UI)
 //  3. Орфон permission-уудыг устгана (acquisition.create, valuation:create/update)
+//
+// SeedPermissionFixes — лавлах CRUD (admin:*), аудит, мөн ахлах мэргэжилтний
+// users:read эрхийг баталгаажуулна.
 func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
-	if _, err := s.seedPermissions(ctx); err != nil {
+	if err := s.grantLevel(ctx, "admin", []string{"admin:read", "admin:create", "admin:update", "admin:delete", "audit:read"}); err != nil {
 		return err
 	}
-	grants := map[string][]string{
-		"admin":             {"admin:read", "admin:create", "admin:update", "admin:delete", "audit:read"},
-		"senior_specialist": {"users:read"},
-	}
-	for roleName, permNames := range grants {
-		role, err := s.roleRepo.GetByName(ctx, roleName)
-		if err != nil {
-			continue
-		}
-		for _, permName := range permNames {
-			perm, err := s.permRepo.GetByName(ctx, permName)
-			if err != nil {
-				return err
-			}
-			_ = s.roleRepo.AssignPermission(ctx, role.ID, perm.ID)
-		}
-	}
-	// Орфон permission-ууд: ямар ч маршрут ашиглахаа больсон
-	if _, err := s.db.Exec(ctx, `
-		DELETE FROM role_permissions rp USING permissions p
-		WHERE rp.permission_id = p.id AND p.name IN ('acquisition.create', 'valuation:create', 'valuation:update')
-	`); err != nil {
-		return err
-	}
-	if _, err := s.db.Exec(ctx, `
-		DELETE FROM permissions WHERE name IN ('acquisition.create', 'valuation:create', 'valuation:update')
-	`); err != nil {
+	if err := s.grantLevel(ctx, "senior_specialist", []string{"users:read"}); err != nil {
 		return err
 	}
 	slog.Info("permission fixes applied")
@@ -364,40 +500,22 @@ func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
 // тухайн эрхийг эзэмшсэн байх ёстой) админд МИКА / мэргэжлийн байгууллага /
 // санхүүгийн роль олгохыг хориглож байсан. admin бол "full access" роль тул
 // шинэ эрх нэмэгдэх бүрд түүнд олгогдох ёстой.
+// SeedAdminAllPermissions — admin түвшинд БҮХ эрхийг олгоно (идемпотент).
+// Шинэ эрх нэмэгдэх бүрд админ түүнийг эзэмших ёстой, эс тэгвээс "эрх
+// нэмэгдүүлэлтээс сэргийлэх" шалгалт админд тухайн роль олгохыг хориглоно.
 func (s *Seeder) SeedAdminAllPermissions(ctx context.Context) error {
-	permIDs, err := s.seedPermissions(ctx)
-	if err != nil {
+	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
 		return err
 	}
-	role, err := s.roleRepo.GetByName(ctx, "admin")
-	if err != nil {
-		return err
-	}
-	for _, pid := range permIDs {
-		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
-			return err
-		}
-	}
-	slog.Info("admin role granted all permissions", "count", len(permIDs))
+	slog.Info("admin level granted all permissions", "count", len(defaultPermissions))
 	return nil
 }
 
 func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
-	if _, err := s.seedPermissions(ctx); err != nil {
+	if err := s.grantLevel(ctx, "admin", []string{"audit:read"}); err != nil {
 		return err
 	}
-	role, err := s.roleRepo.GetByName(ctx, "admin")
-	if err != nil {
-		return err
-	}
-	perm, err := s.permRepo.GetByName(ctx, "audit:read")
-	if err != nil {
-		return err
-	}
-	if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
-		return err
-	}
-	slog.Info("audit permission granted", "role", role.Name, "permission", perm.Name)
+	slog.Info("audit permission granted", "level", "admin")
 	return nil
 }
 
@@ -412,80 +530,54 @@ func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
 //
 // Гадаад ролиуд (мэрг. байгууллага, МИКА, санхүү) land:* эрхгүй тул (зөвхөн
 // compensation:*) энэ алхмаар decision:* авахгүй.
+// SeedDecisionPermissions — захирамжийн төслийн эрхүүд.
+// Админд бүгдийг, land:<action> эрхтэй түвшингүүдэд харгалзах
+// decision:<action>-ийг олгоно (өмнөх зан төлөв хэвээр).
 func (s *Seeder) SeedDecisionPermissions(ctx context.Context) error {
-	if _, err := s.seedPermissions(ctx); err != nil {
+	if err := s.grantLevel(ctx, "admin", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
 		return err
 	}
-
-	role, err := s.roleRepo.GetByName(ctx, "admin")
+	// land:<action> → decision:<action> тусгал: land нөөцийн роль бүрийн
+	// түвшинд харгалзах decision ролийг үүсгэж, ижил үйлдлүүдийг олгоно.
+	roles, err := s.roleRepo.List(ctx)
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"decision:read", "decision:create", "decision:update", "decision:delete"} {
-		perm, err := s.permRepo.GetByName(ctx, name)
-		if err != nil {
+	mirrored := 0
+	for _, r := range roles {
+		if r.Resource != "land" {
+			continue
+		}
+		var perms []string
+		for _, p := range r.Permissions {
+			perms = append(perms, domain.PermissionKey("decision", p.Action))
+		}
+		if len(perms) == 0 {
+			continue
+		}
+		if err := s.grantLevel(ctx, r.Level(), perms); err != nil {
 			return err
 		}
-		if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
-			return err
-		}
+		mirrored += len(perms)
 	}
-
-	// land:<action> → decision:<action> тусгал (идемпотент).
-	tag, err := s.db.Exec(ctx, `
-		INSERT INTO role_permissions (role_id, permission_id)
-		SELECT rp.role_id, dp.id
-		FROM role_permissions rp
-		JOIN permissions lp ON lp.id = rp.permission_id AND lp.name LIKE 'land:%'
-		JOIN permissions dp ON dp.name = 'decision:' || split_part(lp.name, ':', 2)
-		ON CONFLICT DO NOTHING
-	`)
-	if err != nil {
-		return err
-	}
-	slog.Info("decision permissions granted", "admin_role", role.Name, "mirrored_from_land", tag.RowsAffected())
+	slog.Info("decision permissions granted", "mirrored_from_land", mirrored)
 	return nil
 }
 
 // SeedCompensationAccess — compensation:* permission-уудыг үүсгэж, гадаад
 // ролиудад ЗӨВХӨН тэдгээрийг олгоно (бусад permission-уудыг нь хураана).
+// SeedCompensationAccess — гадаад түвшингүүдэд ЗӨВХӨН compensation:* эрхийг
+// олгоно (бусад нөөцийн ролийг нь хоослоно).
 func (s *Seeder) SeedCompensationAccess(ctx context.Context) error {
-	if _, err := s.seedPermissions(ctx); err != nil {
-		return err
-	}
-	for name, cfg := range externalRolePermissions {
-		role, err := s.roleRepo.GetByName(ctx, name)
-		if err != nil {
-			now := time.Now()
-			role = &domain.Role{
-				ID:          uuid.New(),
-				Name:        name,
-				Description: cfg.description,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-			}
-			if err := s.roleRepo.Create(ctx, role); err != nil {
-				return err
-			}
-			slog.Info("external role created", "name", name)
-		}
-		for _, permName := range cfg.perms {
-			perm, err := s.permRepo.GetByName(ctx, permName)
-			if err != nil {
-				return err
-			}
-			_ = s.roleRepo.AssignPermission(ctx, role.ID, perm.ID)
-		}
-		// "Өөр эрх олгогдохгүй" — compensation:*-ээс бусад бүх permission-ийг хураана.
-		if _, err := s.db.Exec(ctx, `
-			DELETE FROM role_permissions rp
-			USING permissions p
-			WHERE rp.role_id = $1 AND rp.permission_id = p.id
-			  AND p.name NOT LIKE 'compensation:%'
-		`, role.ID); err != nil {
+	allowed := map[string]bool{"compensation": true}
+	for level, cfg := range externalRolePermissions {
+		if err := s.grantLevel(ctx, level, cfg.perms); err != nil {
 			return err
 		}
-		slog.Info("external role permissions synced", "role", name, "perms", cfg.perms)
+		if err := s.revokeOtherResources(ctx, level, allowed); err != nil {
+			return err
+		}
+		slog.Info("external level permissions synced", "level", level, "perms", cfg.perms)
 	}
 	return nil
 }
@@ -502,144 +594,26 @@ func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo re
 }
 
 func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig, employeeCfg config.EmployeeConfig) error {
-	permIDs, err := s.seedPermissions(ctx)
-	if err != nil {
+	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
 		return err
 	}
-	adminRole, err := s.seedAdminRole(ctx, permIDs)
-	if err != nil {
+	if err := s.grantLevel(ctx, "senior_specialist", seniorSpecialistPermissions); err != nil {
 		return err
 	}
-	seniorRole, err := s.seedSeniorSpecialistRole(ctx)
-	if err != nil {
+	if err := s.grantLevel(ctx, "employee", employeePermissions); err != nil {
 		return err
 	}
-	employeeRole, err := s.seedEmployeeRole(ctx)
-	if err != nil {
+	if err := s.seedAdminUser(ctx, adminCfg, "admin", "senior_specialist"); err != nil {
 		return err
 	}
-	if err := s.seedAdminUser(ctx, adminCfg, adminRole.ID, seniorRole.ID); err != nil {
-		return err
-	}
-	return s.seedEmployeeUser(ctx, employeeCfg, employeeRole.ID)
+	return s.seedEmployeeUser(ctx, employeeCfg, "employee")
 }
 
-func (s *Seeder) seedPermissions(ctx context.Context) ([]uuid.UUID, error) {
-	var ids []uuid.UUID
-	for _, p := range defaultPermissions {
-		existing, err := s.permRepo.GetByName(ctx, p.Name)
-		if err == nil {
-			ids = append(ids, existing.ID)
-			continue
-		}
-		p.ID = uuid.New()
-		p.CreatedAt = time.Now()
-		if err := s.permRepo.Create(ctx, &p); err != nil {
-			return nil, err
-		}
-		ids = append(ids, p.ID)
-		slog.Info("permission created", "name", p.Name)
-	}
-	return ids, nil
-}
-
-func (s *Seeder) seedAdminRole(ctx context.Context, permIDs []uuid.UUID) (*domain.Role, error) {
-	existing, err := s.roleRepo.GetByName(ctx, "admin")
-	if err == nil {
-		for _, pid := range permIDs {
-			_ = s.roleRepo.AssignPermission(ctx, existing.ID, pid)
-		}
-		return existing, nil
-	}
-
-	now := time.Now()
-	role := &domain.Role{
-		ID:          uuid.New(),
-		Name:        "admin",
-		Description: "System administrator with full access",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if err := s.roleRepo.Create(ctx, role); err != nil {
-		return nil, err
-	}
-	for _, pid := range permIDs {
-		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
-			return nil, err
-		}
-	}
-	slog.Info("admin role created")
-	return role, nil
-}
-
-func (s *Seeder) seedSeniorSpecialistRole(ctx context.Context) (*domain.Role, error) {
-	permNames := []string{"land:read", "land:create", "land:update"}
-	var permIDs []uuid.UUID
-	for _, name := range permNames {
-		perm, err := s.permRepo.GetByName(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		permIDs = append(permIDs, perm.ID)
-	}
-
-	role, err := s.roleRepo.GetByName(ctx, "senior_specialist")
-	if err != nil {
-		now := time.Now()
-		role = &domain.Role{
-			ID:          uuid.New(),
-			Name:        "senior_specialist",
-			Description: "Ахлах мэргэжилтэн",
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-		if err := s.roleRepo.Create(ctx, role); err != nil {
-			return nil, err
-		}
-		slog.Info("senior specialist role created")
-	}
-
-	for _, pid := range permIDs {
-		if err := s.roleRepo.AssignPermission(ctx, role.ID, pid); err != nil {
-			return nil, err
-		}
-	}
-	return role, nil
-}
-
-func (s *Seeder) seedEmployeeRole(ctx context.Context) (*domain.Role, error) {
-	perm, err := s.permRepo.GetByName(ctx, "land:read")
-	if err != nil {
-		return nil, err
-	}
-
-	role, err := s.roleRepo.GetByName(ctx, "employee")
-	if err != nil {
-		now := time.Now()
-		role = &domain.Role{
-			ID:          uuid.New(),
-			Name:        "employee",
-			Description: "Энгийн ажилтан",
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-		if err := s.roleRepo.Create(ctx, role); err != nil {
-			return nil, err
-		}
-		slog.Info("employee role created")
-	}
-
-	if err := s.roleRepo.AssignPermission(ctx, role.ID, perm.ID); err != nil {
-		return nil, err
-	}
-	return role, nil
-}
-
-func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, roleIDs ...uuid.UUID) error {
+func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, levels ...string) error {
 	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
 	if err == nil {
-		for _, roleID := range roleIDs {
-			_ = s.roleRepo.AssignToUser(ctx, existing.ID, roleID)
+		if err := s.assignLevelToUser(ctx, existing.ID, levels...); err != nil {
+			return err
 		}
 		if existing.Position == "" {
 			existing.Position = "Ахлах мэргэжилтэн"
@@ -656,7 +630,6 @@ func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, role
 
 	now := time.Now()
 	user := &domain.User{
-		ID:        uuid.New(),
 		Username:  "admin",
 		Email:     cfg.Email,
 		Password:  hashed,
@@ -670,19 +643,19 @@ func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, role
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return err
 	}
-	for _, roleID := range roleIDs {
-		if err := s.roleRepo.AssignToUser(ctx, user.ID, roleID); err != nil {
-			return err
-		}
+	if err := s.assignLevelToUser(ctx, user.ID, levels...); err != nil {
+		return err
 	}
 	slog.Info("admin user created", "email", cfg.Email)
 	return nil
 }
 
-func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig, roleID uuid.UUID) error {
+func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig, level string) error {
 	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
 	if err == nil {
-		_ = s.roleRepo.AssignToUser(ctx, existing.ID, roleID)
+		if err := s.assignLevelToUser(ctx, existing.ID, level); err != nil {
+			return err
+		}
 		if existing.Position == "" {
 			existing.Position = "Ажилтан"
 			existing.UpdatedAt = time.Now()
@@ -698,7 +671,6 @@ func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig
 
 	now := time.Now()
 	user := &domain.User{
-		ID:        uuid.New(),
 		Username:  cfg.Username,
 		Email:     cfg.Email,
 		Password:  hashed,
@@ -712,7 +684,7 @@ func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return err
 	}
-	if err := s.roleRepo.AssignToUser(ctx, user.ID, roleID); err != nil {
+	if err := s.assignLevelToUser(ctx, user.ID, level); err != nil {
 		return err
 	}
 	slog.Info("employee user created", "email", cfg.Email)
@@ -735,16 +707,18 @@ func (s *Seeder) SeedExternalUsers(ctx context.Context, finCfg config.FinanceCon
 
 // seedRoleUser — өгсөн роль-той нэг хэрэглэгчийг idempotent байдлаар үүсгэнэ.
 // Роль байхгүй бол чимээгүй алгасна (seed дараалал буруу тохиолдолд ч эвдрэхгүй).
-func (s *Seeder) seedRoleUser(ctx context.Context, roleName, username, email, password, firstName, lastName, position string) error {
-	role, err := s.roleRepo.GetByName(ctx, roleName)
+func (s *Seeder) seedRoleUser(ctx context.Context, level, username, email, password, firstName, lastName, position string) error {
+	roles, err := s.rolesForLevel(ctx, level)
 	if err != nil {
-		slog.Warn("external role not found, skipping user seed", "role", roleName)
+		return err
+	}
+	if len(roles) == 0 {
+		slog.Warn("external level has no roles, skipping user seed", "level", level)
 		return nil
 	}
 
 	if existing, err := s.userRepo.GetByEmail(ctx, email); err == nil {
-		_ = s.roleRepo.AssignToUser(ctx, existing.ID, role.ID)
-		return nil
+		return s.assignLevelToUser(ctx, existing.ID, level)
 	}
 
 	hashed, err := hash.Password(password)
@@ -753,7 +727,6 @@ func (s *Seeder) seedRoleUser(ctx context.Context, roleName, username, email, pa
 	}
 	now := time.Now()
 	user := &domain.User{
-		ID:        uuid.New(),
 		Username:  username,
 		Email:     email,
 		Password:  hashed,
@@ -767,9 +740,9 @@ func (s *Seeder) seedRoleUser(ctx context.Context, roleName, username, email, pa
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		return err
 	}
-	if err := s.roleRepo.AssignToUser(ctx, user.ID, role.ID); err != nil {
+	if err := s.assignLevelToUser(ctx, user.ID, level); err != nil {
 		return err
 	}
-	slog.Info("external user created", "email", email, "role", roleName)
+	slog.Info("external user created", "email", email, "level", level)
 	return nil
 }
