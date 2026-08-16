@@ -11,6 +11,7 @@
 --   * Бүх таних тэмдэг uuid-аас int4 (serial4) болно.
 --   * 000012-д үүсгэсэн sd_user_api_meta / sd_role_api_meta /
 --     sd_permission_api_meta болон HR-ийн meta хүснэгтүүд УСТАНА.
+--   * Энэ схемд аппын өөрийн хүснэгт ч үлдэхгүй — бүгд main DB-д шилжинэ.
 --   * Эрхийн загвар: sd_menu(+sd_menu_role) → цэс харагдах эсэх,
 --     sd_role.role_type_code → НӨӨЦ (land, compensation, config ...),
 --     sd_permission.name → ҮЙЛДЭЛ (read/create/update/delete).
@@ -24,54 +25,9 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ---------------------------------------------------------------------------
--- 1. Аппын өөрийн туслах хүснэгтүүд (sdplatform-д байдаггүй, бид үүсгэнэ)
---
--- Хэрэглэгчийн ID нь int4 болсон тул хуучин мөрүүд утгагүй; токенууд ямар ч
--- байсан хүчингүй болох тул дахин үүсгэнэ.
--- ---------------------------------------------------------------------------
-
-DROP TABLE IF EXISTS sdplatform.password_reset_tokens;
-CREATE TABLE sdplatform.password_reset_tokens (
-    id         uuid         PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id    int4         NOT NULL REFERENCES sdplatform.sd_user(user_id) ON DELETE CASCADE ON UPDATE CASCADE,
-    token      varchar(255) NOT NULL UNIQUE,
-    expires_at timestamptz  NOT NULL,
-    used       boolean      NOT NULL DEFAULT false,
-    created_at timestamptz  NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_sdplatform_prt_token ON sdplatform.password_reset_tokens (token);
-CREATE INDEX IF NOT EXISTS idx_sdplatform_prt_expires_at ON sdplatform.password_reset_tokens (expires_at);
-
-DROP TABLE IF EXISTS sdplatform.revoked_tokens;
-CREATE TABLE sdplatform.revoked_tokens (
-    jti        varchar(255) PRIMARY KEY,
-    user_id    int4         NOT NULL,
-    token_type varchar(32)  NOT NULL,
-    expires_at timestamptz  NOT NULL,
-    revoked_at timestamptz  NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_sdplatform_revoked_tokens_expires_at ON sdplatform.revoked_tokens (expires_at);
-CREATE INDEX IF NOT EXISTS idx_sdplatform_revoked_tokens_user_id ON sdplatform.revoked_tokens (user_id);
-
--- Токены эх цэг: нууц үг сэргээх / албадан гаргах үед өмнөх токеныг хүчингүй
--- болгоход. sd_user-т ийм багана байхгүй тул аппын өөрийн хүснэгтэд байна.
-CREATE TABLE IF NOT EXISTS sdplatform.user_token_epoch (
-    user_id    int4        PRIMARY KEY REFERENCES sdplatform.sd_user(user_id) ON DELETE CASCADE ON UPDATE CASCADE,
-    valid_from timestamptz NOT NULL DEFAULT NOW()
-);
-
--- Хуучин meta дэх токены эх цэгийг зөөнө (байгаа бол).
-DO $$
-BEGIN
-    IF to_regclass('sdplatform.sd_user_api_meta') IS NOT NULL THEN
-        INSERT INTO sdplatform.user_token_epoch (user_id, valid_from)
-        SELECT m.user_id, m.tokens_valid_from
-        FROM sdplatform.sd_user_api_meta m
-        WHERE m.tokens_valid_from IS NOT NULL
-        ON CONFLICT (user_id) DO NOTHING;
-    END IF;
-END $$;
+-- ЧУХАЛ: Энэ өгөгдлийн санд БИД ЮУ Ч ҮҮСГЭХГҮЙ. Аппын өөрийн төлөв
+-- (нууц үг сэргээх токен, хүчингүй болсон JWT, сессийн эх цэг) нь үндсэн
+-- (main) өгөгдлийн санд хадгалагдана — migrations/main/000094-г үзнэ үү.
 
 -- ---------------------------------------------------------------------------
 -- 2. Эрхийн загварыг "нөөц:үйлдэл" → (роль=нөөц, эрх=үйлдэл) руу шилжүүлэх
@@ -292,6 +248,13 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- 4. Meta хүснэгтүүд болон public дахь HR лавлахыг устгах
 -- ---------------------------------------------------------------------------
+
+-- 000014-д sdplatform дотор үүсгэсэн аппын хүснэгтүүд. Эдгээр нь одоо аппын
+-- ӨӨРИЙН санд (migrations/main/000094) байх тул эндээс устгана — sdplatform
+-- схемд аппын ямар ч хүснэгт үлдэхгүй.
+DROP TABLE IF EXISTS sdplatform.password_reset_tokens;
+DROP TABLE IF EXISTS sdplatform.revoked_tokens;
+DROP TABLE IF EXISTS sdplatform.user_token_epoch;
 
 DROP TABLE IF EXISTS sdplatform.hr_employee_api_meta;
 DROP TABLE IF EXISTS base.bs_person_api_meta;

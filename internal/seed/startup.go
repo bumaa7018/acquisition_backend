@@ -226,7 +226,7 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			run: func(ctx context.Context) error {
 				return NewSeeder(
 					mainDB,
-					postgres.NewUserRepo(mainDB),
+					postgres.NewUserRepoFor("main", mainDB, mainDB),
 					postgres.NewRoleRepo(mainDB),
 					postgres.NewPermissionRepo(mainDB),
 				).SeedExternalValuationOrgUsers(ctx)

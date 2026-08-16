@@ -13,16 +13,36 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Хэрэглэгчийн эх сурвалж: sdplatform DB (дотоод ажилтан) эсвэл аппын өөрийн
+// DB (гадаад байгууллага). Хоёулаа тус тусын serial4 дараалалтай тул ID нь
+// мөргөлдөж болзошгүй — аппын төлөвийн хүснэгтүүдэд энэ нь түлхүүрийн хэсэг.
+const (
+	userSourceAuth = "auth"
+	userSourceMain = "main"
+)
+
 // UserRepo — sdplatform.sd_user дээр ШУУД ажиллана.
 //
 // sd_user-т албан тушаал болон ажилтны холбоос байхгүй тул тэдгээрийг
 // hr_employee.user_id → hr_position-оор гаргаж авна (уншихад зориулсан).
+//
+// appDB — аппын ӨӨРИЙН өгөгдлийн сан. sd_user-т токены эх цэг хадгалах багана
+// байхгүй бөгөөд sdplatform схемд хүснэгт нэмэхийг хориглосон тул сессийн
+// эх цэг тэнд биш, энд хадгалагдана.
 type UserRepo struct {
-	db *pgxpool.Pool
+	db     *pgxpool.Pool
+	appDB  *pgxpool.Pool
+	source string
 }
 
 func NewUserRepo(db *pgxpool.Pool) *UserRepo {
-	return &UserRepo{db: db}
+	return &UserRepo{db: db, appDB: db, source: userSourceAuth}
+}
+
+// NewUserRepoFor — sdplatform холболт (db) болон аппын өөрийн сан (appDB)-г
+// тусад нь өгнө.
+func NewUserRepoFor(source string, db, appDB *pgxpool.Pool) *UserRepo {
+	return &UserRepo{db: db, appDB: appDB, source: source}
 }
 
 const userSelectSQL = `
@@ -397,23 +417,24 @@ func (r *UserRepo) attachEmployees(ctx context.Context, users []*domain.User) er
 }
 
 // InvalidateSessions — sd_user-т токены эх цэг хадгалах багана байхгүй тул
-// энэ нь аппын өөрийн туслах хүснэгт (revoked_tokens-той ижил ангилал).
+// аппын өөрийн сан дахь user_token_epoch хүснэгтэд бичнэ.
 func (r *UserRepo) InvalidateSessions(ctx context.Context, userID domain.ID) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO sdplatform.user_token_epoch (user_id, valid_from)
-		VALUES ($1, date_trunc('second', NOW()))
-		ON CONFLICT (user_id) DO UPDATE SET valid_from = EXCLUDED.valid_from`, userID)
+	_, err := r.appDB.Exec(ctx, `
+		INSERT INTO user_token_epoch (user_source, user_id, valid_from)
+		VALUES ($2, $1, date_trunc('second', NOW()))
+		ON CONFLICT (user_source, user_id) DO UPDATE SET valid_from = EXCLUDED.valid_from`,
+		userID, r.source)
 	return err
 }
 
 // IsSessionValid — эх цэг тавиагүй бол true; эх цэгээс өмнө олгогдсон токенд false.
 func (r *UserRepo) IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error) {
 	var invalid bool
-	err := r.db.QueryRow(ctx, `
+	err := r.appDB.QueryRow(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM sdplatform.user_token_epoch
-			WHERE user_id = $1 AND valid_from > $2
-		)`, userID, issuedAt).Scan(&invalid)
+			SELECT 1 FROM user_token_epoch
+			WHERE user_source = $3 AND user_id = $1 AND valid_from > $2
+		)`, userID, issuedAt, r.source).Scan(&invalid)
 	if err != nil {
 		return false, err
 	}

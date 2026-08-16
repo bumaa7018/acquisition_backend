@@ -85,14 +85,15 @@ func main() {
 	}
 
 	// Auth repo-ууд → authDB
-	userRepo := postgres.NewUserRepo(authDB)
+	// sdplatform DB-д (authDB) бид ЮУ Ч нэмэхгүй — аппын өөрийн төлөв mainDB-д.
+	userRepo := postgres.NewUserRepoFor("auth", authDB, mainDB)
 	roleRepo := postgres.NewRoleRepo(authDB)
 	menuRepo := postgres.NewMenuRepo(authDB)
 	permRepo := postgres.NewPermissionRepo(authDB)
-	pwdResetRepo := postgres.NewPasswordResetRepo(authDB)
-	revokedTokenRepo := postgres.NewRevokedTokenRepo(authDB)
+	pwdResetRepo := postgres.NewPasswordResetRepo(mainDB)
+	revokedTokenRepo := postgres.NewRevokedTokenRepo(mainDB)
 	hrRepo := postgres.NewHRRepo(authDB)
-	externalUserRepo := postgres.NewUserRepo(mainDB)
+	externalUserRepo := postgres.NewUserRepoFor("main", mainDB, mainDB)
 
 	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
 	planRepo := postgres.NewPlanRepo(authDB)
