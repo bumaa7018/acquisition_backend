@@ -1,41 +1,48 @@
+-- authdb-ийн БҮХ хүснэгт — нэг файлд.
+--
+-- ДҮРЭМ: миграц нь ЗӨВХӨН бүтэц үүсгэнэ. Хүснэгт/схем/индекс/trigger БАЙХГҮЙ
+-- бол үүсгэнэ, байгаа бол юу ч хийхгүй өнгөрнө (CREATE ... IF NOT EXISTS).
+-- Багана нэмэх/өөрчлөх, өгөгдөл нэмэх/засах/устгах ЭНД БАЙХГҮЙ:
+--   * өгөгдөл  → seeder (зөвхөн байхгүй бол нэмнэ)
+--   * өөрчлөлт → систем ассаны дараа API-аар л
+--
+-- Ингэснээр холболтыг жинхэнэ sdplatform өгөгдлийн сан руу залгахад тэр санд
+-- байгаа хүснэгт, багана, өгөгдөл ЯМАР Ч БАЙДЛААР хөндөгдөхгүй.
+--
+-- Хүснэгтүүд (21): codelists 2, base 1, sdplatform 16, public 2.
+-- FK хамаарлын дарааллаар бичигдсэн.
+
+-- ── extensions_schemas_functions ──────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS postgis;
+
 CREATE SCHEMA IF NOT EXISTS sdplatform;
 CREATE SCHEMA IF NOT EXISTS base;
 CREATE SCHEMA IF NOT EXISTS codelists;
 CREATE SCHEMA IF NOT EXISTS audit;
 
 CREATE OR REPLACE FUNCTION base.log_changes()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
 
 CREATE OR REPLACE FUNCTION base.notify_event_all()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
 
 CREATE OR REPLACE FUNCTION audit.if_modified_func()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RETURN OLD;
-  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END $$;
 
+-- ── codelists_cl_person_type ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS codelists.cl_person_type (
   code int4 NOT NULL,
   description varchar(75) NOT NULL,
@@ -45,16 +52,14 @@ CREATE TABLE IF NOT EXISTS codelists.cl_person_type (
   CONSTRAINT cl_person_type_pkey PRIMARY KEY (code)
 );
 
+-- ── codelists_cl_legal_entity_type ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS codelists.cl_legal_entity_type (
   id int4 NOT NULL,
   description varchar(250) NULL,
   CONSTRAINT cl_legal_entity_type_pkey PRIMARY KEY (id)
 );
 
-INSERT INTO codelists.cl_person_type (code, description, description_en)
-VALUES (1, 'Иргэн', 'citizen'), (2, 'Хуулийн этгээд', 'legal')
-ON CONFLICT (code) DO NOTHING;
-
+-- ── base_bs_person ──────────────────────────────────────────────
 CREATE SEQUENCE IF NOT EXISTS base.ps_person_person_id_seq;
 
 CREATE TABLE IF NOT EXISTS base.bs_person (
@@ -120,12 +125,14 @@ DROP TRIGGER IF EXISTS person_log ON base.bs_person;
 CREATE TRIGGER person_log AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
 FOR EACH ROW EXECUTE FUNCTION base.log_changes();
 
+-- ── sdplatform_sd_organization ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_organization (
   id serial4 NOT NULL,
   "name" varchar(250) NULL,
   CONSTRAINT sd_organization_pkey PRIMARY KEY (id)
 );
 
+-- ── sdplatform_sd_user ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_user (
   user_id serial4 NOT NULL,
   username varchar(50) NULL,
@@ -146,6 +153,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_user (
   CONSTRAINT sd_user_pkey PRIMARY KEY (user_id)
 );
 
+-- ── sdplatform_sd_role ──────────────────────────────────────────────
 CREATE SEQUENCE IF NOT EXISTS sdplatform.sd_role_id_seq;
 
 CREATE TABLE IF NOT EXISTS sdplatform.sd_role (
@@ -163,6 +171,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_role (
   CONSTRAINT sd_role_uk UNIQUE (code)
 );
 
+-- ── sdplatform_sd_user_role ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_user_role (
   user_id int4 NOT NULL,
   role_id int4 NOT NULL,
@@ -177,6 +186,7 @@ DROP TRIGGER IF EXISTS user_role_log ON sdplatform.sd_user_role;
 CREATE TRIGGER user_role_log AFTER INSERT OR DELETE OR UPDATE ON sdplatform.sd_user_role
 FOR EACH ROW EXECUTE FUNCTION base.log_changes();
 
+-- ── sdplatform_sd_system ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_system (
   system_id serial4 NOT NULL,
   "name" varchar(250) NULL DEFAULT NULL::character varying,
@@ -184,6 +194,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_system (
   CONSTRAINT pk_sd_system PRIMARY KEY (system_id)
 );
 
+-- ── sdplatform_sd_permission ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_permission (
   permission_id serial4 NOT NULL,
   code varchar(45) NULL DEFAULT NULL::character varying,
@@ -195,6 +206,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_permission (
   CONSTRAINT sd_permission_pkey PRIMARY KEY (permission_id)
 );
 
+-- ── sdplatform_sd_menu ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_menu (
   menu_id serial4 NOT NULL,
   code varchar(32) NULL DEFAULT NULL::character varying,
@@ -212,6 +224,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_menu (
   CONSTRAINT sd_menuu_uk UNIQUE (code)
 );
 
+-- ── sdplatform_sd_system_role ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_system_role (
   system_role_id serial4 NOT NULL,
   system_id int4 NULL,
@@ -223,6 +236,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_system_role (
   CONSTRAINT fk_sd_system_role_sd_system FOREIGN KEY (system_id) REFERENCES sdplatform.sd_system(system_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- ── sdplatform_sd_role_permission ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_role_permission (
   role_permission_id serial4 NOT NULL,
   role_id int4 NULL,
@@ -236,6 +250,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_role_permission (
   CONSTRAINT sd_role_permission_fkey3 FOREIGN KEY (role_id) REFERENCES sdplatform.sd_role(role_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- ── sdplatform_sd_menu_role ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_menu_role (
   menu_id int4 NOT NULL,
   role_id int4 NOT NULL,
@@ -248,6 +263,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_menu_role (
   CONSTRAINT sd_menu_role_fkey2 FOREIGN KEY (role_id) REFERENCES sdplatform.sd_role(role_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- ── sdplatform_sd_form ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_form (
   form_id serial4 NOT NULL,
   form_name varchar(250) NULL DEFAULT NULL::character varying,
@@ -257,6 +273,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_form (
   CONSTRAINT sd_form_pkey PRIMARY KEY (form_id)
 );
 
+-- ── sdplatform_sd_menu_form ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_menu_form (
   menu_form_id serial4 NOT NULL,
   form_id int4 NULL,
@@ -270,6 +287,19 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_menu_form (
   CONSTRAINT sd_menu_form_fkey2 FOREIGN KEY (form_id) REFERENCES sdplatform.sd_form(form_id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- ── sdplatform_sd_form_permission ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS sdplatform.sd_form_permission (
+  form_permission_id serial4 NOT NULL,
+  form_id int4 NULL,
+  permission_id int4 NULL,
+  created_at timestamp NULL,
+  updated_at timestamp NULL,
+  form_code varchar(20) NULL DEFAULT NULL::character varying,
+  permission_code varchar(20) NULL DEFAULT NULL::character varying,
+  CONSTRAINT sd_form_permission_pkey PRIMARY KEY (form_permission_id)
+);
+
+-- ── sdplatform_hr_position ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.hr_position (
   position_id serial4 NOT NULL,
   code varchar(45) NULL DEFAULT NULL::character varying,
@@ -283,6 +313,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.hr_position (
   CONSTRAINT hr_position_pkey PRIMARY KEY (position_id)
 );
 
+-- ── sdplatform_hr_department ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.hr_department (
   department_id serial4 NOT NULL,
   code varchar(45) NULL DEFAULT NULL::character varying,
@@ -314,6 +345,7 @@ CREATE TABLE IF NOT EXISTS sdplatform.hr_department (
   CONSTRAINT sd_organization_fk FOREIGN KEY (organization) REFERENCES sdplatform.sd_organization(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+-- ── sdplatform_hr_employee ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.hr_employee (
   employee_id serial4 NOT NULL,
   firstname varchar(250) NULL DEFAULT NULL::character varying,
@@ -348,147 +380,46 @@ CREATE TABLE IF NOT EXISTS sdplatform.hr_employee (
   CONSTRAINT hr_employee_person_id_fkey FOREIGN KEY (person_id) REFERENCES base.bs_person(person_id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
-INSERT INTO sdplatform.sd_system (system_id, "name", description)
-VALUES (10, 'Газар чөлөөлөлт', 'Газар чөлөөлөлтийн систем')
-ON CONFLICT (system_id) DO UPDATE SET
-  "name" = EXCLUDED."name",
-  description = EXCLUDED.description;
-
-INSERT INTO sdplatform.sd_permission (code, "name", created_at)
-SELECT v.code, v.name, NOW()
-FROM (VALUES
-  ('A001', 'land:read', NOW()),
-  ('A002', 'land:create', NOW()),
-  ('A003', 'land:update', NOW()),
-  ('A004', 'land:delete', NOW()),
-  ('A005', 'compensation:read', NOW()),
-  ('A006', 'compensation:create', NOW()),
-  ('A007', 'compensation:update', NOW()),
-  ('A008', 'decision:read', NOW()),
-  ('A009', 'decision:create', NOW()),
-  ('A010', 'decision:update', NOW()),
-  ('A011', 'decision:delete', NOW())
-) AS v(code, name, created_at)
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM sdplatform.sd_permission p
-  WHERE p.code = v.code OR p."name" = v.name
+-- ── public_plan ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.plan (
+    id           UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    plan_code    VARCHAR(100) NOT NULL UNIQUE,
+    name         VARCHAR(255) NOT NULL,
+    boundary_wkt geometry(Polygon, 4326) NOT NULL,
+    area_m2      NUMERIC(18, 4),
+    status       SMALLINT     NOT NULL DEFAULT 2,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_plan_boundary_wkt ON public.plan USING GIST (boundary_wkt);
 
-INSERT INTO sdplatform.sd_role (code, "name", description, created_at)
-VALUES
-  ('A100', 'admin', 'Газар чөлөөлөлтийн системийн хэрэглэгч үүсгэх админ', NOW()),
-  ('A101', 'senior_specialist', 'Ахлах мэргэжилтэн', NOW()),
-  ('A102', 'employee', 'Энгийн ажилтан', NOW())
-ON CONFLICT (code) DO UPDATE SET
-  "name" = EXCLUDED."name",
-  description = EXCLUDED.description,
-  updated_at = NOW();
-
-INSERT INTO sdplatform.sd_system_role (system_id, role_id, created_at)
-SELECT 10, r.role_id, NOW()
-FROM sdplatform.sd_role r
-WHERE r.code IN ('A100', 'A101', 'A102')
-  AND NOT EXISTS (
-    SELECT 1 FROM sdplatform.sd_system_role sr
-    WHERE sr.system_id = 10 AND sr.role_id = r.role_id
-  );
-
-INSERT INTO sdplatform.sd_menu (code, "name", menu_url, sort_order, created_at, parent_code)
-VALUES
-  ('A010', 'Газар чөлөөлөлт', '/land-acquisitions', 1, NOW(), NULL),
-  ('A010001', 'Газар чөлөөлөлтийн жагсаалт', '/land-acquisitions', 1, NOW(), 'A010'),
-  ('A010002', 'Нэгж талбар', '/land-acquisitions/:id/parcels', 2, NOW(), 'A010'),
-  ('A010003', 'Хөрөнгө, үнэлгээ', '/land-acquisitions/:id/assets', 3, NOW(), 'A010'),
-  ('A010004', 'Нөхөх олговор', '/land-acquisitions/:id/compensations', 4, NOW(), 'A010'),
-  ('A010005', 'Баримт бичиг', '/land-acquisitions/:id/documents', 5, NOW(), 'A010')
-ON CONFLICT (code) DO UPDATE SET
-  "name" = EXCLUDED."name",
-  menu_url = EXCLUDED.menu_url,
-  sort_order = EXCLUDED.sort_order,
-  parent_code = EXCLUDED.parent_code,
-  updated_at = NOW();
-
-UPDATE sdplatform.sd_menu child
-SET parent_id = parent.menu_id
-FROM sdplatform.sd_menu parent
-WHERE child.parent_code = parent.code;
-
-INSERT INTO sdplatform.sd_form (form_name, code, created_at)
-SELECT m."name", m.code, NOW()
-FROM sdplatform.sd_menu m
-WHERE m.code IN ('A010', 'A010001', 'A010002', 'A010003', 'A010004', 'A010005')
-  AND NOT EXISTS (SELECT 1 FROM sdplatform.sd_form f WHERE f.code = m.code);
-
-INSERT INTO sdplatform.sd_menu_role (menu_id, role_id, created_at)
-SELECT m.menu_id, r.role_id, NOW()
-FROM sdplatform.sd_menu m
-CROSS JOIN sdplatform.sd_role r
-WHERE m.code IN ('A010', 'A010001', 'A010002', 'A010003', 'A010004', 'A010005')
-  AND r.code IN ('A100', 'A101', 'A102')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO sdplatform.sd_menu_form (form_id, menu_id, form_code, menu_code, created_at)
-SELECT f.form_id, m.menu_id, f.code, m.code, NOW()
-FROM sdplatform.sd_form f
-JOIN sdplatform.sd_menu m ON m.code = f.code
-WHERE m.code IN ('A010', 'A010001', 'A010002', 'A010003', 'A010004', 'A010005')
-  AND NOT EXISTS (
-    SELECT 1 FROM sdplatform.sd_menu_form mf
-    WHERE mf.form_code = f.code AND mf.menu_code = m.code
-  );
-
-INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at)
-SELECT r.role_id, p.permission_id, m.menu_id, NOW()
-FROM sdplatform.sd_role r
-JOIN sdplatform.sd_permission p ON p."name" IN (
-  'land:read', 'land:create', 'land:update', 'land:delete',
-  'compensation:read', 'compensation:create', 'compensation:update',
-  'decision:read', 'decision:create', 'decision:update', 'decision:delete'
-)
-JOIN sdplatform.sd_menu m ON m.code IN ('A010', 'A010001', 'A010002', 'A010003', 'A010004', 'A010005')
-WHERE r.code IN ('A100', 'A101', 'A102')
-  AND NOT EXISTS (
-    SELECT 1 FROM sdplatform.sd_role_permission rp
-    WHERE rp.role_id = r.role_id
-      AND rp.permission_id = p.permission_id
-      AND rp.menu_id = m.menu_id
-  );
-
-INSERT INTO sdplatform.sd_user (
-  username,
-  email,
-  "password",
-  firstname,
-  lastname,
-  created_at,
-  updated_at,
-  deleted_at,
-  is_active
-)
-SELECT
-  LEFT(u.username, 50),
-  LEFT(u.email, 250),
-  LEFT(u.password, 150),
-  LEFT(u.first_name, 50),
-  LEFT(u.last_name, 50),
-  u.created_at::date,
-  u.updated_at::timestamp,
-  u.deleted_at::timestamp,
-  u.is_active
-FROM users u
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM sdplatform.sd_user su
-  WHERE su.username = LEFT(u.username, 50)
-     OR su.email = LEFT(u.email, 250)
+-- ── public_source_parcel ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.source_parcel (
+    id                 UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    parcel_id          VARCHAR(12)  NOT NULL UNIQUE,
+    plan_code          VARCHAR(100) NOT NULL REFERENCES public.plan(plan_code),
+    geometry_wkt       geometry(Polygon, 4326) NOT NULL,
+    au1_code           VARCHAR(10),
+    au2_code           VARCHAR(10),
+    au3_code           VARCHAR(10),
+    right_type         INTEGER,
+    landuse            VARCHAR(100),
+    area_m2            NUMERIC(18, 4),
+    holder_last_name   VARCHAR(100),
+    holder_name        VARCHAR(100),
+    holder_register_no VARCHAR(20),
+    holder_phone       VARCHAR(20),
+    holder_email       VARCHAR(255),
+    holder_type        VARCHAR(50),
+    holder_civil_id    VARCHAR(50),
+    app_no             VARCHAR(100),
+    decision_no        VARCHAR(100),
+    decision_date      DATE,
+    contract_no        VARCHAR(100),
+    contract_date      DATE,
+    certificate_no     VARCHAR(100),
+    certificate_date   DATE,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
-
-INSERT INTO sdplatform.sd_user_role (user_id, role_id, created_at, updated_at)
-SELECT su.user_id, sr.role_id, NOW(), NOW()
-FROM users u
-JOIN sdplatform.sd_user su ON su.email = LEFT(u.email, 250)
-JOIN user_roles ur ON ur.user_id = u.id
-JOIN roles r ON r.id = ur.role_id
-JOIN sdplatform.sd_role sr ON sr."name" = r.name
-ON CONFLICT DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_source_parcel_plan_code ON public.source_parcel (plan_code);
+CREATE INDEX IF NOT EXISTS idx_source_parcel_geometry_wkt ON public.source_parcel USING GIST (geometry_wkt);

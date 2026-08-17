@@ -39,6 +39,21 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 
 	if err := runSeedSteps(ctx, mainDB, []seedStep{
 		{
+			// Лавлахууд эхэлж — bs_person.type нь cl_person_type-аас хамаардаг.
+			name: "000000_auth_lookups",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedAuthLookups(ctx)
+			},
+		},
+		{
+			// appdb-ийн лавлахууд (parcel_status г.м.) — бусад seed эдгээрийн
+			// FK-д хамаардаг тул эхэнд.
+			name: "000000_main_reference",
+			run: func(ctx context.Context) error {
+				return NewReferenceSeeder(mainDB).Seed(ctx)
+			},
+		},
+		{
 			name:    "000001_auth",
 			aliases: []string{"auth_seeder"},
 			run: func(ctx context.Context) error {

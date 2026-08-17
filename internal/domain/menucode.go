@@ -2,7 +2,7 @@ package domain
 
 // Цэсний код ↔ эрхийн нөөц.
 //
-// sdplatform-д цэс нь "A010001" маягийн дугаартай байдаг ба тэр баганыг ГАДААД
+// sdplatform-д цэс нь "A010101" маягийн дугаартай байдаг ба тэр баганыг ГАДААД
 // систем эзэмшдэг. Аппын эрхийн түлхүүр (`land:update`) нь харин кодоос ХАМААРАХ
 // ЁСГҮЙ — эс тэгвээс sdplatform цэсээ дахин дугаарлахад RequirePermission болон
 // фронтендын бүх шалгалт чимээгүйхэн унана.
@@ -10,15 +10,15 @@ package domain
 // Тиймээс код ↔ нөөцийн хөрвүүлэлт ЗӨВХӨН энд байна. Танихгүй код ирвэл кодыг нь
 // шууд нөөц болгон буцаана (өөр системийн цэс саадгүй ажиллана).
 var menuCodeToResource = map[string]string{
-	"A010001": "land",
-	"A010002": "compensation",
-	"A010003": "decision",
-	"A010004": "users",
-	"A010005": "roles",
-	"A010006": "permissions",
-	"A010007": "hr",
-	"A010008": "admin",
-	"A010009": "audit",
+	"A010101": "land",
+	"A010102": "compensation",
+	"A010103": "decision",
+	"A010104": "users",
+	"A010105": "roles",
+	"A010106": "permissions",
+	"A010107": "hr",
+	"A010108": "admin",
+	"A010109": "audit",
 }
 
 var resourceToMenuCode = func() map[string]string {

@@ -6,20 +6,20 @@ import "testing"
 // A0NNNNN дугаарлалт нэвтрүүлэхэд эвдрэхээс сэргийлэх гол баталгаа.
 func TestMenuPermissionKeyStaysResourceScoped(t *testing.T) {
 	cases := map[string]string{
-		"A010001": "land:update",
-		"A010002": "compensation:read",
-		"A010003": "decision:create",
-		"A010004": "users:delete",
-		"A010007": "hr:structure:create",
-		"A010009": "audit:read",
+		"A010101": "land:update",
+		"A010102": "compensation:read",
+		"A010103": "decision:create",
+		"A010104": "users:delete",
+		"A010107": "hr:structure:create",
+		"A010109": "audit:read",
 	}
 	actions := map[string]string{
-		"A010001": "update",
-		"A010002": "read",
-		"A010003": "create",
-		"A010004": "delete",
-		"A010007": "structure:create",
-		"A010009": "read",
+		"A010101": "update",
+		"A010102": "read",
+		"A010103": "create",
+		"A010104": "delete",
+		"A010107": "structure:create",
+		"A010109": "read",
 	}
 	for code, want := range cases {
 		if got := MenuPermissionKey(code, actions[code]); got != want {

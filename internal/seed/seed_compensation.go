@@ -58,8 +58,10 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 	compDate := time.Date(2024, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	// ── 1. Compensation-уудыг эхлээд оруулна ─────────────────────────────────
+	// ЖИЧ: compensation.asset_type-ыг 000016 миграц target_type-аар сольсон.
+	// target_type нь хөрөнгийн төрөл БИШ — олговор юунд өгөгдсөнийг заана:
+	// asset_id хоосон бол 'parcel' (нэгж талбар), эс бөгөөс 'asset' (хөрөнгө).
 	type compSeed struct {
-		assetType        string
 		parcelID         string
 		assetID          *uuid.UUID
 		compensationType string
@@ -78,27 +80,27 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 
 	seeds := []compSeed{
 		// Нэгж талбар: 80% мөнгөн
-		{assetType: "property", parcelID: "010101000001",
+		{parcelID: "010101000001",
 			compensationType: "cash", coveragePct: 80, amount: 68_000_000,
 			note: "Нэгж талбарын 80%-д мөнгөн олговор олгосон"},
 		// Нэгж талбар: 20% газраар → grant холбогдоно
-		{assetType: "property", parcelID: "010101000001",
+		{parcelID: "010101000001",
 			compensationType: "land_grant", coveragePct: 20, amount: 17_000_000,
 			note: "Нэгж талбарын 20%-д газраар дүйцүүлэх олговор", needsGrant: true},
 		// A-001 амины орон сууц: 100% мөнгөн
-		{assetType: "real_state", parcelID: "010101000001", assetID: assetPtr(a001),
+		{parcelID: "010101000001", assetID: assetPtr(a001),
 			compensationType: "cash", coveragePct: 100, amount: 45_000_000,
 			note: "Амины орон сууц барилгын бүрэн мөнгөн олговор"},
 		// A-002 гарааш: 100% мөнгөн
-		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a002),
+		{parcelID: "010101000001", assetID: assetPtr(a002),
 			compensationType: "cash", coveragePct: 100, amount: 12_000_000,
 			note: "Гарааш барилгын бүрэн мөнгөн олговор"},
 		// A-003 агуулах: 60% мөнгөн
-		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a003),
+		{parcelID: "010101000001", assetID: assetPtr(a003),
 			compensationType: "cash", coveragePct: 60, amount: 25_000_000,
 			note: "Агуулах барилгын 60%-д мөнгөн олговор"},
 		// A-003 агуулах: 40% газраар → grant холбогдоно
-		{assetType: "property", parcelID: "010101000001", assetID: assetPtr(a003),
+		{parcelID: "010101000001", assetID: assetPtr(a003),
 			compensationType: "land_grant", coveragePct: 40, amount: 10_000_000,
 			note: "Агуулах барилгын 40%-д газраар дүйцүүлэх олговор", needsGrant: true},
 	}
@@ -108,16 +110,20 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 	var landGrantB003CompID uuid.UUID
 
 	for i, c := range seeds {
+		targetType := "parcel"
+		if c.assetID != nil {
+			targetType = "asset"
+		}
 		var compID uuid.UUID
 		err := s.db.QueryRow(ctx, `
 			INSERT INTO compensation (
-				acquisition_id, asset_type, parcel_id, asset_id,
+				acquisition_id, target_type, parcel_id, asset_id,
 				compensation_type, coverage_percent, amount,
 				compensation_date, note, created_by
 			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'system')
 			RETURNING id
 		`,
-			acqID, c.assetType, c.parcelID, c.assetID,
+			acqID, targetType, c.parcelID, c.assetID,
 			c.compensationType, c.coveragePct, c.amount,
 			compDate, c.note,
 		).Scan(&compID)
@@ -125,7 +131,7 @@ func (s *MainSeeder) seedCompensations(ctx context.Context, acqID uuid.UUID) err
 			return err
 		}
 		slog.Info("compensation seeded",
-			"asset_type", c.assetType, "parcel_id", c.parcelID,
+			"target_type", targetType, "parcel_id", c.parcelID,
 			"type", c.compensationType, "pct", c.coveragePct, "amount", c.amount,
 		)
 		if c.needsGrant {

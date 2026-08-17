@@ -2,10 +2,12 @@ package seed
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -251,8 +253,31 @@ func (s *MainSeeder) seedAUs(ctx context.Context) error {
 func (s *MainSeeder) seedLandAcquisition(ctx context.Context) (uuid.UUID, error) {
 	const planWKT = "POLYGON((106.75 47.65, 106.90 47.65, 106.90 47.80, 106.75 47.80, 106.75 47.65))"
 
+	// ЧУХАЛ: land_acquisition.plan_code нь UNIQUE БИШ (нэг төлөвлөгөөний код
+	// хэд хэдэн чөлөөлөлтөд давтагдаж болно) тул ON CONFLICT (plan_code)
+	// хэрэглэж БОЛОХГҮЙ — Postgres 42P10 алдаа өгнө. Идемпотент байдлыг
+	// урьдчилсан хайлтаар хангана.
 	var id uuid.UUID
-	err := s.db.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx,
+		`SELECT id FROM land_acquisition WHERE plan_code = $1 ORDER BY created_at LIMIT 1`,
+		"LA-2024-001").Scan(&id)
+	if err == nil {
+		if _, err := s.db.Exec(ctx, `
+			UPDATE land_acquisition SET
+				plan_geom  = COALESCE(plan_geom, ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)),
+				geometry   = COALESCE(geometry,  ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)),
+				updated_at = NOW()
+			WHERE id = $1`, id, planWKT); err != nil {
+			return uuid.Nil, err
+		}
+		slog.Info("land_acquisition already seeded", "id", id, "plan_code", "LA-2024-001")
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, err
+	}
+
+	err = s.db.QueryRow(ctx, `
 		INSERT INTO land_acquisition (
 			id, plan_id, plan_code,
 			plan_geom, plan_area_m2,
@@ -268,12 +293,6 @@ func (s *MainSeeder) seedLandAcquisition(ctx context.Context) (uuid.UUID, error)
 			$6, $7, $8,
 			'system', 'system'
 		)
-		ON CONFLICT (plan_code) DO UPDATE SET
-			plan_geom  = CASE WHEN land_acquisition.plan_geom IS NULL
-			                  THEN EXCLUDED.plan_geom ELSE land_acquisition.plan_geom END,
-			geometry   = CASE WHEN land_acquisition.geometry IS NULL
-			                  THEN EXCLUDED.geometry   ELSE land_acquisition.geometry   END,
-			updated_at = NOW()
 		RETURNING id
 	`,
 		"LA-2024-001",
@@ -671,15 +690,19 @@ func (s *MainSeeder) seedAssets(ctx context.Context, acqID uuid.UUID) error {
 				notes,
 				geometry
 			)
+			-- INSERT ... SELECT дээр Postgres параметрийн төрлийг зорилтот
+			-- баганаас гаргадаггүй. $1..$3 нь WHERE-д мөн орох тул cast-гүй
+			-- бол "inconsistent types deduced" (42P08) алдаа өгнө.
 			SELECT
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-				ST_GeomFromText($11, 4326)::geometry(Polygon, 4326)
+				$1::uuid, $2::varchar, $3::text, $4::varchar, $5::text,
+				$6::int4, $7::numeric, $8::text, $9::text, $10::text,
+				ST_GeomFromText($11::text, 4326)::geometry(Polygon, 4326)
 			WHERE NOT EXISTS (
 				SELECT 1
 				FROM assets
-				WHERE acquisition_id = $1
-				  AND parcel_id = $2
-				  AND asset_number = $3
+				WHERE acquisition_id = $1::uuid
+				  AND parcel_id = $2::varchar
+				  AND asset_number = $3::text
 			)
 		`,
 			acqID,

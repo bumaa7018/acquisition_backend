@@ -51,6 +51,30 @@ var decisionRegistrationPermissions = []string{
 	"decision:read", "decision:create", "decision:update", "decision:delete",
 }
 
+// SeedAuthLookups — authdb-ийн лавлах мөрүүд.
+//
+// Эдгээр нь урьд нь миграцад INSERT-ээр орж байсан. Миграц = зөвхөн бүтэц
+// болсон тул өгөгдөл нь энд ирэв. ЗӨВХӨН байхгүй үед нэмнэ — байгаа мөрийг
+// дарж бичихгүй (жинхэнэ sdplatform санд эдгээр лавлах аль хэдийн бөглөгдсөн
+// байх магадлалтай).
+func (s *Seeder) SeedAuthLookups(ctx context.Context) error {
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO codelists.cl_person_type (code, description, description_en)
+		VALUES (1, 'Иргэн', 'citizen'), (2, 'Хуулийн этгээд', 'legal')
+		ON CONFLICT (code) DO NOTHING`); err != nil {
+		return err
+	}
+	// sd_system_role.system_id → sd_system FK тул систем 10 эхлээд байх ёстой.
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO sdplatform.sd_system (system_id, "name", description)
+		VALUES (10, 'Газар чөлөөлөлт', 'Газар чөлөөлөлтийн систем')
+		ON CONFLICT (system_id) DO NOTHING`); err != nil {
+		return err
+	}
+	slog.Info("auth lookups seeded")
+	return nil
+}
+
 func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
 	if err := s.grantLevel(ctx, "admin", []string{"hr:read", "hr:create", "hr:update", "hr:delete"}); err != nil {
 		return err
@@ -324,18 +348,18 @@ var system10MenuSeeds = []struct {
 	url       string
 	sortOrder int
 }{
-	{"A010001", "Газар чөлөөлөлт", "/land-acquisitions", 1},
-	{"A010002", "Нөхөх олговор", "/land-acquisitions/:id/compensations", 2},
-	{"A010003", "Захирамжийн төсөл", "/decision-drafts", 3},
-	{"A010004", "Хэрэглэгч", "/users", 10},
-	{"A010005", "Хэрэглэгчийн эрх", "/roles", 11},
-	{"A010006", "Permission лавлах", "/roles", 12},
-	{"A010007", "Хүний нөөц", "/employee", 13},
-	{"A010008", "Системийн тохиргоо", "/acquisition-category", 14},
-	{"A010009", "Үйлдлийн лог", "/audit-logs", 15},
+	{"A010101", "Газар чөлөөлөлт", "/land-acquisitions", 1},
+	{"A010102", "Нөхөх олговор", "/land-acquisitions/:id/compensations", 2},
+	{"A010103", "Захирамжийн төсөл", "/decision-drafts", 3},
+	{"A010104", "Хэрэглэгч", "/users", 10},
+	{"A010105", "Хэрэглэгчийн эрх", "/roles", 11},
+	{"A010106", "Permission лавлах", "/roles", 12},
+	{"A010107", "Хүний нөөц", "/employee", 13},
+	{"A010108", "Системийн тохиргоо", "/acquisition-category", 14},
+	{"A010109", "Үйлдлийн лог", "/audit-logs", 15},
 }
 
-// menuScopedPermissions — "land:read" (эрхийн түлхүүр) → "A010001:read"
+// menuScopedPermissions — "land:read" (эрхийн түлхүүр) → "A010101:read"
 // (sd_form/sd_menu-гийн бодит код). Түлхүүрийн нөөц нэр код руу хөрвөнө.
 func menuScopedPermissions(perms []string) []string {
 	out := make([]string, 0, len(perms))
@@ -384,13 +408,21 @@ func (s *Seeder) hideGeneratedInternalResourceRoles(ctx context.Context) error {
 			names = append(names, roleName(domain.MenuResource(menu.code), level))
 		}
 	}
-	_, err := s.db.Exec(ctx, `
-		DELETE FROM sdplatform.sd_system_role sr
-		USING sdplatform.sd_role r
-		WHERE sr.role_id = r.role_id
-		  AND sr.system_id = 10
-		  AND r.name = ANY($1)`, names)
-	return err
+	// Seeder нь байгаа өгөгдлийг УСТГАХГҮЙ. Хуучин үүсмэл ролиудыг system 10-оос
+	// хасах ажил нь миграц 000018-д (нэг удаагийн цэвэрлэгээ) — энд зөвхөн
+	// үлдсэн эсэхийг мэдээлнэ.
+	var stale int
+	if err := s.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM sdplatform.sd_system_role sr
+		JOIN sdplatform.sd_role r ON r.role_id = sr.role_id
+		WHERE sr.system_id = 10 AND r.name = ANY($1)`, names).Scan(&stale); err != nil {
+		return err
+	}
+	if stale > 0 {
+		slog.Warn("хуучин үүсмэл роль system 10-д хэвээр байна (seeder устгахгүй)", "roles", stale)
+	}
+	return nil
 }
 
 func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
@@ -444,9 +476,7 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO sdplatform.sd_system (system_id, "name", description)
 		VALUES (10, 'Газар чөлөөлөлт', 'Газар чөлөөлөлтийн систем')
-		ON CONFLICT (system_id) DO UPDATE SET
-			"name" = EXCLUDED."name",
-			description = EXCLUDED.description
+		ON CONFLICT (system_id) DO NOTHING
 	`); err != nil {
 		return err
 	}
@@ -455,39 +485,24 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO sdplatform.sd_menu (code, "name", menu_url, sort_order, created_at, parent_code)
 			VALUES (LEFT($1, 32), LEFT($2, 250), LEFT($3, 250), $4, NOW(), NULLIF($5, ''))
-			ON CONFLICT (code) DO UPDATE SET
-				"name" = EXCLUDED."name",
-				menu_url = EXCLUDED.menu_url,
-				sort_order = EXCLUDED.sort_order,
-				parent_code = EXCLUDED.parent_code,
-				updated_at = NOW()`,
+			ON CONFLICT (code) DO NOTHING`,
 			m.code, m.name, m.url, m.sortOrder, ""); err != nil {
 			return err
 		}
 	}
+	// parent_id-г ЗӨВХӨН хоосон үед бөглөнө — байгаа утгыг дарж бичихгүй.
 	if _, err := tx.Exec(ctx, `
 		UPDATE sdplatform.sd_menu child
 		SET parent_id = parent.menu_id
 		FROM sdplatform.sd_menu parent
-		WHERE child.parent_code = parent.code AND child.parent_id IS DISTINCT FROM parent.menu_id`); err != nil {
+		WHERE child.parent_code = parent.code
+		  AND child.parent_id IS NULL
+		  AND child.code = ANY($1)`, system10MenuCodes()); err != nil {
 		return err
 	}
 
 	// Маягтууд (sd_form) — цэс бүрт нэг.
-	if _, err := tx.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS sdplatform.sd_form_permission (
-			form_permission_id serial4 NOT NULL,
-			form_id int4 NULL,
-			permission_id int4 NULL,
-			created_at timestamp NULL,
-			updated_at timestamp NULL,
-			form_code varchar(20) NULL DEFAULT NULL::character varying,
-			permission_code varchar(20) NULL DEFAULT NULL::character varying,
-			CONSTRAINT sd_form_permission_pkey PRIMARY KEY (form_permission_id)
-		)`); err != nil {
-		return err
-	}
-
+	// Хүснэгтийн бүтэц миграцад (000008 / 000011) — seed зөвхөн мөр нэмнэ.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO sdplatform.sd_form (form_name, code, created_at)
 		SELECT m."name", m.code, NOW()
@@ -551,14 +566,9 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		  )`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM sdplatform.sd_role_permission rp
-		USING sdplatform.sd_role r, sdplatform.sd_menu m
-		WHERE rp.role_id = r.role_id
-		  AND rp.menu_id IS NULL
-		  AND m.code = r.role_type_code`); err != nil {
-		return err
-	}
+	// ЖИЧ: Энд урьд нь menu_id IS NULL мөрүүдийг устгадаг байсан. Seeder нь
+	// байгаа өгөгдлийг УСТГАХГҮЙ (зөвхөн байхгүйг нэмнэ) тул хассан —
+	// жинхэнэ sdplatform DB-д тэдгээр мөр өөр системийнх байж болно.
 
 	// Энэ системийн бүх роль дээр цэсийг холбоно.
 	tag, err := tx.Exec(ctx, `

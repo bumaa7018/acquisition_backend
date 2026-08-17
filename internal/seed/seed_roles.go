@@ -55,7 +55,10 @@ func systemRoleCode(level string) string {
 
 // ensureAction — үйлдлийн эрхийг (read/create/update/delete ...) баталгаажуулна.
 func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permission, error) {
-	if p, err := s.permRepo.GetByName(ctx, action); err == nil {
+	// ЖИЧ: permRepo.GetByName нь нэрийг SplitPermissionKey-ээр дахин таслдаг тул
+	// үйлдэл өөрөө цэг агуулбал (жишээ нь "structure:create") буруу мөр
+	// буцаана ("create"). Тиймээс нэр ЯГ таарсан эсэхийг шалгана.
+	if p, err := s.permRepo.GetByName(ctx, action); err == nil && p.Name == action {
 		return p, nil
 	}
 	p := &domain.Permission{Name: action, Action: action, Code: action, CreatedAt: time.Now()}
@@ -223,25 +226,14 @@ func (s *Seeder) grantMenuActions(ctx context.Context, roleID domain.ID, menuCod
 	return err
 }
 
+// syncSystemLevel — системийн ролийн эрхийг баталгаажуулна.
+//
+// ЖИЧ: Урьд нь энэ функц эрхийг эхлээд УСТГААД дахин олгодог байсан. Seeder нь
+// байгаа өгөгдлийг устгах/дарж бичихгүй (зөвхөн байхгүйг нэмнэ) дүрэмтэй тул
+// устгах алхмуудыг хассан. grantSystemLevel өөрөө NOT EXISTS шалгалттай тул
+// идемпотент хэвээр.
 func (s *Seeder) syncSystemLevel(ctx context.Context, level string, perms []string) error {
-	role, err := s.ensureSystemRole(ctx, level)
-	if err != nil {
-		return err
-	}
-	if _, err := s.db.Exec(ctx, `
-		DELETE FROM sdplatform.sd_role_permission rp
-		USING sdplatform.sd_menu m
-		WHERE rp.role_id = $1
-		  AND rp.menu_id = m.menu_id
-		  AND m.code = ANY($2)`, role.ID, system10MenuCodes()); err != nil {
-		return err
-	}
-	if _, err := s.db.Exec(ctx, `
-		DELETE FROM sdplatform.sd_menu_role mr
-		USING sdplatform.sd_menu m
-		WHERE mr.role_id = $1
-		  AND mr.menu_id = m.menu_id
-		  AND m.code = ANY($2)`, role.ID, system10MenuCodes()); err != nil {
+	if _, err := s.ensureSystemRole(ctx, level); err != nil {
 		return err
 	}
 	return s.grantSystemLevel(ctx, level, perms)
@@ -278,8 +270,13 @@ func (s *Seeder) assignLevelToUser(ctx context.Context, userID domain.ID, levels
 	return nil
 }
 
-// revokeOtherResources — тухайн түвшний ролиудаас зөвшөөрөгдсөн нөөцөөс
-// бусдыг нь хасна (гадаад ролиуд зөвхөн compensation-той байх ёстой).
+// revokeOtherResources — гадаад ролиуд зөвхөн compensation нөөцтэй байх ёстой.
+//
+// ЖИЧ: Урьд нь энэ функц илүү эрхийг ШУУД УСТГАДАГ байсан. Seeder нь байгаа
+// өгөгдлийг устгахгүй дүрэмтэй болсон тул зөвхөн АНХААРУУЛГА бичнэ — жинхэнэ
+// sdplatform DB-д тэдгээр роль өөр системийнх байж болзошгүй. Seeder өөрөө
+// эдгээр ролид compensation-оос өөр эрх ОЛГОДОГГҮЙ тул шинэ суулгацад энэ
+// тохиолдол гарахгүй; гарвал гараар шалгаж засна.
 func (s *Seeder) revokeOtherResources(ctx context.Context, level string, allowed map[string]bool) error {
 	roles, err := s.rolesForLevel(ctx, level)
 	if err != nil {
@@ -289,9 +286,14 @@ func (s *Seeder) revokeOtherResources(ctx context.Context, level string, allowed
 		if allowed[r.Resource] {
 			continue
 		}
-		if _, err := s.db.Exec(ctx,
-			`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1`, r.ID); err != nil {
+		var extra int
+		if err := s.db.QueryRow(ctx,
+			`SELECT COUNT(*) FROM sdplatform.sd_role_permission WHERE role_id = $1`, r.ID).Scan(&extra); err != nil {
 			return err
+		}
+		if extra > 0 {
+			slog.Warn("гадаад роль зөвшөөрөгдөөгүй нөөцийн эрхтэй байна (seeder устгахгүй)",
+				"role", r.Name, "resource", r.Resource, "permissions", extra)
 		}
 	}
 	return nil
