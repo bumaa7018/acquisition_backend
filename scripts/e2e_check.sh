@@ -79,7 +79,8 @@ echo "═══ 4. ЦЭС (шинэ) ═══"
 chk "GET  /menus" 200 "$(req "${H[@]}" $BASE/menus)"
 chk "GET  /menus/me" 200 "$(req "${H[@]}" $BASE/menus/me)"
 MID=$(req "${H[@]}" $BASE/menus >/dev/null; val 'd["data"][0]["id"]')
-chk "POST /roles (зарцуулах роль)" 201 "$(req -X POST "${H[@]}" $BASE/roles -d "{\"name\":\"e2e_tmp_$(date +%s)\",\"description\":\"e2e\"}")"
+TRNAME="e2e_tmp_$(date +%s)"
+chk "POST /roles (зарцуулах роль)" 201 "$(req -X POST "${H[@]}" $BASE/roles -d "{\"name\":\"$TRNAME\",\"description\":\"e2e\"}")"
 TRID=$(val 'd["data"]["id"]')
 chk "GET  /roles/:id/menus (зарцуулах)" 200 "$(req "${H[@]}" $BASE/roles/$TRID/menus)"
 chk "POST /roles/:id/menus" 201 "$(req -X POST "${H[@]}" $BASE/roles/$TRID/menus -d "{\"menu_id\":$MID}")"
@@ -155,7 +156,8 @@ print(next((r['id'] for r in items if r.get('name')=='senior_specialist'), ''))
 " 2>/dev/null)
 SUSER="e2e_sr_$(date +%s)"
 SPASS='Testpass123!'
-c=$(req -X POST "${H[@]}" $BASE/users -d "{\"username\":\"$SUSER\",\"email\":\"$SUSER@e2e.mn\",\"password\":\"$SPASS\",\"first_name\":\"Ахлах\",\"last_name\":\"Тест\"}")
+SREG="S$(date +%s | tail -c 9)"
+c=$(req -X POST "${H[@]}" $BASE/users -d "{\"username\":\"$SUSER\",\"email\":\"$SUSER@e2e.mn\",\"password\":\"$SPASS\",\"first_name\":\"Ахлах\",\"last_name\":\"Тест\",\"employee\":{\"person\":{\"person_type\":\"citizen\",\"register_no\":\"$SREG\",\"last_name\":\"Ахлах\",\"first_name\":\"Мэргэжилтэн\"},\"department_id\":$UDEP,\"position_id\":$UPOS}}")
 chk "POST /users (шалгах хэрэглэгч үүсгэв)" 201 "$c"
 SUID=$(val 'd["data"]["id"]')
 if [ -n "$SRID" ] && [ -n "$SUID" ]; then

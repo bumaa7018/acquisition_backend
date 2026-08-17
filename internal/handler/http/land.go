@@ -169,7 +169,7 @@ func (h *LandHandler) List(c *gin.Context) {
 
 // Create godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл үүсгэх
-// @Description  plan_code-аар төлөвлөгөөг secondary DB-аас хайж, shapefile шалгаад чөлөөлөлт үүсгэнэ.
+// @Description  plan_code-аар төлөвлөгөөг middleware-ээс татаж appdb-ийн plan хүснэгтэд хадгалаад чөлөөлөлт үүсгэнэ.
 // @Description  Талбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
 // @Description  Нэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).
 // @Tags         land-acquisitions

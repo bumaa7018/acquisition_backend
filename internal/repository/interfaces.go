@@ -138,17 +138,10 @@ type TokenRevocationRepository interface {
 	DeleteExpired(ctx context.Context) error
 }
 
-// PlanRepository — auth DB-аас төлөвлөгөө, эх нэгж талбар уншина
-type PlanRepository interface {
-	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)
-	GetSourceParcels(ctx context.Context, planCode string) ([]*domain.SourceParcel, error)
-	GetSourceParcelByID(ctx context.Context, parcelID string) (*domain.SourceParcel, error)
-	Suggest(ctx context.Context, q string) ([]*domain.Plan, error)
-}
-
-// PlanStoreRepository — MAIN DB-ийн plan хүснэгт. Дундын сервисээс (middleware
-// /plan/project) татсан төлөвлөгөөг чөлөөлөлт үүсгэх үед хадгалж, төлөвлөгөөгөөр
-// хайх/сонгох үйлдэл үүнээс уншина.
+// PlanStoreRepository — appdb-ийн plan хүснэгт. Энэ нь төлөвлөгөөний ЦОРЫН
+// ГАНЦ хадгалах ба унших байрлал: дундын сервисээс (middleware /plan/project)
+// татсан мэдээллийг л агуулах бөгөөд хайх/сонгох үйлдэл эндээс уншина.
+// authdb-д plan хүснэгт БАЙХГҮЙ.
 type PlanStoreRepository interface {
 	Upsert(ctx context.Context, plan *domain.Plan) (*domain.Plan, error)
 	GetByCode(ctx context.Context, planCode string) (*domain.Plan, error)

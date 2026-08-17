@@ -27,10 +27,9 @@ func discoverSvc(t *testing.T) (
 	*mocks.MockParcelInfoClient,
 ) {
 	t.Helper()
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	return service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo), landRepo, parcelInfo
+	return service.NewLandService(landRepo, nil, nil, parcelInfo), landRepo, parcelInfo
 }
 
 func TestLandService_DiscoverParcels_RegistersCodesWithoutFetchingDetails(t *testing.T) {

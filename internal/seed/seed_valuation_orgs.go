@@ -106,7 +106,9 @@ func (s *Seeder) seedOneValuationOrg(ctx context.Context, userID domain.ID, orgN
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `
+	// valuation_org_profile нь АППЫН сангийн (appdb) хүснэгт — sdplatform-ынх
+	// биш. Тиймээс authdb-ийн tx-ээр биш, аппын холболтоор бичнэ.
+	if _, err := s.appDB.Exec(ctx, `
 		INSERT INTO valuation_org_profile (organization_id, is_active, created_at, updated_at)
 		VALUES ($1, true, $2, $2)
 		ON CONFLICT (organization_id) DO NOTHING`, orgID, now); err != nil {

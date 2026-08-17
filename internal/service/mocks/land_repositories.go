@@ -10,41 +10,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockPlanRepository — PlanRepository-ийн mock
-type MockPlanRepository struct{ mock.Mock }
-
-func (m *MockPlanRepository) GetByCode(ctx context.Context, planCode string) (*domain.Plan, error) {
-	args := m.Called(ctx, planCode)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.Plan), args.Error(1)
-}
-
-func (m *MockPlanRepository) GetSourceParcels(ctx context.Context, planCode string) ([]*domain.SourceParcel, error) {
-	args := m.Called(ctx, planCode)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*domain.SourceParcel), args.Error(1)
-}
-
-func (m *MockPlanRepository) GetSourceParcelByID(ctx context.Context, parcelID string) (*domain.SourceParcel, error) {
-	args := m.Called(ctx, parcelID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.SourceParcel), args.Error(1)
-}
-
-func (m *MockPlanRepository) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
-	args := m.Called(ctx, q)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*domain.Plan), args.Error(1)
-}
-
 // MockPlanStoreRepository — PlanStoreRepository (MAIN DB-ийн plan хүснэгт)-ийн mock
 type MockPlanStoreRepository struct{ mock.Mock }
 

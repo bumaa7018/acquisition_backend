@@ -13,9 +13,8 @@ import (
 
 // TestCompensation_List_Success tests successful listing of compensations
 func TestCompensation_List_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	acqID := uuid.New()
 	expected := []*domain.Compensation{
@@ -41,9 +40,8 @@ func TestCompensation_List_Success(t *testing.T) {
 
 // TestCompensation_Create_Success tests successful creation of a compensation
 func TestCompensation_Create_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	acqID := uuid.New()
 	comp := &domain.Compensation{
@@ -68,9 +66,8 @@ func TestCompensation_Create_Success(t *testing.T) {
 
 // TestCompensation_Delete_Success tests successful deletion of a compensation
 func TestCompensation_Delete_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	acqID := uuid.New()
 	compID := uuid.New()
@@ -85,9 +82,8 @@ func TestCompensation_Delete_Success(t *testing.T) {
 
 // TestCompensationGrant_Create_Success tests successful creation of a compensation grant
 func TestCompensationGrant_Create_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	acqID := uuid.New()
 	compID := uuid.New()

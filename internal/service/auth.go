@@ -36,7 +36,6 @@ type LoginRequest struct {
 
 type authService struct {
 	userRepo            repository.UserRepository
-	externalUserRepo    repository.UserRepository
 	pwdResetRepo        repository.PasswordResetRepository
 	tokenRevocationRepo repository.TokenRevocationRepository
 	jwtManager          *jwt.Manager
@@ -54,19 +53,15 @@ func NewAuthService(
 	optionalRepos ...any,
 ) AuthService {
 	var revocationRepo repository.TokenRevocationRepository
-	var externalUserRepo repository.UserRepository
 	for _, repo := range optionalRepos {
 		switch v := repo.(type) {
 		case repository.TokenRevocationRepository:
 			revocationRepo = v
 			jwtManager.SetRevocationChecker(revocationRepo)
-		case repository.UserRepository:
-			externalUserRepo = v
 		}
 	}
 	return &authService{
 		userRepo:            userRepo,
-		externalUserRepo:    externalUserRepo,
 		pwdResetRepo:        pwdResetRepo,
 		tokenRevocationRepo: revocationRepo,
 		jwtManager:          jwtManager,
@@ -93,17 +88,31 @@ func NewAuthService(
 // хэрэглэгчид org_id ОГТ олгогдохгүй — тэдний хандалт роль/эрхээр шийдэгддэг.
 //
 // Тогтоох боломжгүй бол nil: нэвтрэлт ЗОГСОХГҮЙ, зүгээр л org_id-гүй токен.
-func (s *authService) orgIDFor(ctx context.Context, sourceRepo repository.UserRepository, userID domain.ID) *domain.ID {
-	// Гадаад талуудын (үнэлгээний байгууллага) сан. Нэг л репотой байвал
-	// мөргөлдөх зүйл байхгүй тул түүнийг ашиглана.
-	orgSource := s.externalUserRepo
-	if orgSource == nil {
-		orgSource = s.userRepo
+// externalOrgRoles — org_id олгогдох ролиуд. Хэрэглэгч бүр нэг санд байдаг
+// болсон тул "аль репоос уншсан" гэдгээр нь ялгах боломжгүй; ДОТООД ажилтанд
+// org_id олгогдохгүй байх шаардлагыг РОЛЬ-оор хангана.
+var externalOrgRoles = map[string]bool{
+	"professional_org":   true,
+	"mika":               true,
+	"finance_specialist": true,
+	"Мэргэжлийн байгууллага": true,
+	"МИКА": true,
+	"Санхүүгийн мэргэжилтэн": true,
+	"Санхүү": true,
+}
+
+func (s *authService) orgIDFor(ctx context.Context, roles []string, userID domain.ID) *domain.ID {
+	external := false
+	for _, r := range roles {
+		if externalOrgRoles[r] {
+			external = true
+			break
+		}
 	}
-	if sourceRepo == nil || sourceRepo != orgSource {
+	if !external {
 		return nil
 	}
-	orgID, err := orgSource.OrgIDForUser(ctx, userID)
+	orgID, err := s.userRepo.OrgIDForUser(ctx, userID)
 	if err != nil {
 		slog.Warn("org lookup for token failed", "user_id", userID, "error", err)
 		return nil
@@ -145,7 +154,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	}
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
-		OrgID:       s.orgIDFor(ctx, sourceRepo, user.ID),
+		OrgID:       s.orgIDFor(ctx, roles, user.ID),
 		Username:    user.Username,
 		Email:       user.Email,
 		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
@@ -170,33 +179,23 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 // хүчинтэй. Хайлт нь ЗӨВХӨН ИДЭВХТЭЙ хэрэглэгчийг олдог тул идэвхгүй бүртгэл
 // "олдсонгүй" болж, гаднаас бүртгэл байгаа эсэхийг таамаглах боломжгүй болно.
 func (s *authService) findLoginUser(ctx context.Context, login string) (*domain.User, repository.UserRepository, error) {
+	// Хэрэглэгч ЗӨВХӨН authdb-д байна (sdplatform схем appdb-д үүсэхгүй) тул
+	// эх сурвалж нэг — өөр сан рүү fallback хийхгүй. Ингэснээр хоёр сангийн
+	// serial4 ID мөргөлдөж өөр хүний бүртгэл рүү унах эрсдэл байхгүй.
 	user, err := s.userRepo.GetActiveByLogin(ctx, login)
-	if err == nil {
-		return user, s.userRepo, nil
-	}
-	if err != domain.ErrNotFound || s.externalUserRepo == nil {
-		return nil, nil, err
-	}
-	user, err = s.externalUserRepo.GetActiveByLogin(ctx, login)
 	if err != nil {
 		return nil, nil, err
 	}
-	return user, s.externalUserRepo, nil
+	return user, s.userRepo, nil
 }
 
 func (s *authService) getUserForToken(ctx context.Context, userID domain.ID) (*domain.User, repository.UserRepository, error) {
+	// Токен дахь ID нь ЗӨВХӨН authdb-ийн хэрэглэгчийг заана.
 	user, err := s.userRepo.GetByID(ctx, userID)
-	if err == nil {
-		return user, s.userRepo, nil
-	}
-	if err != domain.ErrNotFound || s.externalUserRepo == nil {
-		return nil, nil, err
-	}
-	user, err = s.externalUserRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return user, s.externalUserRepo, nil
+	return user, s.userRepo, nil
 }
 
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
@@ -222,7 +221,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	}
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
-		OrgID:       s.orgIDFor(ctx, sourceRepo, user.ID),
+		OrgID:       s.orgIDFor(ctx, roles, user.ID),
 		Username:    user.Username,
 		Email:       user.Email,
 		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),

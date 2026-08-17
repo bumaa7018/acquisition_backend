@@ -24,10 +24,9 @@ func syncDocsSvc(t *testing.T, acqID, parcelID uuid.UUID, parcelCode, appNo stri
 	*mocks.MockParcelInfoClient,
 ) {
 	t.Helper()
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo)
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
@@ -134,9 +133,8 @@ func TestLandService_SyncParcelDocuments_EmptySourceKeepsStored(t *testing.T) {
 
 // Дундын сервис тохируулагдаагүй бол алдаа.
 func TestLandService_SyncParcelDocuments_NoClient(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	_, err := svc.SyncParcelDocuments(ctx, uuid.New(), "010101000001", nil)
 	assert.Equal(t, domain.ErrInternalServer, err)
@@ -160,10 +158,9 @@ func docFileSvc(t *testing.T, files service.SourceFileClient) (
 	service.LandService, *mocks.MockLandAcquisitionRepository,
 ) {
 	t.Helper()
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	return service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo, files), landRepo
+	return service.NewLandService(landRepo, nil, nil, parcelInfo, files), landRepo
 }
 
 // Эх системийн файл нээгдэж, ftp_id болон зам зөв дамжина.
@@ -221,9 +218,8 @@ func TestLandService_OpenParcelDocumentFile_NotLinkedToParcel(t *testing.T) {
 
 // .env тохируулаагүй бол тодорхой алдаа.
 func TestLandService_OpenParcelDocumentFile_NotConfigured(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	_, err := svc.OpenParcelDocumentFile(ctx, uuid.New(), uuid.New())
 	assert.Equal(t, domain.ErrSourceFileNotConfigured, err)

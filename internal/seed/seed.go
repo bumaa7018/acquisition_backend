@@ -696,14 +696,25 @@ func (s *Seeder) SeedCompensationAccess(ctx context.Context) error {
 }
 
 type Seeder struct {
-	db       *pgxpool.Pool
+	// db — authdb (sdplatform / base / codelists схемүүд ЗӨВХӨН энд байна).
+	db *pgxpool.Pool
+	// appDB — аппын өөрийн сан (appdb). Аппын хүснэгтэд бичихэд л хэрэглэнэ.
+	// sdplatform-ын хүснэгтүүд appdb-д ҮҮСЭХГҮЙ тул тэднийг db-ээр л хөндөнө.
+	appDB    *pgxpool.Pool
 	userRepo repository.UserRepository
 	roleRepo repository.RoleRepository
 	permRepo repository.PermissionRepository
 }
 
 func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo repository.RoleRepository, permRepo repository.PermissionRepository) *Seeder {
-	return &Seeder{db: db, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
+	return &Seeder{db: db, appDB: db, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
+}
+
+// NewSeederFor — authdb (db) болон аппын сан (appDB)-г тусад нь өгнө. Хоёр санд
+// зэрэг бичих шаардлагатай seed-д хэрэглэнэ (ж.нь үнэлгээний байгууллагын
+// бүртгэл: sdplatform → authdb, valuation_org_profile → appdb).
+func NewSeederFor(db, appDB *pgxpool.Pool, userRepo repository.UserRepository, roleRepo repository.RoleRepository, permRepo repository.PermissionRepository) *Seeder {
+	return &Seeder{db: db, appDB: appDB, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
 }
 
 func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig, employeeCfg config.EmployeeConfig) error {

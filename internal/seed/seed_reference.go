@@ -78,18 +78,6 @@ var referenceRows = []struct {
 			('depreciation_amount',   'Элэгдлийн дүн',                       '₮',         9),
 			('net_replacement_cost',  'Барилгын нөхөн орлуулах өртөг',       '₮',        10)
 		ON CONFLICT (code) DO NOTHING`},
-
-	// main DB-д ч sdplatform/codelists схем байдаг (гадаад хэрэглэгчид тэнд
-	// амьдардаг) тул ижил лавлахууд хэрэгтэй.
-	{"codelists.cl_person_type", `
-		INSERT INTO codelists.cl_person_type (code, description, description_en)
-		VALUES (1, 'Иргэн', 'citizen'), (2, 'Хуулийн этгээд', 'legal')
-		ON CONFLICT (code) DO NOTHING`},
-
-	{"sdplatform.sd_system", `
-		INSERT INTO sdplatform.sd_system (system_id, "name", description)
-		VALUES (10, 'Газар чөлөөлөлт', 'Газар чөлөөлөлтийн систем')
-		ON CONFLICT (system_id) DO NOTHING`},
 }
 
 // Seed — лавлах бүрийг байхгүй бол нэмнэ.

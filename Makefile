@@ -79,10 +79,10 @@ migrate-main-down:
 
 # Auth DB migration
 migrate-auth-up:
-	migrate -path ./migrations/auth -database "$(AUTH_DSN)" up
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db auth migrations/auth/000001_authdb_schema.up.sql
 
 migrate-auth-down:
-	migrate -path ./migrations/auth -database "$(AUTH_DSN)" down 1
+	@echo "authdb schema down disabled: sdplatform-owned tables must not be dropped"
 
 up:
 	@docker network inspect gov_network >/dev/null 2>&1 || docker network create gov_network >/dev/null
@@ -94,6 +94,11 @@ down:
 
 # АНХААР: -v нь minio_data volume-ыг МӨН устгана — файлын системд байршуулсан
 # бүх файл (баримт, зураг, дроны ортофото) DB-тэй хамт цэвэрлэгдэнэ.
+#
+# ХОРИГЛОХ ТОХИОЛДОЛ: postgres volume-ыг устгах тул AUTH_DB (sdplatform) сан ч
+# бүрэн арчигдана. Жинхэнэ sdplatform өгөгдлийн санд холбогдсон үед энэ target-ыг
+# ОГТ хэрэглэж БОЛОХГҮЙ. Аппын санг л шинэчлэх бол `make reset-db` — тэр нь
+# authdb-д хүрдэггүй (байхгүй бол л үүсгэнэ).
 reset:
 	$(FULL_COMPOSE) down -v
 	$(COMPOSE) build --no-cache --pull

@@ -51,8 +51,31 @@ func buildSimpleShp() []byte {
 	return shpBuf
 }
 
-func newLandSvc(planRepo *mocks.MockPlanRepository, landRepo *mocks.MockLandAcquisitionRepository) service.LandService {
-	return service.NewLandService(planRepo, landRepo, filestorage.DisabledStorage{}, nil)
+// planMocks — төлөвлөгөөний ШИНЭ урсгалын mock-ууд: дундын сервисээс татаж,
+// appdb-ийн plan хүснэгтэд хадгална. authdb-д plan байхгүй тул өөр эх сурвалж
+// байхгүй.
+type planMocks struct {
+	projects *mocks.MockPlanProjectClient
+	store    *mocks.MockPlanStoreRepository
+}
+
+// expectPlan — дундын сервисээс төлөвлөгөө олдож, plan хүснэгтэд хадгалагдана.
+func (p planMocks) expectPlan(code string, plan *domain.Plan) {
+	p.projects.On("GetPlanProject", ctx, code).Return(plan, nil)
+	p.store.On("Upsert", ctx, mock.AnythingOfType("*domain.Plan")).Return(plan, nil)
+}
+
+// expectPlanMissing — дундын сервис төлөвлөгөө олоогүй.
+func (p planMocks) expectPlanMissing(code string) {
+	p.projects.On("GetPlanProject", ctx, code).Return(nil, domain.ErrNotFound)
+}
+
+func newLandSvc(landRepo *mocks.MockLandAcquisitionRepository) (service.LandService, planMocks) {
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	return service.NewLandService(landRepo, filestorage.DisabledStorage{}, nil, pm.projects, pm.store), pm
 }
 
 var (
@@ -77,14 +100,13 @@ func testPlan() *domain.Plan {
 // ── Create ────────────────────────────────────────────────────
 
 func TestLandService_Create_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, pm := newLandSvc(landRepo)
 
 	plan := testPlan()
 	zip := buildSimpleShp()
 
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(plan, nil)
+	pm.expectPlan(testPlanCode, plan)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{
@@ -107,18 +129,21 @@ func TestLandService_Create_Success(t *testing.T) {
 	assert.Len(t, acq.AUs, 1)
 	// Талбай нь гараас оруулалгүй, хилээс автоматаар тооцогдоно
 	assert.Equal(t, 41_250_000.0, acq.AreaM2)
-	planRepo.AssertExpectations(t)
+	pm.projects.AssertExpectations(t)
 	landRepo.AssertExpectations(t)
 }
 
 // Чөлөөлөлт ҮҮСГЭХ үед нэгж талбар автоматаар ТАТАГДАХГҮЙ.
 func TestLandService_Create_DoesNotFetchParcels(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo)
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo, pm.projects, pm.store)
 
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(testPlan(), nil)
+	pm.expectPlan(testPlanCode, testPlan())
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateProgress", ctx, mock.Anything).Return(nil).Maybe()
@@ -134,16 +159,14 @@ func TestLandService_Create_DoesNotFetchParcels(t *testing.T) {
 	require.NoError(t, err)
 	parcelInfo.AssertNotCalled(t, "ListParcelIDsByAcquisition", mock.Anything, mock.Anything)
 	parcelInfo.AssertNotCalled(t, "GetParcelInfo", mock.Anything, mock.Anything)
-	planRepo.AssertNotCalled(t, "GetSourceParcels", mock.Anything, mock.Anything)
 	landRepo.AssertNotCalled(t, "BulkInsertParcels", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestLandService_Create_PlanNotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, pm := newLandSvc(landRepo)
 
-	planRepo.On("GetByCode", ctx, "UNKNOWN").Return(nil, domain.ErrNotFound)
+	pm.expectPlanMissing("UNKNOWN")
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      "UNKNOWN",
@@ -153,16 +176,15 @@ func TestLandService_Create_PlanNotFound(t *testing.T) {
 	})
 
 	assert.Equal(t, domain.ErrNotFound, err)
-	planRepo.AssertExpectations(t)
+	pm.projects.AssertExpectations(t)
 	landRepo.AssertNotCalled(t, "Create")
 }
 
 func TestLandService_Create_InvalidShapefile(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, pm := newLandSvc(landRepo)
 
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(testPlan(), nil)
+	pm.expectPlan(testPlanCode, testPlan())
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
@@ -172,21 +194,20 @@ func TestLandService_Create_InvalidShapefile(t *testing.T) {
 	})
 
 	assert.Equal(t, domain.ErrInvalidInput, err)
-	planRepo.AssertExpectations(t)
+	pm.projects.AssertExpectations(t)
 }
 
 // Чөлөөлөх хилийг төлөвлөгөөний хилтэй давхцуулах шалгалт БАЙХГҮЙ: төлөвлөгөөний
 // хилээс гадна байсан ч бүртгэгдэнэ (шалгалт кодоос хасагдсан).
 func TestLandService_Create_NoPlanBoundaryOverlapCheck(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, pm := newLandSvc(landRepo)
 
 	// Төлөвлөгөөний хил нь shapefile-ийн геометртэй огт давхцахгүй хол байрлана
 	farPlan := testPlan()
 	farPlan.BoundaryWKT = "POLYGON((10 10,11 10,11 11,10 11,10 10))"
 
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(farPlan, nil)
+	pm.expectPlan(testPlanCode, farPlan)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
@@ -209,15 +230,17 @@ func TestLandService_Create_NoPlanBoundaryOverlapCheck(t *testing.T) {
 // талбарын логик Update дээр шалгагдана.
 func updateGeomSvc(t *testing.T, id uuid.UUID) (
 	service.LandService,
-	*mocks.MockPlanRepository,
 	*mocks.MockLandAcquisitionRepository,
 	*mocks.MockParcelInfoClient,
 ) {
 	t.Helper()
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo)
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo, pm.projects, pm.store)
 
 	existing := &domain.LandAcquisition{
 		ID: id, PlanCode: testPlanCode,
@@ -225,20 +248,20 @@ func updateGeomSvc(t *testing.T, id uuid.UUID) (
 		Status:      domain.LandAcquisitionStatusField,
 	}
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(testPlan(), nil)
+	pm.expectPlan(testPlanCode, testPlan())
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	return svc, planRepo, landRepo, parcelInfo
+	return svc, landRepo, parcelInfo
 }
 
 // Нэгж талбарын мэдээлэл ЗӨВХӨН дугаараар үүснэ: чөлөөлөх хилээр дугаарууд
 // авагдаж, дугаар тус бүрийн мэдээлэл (геометргүй байсан ч) бүртгэгдэнэ.
 func TestLandService_Update_CreatesParcelsFromParcelIDsOnly(t *testing.T) {
 	id := uuid.New()
-	svc, planRepo, landRepo, parcelInfo := updateGeomSvc(t, id)
+	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
 
 	// Хилээр 4 дугаар ирнэ (нэг нь хоосон, нэг нь давхардсан)
 	parcelInfo.On("ListParcelIDsByAcquisition", ctx, mock.AnythingOfType("string")).
@@ -267,7 +290,6 @@ func TestLandService_Update_CreatesParcelsFromParcelIDsOnly(t *testing.T) {
 	assert.Equal(t, "010101000002", saved[1].ParcelID)
 	assert.Empty(t, saved[0].GeometryWKT, "геометр байхгүй ч нэгж талбар үүснэ")
 	// auth DB-ийн хуучин урсгал ХЭРЭГЛЭГДЭХГҮЙ
-	planRepo.AssertNotCalled(t, "GetSourceParcels", mock.Anything, mock.Anything)
 	parcelInfo.AssertExpectations(t)
 }
 
@@ -275,7 +297,7 @@ func TestLandService_Update_CreatesParcelsFromParcelIDsOnly(t *testing.T) {
 // бусад нэгж талбар жагсаалтад бүртгэгдсэн хэвээр байна.
 func TestLandService_Update_SkipsOnlyFailedParcelInfo(t *testing.T) {
 	id := uuid.New()
-	svc, _, landRepo, parcelInfo := updateGeomSvc(t, id)
+	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
 
 	parcelInfo.On("ListParcelIDsByAcquisition", ctx, mock.AnythingOfType("string")).
 		Return([]string{"010101000001", "010101000002"}, nil)
@@ -299,9 +321,8 @@ func TestLandService_Update_SkipsOnlyFailedParcelInfo(t *testing.T) {
 }
 
 func TestLandService_AdvanceStatus_ConfirmedRequiresFinalParcelStatuses(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 	acqID := uuid.New()
 	decreeDate := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
 
@@ -330,9 +351,8 @@ func TestLandService_AdvanceStatus_ConfirmedRequiresFinalParcelStatuses(t *testi
 }
 
 func TestLandService_AdvanceStatus_ConfirmedAllowsFinalParcelStatuses(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 	acqID := uuid.New()
 	decreeDate := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
 
@@ -364,9 +384,8 @@ func TestLandService_AdvanceStatus_ConfirmedAllowsFinalParcelStatuses(t *testing
 // ── GetByID ───────────────────────────────────────────────────
 
 func TestLandService_GetByID_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	expected := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, Status: domain.LandAcquisitionStatusField}
@@ -379,9 +398,8 @@ func TestLandService_GetByID_Success(t *testing.T) {
 }
 
 func TestLandService_GetByID_NotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(nil, domain.ErrNotFound)
@@ -393,9 +411,8 @@ func TestLandService_GetByID_NotFound(t *testing.T) {
 // ── Update ────────────────────────────────────────────────────
 
 func TestLandService_Update_DatesOnly(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Status: domain.LandAcquisitionStatusField}
@@ -415,9 +432,14 @@ func TestLandService_Update_DatesOnly(t *testing.T) {
 }
 
 func TestLandService_Update_GeometryChange(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	// Нэгж талбар нь ЗӨВХӨН дундын сервисээс татагдана.
+	svc := service.NewLandService(landRepo, filestorage.DisabledStorage{}, nil, parcelInfo, pm.projects, pm.store)
 
 	id := uuid.New()
 	oldGeometryWKT := "POLYGON((1 1,2 1,2 2,1 2,1 1))"
@@ -425,7 +447,7 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	plan := testPlan()
 
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
-	planRepo.On("GetByCode", ctx, testPlanCode).Return(plan, nil)
+	pm.expectPlan(testPlanCode, plan)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateBoundaryHistory", ctx, mock.MatchedBy(func(h *domain.LandAcquisitionBoundaryHistory) bool {
@@ -437,7 +459,9 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
 	srcParcels := []*domain.SourceParcel{{ParcelID: "123456789012"}}
-	planRepo.On("GetSourceParcels", ctx, testPlanCode).Return(srcParcels, nil)
+	parcelInfo.On("ListParcelIDsByAcquisition", ctx, mock.AnythingOfType("string")).
+		Return([]string{"123456789012"}, nil)
+	parcelInfo.On("GetParcelInfo", ctx, "123456789012").Return(srcParcels[0], nil)
 	landRepo.On("BulkInsertParcels", ctx, id, srcParcels, mock.AnythingOfType("string")).Return(nil)
 
 	acq, geomChanged, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
@@ -454,9 +478,8 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 }
 
 func TestLandService_Update_PlanChangedWithoutShapefile(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	existing := &domain.LandAcquisition{ID: id, PlanCode: testPlanCode}
@@ -470,9 +493,8 @@ func TestLandService_Update_PlanChangedWithoutShapefile(t *testing.T) {
 }
 
 func TestLandService_Update_NotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(nil, domain.ErrNotFound)
@@ -484,9 +506,8 @@ func TestLandService_Update_NotFound(t *testing.T) {
 // ── Delete ────────────────────────────────────────────────────
 
 func TestLandService_Delete_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusNew}, nil)
@@ -498,9 +519,8 @@ func TestLandService_Delete_Success(t *testing.T) {
 }
 
 func TestLandService_Delete_NotNewStatus(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusField}, nil)
@@ -511,9 +531,8 @@ func TestLandService_Delete_NotNewStatus(t *testing.T) {
 }
 
 func TestLandService_Delete_NotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(nil, domain.ErrNotFound)
@@ -525,9 +544,13 @@ func TestLandService_Delete_NotFound(t *testing.T) {
 // ── SyncParcel ────────────────────────────────────────────────
 
 func TestLandService_SyncParcel_Success(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	svc := service.NewLandService(landRepo, filestorage.DisabledStorage{}, nil, parcelInfo, pm.projects, pm.store)
 
 	acqID := uuid.New()
 	parcelCode := "010101000001"
@@ -541,20 +564,19 @@ func TestLandService_SyncParcel_Success(t *testing.T) {
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(parcel, nil)
 	landRepo.On("UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string")).Return(nil)
-	planRepo.On("GetSourceParcelByID", ctx, parcelCode).Return(srcParcel, nil)
+	parcelInfo.On("GetParcelInfo", ctx, parcelCode).Return(srcParcel, nil)
 	landRepo.On("UpsertHolder", ctx, srcParcel).Return(holderID, nil)
 	landRepo.On("ReplaceParcelDetail", ctx, parcelID, acqID, holderID, srcParcel).Return(nil)
 
 	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	require.NoError(t, err)
-	planRepo.AssertExpectations(t)
+	pm.projects.AssertExpectations(t)
 	landRepo.AssertExpectations(t)
 }
 
 func TestLandService_SyncParcel_AcquisitionNotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	svc, _ := newLandSvc(landRepo)
 
 	acqID := uuid.New()
 	parcelCode := "010101000001"
@@ -566,9 +588,9 @@ func TestLandService_SyncParcel_AcquisitionNotFound(t *testing.T) {
 }
 
 func TestLandService_SyncParcel_ParcelNotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	svc := service.NewLandService(landRepo, filestorage.DisabledStorage{}, nil, parcelInfo)
 
 	acqID := uuid.New()
 	parcelCode := "010101000001"
@@ -579,13 +601,13 @@ func TestLandService_SyncParcel_ParcelNotFound(t *testing.T) {
 
 	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	assert.Equal(t, domain.ErrNotFound, err)
-	planRepo.AssertNotCalled(t, "GetSourceParcelByID")
+	parcelInfo.AssertNotCalled(t, "GetParcelInfo")
 }
 
 func TestLandService_SyncParcel_SourceNotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := newLandSvc(planRepo, landRepo)
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	svc := service.NewLandService(landRepo, filestorage.DisabledStorage{}, nil, parcelInfo)
 
 	acqID := uuid.New()
 	parcelCode := "MISSING"
@@ -596,7 +618,7 @@ func TestLandService_SyncParcel_SourceNotFound(t *testing.T) {
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(parcel, nil)
 	landRepo.On("UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string")).Return(nil)
-	planRepo.On("GetSourceParcelByID", ctx, parcelCode).Return(nil, domain.ErrNotFound)
+	parcelInfo.On("GetParcelInfo", ctx, parcelCode).Return(nil, domain.ErrNotFound)
 
 	err := svc.SyncParcel(ctx, acqID, parcelCode)
 	assert.Equal(t, domain.ErrNotFound, err)
@@ -614,10 +636,9 @@ func syncHolderSvc(t *testing.T, acqID, parcelID uuid.UUID, parcelCode, appNo st
 	*domain.SourceParcel,
 ) {
 	t.Helper()
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo)
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	src := &domain.SourceParcel{ParcelID: parcelCode, AppNo: appNo}
 	holderID := uuid.New()
@@ -654,7 +675,7 @@ func TestLandService_SyncParcelHolders_SavesAllByAppNo(t *testing.T) {
 	parcelCode, appNo := "010101000001", "2024-0001"
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(&mocks.MockPlanRepository{}, landRepo, nil, nil, parcelInfo)
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
@@ -690,7 +711,7 @@ func TestLandService_SyncParcelHolders_AppNoMissing(t *testing.T) {
 	parcelCode := "010101000001"
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(&mocks.MockPlanRepository{}, landRepo, nil, nil, parcelInfo)
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(&domain.Parcel{ID: parcelID}, nil)
@@ -795,10 +816,9 @@ func TestLandService_SyncParcelHolders_SkipsDuplicateRegisterNo(t *testing.T) {
 // Sync үед ИРСЭН геометрээр чөлөөлөгдөх талбайн хил/хэмжээ, үлдэх талбай,
 // АУ код тооцогдож хадгалагдана.
 func TestLandService_SyncParcel_ComputesAcquisitionAreaFromSourceGeometry(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	parcelInfo := &mocks.MockParcelInfoClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, parcelInfo)
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	acqID, parcelID := uuid.New(), uuid.New()
 	parcelCode := "1800805431"

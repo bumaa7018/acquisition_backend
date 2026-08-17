@@ -23,7 +23,7 @@ import (
 func payeeSvc(t *testing.T) (service.LandService, *mocks.MockLandAcquisitionRepository) {
 	t.Helper()
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	return service.NewLandService(&mocks.MockPlanRepository{}, landRepo, nil, nil, nil), landRepo
+	return service.NewLandService(landRepo, nil, nil, nil), landRepo
 }
 
 const payeeParcelCode = "010101000001"

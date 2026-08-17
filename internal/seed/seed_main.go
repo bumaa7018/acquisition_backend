@@ -419,7 +419,7 @@ func (s *MainSeeder) seedParcel(ctx context.Context, acqID uuid.UUID) (uuid.UUID
 }
 
 // seedExtraParcels — 2-р болон 3-р нэгж талбарыг эзэмшигч, эрх зүйн мэдээлэлтэй нэмнэ.
-// source_parcel-тай тохирсон geometry, holder мэдээллийг ашиглана.
+// Дундын сервисээс ирэх нэгж талбарын хэлбэртэй нийцсэн geometry, holder мэдээллийг ашиглана.
 func (s *MainSeeder) seedExtraParcels(ctx context.Context, acqID uuid.UUID) error {
 	type parcelEntry struct {
 		parcelID    string

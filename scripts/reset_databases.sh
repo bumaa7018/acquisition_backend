@@ -72,6 +72,21 @@ SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'owner') \gexec
 SQL
 }
 
+# ensure_database — АЮУЛГҮЙ: байхгүй бол л үүсгэнэ, БАЙГААГ ХӨНДӨХГҮЙ.
+# authdb-д ЗӨВХӨН үүнийг хэрэглэнэ: тэр сан жинхэнэ sdplatform DB рүү
+# солигдох тул хоосон болгох/устгах нь ЯМАР Ч тохиолдолд хориотой.
+ensure_database() {
+  local db_name="$1"
+  local pg_container="$2"
+
+  echo "DB байгаа эсэхийг шалгаж байна (устгахгүй): $db_name"
+  docker exec -i "$pg_container" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d postgres \
+    -v db="$db_name" -v owner="$DB_USER" <<'SQL'
+SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'owner')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db') \gexec
+SQL
+}
+
 verify_database() {
   local db_name="$1"
   local pg_container="$2"
@@ -197,9 +212,15 @@ if [[ -z "$PG_CONTAINER" ]]; then
   exit 1
 fi
 
+# АППЫН сан (appdb) — цэвэрлэж дахин үүсгэнэ.
 reset_database "$DB_NAME" "$PG_CONTAINER"
+
+# AUTH сан (authdb) — ХЭЗЭЭ Ч устгахгүй/хоосон болгохгүй. Энэ холболт жинхэнэ
+# sdplatform өгөгдлийн сан руу залгагдах тул тэнд байгаа хүснэгт, өгөгдлийг
+# хөндөх нь хориотой. Байхгүй бол л үүсгэнэ; хүснэгтүүдийг миграц
+# (CREATE ... IF NOT EXISTS), өгөгдлийг seeder (байхгүй бол нэмэх) хангана.
 if [[ "$AUTH_DB_NAME" != "$DB_NAME" ]]; then
-  reset_database "$AUTH_DB_NAME" "$PG_CONTAINER"
+  ensure_database "$AUTH_DB_NAME" "$PG_CONTAINER"
 fi
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
@@ -211,9 +232,6 @@ echo "API-г асааж migration + startup seeder ажиллуулж байна
 compose_full up -d api --wait
 
 verify_database "$DB_NAME" "$PG_CONTAINER"
-if [[ "$AUTH_DB_NAME" != "$DB_NAME" ]]; then
-  verify_database "$AUTH_DB_NAME" "$PG_CONTAINER"
-fi
 verify_main_reference_data "$PG_CONTAINER"
 if [[ "$AUTH_DB_NAME" != "$DB_NAME" ]]; then
   verify_auth_reference_data "$PG_CONTAINER"

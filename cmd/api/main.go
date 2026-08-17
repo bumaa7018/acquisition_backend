@@ -79,7 +79,7 @@ func main() {
 	}
 	defer authDB.Close()
 
-	if err := runMigrations(cfg.DB.MigrateURL(), cfg.AuthDB.MigrateURL()); err != nil {
+	if err := runMigrations(cfg.DB.MigrateURL(), cfg.AuthDB.DSN()); err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
@@ -93,11 +93,9 @@ func main() {
 	pwdResetRepo := postgres.NewPasswordResetRepo(mainDB)
 	revokedTokenRepo := postgres.NewRevokedTokenRepo(mainDB)
 	hrRepo := postgres.NewHRRepo(authDB)
-	externalUserRepo := postgres.NewUserRepoFor("main", mainDB, mainDB)
 
-	// Auth DB-аас план унших, main DB-д чөлөөлөлт бичих
-	planRepo := postgres.NewPlanRepo(authDB)
-	// Дундын сервисээс татсан төлөвлөгөө main DB-ийн plan хүснэгтэд хадгалагдана
+	// Төлөвлөгөө: ЗӨВХӨН appdb-ийн plan хүснэгтэд, зөвхөн дундын сервисээс
+	// татсан мэдээллээр. Уншилт ч эндээс явна — authdb-д plan хайхгүй.
 	planStoreRepo := postgres.NewPlanStoreRepo(mainDB)
 	landAcqRepo := postgres.NewLandAcquisitionRepo(mainDB)
 	acquisitionProgressStatusRepo := postgres.NewAcquisitionProgressStatusRepo(mainDB)
@@ -129,7 +127,7 @@ func main() {
 	// байгууллага, МИКА, санхүү) нь 000093-ын дагуу mainDB-ийн sdplatform схем
 	// дээр амьдардаг — энэ бүртгэл auth DB руу ХЭЗЭЭ Ч холбогдохгүй.
 	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB)
-	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo, externalUserRepo)
+	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
 	jwtManager.SetSessionValidator(userRepo)
 	userSvc := service.NewUserService(userRepo, hrRepo)
@@ -193,8 +191,8 @@ func main() {
 			"(SOURCE_FTP_BASE_URL эсвэл SOURCE_FTP_BASE_URLS)")
 	}
 
-	landSvc := service.NewLandService(planRepo, landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient)
-	planSvc := service.NewPlanService(planRepo, parcelInfoClient, planStoreRepo)
+	landSvc := service.NewLandService(landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient)
+	planSvc := service.NewPlanService(planStoreRepo, parcelInfoClient)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)

@@ -6,7 +6,6 @@ import (
 	"acquisition_backend/internal/config"
 	"acquisition_backend/internal/pkg/filestorage"
 	"acquisition_backend/internal/repository"
-	"acquisition_backend/internal/repository/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -74,13 +73,9 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewMainSeeder(mainDB).seedDefaultAssets(ctx)
 			},
 		},
-		{
-			name:    "000004_plans",
-			aliases: []string{"plans_seeder"},
-			run: func(ctx context.Context) error {
-				return NewPlansSeeder(authDB).Seed(ctx)
-			},
-		},
+		// 000004_plans УСТСАН: төлөвлөгөө болон эх нэгж талбарыг authdb-д
+		// төсөөллөөр үүсгэдэг байсан. Одоо plan хүснэгт ЗӨВХӨН appdb дээр
+		// байх ба зөвхөн дундын сервисээс татсан мэдээллийг агуулна.
 		{
 			name:    "000005_compensations",
 			aliases: []string{"compensation_seeder"},
@@ -239,14 +234,12 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
-			name: "000025_main_external_valuation_users",
+			// Гадаад хэрэглэгчид ч authdb-д амьдарна: sdplatform схем appdb-д
+			// ҮҮСЭХГҮЙ (хоёр сан дээр давхардуулахгүй).
+			name: "000025_external_valuation_users",
 			run: func(ctx context.Context) error {
-				return NewSeeder(
-					mainDB,
-					postgres.NewUserRepoFor("main", mainDB, mainDB),
-					postgres.NewRoleRepo(mainDB),
-					postgres.NewPermissionRepo(mainDB),
-				).SeedExternalValuationOrgUsers(ctx)
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedExternalValuationOrgUsers(ctx)
 			},
 		},
 		{
@@ -270,12 +263,9 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			// тэдгээрт байгууллага + ажилтны бүртгэл үүсгэж өгнө.
 			name: "000028_valuation_org_registry",
 			run: func(ctx context.Context) error {
-				return NewSeeder(
-					mainDB,
-					postgres.NewUserRepoFor("main", mainDB, mainDB),
-					postgres.NewRoleRepo(mainDB),
-					postgres.NewPermissionRepo(mainDB),
-				).SeedValuationOrgRegistry(ctx)
+				// sdplatform/base → authDB, valuation_org_profile → mainDB.
+				return NewSeederFor(authDB, mainDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedValuationOrgRegistry(ctx)
 			},
 		},
 	}); err != nil {

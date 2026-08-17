@@ -15,15 +15,15 @@ type PlanService interface {
 }
 
 type planService struct {
-	planRepo repository.PlanRepository
 	projects PlanProjectClient
-	// store — MAIN DB-ийн plan хүснэгт. Төлөвлөгөөгөөр хайх/сонгох үйлдэл
-	// (Suggest) ҮҮНЭЭС уншина; nil үед auth DB-ийн planRepo руу унана.
+	// store — appdb-ийн plan хүснэгт. Төлөвлөгөө ЗӨВХӨН энд хадгалагдаж,
+	// ЗӨВХӨН эндээс уншигдана.
 	store repository.PlanStoreRepository
 }
 
-func NewPlanService(planRepo repository.PlanRepository, extras ...any) PlanService {
-	s := &planService{planRepo: planRepo}
+// NewPlanService — store нь appdb-ийн plan хүснэгт (цорын ганц эх сурвалж).
+func NewPlanService(store repository.PlanStoreRepository, extras ...any) PlanService {
+	s := &planService{store: store}
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case repository.PlanStoreRepository:
@@ -38,12 +38,12 @@ func NewPlanService(planRepo repository.PlanRepository, extras ...any) PlanServi
 	return s
 }
 
-// Search — төлөвлөгөөг дугаараар дундын сервисээс (middleware /plan/project)
-// хайна. Дугаар нь ЗААВАЛ байх ёстой.
+// Search — төлөвлөгөөг middleware /plan/project-ээс татаж appdb-ийн plan
+// хүснэгтэд хадгална, дараа нь хадгалагдсан мөрийг appdb-ээс уншиж буцаана.
 //
-// Эх сурвалж нь ЗӨВХӨН дундын сервис: тэндээс олдоогүй бол хадгалагдсан
-// (plan хүснэгт) ч, auth DB-ийн төсөөллийн мэдээлэл ч хайгдахгүй — алдаа шууд
-// дамжина (404 → ErrNotFound, холболтын алдаа → ErrInternalServer).
+// Middleware нь шинэ өгөгдлийн цорын ганц эх сурвалж. Appdb-ийн plan хүснэгт
+// нь зөвхөн middleware-ээс ирсэн датаны хадгалалт ба унших байрлал. Middleware
+// дээр олдоогүй/алдаа гарсан үед appdb-ээс нөхөж хайхгүй.
 func (s *planService) Search(ctx context.Context, code string) (*domain.Plan, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -52,6 +52,9 @@ func (s *planService) Search(ctx context.Context, code string) (*domain.Plan, er
 	if s.projects == nil {
 		return nil, domain.ErrNotFound
 	}
+	if s.store == nil {
+		return nil, domain.ErrInternalServer
+	}
 	plan, err := s.projects.GetPlanProject(ctx, code)
 	if err != nil {
 		return nil, err
@@ -59,32 +62,35 @@ func (s *planService) Search(ctx context.Context, code string) (*domain.Plan, er
 	if plan == nil {
 		return nil, domain.ErrNotFound
 	}
+	if strings.TrimSpace(plan.PlanCode) == "" {
+		plan.PlanCode = code
+	}
 	// Дундын сервис нэгж талбарын дугаарыг буцаагаагүй ч хайсан дугаараар бүртгэнэ.
 	if strings.TrimSpace(plan.ParcelID) == "" {
 		plan.ParcelID = code
 	}
 
-	// ОЛДМОГЦ MAIN DB-д хадгална — чөлөөлөлт үүсгэх үед дахин татах шаардлагагүй.
-	// Upsert нь plan_code дээр ON CONFLICT DO UPDATE хийдэг тул давхардсан
-	// төлөвлөгөө шинэ мөр үүсгэхгүй, зөвхөн хоосон биш талбарууд шинэчлэгдэнэ.
-	if s.store != nil {
-		saved, err := s.store.Upsert(ctx, plan)
-		if err != nil {
-			// Хадгалалт унасан ч хайлтыг тасалдуулахгүй — чөлөөлөлт үүсгэх үед
-			// төлөвлөгөө дахин татагдаж хадгалагдана.
-			slog.Error("төлөвлөгөөг хадгалахад алдаа",
-				"parcel_id", code, "plan_code", plan.PlanCode, "error", err)
-			return plan, nil
-		}
-		return saved, nil
+	saved, err := s.store.Upsert(ctx, plan)
+	if err != nil {
+		slog.Error("төлөвлөгөөг appdb-д хадгалахад алдаа",
+			"parcel_id", code, "plan_code", plan.PlanCode, "error", err)
+		return nil, domain.ErrInternalServer
 	}
-	return plan, nil
+
+	stored, err := s.store.GetByCode(ctx, saved.PlanCode)
+	if err != nil {
+		slog.Error("төлөвлөгөөг appdb-ээс уншихад алдаа",
+			"parcel_id", code, "plan_code", saved.PlanCode, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	return stored, nil
 }
 
-// Suggest — хадгалагдсан төлөвлөгөөнүүдээс хайна (жагсаалт/шүүлтүүрийн сонголт).
+// Suggest — appdb-д хадгалагдсан төлөвлөгөөнүүдээс хайна (жагсаалт/шүүлтүүрийн
+// сонголт). Өөр эх сурвалж БАЙХГҮЙ: plan хүснэгт зөвхөн appdb дээр байна.
 func (s *planService) Suggest(ctx context.Context, q string) ([]*domain.Plan, error) {
-	if s.store != nil {
-		return s.store.Suggest(ctx, q)
+	if s.store == nil {
+		return nil, domain.ErrInternalServer
 	}
-	return s.planRepo.Suggest(ctx, q)
+	return s.store.Suggest(ctx, q)
 }

@@ -5,7 +5,7 @@ package service_test
 //   - Тэр мэдээлэл MAIN DB-ийн plan хүснэгтэд хадгалагдаж (Upsert),
 //     land_acquisition.plan_id нь ТЭР мөрийг хэлнэ
 //   - Төлөвлөгөө олдоогүй бол чөлөөлөлт үүсэхгүй (ErrNotFound)
-//   - Төлөвлөгөөгөөр хайх/сонгох (Suggest) нь plan хүснэгтээс уншина
+//   - Төлөвлөгөөгөөр хайх/сонгох нь appdb-ийн plan хүснэгтээс уншина
 
 import (
 	"errors"
@@ -37,11 +37,10 @@ func middlewarePlan() *domain.Plan {
 }
 
 func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, projects, planStore)
+	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
 	storedID := uuid.New()
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
@@ -78,19 +77,17 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 	assert.Equal(t, storedID, *acq.PlanID)
 	// Хил ирсэн ч давхцлын шалгалт хийгдэхгүй (шалгалт хасагдсан)
 	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
-	// Дундын сервисээс олдсон тул auth DB-ийн plan уншигдахгүй
-	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
 	projects.AssertExpectations(t)
 	planStore.AssertExpectations(t)
 }
 
-// Дундын сервисээс олдоогүй бол ХААНААС Ч хайхгүй (plan хүснэгт ч, auth DB ч)
+// Дундын сервисээс олдоогүй бол ХААНААС Ч хайхгүй — plan хүснэгт нь зөвхөн
+// дундын сервисийн датаг агуулдаг тул түүнээс "нөхөж" уншихгүй.
 func TestLandService_Create_NoFallbackWhenMiddlewareNotFound(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, projects, planStore)
+	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
 	projects.On("GetPlanProject", ctx, "UNKNOWN").Return(nil, domain.ErrNotFound)
 
@@ -103,18 +100,16 @@ func TestLandService_Create_NoFallbackWhenMiddlewareNotFound(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrNotFound)
 	planStore.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
-	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
 	planStore.AssertNotCalled(t, "Upsert", mock.Anything, mock.Anything)
 	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 // Холболтын алдаа нь "олдсонгүй" болж хувирахгүй — шалтгаан хэвээр дамжина
 func TestLandService_Create_MiddlewareErrorPropagates(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, projects, planStore)
+	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(nil, domain.ErrInternalServer)
 
@@ -127,14 +122,12 @@ func TestLandService_Create_MiddlewareErrorPropagates(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrInternalServer)
 	planStore.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
-	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
 	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 func TestLandService_Create_PlanCodeRequired(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, &mocks.MockPlanProjectClient{}, &mocks.MockPlanStoreRepository{})
+	svc := service.NewLandService(landRepo, nil, nil, &mocks.MockPlanProjectClient{}, &mocks.MockPlanStoreRepository{})
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      "   ",
@@ -149,11 +142,10 @@ func TestLandService_Create_PlanCodeRequired(t *testing.T) {
 
 // Хадгалагдсан төлөвлөгөөнд ХИЛ байсан ч давхцлын шалгалт хийхгүй (хасагдсан)
 func TestLandService_Create_IgnoresPlanBoundary(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewLandService(planRepo, landRepo, nil, nil, projects, planStore)
+	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
 	// Хадгалагдсан мөрөнд хол байрлах хил бий — гэхдээ шалгалтад хэрэглэгдэхгүй
@@ -175,35 +167,37 @@ func TestLandService_Create_IgnoresPlanBoundary(t *testing.T) {
 	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestPlanService_Search_UsesMiddlewareAndRequiresCode(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
+func TestPlanService_Search_StoresMiddlewareDataThenReadsAppDB(t *testing.T) {
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewPlanService(planRepo, projects, planStore)
+	svc := service.NewPlanService(planStore, projects)
 
 	// Код хоосон бол дуудалт ХИЙХГҮЙ
 	_, err := svc.Search(ctx, "  ")
 	assert.ErrorIs(t, err, domain.ErrInvalidInput)
 	projects.AssertNotCalled(t, "GetPlanProject", mock.Anything, mock.Anything)
 
-	// Олдмогц MAIN DB-д ШУУД хадгалагдана — чөлөөлөлт үүсгэх үед дахин
-	// татах шаардлагагүй болно.
+	// Олдмогц MAIN DB-д хадгалж, хариуг appdb-ийн plan хүснэгтээс уншина.
 	found := middlewarePlan()
+	stored := *found
+	stored.ID = uuid.New()
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
-	planStore.On("Upsert", ctx, found).Return(found, nil)
+	planStore.On("Upsert", ctx, found).Return(&stored, nil)
+	planStore.On("GetByCode", ctx, testPlanCode).Return(&stored, nil)
 
 	plan, err := svc.Search(ctx, testPlanCode)
 	require.NoError(t, err)
 	assert.Equal(t, "PRJ-9", plan.ProjectID)
-	planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
+	assert.Equal(t, stored.ID, plan.ID)
 	planStore.AssertExpectations(t)
 }
 
-// Хадгалалт унасан ч хайлт БҮТЭЛГҮЙТЭХГҮЙ — дэлгэц дээр төлөвлөгөө харагдана.
-func TestPlanService_Search_StoreFailureDoesNotBreakSearch(t *testing.T) {
+// Хадгалалт унавал raw middleware дата буцаахгүй. Уншилт зөвхөн appdb-ийн
+// plan хүснэгтээс явах ёстой тул хайлт алдаагаар дуусна.
+func TestPlanService_Search_StoreFailureFailsSearch(t *testing.T) {
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewPlanService(&mocks.MockPlanRepository{}, projects, planStore)
+	svc := service.NewPlanService(planStore, projects)
 
 	found := middlewarePlan()
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
@@ -211,22 +205,26 @@ func TestPlanService_Search_StoreFailureDoesNotBreakSearch(t *testing.T) {
 
 	plan, err := svc.Search(ctx, testPlanCode)
 
-	require.NoError(t, err)
-	assert.Equal(t, "PRJ-9", plan.ProjectID)
+	require.ErrorIs(t, err, domain.ErrInternalServer)
+	assert.Nil(t, plan)
+	planStore.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
 }
 
 // Дундын сервис нэгж талбарын дугаар буцаагаагүй бол ХАЙСАН дугаараар бүртгэнэ.
 func TestPlanService_Search_FillsParcelIDFromQuery(t *testing.T) {
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
-	svc := service.NewPlanService(&mocks.MockPlanRepository{}, projects, planStore)
+	svc := service.NewPlanService(planStore, projects)
 
 	found := middlewarePlan()
 	found.ParcelID = ""
+	stored := *found
+	stored.ParcelID = testPlanCode
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(found, nil)
 	planStore.On("Upsert", ctx, mock.MatchedBy(func(p *domain.Plan) bool {
 		return p.ParcelID == testPlanCode
-	})).Return(found, nil)
+	})).Return(&stored, nil)
+	planStore.On("GetByCode", ctx, testPlanCode).Return(&stored, nil)
 
 	_, err := svc.Search(ctx, testPlanCode)
 
@@ -242,25 +240,22 @@ func TestPlanService_Search_NoFallback(t *testing.T) {
 		"холболтын алдаа": domain.ErrInternalServer,
 	} {
 		t.Run(name, func(t *testing.T) {
-			planRepo := &mocks.MockPlanRepository{}
 			planStore := &mocks.MockPlanStoreRepository{}
 			projects := &mocks.MockPlanProjectClient{}
-			svc := service.NewPlanService(planRepo, projects, planStore)
+			svc := service.NewPlanService(planStore, projects)
 
 			projects.On("GetPlanProject", ctx, testPlanCode).Return(nil, middlewareErr)
 
 			_, err := svc.Search(ctx, testPlanCode)
 			assert.ErrorIs(t, err, middlewareErr, "алдаа хувирахгүй дамжина")
 			planStore.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
-			planRepo.AssertNotCalled(t, "GetByCode", mock.Anything, mock.Anything)
 		})
 	}
 }
 
 func TestPlanService_Suggest_ReadsFromPlanTable(t *testing.T) {
-	planRepo := &mocks.MockPlanRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
-	svc := service.NewPlanService(planRepo, planStore)
+	svc := service.NewPlanService(planStore)
 
 	planStore.On("Suggest", ctx, "PLAN").Return([]*domain.Plan{
 		{ID: uuid.New(), PlanCode: testPlanCode, Name: "Хадгалагдсан"},
@@ -270,6 +265,5 @@ func TestPlanService_Suggest_ReadsFromPlanTable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, plans, 1)
 	assert.Equal(t, testPlanCode, plans[0].PlanCode)
-	// auth DB-ийн төсөөллийн plan хүснэгт ашиглагдахгүй
-	planRepo.AssertNotCalled(t, "Suggest", mock.Anything, mock.Anything)
+	// plan сонголт зөвхөн appdb-ийн plan хүснэгтээс уншина
 }

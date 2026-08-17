@@ -9,7 +9,14 @@
 -- Ингэснээр холболтыг жинхэнэ sdplatform өгөгдлийн сан руу залгахад тэр санд
 -- байгаа хүснэгт, багана, өгөгдөл ЯМАР Ч БАЙДЛААР хөндөгдөхгүй.
 --
--- Хүснэгтүүд (21): codelists 2, base 1, sdplatform 16, public 2.
+--
+-- ЖИЧ: trigger болон trigger-функцийг ДАРЖ БИЧИХГҮЙ. Жинхэнэ sdplatform санд
+-- base.log_changes / base.notify_event_all / audit.if_modified_func нь БОДИТ
+-- биетэй (аудит бүртгэл, notify) байдаг тул CREATE OR REPLACE хийвэл тэднийг
+-- хоосон stub-аар дарж, тэр системийн бүртгэлийг чимээгүй унтраана. Иймд
+-- зөвхөн БАЙХГҮЙ үед л үүсгэнэ (DROP TRIGGER огт хэрэглэхгүй).
+--
+-- Хүснэгтүүд: codelists/base/sdplatform схемүүдэд шаардлагатай хүснэгтүүд.
 -- FK хамаарлын дарааллаар бичигдсэн.
 
 -- ── extensions_schemas_functions ──────────────────────────────────────────────
@@ -21,26 +28,50 @@ CREATE SCHEMA IF NOT EXISTS base;
 CREATE SCHEMA IF NOT EXISTS codelists;
 CREATE SCHEMA IF NOT EXISTS audit;
 
-CREATE OR REPLACE FUNCTION base.log_changes()
-RETURNS trigger LANGUAGE plpgsql AS $$
+DO $ensure_fn$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'base' AND p.proname = 'log_changes'
+  ) THEN
+    CREATE FUNCTION base.log_changes() RETURNS trigger LANGUAGE plpgsql AS $body$
+    BEGIN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
-END $$;
+    END $body$;
+  END IF;
+END $ensure_fn$;
 
-CREATE OR REPLACE FUNCTION base.notify_event_all()
-RETURNS trigger LANGUAGE plpgsql AS $$
+DO $ensure_fn$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'base' AND p.proname = 'notify_event_all'
+  ) THEN
+    CREATE FUNCTION base.notify_event_all() RETURNS trigger LANGUAGE plpgsql AS $body$
+    BEGIN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
-END $$;
+    END $body$;
+  END IF;
+END $ensure_fn$;
 
-CREATE OR REPLACE FUNCTION audit.if_modified_func()
-RETURNS trigger LANGUAGE plpgsql AS $$
+DO $ensure_fn$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'audit' AND p.proname = 'if_modified_func'
+  ) THEN
+    CREATE FUNCTION audit.if_modified_func() RETURNS trigger LANGUAGE plpgsql AS $body$
+    BEGIN
   IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
-END $$;
+    END $body$;
+  END IF;
+END $ensure_fn$;
 
 -- ── codelists_cl_person_type ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS codelists.cl_person_type (
@@ -112,18 +143,46 @@ CREATE INDEX IF NOT EXISTS bs_person_person_register_idx ON base.bs_person USING
 CREATE INDEX IF NOT EXISTS idx_bs_person_register ON base.bs_person USING btree (upper((person_register)::text));
 CREATE INDEX IF NOT EXISTS idx_bs_person_register_id ON base.bs_person USING btree (upper((person_register)::text), person_id);
 
-DROP TRIGGER IF EXISTS audit_trigger_row ON base.bs_person;
-CREATE TRIGGER audit_trigger_row AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
-FOR EACH ROW EXECUTE FUNCTION audit.if_modified_func('false');
-DROP TRIGGER IF EXISTS audit_trigger_stm ON base.bs_person;
-CREATE TRIGGER audit_trigger_stm AFTER TRUNCATE ON base.bs_person
-FOR EACH STATEMENT EXECUTE FUNCTION audit.if_modified_func('false');
-DROP TRIGGER IF EXISTS notify_cud ON base.bs_person;
-CREATE TRIGGER notify_cud AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
-FOR EACH ROW EXECUTE FUNCTION base.notify_event_all();
-DROP TRIGGER IF EXISTS person_log ON base.bs_person;
-CREATE TRIGGER person_log AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
-FOR EACH ROW EXECUTE FUNCTION base.log_changes();
+DO $ensure_tg$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'audit_trigger_row' AND tgrelid = 'base.bs_person'::regclass AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER audit_trigger_row AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
+    FOR EACH ROW EXECUTE FUNCTION audit.if_modified_func('false');
+  END IF;
+END $ensure_tg$;
+DO $ensure_tg$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'audit_trigger_stm' AND tgrelid = 'base.bs_person'::regclass AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER audit_trigger_stm AFTER TRUNCATE ON base.bs_person
+    FOR EACH STATEMENT EXECUTE FUNCTION audit.if_modified_func('false');
+  END IF;
+END $ensure_tg$;
+DO $ensure_tg$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'notify_cud' AND tgrelid = 'base.bs_person'::regclass AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER notify_cud AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
+    FOR EACH ROW EXECUTE FUNCTION base.notify_event_all();
+  END IF;
+END $ensure_tg$;
+DO $ensure_tg$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'person_log' AND tgrelid = 'base.bs_person'::regclass AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER person_log AFTER INSERT OR DELETE OR UPDATE ON base.bs_person
+    FOR EACH ROW EXECUTE FUNCTION base.log_changes();
+  END IF;
+END $ensure_tg$;
 
 -- ── sdplatform_sd_organization ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_organization (
@@ -182,9 +241,16 @@ CREATE TABLE IF NOT EXISTS sdplatform.sd_user_role (
   CONSTRAINT sd_user_role_pkey PRIMARY KEY (user_id, role_id)
 );
 
-DROP TRIGGER IF EXISTS user_role_log ON sdplatform.sd_user_role;
-CREATE TRIGGER user_role_log AFTER INSERT OR DELETE OR UPDATE ON sdplatform.sd_user_role
-FOR EACH ROW EXECUTE FUNCTION base.log_changes();
+DO $ensure_tg$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'user_role_log' AND tgrelid = 'sdplatform.sd_user_role'::regclass AND NOT tgisinternal
+  ) THEN
+    CREATE TRIGGER user_role_log AFTER INSERT OR DELETE OR UPDATE ON sdplatform.sd_user_role
+    FOR EACH ROW EXECUTE FUNCTION base.log_changes();
+  END IF;
+END $ensure_tg$;
 
 -- ── sdplatform_sd_system ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sdplatform.sd_system (
@@ -380,46 +446,11 @@ CREATE TABLE IF NOT EXISTS sdplatform.hr_employee (
   CONSTRAINT hr_employee_person_id_fkey FOREIGN KEY (person_id) REFERENCES base.bs_person(person_id) ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
--- ── public_plan ──────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.plan (
-    id           UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-    plan_code    VARCHAR(100) NOT NULL UNIQUE,
-    name         VARCHAR(255) NOT NULL,
-    boundary_wkt geometry(Polygon, 4326) NOT NULL,
-    area_m2      NUMERIC(18, 4),
-    status       SMALLINT     NOT NULL DEFAULT 2,
-    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_plan_boundary_wkt ON public.plan USING GIST (boundary_wkt);
-
--- ── public_source_parcel ──────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.source_parcel (
-    id                 UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-    parcel_id          VARCHAR(12)  NOT NULL UNIQUE,
-    plan_code          VARCHAR(100) NOT NULL REFERENCES public.plan(plan_code),
-    geometry_wkt       geometry(Polygon, 4326) NOT NULL,
-    au1_code           VARCHAR(10),
-    au2_code           VARCHAR(10),
-    au3_code           VARCHAR(10),
-    right_type         INTEGER,
-    landuse            VARCHAR(100),
-    area_m2            NUMERIC(18, 4),
-    holder_last_name   VARCHAR(100),
-    holder_name        VARCHAR(100),
-    holder_register_no VARCHAR(20),
-    holder_phone       VARCHAR(20),
-    holder_email       VARCHAR(255),
-    holder_type        VARCHAR(50),
-    holder_civil_id    VARCHAR(50),
-    app_no             VARCHAR(100),
-    decision_no        VARCHAR(100),
-    decision_date      DATE,
-    contract_no        VARCHAR(100),
-    contract_date      DATE,
-    certificate_no     VARCHAR(100),
-    certificate_date   DATE,
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_source_parcel_plan_code ON public.source_parcel (plan_code);
-CREATE INDEX IF NOT EXISTS idx_source_parcel_geometry_wkt ON public.source_parcel USING GIST (geometry_wkt);
+-- public.plan ЭНД БАЙХГҮЙ.
+--
+-- Төлөвлөгөөний мэдээлэл нь ЗӨВХӨН appdb дээр (public.plan) хадгалагдана,
+-- тэр нь ЗӨВХӨН дундын сервисээс (middleware /plan/project) татсан датаг
+-- агуулна. Уншилт ч appdb-ээс явна.
+--
+-- Өмнө нь энд ижил нэртэй хүснэгтүүд байж, төсөөллийн өгөгдлөөр seed
+-- хийгддэг байсан — тэр нь жинхэнэ ГУС сан руу залгахад төөрөгдөл үүсгэнэ.

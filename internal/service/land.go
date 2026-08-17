@@ -215,7 +215,6 @@ type LandService interface {
 }
 
 type landService struct {
-	planRepo repository.PlanRepository
 	landRepo repository.LandAcquisitionRepository
 	files    filestorage.Storage
 	// userRepo — auth DB-ийн хэрэглэгчид (мэрг. байгууллагын нэр харуулахад);
@@ -226,11 +225,11 @@ type landService struct {
 	notifier NotificationService
 	// audit — ажилтны бизнес үйлдлийн лог. nil байж болно (тест).
 	audit AuditService
-	// parcelInfo — middleware service-ээр auth DB-ийн source_parcel мэдээлэл уншина.
-	// nil үед тест/хуучин урсгал planRepo руу шууд унана.
+	// parcelInfo — нэгж талбарын мэдээллийн ЦОРЫН ГАНЦ эх сурвалж (дундын
+	// сервис). Тохируулаагүй бол мэдээлэл татахгүй, алдаа буцна.
 	parcelInfo ParcelInfoClient
-	// planProjects — middleware-ийн /plan/project. Чөлөөлөлт үүсгэх/хил
-	// шинэчлэхэд төлөвлөгөөг ҮҮНЭЭС авна. nil үед planRepo (auth DB) руу унана.
+	// planProjects — middleware-ийн /plan/project. Төлөвлөгөөний ЦОРЫН ГАНЦ
+	// эх сурвалж; эндээс татсаныг planStore-д хадгална.
 	planProjects PlanProjectClient
 	// planStore — MAIN DB-ийн plan хүснэгт. Дундын сервисээс татсан
 	// төлөвлөгөө энд хадгалагдаж, хайлт/сонголт үүнээс уншина.
@@ -245,7 +244,6 @@ type landService struct {
 }
 
 func NewLandService(
-	planRepo repository.PlanRepository,
 	landRepo repository.LandAcquisitionRepository,
 	files filestorage.Storage,
 	userRepo repository.UserRepository,
@@ -256,7 +254,7 @@ func NewLandService(
 	if files == nil {
 		files = filestorage.DisabledStorage{}
 	}
-	s := &landService{planRepo: planRepo, landRepo: landRepo, files: files, userRepo: userRepo}
+	s := &landService{landRepo: landRepo, files: files, userRepo: userRepo}
 	for _, extra := range extras {
 		switch v := extra.(type) {
 		case NotificationService:
@@ -284,7 +282,7 @@ func NewLandService(
 // Create — газар чөлөөлөлтын мэдээлэл үүсгэх
 //
 // Алхам:
-//  1. auth DB-аас plan_code-р төлөвлөгөө хайна
+//  1. middleware /plan/project-ээс төлөвлөгөө татаж appdb-ийн plan хүснэгтэд хадгална
 //  2. Shapefile zip задалж polygon WKT гаргана
 func (s *landService) ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error) {
 	return s.landRepo.ListConstructionTypes(ctx)
@@ -310,7 +308,7 @@ func (s *landService) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelS
 	return s.landRepo.ListParcelStatuses(ctx)
 }
 
-// 3. PostGIS-аар чөлөөлөх хил төлөвлөгөөний хилтэй давхцаж байгааг шалгана
+// 3. Чөлөөлөх хилийн талбай, огтлолцох AU мэдээллийг appdb дээр тооцно
 // 4. land_acquisition үүсгэнэ
 // 5. Огтлолцох баг (au3) олж холбоно
 //
@@ -561,11 +559,8 @@ func (s *landService) saveIntersectingAUs(ctx context.Context, acquisitionID uui
 // хадгална (чөлөөлөлт үүсгэх/хил шинэчлэх урсгалд).
 //
 // Эх сурвалж нь ЗӨВХӨН дундын сервис (middleware /plan/project). Тэндээс
-// олдоогүй бол хадгалагдсан plan хүснэгтээс ч, auth DB-ээс ч хайхгүй — алдаа
-// шууд дамжиж, чөлөөлөлт үүсгэх урсгал тэндээ тасална.
-//
-// Дундын сервис ТОХИРУУЛААГҮЙ үед (зөвхөн unit тест — production-д main.go
-// үргэлж тохируулдаг) auth DB-ийн planRepo руу унана.
+// олдоогүй бол хадгалагдсан plan хүснэгтээс ч хайхгүй — алдаа шууд дамжиж,
+// чөлөөлөлт үүсгэх урсгал тэндээ тасална.
 //
 // Олдсон мэдээллийг plan хүснэгтэд upsert хийж, land_acquisition.plan_id-д
 // холбогдох ID-тай мөрийг буцаана.
@@ -575,37 +570,33 @@ func (s *landService) resolvePlan(ctx context.Context, planCode string) (*domain
 		return nil, domain.ErrInvalidInput
 	}
 
-	var plan *domain.Plan
-	if s.planProjects != nil {
-		fromMiddleware, err := s.planProjects.GetPlanProject(ctx, planCode)
-		if err != nil {
-			return nil, err
-		}
-		if fromMiddleware == nil {
-			return nil, domain.ErrNotFound
-		}
-		plan = fromMiddleware
-	} else {
-		fromAuth, err := s.planRepo.GetByCode(ctx, planCode)
-		if err != nil {
-			return nil, domain.ErrNotFound
-		}
-		plan = fromAuth
+	// Төлөвлөгөөний ЦОРЫН ГАНЦ эх сурвалж нь дундын сервис. Тохируулаагүй бол
+	// төсөөллийн өгөгдөл рүү унахгүй — алдаа буцаана.
+	if s.planProjects == nil {
+		return nil, domain.ErrInternalServer
+	}
+	plan, err := s.planProjects.GetPlanProject(ctx, planCode)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, domain.ErrNotFound
 	}
 	if plan.PlanCode == "" {
 		plan.PlanCode = planCode
 	}
 
-	// Main DB-д хадгалах. Upsert нь хоосон утгаар хуучныг дарж бичихгүй тул
-	// хил/талбай зэрэг өмнө нь татагдсан мэдээлэл хадгалагдана.
-	if s.planStore != nil {
-		saved, err := s.planStore.Upsert(ctx, plan)
-		if err != nil {
-			return nil, domain.ErrInternalServer
-		}
-		return saved, nil
+	// appdb-д хадгалах. plan хүснэгт ЗӨВХӨН энд байх ба зөвхөн дундын
+	// сервисээс татсан мэдээллийг агуулна. Upsert нь хоосон утгаар хуучныг
+	// дарж бичихгүй тул хил/талбай зэрэг өмнө татагдсан мэдээлэл хадгалагдана.
+	if s.planStore == nil {
+		return nil, domain.ErrInternalServer
 	}
-	return plan, nil
+	saved, err := s.planStore.Upsert(ctx, plan)
+	if err != nil {
+		return nil, domain.ErrInternalServer
+	}
+	return saved, nil
 }
 
 // listSourceParcelsByAcquisition — чөлөөлөх ХИЛЭЭР дундын сервисээс нэгж
@@ -617,7 +608,7 @@ func (s *landService) resolvePlan(ctx context.Context, planCode string) (*domain
 // өмнө нь бүх багц хаягдаж, жагсаалт хоосон үлддэг байсан.
 func (s *landService) listSourceParcelsByAcquisition(ctx context.Context, planCode, acquisitionWKT string) ([]*domain.SourceParcel, error) {
 	if s.parcelInfo == nil {
-		return s.planRepo.GetSourceParcels(ctx, planCode)
+		return nil, domain.ErrInternalServer
 	}
 
 	parcelIDs, err := s.parcelInfo.ListParcelIDsByAcquisition(ctx, acquisitionWKT)
@@ -1048,12 +1039,10 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 		return domain.ErrNotFound
 	}
 
-	var src *domain.SourceParcel
-	if s.parcelInfo != nil {
-		src, err = s.parcelInfo.GetParcelInfo(ctx, parcelCode)
-	} else {
-		src, err = s.planRepo.GetSourceParcelByID(ctx, parcelCode)
+	if s.parcelInfo == nil {
+		return domain.ErrInternalServer
 	}
+	src, err := s.parcelInfo.GetParcelInfo(ctx, parcelCode)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return domain.ErrNotFound
