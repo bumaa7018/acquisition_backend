@@ -37,7 +37,7 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 		return err
 	}
 
-	runSeedSteps(ctx, mainDB, []seedStep{
+	if err := runSeedSteps(ctx, mainDB, []seedStep{
 		{
 			name:    "000001_auth",
 			aliases: []string{"auth_seeder"},
@@ -153,7 +153,8 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 		{
 			// Хуучин ЛОКАЛ файлуудыг файлын систем (MinIO) руу зөөж, DB дахь
 			// URL-уудыг шинэчилнэ. API нь файлыг өөр дээрээ хадгалахаа больсон.
-			name: "000016_file_storage_migration",
+			name:     "000016_file_storage_migration",
+			optional: true,
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedFileStorageMigration(
 					ctx, opts.LegacyFiles, opts.Files, opts.FilesBaseURL)
@@ -162,7 +163,8 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 		{
 			// Файлын систем нэвтрэхээс өмнө орсон дроны ортофотуудыг зөөнө
 			// (тэдгээр нь зөвхөн GeoServer-ийн мозайк хавтсанд байсан).
-			name: "000017_drone_images_to_file_storage",
+			name:     "000017_drone_images_to_file_storage",
+			optional: true,
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedDroneImagesToFileStorage(
 					ctx, opts.Files, opts.LegacyDroneDir)
@@ -261,7 +263,9 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				).SeedValuationOrgRegistry(ctx)
 			},
 		},
-	})
+	}); err != nil {
+		return err
+	}
 
 	return nil
 }

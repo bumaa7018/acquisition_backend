@@ -221,7 +221,7 @@ func main() {
 		// Зөвхөн ХУУЧИН (мозайк хавтсанд байсан) зургийг зөөх шаардлагатай үед
 		LegacyDroneDir: os.Getenv("LEGACY_DRONE_DIR"),
 	}); err != nil {
-		slog.Error("failed to create seed_history", "error", err)
+		slog.Error("startup seed failed", "error", err)
 		os.Exit(1)
 	}
 

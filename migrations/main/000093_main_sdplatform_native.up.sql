@@ -383,6 +383,12 @@ DROP TABLE IF EXISTS sdplatform.sd_permission_api_meta;
 -- Хэрэглэгчийн ID заадаг багануудыг uuid → int4
 -- ---------------------------------------------------------------------------
 
+-- Зарим production өгөгдлийн санд repo-д байхгүй legacy view-үүд эдгээр user-id
+-- багануудаас хамаарсан байдаг. PostgreSQL view ашиглаж буй баганын type-ийг
+-- өөрчлөхийг зөвшөөрдөггүй тул type migration-оос өмнө view-г унагаана.
+-- Энэ view нь app schema-ийн source of truth биш, гадаад/legacy projection.
+DROP VIEW IF EXISTS public.v_parcel_s0;
+
 -- Хуучин uuid утгууд шинэ int4 хэрэглэгчид харгалзахгүй тул хөрвүүлэх үед
 -- бүгдийг NULL болгоно (гадаад холбоос алдагдана).
 --
