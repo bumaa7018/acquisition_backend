@@ -129,9 +129,9 @@ type GeoServerConfig struct {
 }
 
 type MiddlewareConfig struct {
-	BaseURL  string `env:"MIDDLEWARE_BASE_URL,required"`
-	Username string `env:"MIDDLEWARE_USERNAME,required"`
-	Password string `env:"MIDDLEWARE_PASSWORD,required"`
+	BaseURL  string `env:"MIDDLEWARE_BASE_URL"`
+	Username string `env:"MIDDLEWARE_USERNAME"`
+	Password string `env:"MIDDLEWARE_PASSWORD"`
 }
 
 // SourceFileConfig — ЭХ СИСТЕМИЙН файл сервер (хавсралт хадгалагддаг).
