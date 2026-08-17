@@ -33,7 +33,7 @@ const (
 	MsgPassResetSent Key = "pass_reset_sent"
 
 	// Generic errors
-	ErrNotFound          Key = "not_found"
+	ErrNotFound Key = "not_found"
 	// ErrRouteNotFound — API-д байхгүй хаяг/метод руу хүсэлт ирсэн.
 	ErrRouteNotFound     Key = "route_not_found"
 	ErrUnauthorized      Key = "unauthorized"
