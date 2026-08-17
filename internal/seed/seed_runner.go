@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -66,19 +65,4 @@ func isSeedStepApplied(ctx context.Context, db *pgxpool.Pool, step seedStep) (bo
 		}
 	}
 	return false, "", nil
-}
-
-func seedError(name string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("%s: %w", name, err)
-}
-
-func findSeedLandAcquisitionID(ctx context.Context, db *pgxpool.Pool) (uuid.UUID, error) {
-	var id uuid.UUID
-	err := db.QueryRow(ctx,
-		"SELECT id FROM land_acquisition WHERE plan_code = $1 LIMIT 1", "LA-2024-001",
-	).Scan(&id)
-	return id, err
 }

@@ -59,34 +59,9 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).Seed(ctx, opts.Admin, opts.Employee)
 			},
 		},
-		{
-			name:    "000002_main",
-			aliases: []string{"main_seeder"},
-			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).Seed(ctx)
-			},
-		},
-		{
-			name:    "000003_assets_backfill",
-			aliases: []string{"assets_seeder", "buildings_seeder"},
-			run: func(ctx context.Context) error {
-				return NewMainSeeder(mainDB).seedDefaultAssets(ctx)
-			},
-		},
-		// 000004_plans УСТСАН: төлөвлөгөө болон эх нэгж талбарыг authdb-д
-		// төсөөллөөр үүсгэдэг байсан. Одоо plan хүснэгт ЗӨВХӨН appdb дээр
-		// байх ба зөвхөн дундын сервисээс татсан мэдээллийг агуулна.
-		{
-			name:    "000005_compensations",
-			aliases: []string{"compensation_seeder"},
-			run: func(ctx context.Context) error {
-				acqID, err := findSeedLandAcquisitionID(ctx, mainDB)
-				if err != nil {
-					return seedError("land_acquisition LA-2024-001 not found", err)
-				}
-				return NewMainSeeder(mainDB).seedCompensations(ctx, acqID)
-			},
-		},
+		// 000002_main, 000003_assets_backfill, 000005_compensations УСТСАН:
+		// эдгээр нь demo чөлөөлөлт, parcel/assets/compensation өгөгдөл үүсгэдэг
+		// байсан. Production/startup seeder бодит чөлөөлөлтийн дата үүсгэх ёсгүй.
 		{
 			name: "000006_document_types",
 			run: func(ctx context.Context) error {
