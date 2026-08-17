@@ -48,52 +48,8 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY (user_id, role_id)
 );
 
-INSERT INTO permissions (id, name, description, resource, action, created_at)
-VALUES
-  (uuid_generate_v4(), 'compensation:read', 'Нөхөх олговор/үнэлгээ харах', 'compensation', 'read', NOW()),
-  (uuid_generate_v4(), 'compensation:create', 'Нөхөх олговор/үнэлгээ бүртгэх', 'compensation', 'create', NOW()),
-  (uuid_generate_v4(), 'compensation:update', 'Нөхөх олговор/үнэлгээ засах, төлөв шилжүүлэх', 'compensation', 'update', NOW())
-ON CONFLICT (name) DO UPDATE SET
-  description = EXCLUDED.description,
-  resource = EXCLUDED.resource,
-  action = EXCLUDED.action;
-
-INSERT INTO roles (id, name, description, created_at, updated_at)
-VALUES (uuid_generate_v4(), 'professional_org', 'Мэргэжлийн байгууллага', NOW(), NOW())
-ON CONFLICT (name) DO UPDATE SET
-  description = EXCLUDED.description,
-  updated_at = NOW();
-
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id
-FROM roles r
-JOIN permissions p ON p.name IN ('compensation:read', 'compensation:create', 'compensation:update')
-WHERE r.name = 'professional_org'
-ON CONFLICT DO NOTHING;
-
-DO $$
-DECLARE
-  pwd_hash TEXT := '$2a$10$BEioEBBJWmCfIqp/PlBYR.NFz99nnLBMc4zIP486B1Rmo1ZyR8TVy';
-BEGIN
-  INSERT INTO users (id, username, email, password, first_name, last_name, position, is_active, created_at, updated_at)
-  VALUES
-    (uuid_generate_v4(), 'valuation_org_1', 'valuation.org1@example.mn', pwd_hash, 'Үнэлгээний', 'Байгууллага 1', 'Мэргэжлийн байгууллага', true, NOW(), NOW()),
-    (uuid_generate_v4(), 'valuation_org_2', 'valuation.org2@example.mn', pwd_hash, 'Үнэлгээний', 'Байгууллага 2', 'Мэргэжлийн байгууллага', true, NOW(), NOW()),
-    (uuid_generate_v4(), 'valuation_org_3', 'valuation.org3@example.mn', pwd_hash, 'Үнэлгээний', 'Байгууллага 3', 'Мэргэжлийн байгууллага', true, NOW(), NOW())
-  ON CONFLICT (email) DO UPDATE SET
-    username = EXCLUDED.username,
-    first_name = EXCLUDED.first_name,
-    last_name = EXCLUDED.last_name,
-    position = EXCLUDED.position,
-    is_active = true,
-    deleted_at = NULL,
-    updated_at = NOW();
-
-  INSERT INTO user_roles (user_id, role_id)
-  SELECT u.id, r.id
-  FROM users u
-  JOIN roles r ON r.name = 'professional_org'
-  WHERE u.email IN ('valuation.org1@example.mn', 'valuation.org2@example.mn', 'valuation.org3@example.mn')
-  ON CONFLICT DO NOTHING;
-END $$;
-
+-- Seed data is intentionally not inserted here. The sample external valuation
+-- users and their roles are created by startup seeder step
+-- `000025_main_external_valuation_users`, after the sdplatform-native schema is
+-- in place. These legacy public tables remain only so older deployments at
+-- version 92 can be migrated by 000093.

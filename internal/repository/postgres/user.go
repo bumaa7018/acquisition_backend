@@ -76,10 +76,14 @@ func (r *UserRepo) getBy(ctx context.Context, cond string, arg any) (*domain.Use
 
 func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 	dup, err := hrExists(ctx, r.db, `
-		SELECT EXISTS(
-			SELECT 1 FROM sdplatform.sd_user
-			WHERE deleted_at IS NULL AND (username = LEFT($1, 50) OR email = LEFT($2, 250))
-		)`, u.Username, u.Email)
+			SELECT EXISTS(
+				SELECT 1 FROM sdplatform.sd_user
+				WHERE deleted_at IS NULL
+				  AND (
+				      username = LEFT($1, 50)
+				      OR (NULLIF(BTRIM($2::text), '') IS NOT NULL AND email = LEFT(BTRIM($2::text), 250))
+				  )
+			)`, u.Username, u.Email)
 	if err != nil {
 		return err
 	}
@@ -93,9 +97,9 @@ func (r *UserRepo) Create(ctx context.Context, u *domain.User) error {
 		u.UpdatedAt = time.Now()
 	}
 	err = r.db.QueryRow(ctx, `
-		INSERT INTO sdplatform.sd_user (username, email, password, firstname, lastname, created_at, updated_at, is_active)
-		VALUES (LEFT($1,50), LEFT($2,250), LEFT($3,150), LEFT($4,50), LEFT($5,50), $6::date, $7::timestamp, $8)
-		RETURNING user_id`,
+			INSERT INTO sdplatform.sd_user (username, email, password, firstname, lastname, created_at, updated_at, is_active)
+			VALUES (LEFT($1,50), LEFT(NULLIF(BTRIM($2::text), ''),250), LEFT($3,150), LEFT($4,50), LEFT($5,50), $6::date, $7::timestamp, $8)
+			RETURNING user_id`,
 		u.Username, u.Email, u.Password, u.FirstName, u.LastName, u.CreatedAt, u.UpdatedAt, u.IsActive).Scan(&u.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -155,9 +159,9 @@ func (r *UserRepo) CreateWithEmployee(ctx context.Context, u *domain.User, e *do
 		u.UpdatedAt = time.Now()
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO sdplatform.sd_user (username, email, password, firstname, lastname, created_at, updated_at, is_active)
-		VALUES (LEFT($1,50), LEFT($2,250), LEFT($3,150), LEFT($4,50), LEFT($5,50), $6::date, $7::timestamp, $8)
-		RETURNING user_id`,
+			INSERT INTO sdplatform.sd_user (username, email, password, firstname, lastname, created_at, updated_at, is_active)
+			VALUES (LEFT($1,50), LEFT(NULLIF(BTRIM($2::text), ''),250), LEFT($3,150), LEFT($4,50), LEFT($5,50), $6::date, $7::timestamp, $8)
+			RETURNING user_id`,
 		u.Username, u.Email, u.Password, u.FirstName, u.LastName, u.CreatedAt, u.UpdatedAt, u.IsActive).Scan(&u.ID)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key") {
@@ -283,11 +287,14 @@ func (r *UserRepo) attachRoles(ctx context.Context, users []*domain.User) error 
 
 func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
 	dup, err := hrExists(ctx, r.db, `
-		SELECT EXISTS(
-			SELECT 1 FROM sdplatform.sd_user
-			WHERE deleted_at IS NULL AND user_id <> $3
-			  AND (username = LEFT($1, 50) OR email = LEFT($2, 250))
-		)`, u.Username, u.Email, u.ID)
+			SELECT EXISTS(
+				SELECT 1 FROM sdplatform.sd_user
+				WHERE deleted_at IS NULL AND user_id <> $3
+				  AND (
+				      username = LEFT($1, 50)
+				      OR (NULLIF(BTRIM($2::text), '') IS NOT NULL AND email = LEFT(BTRIM($2::text), 250))
+				  )
+			)`, u.Username, u.Email, u.ID)
 	if err != nil {
 		return err
 	}
@@ -297,8 +304,8 @@ func (r *UserRepo) Update(ctx context.Context, u *domain.User) error {
 	u.UpdatedAt = time.Now()
 	res, err := r.db.Exec(ctx, `
 		UPDATE sdplatform.sd_user
-		SET username=LEFT($1,50), email=LEFT($2,250), firstname=LEFT($3,50), lastname=LEFT($4,50),
-		    is_active=$5, updated_at=$6::timestamp
+			SET username=LEFT($1,50), email=LEFT(NULLIF(BTRIM($2::text), ''),250), firstname=LEFT($3,50), lastname=LEFT($4,50),
+			    is_active=$5, updated_at=$6::timestamp
 		WHERE user_id=$7 AND deleted_at IS NULL`,
 		u.Username, u.Email, u.FirstName, u.LastName, u.IsActive, u.UpdatedAt, u.ID)
 	if err != nil {
