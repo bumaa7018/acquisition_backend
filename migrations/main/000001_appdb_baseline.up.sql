@@ -26,6 +26,24 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- ХАМГААЛАЛТ: baseline зөвхөн ХООСОН санд ажиллана.
+--
+-- Доорх 146 ADD CONSTRAINT нь IF NOT EXISTS дэмждэггүй тул аль хэдийн бүтэцтэй
+-- санд энэ файлыг ажиллуулбал "column ... does not exist" буюу "multiple
+-- primary keys" маягийн ойлгомжгүй алдаа өгөөд schema_migrations нь dirty=1
+-- болж үлддэг. Тийм санд ЖУРАМ нь baseline-ыг ажиллуулах биш, тамга дарах:
+--     migrate -path migrations/main -database "$MAIN_DATABASE_URL" force 1
+-- (Апп өөрөө асахдаа үүнийг автоматаар хийнэ — cmd/api/migrate.go).
+--
+DO $$
+BEGIN
+    IF to_regclass('public.parcel') IS NOT NULL THEN
+        RAISE EXCEPTION 'appdb-д аппын бүтэц аль хэдийн байна: baseline (000001) ажиллуулж болохгүй'
+            USING HINT = 'Тамга дарна уу: migrate -path migrations/main -database "$MAIN_DATABASE_URL" force 1';
+    END IF;
+END $$;
+
+--
 -- Name: base; Type: SCHEMA; Schema: -; Owner: -
 --
 
