@@ -224,9 +224,13 @@ func (s *Seeder) grantMenuActions(ctx context.Context, roleID domain.ID, menuCod
 	// DISTINCT — нэг form дээр ижил эрхийн олон sd_form_permission мөр байвал
 	// (NOT EXISTS нь мэдэгдлийн ӨМНӨХ төлвийг хардаг тул) ижил role_permission
 	// мөр олон удаа орох эрсдэлтэй.
+	//
+	// $1::int — заавал. DISTINCT нь төрөл нь тодорхойгүй параметрийг text гэж
+	// шийддэг бол доорх NOT EXISTS дэх rp.role_id = $1 нь бүхэл тоо гэж дүгнэдэг:
+	// ил cast хийхгүй бол "inconsistent types deduced for parameter $1" (42P08) алдаа өгнө.
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at, updated_at)
-		SELECT DISTINCT $1, p.permission_id, m.menu_id, NOW(), NOW()
+		SELECT DISTINCT $1::int, p.permission_id, m.menu_id, NOW(), NOW()
 		FROM sdplatform.sd_menu m
 		JOIN sdplatform.sd_form f ON f.code = m.code
 		JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
