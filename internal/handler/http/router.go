@@ -1,10 +1,13 @@
 package http
 
 import (
+	"net/http"
 	"time"
 
 	"acquisition_backend/internal/middleware"
+	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/jwt"
+	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-contrib/cors"
@@ -36,6 +39,14 @@ func NewRouter(
 	// JSON зэрэг файл бус хүсэлтийн биеийг 5MB-ээр хязгаарлана (файл байршуулах
 	// multipart handler-ууд өөрсдийн хязгаараа тогтооно).
 	r.Use(middleware.BodySizeLimit(5 << 20))
+
+	// Бүртгэлгүй хаяг/метод — gin-ийн анхдагч нь `text/plain` "404 page not
+	// found" буцаадаг. Frontend бүх алдааг `{code,error,message}` JSON гэж
+	// уншдаг тул тэр биеийг задалж чадалгүй ерөнхий "холбогдоход алдаа" гэсэн
+	// төөрөгдүүлсэн мессеж харуулдаг байв. Одоо бусад алдааны адил JSON.
+	r.NoRoute(func(c *gin.Context) {
+		response.Abort(c, http.StatusNotFound, i18n.ErrRouteNotFound)
+	})
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	// Файлыг API тараахаа больсон — бүх файл файлын систем (MinIO) дээр байж,
@@ -192,7 +203,7 @@ func NewRouter(
 			}
 		}
 
-		// Үнэлгээний (мэргэжлийн) байгууллага — ажилтнуудынх нь хамт.
+		// Үнэлгээний (мэргэжлийн) байгууллагын app-owned profile.
 		//
 		// УНШИХ эрхийг land:read-тэй ажилтанд ч нээнэ: чөлөөлөлт/нэгж талбарт
 		// үнэлгээний байгууллага сонгох сонгогч энэ жагсаалтаас тэжээгддэг.
@@ -295,6 +306,11 @@ func NewRouter(
 		{
 			land.GET("", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.List)
 			land.GET("/suggest", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.Suggest)
+			// Шүүлтүүрийн dropdown-ы хөнгөн жагсаалт — НЭВТЭРСЭН БҮХ хэрэглэгчид
+			// нээлттэй (роль/permission шалгахгүй). Жагсаалтын шүүлтүүрийг хэн ч
+			// харж болно; бодит өгөгдлийн эрх нь жагсаалтын endpoint-ууд дээрээ
+			// (GET "", /report/*) шалгагдсан хэвээр.
+			land.GET("/filter-options", landH.FilterOptions)
 			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware
 			land.GET("/:id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetByID)
@@ -303,7 +319,9 @@ func NewRouter(
 			land.GET("/:id/compensations", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListCompensations)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetParcelByID)
 			land.PUT("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.Update)
-			land.DELETE("/:id", middleware.RequirePermission("land:delete"), landH.Delete)
+			// POST/PUT-ийн адил ролийн хаалт: `land:delete`-тэй custom роль
+			// хуваарилалтгүйгээр аль ч чөлөөлөлтийг устгах боломжтой байв.
+			land.DELETE("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:delete"), assignedOrSenior, landH.Delete)
 			// Assignee routes
 			land.GET("/:id/assignees", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAssignees)
 			land.PUT("/:id/assignees", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAssignees)
@@ -560,11 +578,24 @@ func NewRouter(
 			middleware.RequirePermissionOrRole("land:read", "professional_org", "mika", "finance_specialist"),
 			landH.Dashboard)
 
-		// Тайлангийн маршрут
+		// Файлын объектын эрх — frontend-ийн `/api/files` proxy түлхүүр тус бүрд
+		// энэ маршрутыг дуудна. Эрхийн дүрэм нь handler дотор (объектын эзний
+		// чөлөөлөлт/нэгж талбарт буулгаж шалгана) тул энд нэмэлт хаалт хэрэггүй.
+		fileAccessH := NewFileAccessHandler(landSvc)
+		protected.GET("/files/authorize", fileAccessH.Authorize)
+
+		// Тайлангийн маршрут.
+		//
+		// ЭРХ: тайлан нь БҮХ чөлөөлөлтийн нэгж талбарыг хуваарилалт үл харгалзан
+		// нэгтгэдэг тул `land:read` дангаараа хангалтгүй — хуваарилагдаагүй
+		// мэргэжилтэн байгууллага даяарх өгөгдлийг Excel-ээр татаж чаддаг байв.
+		// Frontend-ийн ГЧХ тайлан (`/api/report/gchh2`) аль хэдийн зөвхөн ахлах
+		// мэргэжилтэнд нээлттэй — backend-ийг мөн тэр бодлогод нийцүүлэв.
+		reportSenior := middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн")
 		report := protected.Group("/report")
 		{
-			report.GET("/download", middleware.RequirePermission("land:read"), landH.ListReportParcels)
-			report.GET("/summary", middleware.RequirePermission("land:read"), landH.ReportSummary)
+			report.GET("/download", reportSenior, middleware.RequirePermission("land:read"), landH.ListReportParcels)
+			report.GET("/summary", reportSenior, middleware.RequirePermission("land:read"), landH.ReportSummary)
 		}
 
 		// Нэгж талбарын ажлын урсгал
@@ -611,14 +642,19 @@ func NewRouter(
 		parcels.Use(notParcelLocked)
 		{
 			parcels.GET("", middleware.RequirePermission("land:read"), landH.ListGlobalParcels)
-			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), landH.ListParcelPayments)
+			// ЖИЧ: :id-тай маршрутуудад parcelAssignedOrSenior ЗААВАЛ байна.
+			// Түүнгүйгээр `/land-acquisitions/:id/parcels/:parcel_id`-ийн
+			// хуваарилалтын хаалтыг энэ глобал замаар бүрэн тойрч болдог байв
+			// (хуваарилагдаагүй мэргэжилтэн бүх нэгж талбарын баримт/төлбөрийг
+			// уншина). Санхүү/МИКА-гийн хяналтын УНШИХ эрх middleware дотор хэвээр.
+			parcels.GET("/:id/payments", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelPayments)
 			parcels.POST("/:id/payments", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.AddParcelPayment)
 			// Үнэлгээний тайлан Нөхөх олговор табд харагддаг тул гадаад ролиуд (санхүү/МИКА)
 			// мөн уншина; мэрг. байгууллага өөрийн /prof (гишүүнчлэлтэй) замаа ашиглана.
-			parcels.GET("/:id/documents", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.ListParcelDocuments)
+			parcels.GET("/:id/documents", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), parcelAssignedOrSenior, landH.ListParcelDocuments)
 			// Эх системээс татсан хавсралтын файл — API нь эх системийн файл
 			// серверээс уншиж дамжуулна (?download=1 бол татна).
-			parcels.GET("/:id/documents/:doc_id/file", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.GetParcelDocumentFile)
+			parcels.GET("/:id/documents/:doc_id/file", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), parcelAssignedOrSenior, landH.GetParcelDocumentFile)
 			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.UploadParcelDocument)
 			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.DeleteParcelDocument)
 		}

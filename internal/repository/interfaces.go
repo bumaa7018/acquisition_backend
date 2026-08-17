@@ -82,13 +82,13 @@ type EmployeeRepository interface {
 	DeleteEmployee(ctx context.Context, id domain.ID) error
 }
 
-// ValuationOrgRepository — үнэлгээний байгууллага ба түүний ажилтнууд.
-// Ажилтнууд байгууллагатайгаа ХАМТ, нэг гүйлгээгээр хадгалагдана.
+// ValuationOrgRepository — app-owned мэргэжлийн байгууллагын profile.
+// Ерөнхий HR болон ажилтны өгөгдөл энэ interface-ийн үүрэг биш.
 type ValuationOrgRepository interface {
 	List(ctx context.Context, filter domain.ValuationOrgFilter) ([]*domain.ValuationOrg, int64, error)
 	GetByID(ctx context.Context, id domain.ID) (*domain.ValuationOrg, error)
-	Create(ctx context.Context, org *domain.ValuationOrg, employees []domain.ValuationOrgEmployee) error
-	Update(ctx context.Context, org *domain.ValuationOrg, employees []domain.ValuationOrgEmployee) error
+	Create(ctx context.Context, org *domain.ValuationOrg) error
+	Update(ctx context.Context, org *domain.ValuationOrg) error
 	Delete(ctx context.Context, id domain.ID) error
 }
 
@@ -160,6 +160,9 @@ type LandLookupRepository interface {
 type LandAcquisitionWriteRepository interface {
 	Create(ctx context.Context, acq *domain.LandAcquisition) error
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
+	// ListFilterOptions — dropdown-д зориулсан хөнгөн жагсаалт (List-ийн
+	// parcel COUNT(*) / join-гүй). Дэлгэрэнгүйг domain.LandAcquisitionOption.
+	ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
@@ -238,7 +241,13 @@ type LandAssetRepository interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error
 	UpdateAsset(ctx context.Context, b *domain.Asset) error
-	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) (string, error)
+	// DeleteAsset — allowedStreams хоосон бол хязгаарлалтгүй; эс бөгөөс мөрийн
+	// valuation_type тэдгээрийн аль нэгтэй таарсан үед л устгана (МИКА өөр
+	// байгууллагын үнэлгээг устгахаас сэргийлнэ).
+	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) (string, error)
+	// GetAssetAcquisition — хөрөнгийн харьяалагдах чөлөөлөлт. Файлын түлхүүрийн
+	// эрх шалгахад (asset-photo/<asset_id>/...) хэрэглэнэ.
+	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
 	UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error

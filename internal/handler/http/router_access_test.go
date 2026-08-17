@@ -1018,3 +1018,69 @@ func TestRouter_UsersCreate_RequiresToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	userSvc.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
+
+// Шүүлтүүрийн dropdown-ы endpoint нь НЭВТЭРСЭН БҮХ хэрэглэгчид нээлттэй:
+// permission огт байхгүй, түүнчлэн үндсэн жагсаалтаас хаагдсан хөндлөнгийн
+// байгууллагын роль ч жагсаалтын шүүлтүүрийг харна.
+func TestRouter_FilterOptions_OpenToAnyAuthenticatedUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		name        string
+		roles       []string
+		permissions []string
+	}{
+		{"эрхгүй хэрэглэгч", nil, nil},
+		{"хөндлөнгийн байгууллага", []string{"professional_org"}, []string{"compensation:read"}},
+		{"санхүү", []string{"finance_specialist"}, []string{"compensation:read"}},
+		{"ахлах мэргэжилтэн", []string{"senior_specialist"}, []string{"land:read"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+			tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
+				ID:          domain.ID(3),
+				Username:    "u",
+				Roles:       tc.roles,
+				Permissions: tc.permissions,
+			})
+			require.NoError(t, err)
+
+			landSvc := &mocks.MockLandService{}
+			// Роль тус бүрд ИЖИЛ дуудлага — шүүлт/хязгаарлалтгүй.
+			landSvc.On("ListFilterOptions", mock.Anything).
+				Return([]*domain.LandAcquisitionOption{{
+					AcquisitionName: "Тест чөлөөлөлт",
+					PlanCode:        "PLAN-1",
+				}}, nil)
+
+			router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil, nil)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
+			req.Header.Set("Authorization", "Bearer "+tokenPair.AccessToken)
+			w := httptest.NewRecorder()
+
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			landSvc.AssertExpectations(t)
+		})
+	}
+}
+
+// Нээлттэй гэдэг нь "танилтгүй" гэсэн үг БИШ — токенгүй хүсэлт 401 хэвээр.
+func TestRouter_FilterOptions_StillRequiresAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	landSvc := &mocks.MockLandService{}
+
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+	landSvc.AssertNotCalled(t, "ListFilterOptions", mock.Anything)
+}

@@ -52,6 +52,9 @@ type LandAcquisitionService interface {
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
+	// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт (List-ийн орлуулга).
+	// Бүх нэвтэрсэн хэрэглэгчид нээлттэй — шүүлтгүй.
+	ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error
 	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error
 }
@@ -60,7 +63,9 @@ type LandAssetService interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
-	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error
+	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error
+	// GetAssetAcquisition — файлын түлхүүрийн эрх шалгахад (asset-photo/<asset_id>).
+	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)
 	UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.UUID, filename, contentType string, data []byte) (photoURL, photoName string, err error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
@@ -84,7 +89,7 @@ type LandCompensationService interface {
 	ListCompensations(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.Compensation, error)
 	CreateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
 	UpdateCompensation(ctx context.Context, c *domain.Compensation) (*domain.Compensation, error)
-	DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error
+	DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error
 	ApproveCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error
 	RejectCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error
 	UploadCompensationReport(ctx context.Context, acqID, compID uuid.UUID, filename, contentType string, data []byte, uploadedBy string) (*domain.Compensation, error)
@@ -718,10 +723,8 @@ func (s *landService) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	// professional_org_name-г repo нь sdplatform.sd_organization-оос шууд
-	// join-оор авдаг болсон. Өмнө нь энд auth DB-ийн ХЭРЭГЛЭГЧЭЭС нөхдөг
-	// байсан бөгөөд байгууллага бие даасан нэгж болсны дараа тэр нь огт
-	// хамаагүй хүний нэрийг харуулдаг байв.
+	// professional_org_name-г repo нь app-owned valuation_org_profile-оос
+	// буцаадаг. Нэрийг хэрэглэгчийн лавлах эсвэл sdplatform-оос нөхөхгүй.
 	return acq, nil
 }
 
@@ -1419,6 +1422,10 @@ func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardF
 
 func (s *landService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
 	return s.landRepo.Suggest(ctx, q, status)
+}
+
+func (s *landService) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
+	return s.landRepo.ListFilterOptions(ctx)
 }
 
 func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {

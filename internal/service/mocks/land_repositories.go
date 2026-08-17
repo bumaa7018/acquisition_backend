@@ -473,8 +473,14 @@ func (m *MockLandAcquisitionRepository) UpdateAsset(ctx context.Context, b *doma
 	return m.Called(ctx, b).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) (string, error) {
-	args := m.Called(ctx, acquisitionID, id)
+func (m *MockLandAcquisitionRepository) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {
+	args := m.Called(ctx, assetID)
+	id, _ := args.Get(0).(uuid.UUID)
+	return id, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) (string, error) {
+	args := m.Called(ctx, acquisitionID, id, allowedStreams)
 	return args.String(0), args.Error(1)
 }
 
@@ -642,6 +648,14 @@ func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string, s
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisitionOption), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {

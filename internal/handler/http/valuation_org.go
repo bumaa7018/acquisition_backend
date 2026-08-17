@@ -8,26 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Үнэлгээний (мэргэжлийн) байгууллагын бүртгэл — байгууллагын мэдээлэл ба
-// ажилтнууд НЭГ хүсэлтээр хамт хадгалагдана.
+// Үнэлгээний (мэргэжлийн) байгууллагын бүртгэл — зөвхөн app-owned profile.
 type ValuationOrgHandler struct {
 	svc service.ValuationOrgService
 }
 
 func NewValuationOrgHandler(svc service.ValuationOrgService) *ValuationOrgHandler {
 	return &ValuationOrgHandler{svc: svc}
-}
-
-type valuationOrgEmployeeBody struct {
-	ID           *domain.ID `json:"id"`
-	LastName     string     `json:"last_name"`
-	FirstName    string     `json:"first_name"`
-	RegisterNo   string     `json:"register_no"`
-	Phone        string     `json:"phone"`
-	Email        string     `json:"email"`
-	PositionName string     `json:"position_name"`
-	Username     string     `json:"username"`
-	Password     string     `json:"password"`
 }
 
 type valuationOrgBody struct {
@@ -42,9 +29,6 @@ type valuationOrgBody struct {
 	Address          string  `json:"address"`
 	Note             string  `json:"note"`
 	IsActive         *bool   `json:"is_active"`
-	// Employees байхгүй (nil) бол ажилтнуудад хүрэхгүй. Хоосон массив
-	// илгээвэл БҮХ ажилтан идэвхгүй болно.
-	Employees []valuationOrgEmployeeBody `json:"employees"`
 }
 
 func valuationOrgReqFromBody(b valuationOrgBody) (service.ValuationOrgRequest, error) {
@@ -75,23 +59,6 @@ func valuationOrgReqFromBody(b valuationOrgBody) (service.ValuationOrgRequest, e
 			IsActive:         isActive,
 		},
 	}
-	if b.Employees != nil {
-		emps := make([]domain.ValuationOrgEmployee, 0, len(b.Employees))
-		for _, e := range b.Employees {
-			emps = append(emps, domain.ValuationOrgEmployee{
-				ID:           e.ID,
-				LastName:     e.LastName,
-				FirstName:    e.FirstName,
-				RegisterNo:   e.RegisterNo,
-				Phone:        e.Phone,
-				Email:        e.Email,
-				PositionName: e.PositionName,
-				Username:     e.Username,
-				Password:     e.Password,
-			})
-		}
-		req.Employees = emps
-	}
 	return req, nil
 }
 
@@ -121,7 +88,7 @@ func (h *ValuationOrgHandler) List(c *gin.Context) {
 }
 
 // GetByID godoc
-// @Summary      Үнэлгээний байгууллага (ажилтнуудын хамт)
+// @Summary      Үнэлгээний байгууллагын profile
 // @Tags         ValuationOrgs
 // @Security     BearerAuth
 // @Produce      json
@@ -142,7 +109,7 @@ func (h *ValuationOrgHandler) GetByID(c *gin.Context) {
 }
 
 // Create godoc
-// @Summary      Үнэлгээний байгууллагыг ажилтнуудынх нь хамт бүртгэх
+// @Summary      Үнэлгээний байгууллагын profile бүртгэх
 // @Tags         ValuationOrgs
 // @Security     BearerAuth
 // @Accept       json
@@ -169,7 +136,7 @@ func (h *ValuationOrgHandler) Create(c *gin.Context) {
 }
 
 // Update godoc
-// @Summary      Үнэлгээний байгууллага ба ажилтнуудыг шинэчлэх
+// @Summary      Үнэлгээний байгууллагын profile шинэчлэх
 // @Tags         ValuationOrgs
 // @Security     BearerAuth
 // @Accept       json

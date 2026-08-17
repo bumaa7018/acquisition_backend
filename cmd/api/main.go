@@ -123,9 +123,9 @@ func main() {
 		emailSender = email.NoopSender{}
 	}
 
-	// Үнэлгээний байгууллага бол ГАДААД тал. Гадаад хэрэглэгчид (мэргэжлийн
-	// байгууллага, МИКА, санхүү) нь 000093-ын дагуу mainDB-ийн sdplatform схем
-	// дээр амьдардаг — энэ бүртгэл auth DB руу ХЭЗЭЭ Ч холбогдохгүй.
+	// Үнэлгээний байгууллагын identity/profile нь mainDB-ийн app-owned
+	// valuation_org_profile хүснэгтэд байна. sdplatform-ийн ердийн HR лавлах
+	// энэ бүртгэлийн эх сурвалж биш.
 	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB)
 	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.

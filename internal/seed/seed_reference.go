@@ -22,9 +22,77 @@ func NewReferenceSeeder(db *pgxpool.Pool) *ReferenceSeeder {
 	return &ReferenceSeeder{db: db}
 }
 
+const acquisitionCategorySeedSQL = `
+	DO $seed_acquisition_category$
+	DECLARE
+		road_id int;
+		ger_id int;
+		green_id int;
+	BEGIN
+		INSERT INTO acquisition_category (name, parent_id, sort_order)
+		SELECT 'Авто зам, замын байгууламж', NULL, 1
+		WHERE NOT EXISTS (
+			SELECT 1 FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Авто зам, замын байгууламж'
+		)
+		RETURNING id INTO road_id;
+		IF road_id IS NULL THEN
+			SELECT id INTO road_id FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Авто зам, замын байгууламж'
+			ORDER BY sort_order, id LIMIT 1;
+		END IF;
+
+		INSERT INTO acquisition_category (name, parent_id, sort_order)
+		SELECT 'Гэр хорооллын дахин төлөвлөлт', NULL, 2
+		WHERE NOT EXISTS (
+			SELECT 1 FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Гэр хорооллын дахин төлөвлөлт'
+		)
+		RETURNING id INTO ger_id;
+		IF ger_id IS NULL THEN
+			SELECT id INTO ger_id FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Гэр хорооллын дахин төлөвлөлт'
+			ORDER BY sort_order, id LIMIT 1;
+		END IF;
+
+		INSERT INTO acquisition_category (name, parent_id, sort_order)
+		SELECT 'Ногоон байгууламж, нийтийн эзэмшил', NULL, 3
+		WHERE NOT EXISTS (
+			SELECT 1 FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Ногоон байгууламж, нийтийн эзэмшил'
+		)
+		RETURNING id INTO green_id;
+		IF green_id IS NULL THEN
+			SELECT id INTO green_id FROM acquisition_category
+			WHERE parent_id IS NULL AND name = 'Ногоон байгууламж, нийтийн эзэмшил'
+			ORDER BY sort_order, id LIMIT 1;
+		END IF;
+
+		INSERT INTO acquisition_category (name, parent_id, sort_order)
+		SELECT name, parent_id, sort_order
+		FROM (VALUES
+			('Шинэ авто зам', road_id, 1),
+			('Зам өргөтгөл, шинэчлэл', road_id, 2),
+			('Гүүр, нүхэн гарц', road_id, 3),
+			('Орон сууцны хороолол', ger_id, 1),
+			('Инженерийн дэд бүтэц', ger_id, 2),
+			('Сургууль, цэцэрлэгийн талбай', ger_id, 3),
+			('Цэцэрлэгт хүрээлэн', green_id, 1),
+			('Явган зам, дугуйн зам', green_id, 2),
+			('Тоглоомын талбай', green_id, 3)
+		) AS v(name, parent_id, sort_order)
+		WHERE parent_id IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM acquisition_category c
+			WHERE c.parent_id = v.parent_id AND c.name = v.name
+		);
+	END
+	$seed_acquisition_category$`
+
 // referenceRows — хүснэгт тус бүрийн лавлах мөрүүд, эх нь архивласан миграцууд:
 //
 //	parcel_status      ← 000020 / 000030
+//	acquisition_category
 //	construction_type  ← 000017
 //	asset_spec_type    ← 000041
 //	asset_calc_type    ← 000041
@@ -40,11 +108,13 @@ var referenceRows = []struct {
 			(3, 'affected_out', 'Нөлөөлөгдсөн гарсан',  3),
 			(4, 'rejected',     'Татгалзсан',           4),
 			(5, 'released',     'Чөлөөлсөн',            5)
-		ON CONFLICT (id) DO NOTHING`},
+			ON CONFLICT (id) DO NOTHING`},
+
+	{"acquisition_category", acquisitionCategorySeedSQL},
 
 	{"construction_type", `
-		INSERT INTO construction_type (code, name, sort_order) VALUES
-			('road',        'Зам, дэд бүтэц',              1),
+			INSERT INTO construction_type (code, name, sort_order) VALUES
+				('road',        'Зам, дэд бүтэц',              1),
 			('residential', 'Орон сууцны барилга',         2),
 			('industrial',  'Аж үйлдвэрийн байгууламж',    3),
 			('public',      'Нийтийн барилга байгууламж',  4),
@@ -92,4 +162,9 @@ func (s *ReferenceSeeder) Seed(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *ReferenceSeeder) SeedAcquisitionCategories(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, acquisitionCategorySeedSQL)
+	return err
 }

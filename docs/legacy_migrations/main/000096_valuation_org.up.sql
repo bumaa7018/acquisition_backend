@@ -1,10 +1,8 @@
 -- Үнэлгээний (мэргэжлийн) байгууллагын бүртгэл.
 --
--- Байгууллага өөрөө sdplatform.sd_organization дээр (HR лавлахтай ижил сан)
--- амьдарна — тэр хүснэгтэд ЗӨВХӨН (id, name) багана байдаг бөгөөд 000015-ын
--- зарчмаар бид sdplatform схемд багана НЭМЭХГҮЙ. Тиймээс регистр, тусгай
--- зөвшөөрөл зэрэг манай системд л хэрэгтэй талбаруудыг энэ буюу аппын ӨӨРИЙН
--- хүснэгтэд хадгална (000094_app_owned_auth_state-ийн адил загвар).
+-- Мэргэжлийн байгууллагын identity болон бүх profile мэдээлэл аппын ӨӨРИЙН
+-- хүснэгтэд хадгалагдана. sdplatform-ийн ердийн HR лавлахыг энэ хүснэгтээс
+-- салгаж, нэр/id-г тэндээс уншихгүй.
 --
 -- Ажилтнууд нь sdplatform-ын төрөлх бүтцээр бүртгэгдэнэ:
 --   sd_organization → hr_department.organization → hr_employee.department_id
@@ -12,11 +10,9 @@
 --   hr_employee.user_id   → sd_user          (нэвтрэх эрх; заавал бус)
 -- Иймд ажилтны хүснэгт энд шинээр үүсэхгүй.
 
--- organization_id-д ГАДААД ТҮЛХҮҮР ЗОРИУД байхгүй: байгууллага өөрөө HR
--- лавлахтай ижил санд (auth DB) амьдардаг тул энэ сангаас FK тавих боломжгүй.
--- Байгууллага устахад профайлыг ValuationOrgRepo.Delete тусад нь устгана.
 CREATE TABLE IF NOT EXISTS valuation_org_profile (
-    organization_id    int4         PRIMARY KEY,
+    id                 serial4      PRIMARY KEY,
+    name               varchar(250) NOT NULL DEFAULT '',
     short_name         varchar(250) NOT NULL DEFAULT '',
     register_no        varchar(20)  NOT NULL DEFAULT '',
     license_no         varchar(50)  NOT NULL DEFAULT '',

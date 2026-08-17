@@ -2,8 +2,8 @@ package seed
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/config"
@@ -90,108 +90,7 @@ func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
 // bs_person.person_register нь varchar(10) тул регистрийг хэрэглэгчийн
 // дугаараас богиноор («U<user_id>») үүсгэнэ.
 func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	const orgName = "Нийслэлийн Газрын алба"
-	var orgID domain.ID
-	if err := tx.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO sdplatform.sd_organization (name)
-			SELECT LEFT($1::text, 250)
-			WHERE NOT EXISTS (SELECT 1 FROM sdplatform.sd_organization WHERE name = LEFT($1::text, 250))
-			RETURNING id
-		)
-		SELECT id FROM ins
-		UNION ALL
-		SELECT id FROM sdplatform.sd_organization WHERE name = LEFT($1::text, 250)
-		LIMIT 1`, orgName).Scan(&orgID); err != nil {
-		return err
-	}
-
-	rows, err := tx.Query(ctx, `
-		SELECT u.user_id, COALESCE(u.firstname, ''), COALESCE(u.lastname, ''), COALESCE(u.email, '')
-		FROM sdplatform.sd_user u
-		WHERE u.deleted_at IS NULL
-		  AND NOT EXISTS (
-			SELECT 1 FROM sdplatform.hr_employee e
-			WHERE e.user_id = u.user_id AND COALESCE(e.is_active, 1) <> 0
-		)`)
-	if err != nil {
-		return err
-	}
-	type backfillUser struct {
-		id        domain.ID
-		firstName string
-		lastName  string
-		email     string
-	}
-	var users []backfillUser
-	for rows.Next() {
-		var u backfillUser
-		if err := rows.Scan(&u.id, &u.firstName, &u.lastName, &u.email); err != nil {
-			rows.Close()
-			return err
-		}
-		users = append(users, u)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	const defaultPosition = "Ажилтан"
-	var posID domain.ID
-	if err := tx.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO sdplatform.hr_position (name, created_at, updated_at)
-			SELECT LEFT($1, 250), NOW(), NOW()
-			WHERE NOT EXISTS (SELECT 1 FROM sdplatform.hr_position WHERE name = LEFT($1, 250))
-			RETURNING position_id
-		)
-		SELECT position_id FROM ins
-		UNION ALL
-		SELECT position_id FROM sdplatform.hr_position WHERE name = LEFT($1, 250)
-		LIMIT 1`, defaultPosition).Scan(&posID); err != nil {
-		return err
-	}
-
-	for _, u := range users {
-		register := fmt.Sprintf("U%d", u.id)
-		var personID domain.ID
-		if err := tx.QueryRow(ctx, `
-			WITH ins AS (
-				INSERT INTO base.bs_person ("type", "name", first_name, person_register, email_address, created_at, updated_at)
-				SELECT 1, LEFT($2, 250), LEFT($3, 50), LEFT($1, 10), LEFT($4, 256), NOW(), NOW()
-				WHERE NOT EXISTS (SELECT 1 FROM base.bs_person WHERE person_register = LEFT($1, 10))
-				RETURNING person_id
-			)
-			SELECT person_id FROM ins
-			UNION ALL
-			SELECT person_id FROM base.bs_person WHERE person_register = LEFT($1, 10)
-			LIMIT 1`, register, u.lastName, u.firstName, u.email).Scan(&personID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO sdplatform.hr_employee (
-				person_id, position_id, user_id, email,
-				firstname, lastname, is_active, created_at, updated_at
-			)
-			SELECT $1::int4, $2::int4, $3::int4, LEFT($4, 250), LEFT($5, 250), LEFT($6, 250), 1, NOW(), NOW()
-			WHERE NOT EXISTS (
-				SELECT 1 FROM sdplatform.hr_employee
-				WHERE person_id = $1 AND COALESCE(is_active, 1) <> 0
-			)`, personID, posID, u.id, u.email, u.firstName, u.lastName); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	slog.Info("hr backfill applied", "users", len(users), "organization_id", orgID)
+	slog.Info("hr backfill skipped: startup seeder must not insert sd_organization data")
 	return nil
 }
 
@@ -534,7 +433,8 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		INSERT INTO sdplatform.sd_form_permission (
 			form_id, permission_id, form_code, permission_code, created_at, updated_at
 		)
-		SELECT f.form_id, p.permission_id, f.code, p.name, NOW(), NOW()
+		SELECT DISTINCT ON (f.code, p.name)
+		       f.form_id, p.permission_id, f.code, p.name, NOW(), NOW()
 		FROM wanted w
 		JOIN sdplatform.sd_form f ON f.code = w.form_code
 		JOIN sdplatform.sd_permission p ON p.name = w.permission_code
@@ -547,7 +447,11 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 				OR fp.permission_code = p.code
 				OR fp.permission_code = p.name
 			  )
-		)`, menuScopedPermissions(defaultPermissions)); err != nil {
+		)
+		-- DISTINCT ON: sd_permission дээр ижил нэртэй олон мөр байвал маягт бүрд
+		-- ЗӨВХӨН нэг (хамгийн бага permission_id-тай) мөр холбоно.
+		ORDER BY f.code, p.name, p.permission_id`,
+		menuScopedPermissions(defaultPermissions)); err != nil {
 		return err
 	}
 
@@ -615,6 +519,125 @@ func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
 		return err
 	}
 	slog.Info("permission fixes applied")
+	return nil
+}
+
+// seededMultiPartActions — үйлдэл нь өөрөө цэг агуулсан эрхүүдийн үйлдлийн нэр
+// ("hr:structure:create" → "structure:create").
+//
+// ЗӨВХӨН ийм нэрс давхардах боломжтой байсан: ensureAction-ы хуучин хайлт нэрийг
+// цэгээр дахин таслдаг тул "structure:create"-ийг "create"-ээр хайж, олдохгүй
+// гээд алхам бүрд шинэ мөр үүсгэдэг байв. Нэг хэсэгтэй нэрс ("read", "create")
+// зөв олддог тул хэзээ ч давхардаагүй. Цэвэрлэгээг үүгээр хязгаарлаж, өөр
+// системийн sd_permission мөрүүдэд хүрэхээс сэргийлнэ.
+func seededMultiPartActions() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, key := range defaultPermissions {
+		_, action := domain.SplitPermissionKey(key)
+		if !strings.Contains(action, ":") || seen[action] {
+			continue
+		}
+		seen[action] = true
+		out = append(out, action)
+	}
+	return out
+}
+
+// SeedPermissionDedupe — ensureAction-ы алдаанаас үүссэн давхардсан
+// sd_permission мөрүүдийг нэгтгэнэ.
+//
+// Шинэ сан дээр "structure:create" 5 удаа (seed алхам болгонд нэг) үүсч, түүнээс
+// улбаалан sd_form_permission болон sd_role_permission ч олшрдог байв. Ажиллах
+// үеийн эрхийн шалгалт DISTINCT ашигладаг тул хандалт буруу болдоггүй, гэхдээ
+// ролийн эрхийн UI-д нэг эрх олон удаа харагдана.
+//
+// Дараалал ЧУХАЛ: эхлээд лавлагаануудыг үлдээх мөр рүү чиглүүлж, дараа нь илүү
+// мөрүүдийг устгана (sd_role_permission нь sd_permission руу ON DELETE CASCADE
+// FK-тай тул эсрэгээр хийвэл олгосон эрх устана).
+func (s *Seeder) SeedPermissionDedupe(ctx context.Context) error {
+	actions := seededMultiPartActions()
+	if len(actions) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// dup — устгах мөр бүр → үлдээх мөр (нэр тус бүрийн хамгийн бага id).
+	const dupCTE = `
+		WITH keep AS (
+			SELECT name, MIN(permission_id) AS keep_id
+			FROM sdplatform.sd_permission
+			WHERE name = ANY($1::text[])
+			GROUP BY name
+			HAVING COUNT(*) > 1
+		),
+		dup AS (
+			SELECT p.permission_id AS dup_id, k.keep_id
+			FROM sdplatform.sd_permission p
+			JOIN keep k ON k.name = p.name
+			WHERE p.permission_id <> k.keep_id
+		)`
+
+	if _, err := tx.Exec(ctx, dupCTE+`
+		UPDATE sdplatform.sd_role_permission rp
+		SET permission_id = dup.keep_id, updated_at = NOW()
+		FROM dup
+		WHERE rp.permission_id = dup.dup_id`, actions); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, dupCTE+`
+		UPDATE sdplatform.sd_form_permission fp
+		SET permission_id = dup.keep_id, updated_at = NOW()
+		FROM dup
+		WHERE fp.permission_id = dup.dup_id`, actions); err != nil {
+		return err
+	}
+
+	// Лавлагаа чиглүүлсний дараа ижил мөрүүд үлдэнэ — эхнийхийг нь үлдээнэ.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM sdplatform.sd_role_permission rp
+		WHERE rp.role_permission_id > (
+			SELECT MIN(other.role_permission_id)
+			FROM sdplatform.sd_role_permission other
+			WHERE other.role_id IS NOT DISTINCT FROM rp.role_id
+			  AND other.permission_id IS NOT DISTINCT FROM rp.permission_id
+			  AND other.menu_id IS NOT DISTINCT FROM rp.menu_id
+		)
+		  AND rp.permission_id IN (
+			SELECT permission_id FROM sdplatform.sd_permission WHERE name = ANY($1::text[])
+		  )`, actions); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM sdplatform.sd_form_permission fp
+		WHERE fp.form_permission_id > (
+			SELECT MIN(other.form_permission_id)
+			FROM sdplatform.sd_form_permission other
+			WHERE other.form_code IS NOT DISTINCT FROM fp.form_code
+			  AND other.permission_id IS NOT DISTINCT FROM fp.permission_id
+		)
+		  AND fp.permission_id IN (
+			SELECT permission_id FROM sdplatform.sd_permission WHERE name = ANY($1::text[])
+		  )`, actions); err != nil {
+		return err
+	}
+
+	tag, err := tx.Exec(ctx, dupCTE+`
+		DELETE FROM sdplatform.sd_permission p
+		USING dup
+		WHERE p.permission_id = dup.dup_id`, actions)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	slog.Info("duplicate permissions merged", "actions", actions, "removed", tag.RowsAffected())
 	return nil
 }
 
@@ -710,9 +733,8 @@ func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo re
 	return &Seeder{db: db, appDB: db, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
 }
 
-// NewSeederFor — authdb (db) болон аппын сан (appDB)-г тусад нь өгнө. Хоёр санд
-// зэрэг бичих шаардлагатай seed-д хэрэглэнэ (ж.нь үнэлгээний байгууллагын
-// бүртгэл: sdplatform → authdb, valuation_org_profile → appdb).
+// NewSeederFor — authdb (db) болон аппын сан (appDB)-г тусад нь өгнө. Хоёр
+// санд зэрэг бичих шаардлагатай seed-д хэрэглэнэ.
 func NewSeederFor(db, appDB *pgxpool.Pool, userRepo repository.UserRepository, roleRepo repository.RoleRepository, permRepo repository.PermissionRepository) *Seeder {
 	return &Seeder{db: db, appDB: appDB, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
 }

@@ -5,13 +5,11 @@ import (
 	"strings"
 
 	"acquisition_backend/internal/domain"
-	"acquisition_backend/internal/pkg/hash"
 	"acquisition_backend/internal/repository"
 )
 
-// ValuationOrgService — үнэлгээний (мэргэжлийн) байгууллагыг АЖИЛТНУУДЫНХ НЬ
-// хамт бүртгэнэ. Байгууллага бүр олон ажилтантай, ажилтан бүр өөрийн нэвтрэх
-// эрхтэй байж болно.
+// ValuationOrgService — мэргэжлийн байгууллагын app-owned profile-ийг
+// бүртгэнэ. sdplatform-ийн HR өгөгдөл энэ бүртгэлийн цонхоор өөрчлөгдөхгүй.
 type ValuationOrgService interface {
 	List(ctx context.Context, filter domain.ValuationOrgFilter) ([]*domain.ValuationOrg, int64, error)
 	GetByID(ctx context.Context, id domain.ID) (*domain.ValuationOrg, error)
@@ -22,9 +20,6 @@ type ValuationOrgService interface {
 
 type ValuationOrgRequest struct {
 	Org domain.ValuationOrg
-	// Employees nil бол ажилтнуудад хүрэхгүй (зөвхөн байгууллагын мэдээлэл
-	// засварлана). Хоосон биш бол жагсаалт нь БҮРЭН төлөвийг илэрхийлнэ.
-	Employees []domain.ValuationOrgEmployee
 }
 
 type valuationOrgService struct {
@@ -44,23 +39,23 @@ func (s *valuationOrgService) GetByID(ctx context.Context, id domain.ID) (*domai
 }
 
 func (s *valuationOrgService) Create(ctx context.Context, req ValuationOrgRequest) (*domain.ValuationOrg, error) {
-	org, emps, err := prepareValuationOrg(req)
+	org, err := prepareValuationOrg(req)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.repo.Create(ctx, org, emps); err != nil {
+	if err := s.repo.Create(ctx, org); err != nil {
 		return nil, err
 	}
 	return s.repo.GetByID(ctx, org.ID)
 }
 
 func (s *valuationOrgService) Update(ctx context.Context, id domain.ID, req ValuationOrgRequest) (*domain.ValuationOrg, error) {
-	org, emps, err := prepareValuationOrg(req)
+	org, err := prepareValuationOrg(req)
 	if err != nil {
 		return nil, err
 	}
 	org.ID = id
-	if err := s.repo.Update(ctx, org, emps); err != nil {
+	if err := s.repo.Update(ctx, org); err != nil {
 		return nil, err
 	}
 	return s.repo.GetByID(ctx, id)
@@ -70,13 +65,12 @@ func (s *valuationOrgService) Delete(ctx context.Context, id domain.ID) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// prepareValuationOrg — оролтыг цэвэрлэж шалгана, нууц үгийг hash хийнэ
-// (repo нь ЗӨВХӨН hash хүлээж авдаг).
-func prepareValuationOrg(req ValuationOrgRequest) (*domain.ValuationOrg, []domain.ValuationOrgEmployee, error) {
+// prepareValuationOrg — profile-ийн оролтыг цэвэрлэж шалгана.
+func prepareValuationOrg(req ValuationOrgRequest) (*domain.ValuationOrg, error) {
 	org := req.Org
 	org.Name = strings.TrimSpace(org.Name)
 	if org.Name == "" {
-		return nil, nil, domain.ErrInvalidInput
+		return nil, domain.ErrInvalidInput
 	}
 	org.ShortName = strings.TrimSpace(org.ShortName)
 	org.RegisterNo = strings.TrimSpace(org.RegisterNo)
@@ -85,47 +79,5 @@ func prepareValuationOrg(req ValuationOrgRequest) (*domain.ValuationOrg, []domai
 	org.Email = strings.TrimSpace(org.Email)
 	org.Address = strings.TrimSpace(org.Address)
 
-	if req.Employees == nil {
-		return &org, nil, nil
-	}
-
-	emps := make([]domain.ValuationOrgEmployee, 0, len(req.Employees))
-	seenRegister := make(map[string]bool, len(req.Employees))
-	seenUsername := make(map[string]bool, len(req.Employees))
-	for _, e := range req.Employees {
-		e.LastName = strings.TrimSpace(e.LastName)
-		e.FirstName = strings.TrimSpace(e.FirstName)
-		e.RegisterNo = strings.TrimSpace(e.RegisterNo)
-		e.Phone = strings.TrimSpace(e.Phone)
-		e.Email = strings.TrimSpace(e.Email)
-		e.PositionName = strings.TrimSpace(e.PositionName)
-		e.Username = strings.TrimSpace(e.Username)
-
-		// Овог/нэр, регистргүй ажилтан бүртгэх утгагүй — bs_person-д регистр
-		// нь NOT NULL бөгөөд системийн хэмжээнд хүнийг таних түлхүүр.
-		if e.FirstName == "" || e.RegisterNo == "" {
-			return nil, nil, domain.ErrInvalidInput
-		}
-		// Нэг байгууллагын дотор нэг хүн хоёр удаа орж болохгүй.
-		if seenRegister[e.RegisterNo] {
-			return nil, nil, domain.ErrInvalidInput
-		}
-		seenRegister[e.RegisterNo] = true
-		if e.Username != "" {
-			if seenUsername[e.Username] {
-				return nil, nil, domain.ErrInvalidInput
-			}
-			seenUsername[e.Username] = true
-		}
-
-		if e.Password != "" {
-			hashed, err := hash.Password(e.Password)
-			if err != nil {
-				return nil, nil, err
-			}
-			e.Password = hashed
-		}
-		emps = append(emps, e)
-	}
-	return &org, emps, nil
+	return &org, nil
 }

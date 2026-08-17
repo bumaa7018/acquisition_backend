@@ -161,12 +161,9 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRPermissions(ctx)
 			},
 		},
-		{
-			name: "000019_hr_backfill",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRBackfill(ctx)
-			},
-		},
+		// 000019_hr_backfill УСТСАН: sdplatform.sd_organization рүү default
+		// байгууллага insert хийдэг байсан. Startup seeder sd_organization-д
+		// дата нэмэх ёсгүй.
 		{
 			// 000019 нь ажилтныг department_id=NULL-тай үүсгэсэн тул "Алба,
 			// хэлтэс" лавлах хоосон, "Ажилтан" дээр хэлтэс харагдахгүй байв.
@@ -231,16 +228,24 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 					SeedSystemRoles(ctx)
 			},
 		},
+		// 000028_valuation_org_registry УСТСАН: professional_org хэрэглэгчдэд
+		// sdplatform.sd_organization дээр байгууллага автоматаар үүсгэдэг байсан.
 		{
-			// Хандалт нь хэрэглэгчийн ID-аас БАЙГУУЛЛАГЫН ID (JWT org_id) руу
-			// шилжсэн тул ажилтны бүртгэлгүй хуучин мэргэжлийн байгууллагын
-			// хэрэглэгчид харьяалалгүй үлдэж, юу ч харахгүй болно. Энэ алхам
-			// тэдгээрт байгууллага + ажилтны бүртгэл үүсгэж өгнө.
-			name: "000028_valuation_org_registry",
+			// ensureAction нь "structure:create" мэт цэгтэй үйлдлийг олж чаддаггүй
+			// байсан тул seed алхам бүр шинэ sd_permission мөр үүсгэж, шинэ сан
+			// дээр 5 хувь давхардаж байв (мөн sd_form_permission /
+			// sd_role_permission олширсон). Шалтгаан нь ensureAction дотор
+			// зассан — энэ алхам үүссэн давхардлыг нэгтгэнэ.
+			name: "000029_permission_dedupe",
 			run: func(ctx context.Context) error {
-				// sdplatform/base → authDB, valuation_org_profile → mainDB.
-				return NewSeederFor(authDB, mainDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedValuationOrgRegistry(ctx)
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedPermissionDedupe(ctx)
+			},
+		},
+		{
+			name: "000030_acquisition_categories",
+			run: func(ctx context.Context) error {
+				return NewReferenceSeeder(mainDB).SeedAcquisitionCategories(ctx)
 			},
 		},
 	}); err != nil {

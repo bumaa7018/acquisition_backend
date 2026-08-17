@@ -144,14 +144,24 @@ type ParcelAssignmentChecker interface {
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
 }
 
-// RequireParcelAssignedOrSenior — /parcels/:id/* бичих маршрутуудад: ахлах
+// RequireParcelAssignedOrSenior — /parcels/:id/* маршрутуудад: ахлах
 // мэргэжилтэн эсвэл тухайн parcel-ийн чөлөөлөлтөд хуваарилагдсан ажилтан л нэвтэрнэ.
+//
+// RequireAssignedOrSenior-ийн адилаар санхүү/МИКА хяналтын үүрэгтэй тул
+// хуваарилалтгүйгээр ЗӨВХӨН унших (GET/HEAD/OPTIONS) хүсэлтэд нэвтэрнэ.
+// Энэ чөлөөлөл байхгүй бол нөхөх олговрын таб дахь үнэлгээний тайлан тэдэнд
+// хаагдана; байхгүй үед харин хуваарилагдаагүй мэргэжилтэн нэгж талбарын
+// баримт/төлбөрийг глобал замаар уншиж, чөлөөлөлтийн замын хаалтыг тойрдог байв.
 func RequireParcelAssignedOrSenior(svc ParcelAssignmentChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		method := c.Request.Method
+		isRead := method == "GET" || method == "HEAD" || method == "OPTIONS"
+
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
-				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" ||
+					(isRead && supervisoryReadRoles[r]) {
 					c.Next()
 					return
 				}

@@ -1247,8 +1247,17 @@ CREATE TABLE IF NOT EXISTS public.user_token_epoch (
 -- Name: valuation_org_profile; Type: TABLE; Schema: public; Owner: -
 --
 
+CREATE SEQUENCE IF NOT EXISTS public.valuation_org_profile_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
 CREATE TABLE IF NOT EXISTS public.valuation_org_profile (
-    organization_id integer NOT NULL,
+    id integer DEFAULT nextval('public.valuation_org_profile_id_seq'::regclass) NOT NULL,
+    name character varying(250) DEFAULT ''::character varying NOT NULL,
     short_name character varying(250) DEFAULT ''::character varying NOT NULL,
     register_no character varying(20) DEFAULT ''::character varying NOT NULL,
     license_no character varying(50) DEFAULT ''::character varying NOT NULL,
@@ -1262,6 +1271,9 @@ CREATE TABLE IF NOT EXISTS public.valuation_org_profile (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+ALTER SEQUENCE public.valuation_org_profile_id_seq
+    OWNED BY public.valuation_org_profile.id;
 
 --
 -- Name: acquisition_category id; Type: DEFAULT; Schema: public; Owner: -
@@ -1893,7 +1905,7 @@ ALTER TABLE ONLY public.user_token_epoch
 --
 
 ALTER TABLE ONLY public.valuation_org_profile
-    ADD CONSTRAINT valuation_org_profile_pkey PRIMARY KEY (organization_id);
+    ADD CONSTRAINT valuation_org_profile_pkey PRIMARY KEY (id);
 
 --
 -- Name: au_level1_code_idx; Type: INDEX; Schema: public; Owner: -
@@ -3010,4 +3022,3 @@ ALTER TABLE ONLY public.parcel_workflow
 
 ALTER TABLE ONLY public.parcel_workflow
     ADD CONSTRAINT parcel_workflow_to_status_id_fkey FOREIGN KEY (to_status_id) REFERENCES public.parcel_status(id);
-

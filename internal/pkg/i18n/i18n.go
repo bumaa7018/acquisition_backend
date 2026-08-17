@@ -34,6 +34,8 @@ const (
 
 	// Generic errors
 	ErrNotFound          Key = "not_found"
+	// ErrRouteNotFound — API-д байхгүй хаяг/метод руу хүсэлт ирсэн.
+	ErrRouteNotFound     Key = "route_not_found"
 	ErrUnauthorized      Key = "unauthorized"
 	ErrForbidden         Key = "forbidden"
 	ErrConflict          Key = "conflict"
@@ -112,7 +114,10 @@ var messages = map[Key][2]string{
 	MsgPassReset:     {"Нууц үг амжилттай шинэчлэгдлээ", "Password reset successfully"},
 	MsgPassResetSent: {"Имэйл хаяг бүртгэлтэй бол reset холбоос илгээгдлээ", "If the email exists, a reset link has been sent"},
 
-	ErrNotFound:          {"Олдсонгүй", "Not found"},
+	// "Олдсонгүй" дангаараа юу олдоогүйг хэлдэггүй тул тодорхой болгов —
+	// энэ мессежийг frontend шууд хэрэглэгчид харуулна.
+	ErrNotFound:          {"Мэдээлэл олдсонгүй", "Requested data was not found"},
+	ErrRouteNotFound:     {"Мэдээлэл олдсонгүй", "Requested endpoint was not found"},
 	ErrUnauthorized:      {"Нэвтрэх шаардлагатай", "Unauthorized"},
 	ErrForbidden:         {"Хандах эрх байхгүй", "Forbidden"},
 	ErrConflict:          {"Давхардсан бичлэг", "Already exists"},

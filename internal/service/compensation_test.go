@@ -75,7 +75,47 @@ func TestCompensation_Delete_Success(t *testing.T) {
 	landRepo.On("GetCompensation", ctx, compID).Return(pending, nil)
 	landRepo.On("DeleteCompensation", ctx, acqID, compID).Return(nil)
 
-	err := svc.DeleteCompensation(ctx, acqID, compID)
+	err := svc.DeleteCompensation(ctx, acqID, compID, nil)
+	require.NoError(t, err)
+	landRepo.AssertExpectations(t)
+}
+
+// Гадаад дуудагч ӨӨРИЙН урсгалынхаа мөрийг л устгана: МИКА (allowed=["mika"])
+// мэргэжлийн байгууллагын ("asset") үнэлгээг устгаж чадахгүй.
+func TestCompensation_Delete_ForeignStream_Forbidden(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+
+	acqID := uuid.New()
+	compID := uuid.New()
+	other := &domain.Compensation{
+		ID: compID, AcquisitionID: acqID, Status: "pending",
+		ValuationType: domain.ValuationTypeAsset,
+	}
+	landRepo.On("GetCompensation", ctx, compID).Return(other, nil)
+
+	err := svc.DeleteCompensation(ctx, acqID, compID, []string{domain.ValuationTypeMika})
+	require.ErrorIs(t, err, domain.ErrForbidden)
+	// Устгах дуудалт хүрэлгүй таслагдсан байх ёстой.
+	landRepo.AssertNotCalled(t, "DeleteCompensation", ctx, acqID, compID)
+	landRepo.AssertExpectations(t)
+}
+
+// Өөрийн урсгалын мөрийг устгана.
+func TestCompensation_Delete_OwnStream_OK(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+
+	acqID := uuid.New()
+	compID := uuid.New()
+	own := &domain.Compensation{
+		ID: compID, AcquisitionID: acqID, Status: "pending",
+		ValuationType: domain.ValuationTypeMika,
+	}
+	landRepo.On("GetCompensation", ctx, compID).Return(own, nil)
+	landRepo.On("DeleteCompensation", ctx, acqID, compID).Return(nil)
+
+	err := svc.DeleteCompensation(ctx, acqID, compID, []string{domain.ValuationTypeMika})
 	require.NoError(t, err)
 	landRepo.AssertExpectations(t)
 }

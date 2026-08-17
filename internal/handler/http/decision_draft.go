@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"acquisition_backend/internal/domain"
-	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
@@ -547,17 +546,7 @@ func uuidParam(c *gin.Context, name string) (string, bool) {
 	return v, true
 }
 
-// decisionActor — JWT context дэх хэрэглэгчийн ID (uuid.UUID) -г мөр болгоно.
-// АНХААР: middleware нь утгыг "userID" түлхүүрээр, uuid.UUID төрлөөр хадгалдаг
-// тул c.GetString("user_id") нь ҮРГЭЛЖ хоосон буцаана.
+// decisionActor — JWT context дэх хэрэглэгчийн ID-г мөр болгоно.
 func decisionActor(c *gin.Context) string {
-	raw, ok := c.Get(middleware.CtxUserID)
-	if !ok {
-		return ""
-	}
-	id, _ := raw.(uuid.UUID)
-	if id == uuid.Nil {
-		return ""
-	}
-	return id.String()
+	return contextUserIDString(c)
 }

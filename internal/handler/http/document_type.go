@@ -8,7 +8,6 @@ import (
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type DocumentTypeHandler struct {
@@ -20,8 +19,7 @@ func NewDocumentTypeHandler(svc service.DocumentTypeService) *DocumentTypeHandle
 }
 
 func currentUserEmail(c *gin.Context) *string {
-	if uid, ok := c.Get("userID"); ok {
-		s := uid.(uuid.UUID).String()
+	if s := contextUserIDString(c); s != "" {
 		return &s
 	}
 	return nil

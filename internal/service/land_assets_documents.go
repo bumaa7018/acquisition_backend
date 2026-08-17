@@ -39,8 +39,14 @@ func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain
 	return b, nil
 }
 
-func (s *landService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
-	photoURL, err := s.landRepo.DeleteAsset(ctx, acquisitionID, id)
+func (s *landService) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {
+	return s.landRepo.GetAssetAcquisition(ctx, assetID)
+}
+
+// DeleteAsset — allowedStreams хоосон бол хязгаарлалтгүй; эс бөгөөс зөвхөн
+// дуудагчийн үнэлгээний урсгалын (asset/independent/mika) мөр устана.
+func (s *landService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error {
+	photoURL, err := s.landRepo.DeleteAsset(ctx, acquisitionID, id, allowedStreams)
 	if err != nil {
 		return err
 	}
@@ -189,13 +195,18 @@ func (s *landService) UpdateCompensation(ctx context.Context, c *domain.Compensa
 	return c, nil
 }
 
-func (s *landService) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
+// DeleteCompensation — allowedStreams хоосон бол хязгаарлалтгүй; эс бөгөөс
+// зөвхөн дуудагчийн үнэлгээний урсгалын мөр устана.
+func (s *landService) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error {
 	existing, err := s.landRepo.GetCompensation(ctx, id)
 	if err != nil {
 		return err
 	}
 	if existing.AcquisitionID != acquisitionID {
 		return domain.ErrNotFound
+	}
+	if !domain.ValuationStreamAllowed(existing.ValuationType, allowedStreams) {
+		return domain.ErrForbidden
 	}
 	if existing.Status == "approved" {
 		return domain.ErrApproved

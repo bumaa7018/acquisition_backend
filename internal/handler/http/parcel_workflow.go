@@ -140,8 +140,8 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		return
 	}
 	createdBy := "system"
-	if uid, ok := c.Get("userID"); ok {
-		createdBy = uid.(uuid.UUID).String()
+	if id := contextUserIDString(c); id != "" {
+		createdBy = id
 	}
 	if err := h.svc.UpdateParcelStatus(c.Request.Context(), parcelID, acqID, *req.StatusID, createdBy); err != nil {
 		response.Error(c, err)
@@ -223,8 +223,8 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	}
 
 	userID := "system"
-	if uid, ok := c.Get("userID"); ok {
-		userID = uid.(uuid.UUID).String()
+	if id := contextUserIDString(c); id != "" {
+		userID = id
 	}
 	sub, err := h.svc.TransitionValuationSubmission(c.Request.Context(), acqID, parcelID, req.ValuationType, req.Action, req.Note, userID)
 	if err != nil {

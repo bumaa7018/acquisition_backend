@@ -4,24 +4,25 @@ import "time"
 
 // Үнэлгээний (мэргэжлийн) байгууллагын бүртгэл.
 //
-// Байгууллага өөрөө sdplatform.sd_organization дээр амьдарна — тэнд ЗӨВХӨН
-// (id, name) багана байдаг тул регистр, тусгай зөвшөөрөл зэрэг манай системд л
-// хэрэгтэй талбарууд аппын өөрийн valuation_org_profile хүснэгтэд хадгалагдана.
+// Мэргэжлийн байгууллагын identity болон бүх profile мэдээлэл appdb-ийн
+// valuation_org_profile хүснэгтэд хадгалагдана. Энэ model нь ерөнхий HR
+// лавлахын байгууллагаас тусдаа бөгөөд profile CRUD нь HR өгөгдөлд хүрэхгүй.
 //
-// Ажилтнууд нь sdplatform-ын ТӨРӨЛХ бүтцээр бүртгэгдэнэ:
+// Ажилтны бүртгэл нь тусдаа HR модулийн үүрэг бөгөөд энд автоматаар үүсэхгүй:
 //
 //	sd_organization → hr_department → hr_employee → bs_person
 //	hr_employee.user_id → sd_user (нэвтрэх эрх; заавал бус)
 //
-// Ингэснээр нэг байгууллагад ОЛОН ажилтан байж, тус бүр өөрийн эрхээр нэвтэрч
-// ажиллах боломжтой (өмнө нь байгууллага = нэг хэрэглэгч байсан).
+// Profile endpoint нь HR хүснэгтүүдэд бичихгүй.
 
+// Deprecated: profile-only бүртгэл үндсэн HR нэгж автоматаар үүсгэхгүй.
 // ValuationOrgDepartmentName — байгууллага үүсэхэд автоматаар үүсэх үндсэн
 // нэгжийн нэр. hr_employee нь байгууллагатай ЗӨВХӨН хэлтсээр дамжин холбогддог
 // тул (hr_employee-д organization багана байхгүй) байгууллага бүрд дор хаяж
 // нэг нэгж хэрэгтэй.
 const ValuationOrgDepartmentName = "Үндсэн нэгж"
 
+// Deprecated: profile-only бүртгэл анхдагч албан тушаал үүсгэхгүй.
 // ValuationOrgPositionName — ажилтанд албан тушаал заагаагүй үед хэрэглэх
 // анхдагч албан тушаал (hr_employee.position_id заавал утгатай байх ёстой).
 const ValuationOrgPositionName = "Үнэлгээчин"
@@ -52,10 +53,10 @@ type ValuationOrgFilter struct {
 	PageSize int
 }
 
-// ValuationOrgEmployee — байгууллагатай ХАМТ бүртгэгдэх ажилтны оролт.
+// ValuationOrgEmployee — хуучин response/request compatibility type.
 //
 // ID утгатай бол одоо байгаа ажилтныг засна, эс бөгөөс шинээр үүсгэнэ.
-// Хадгалах үед жагсаалтад ОРООГҮЙ ажилтнууд идэвхгүй болно (is_active = 0).
+// Мэргэжлийн байгууллагын profile endpoint ажилтан бүртгэхгүй.
 type ValuationOrgEmployee struct {
 	ID           *ID    `json:"id,omitempty"`
 	LastName     string `json:"last_name"`

@@ -97,6 +97,41 @@ func (h *LandHandler) Suggest(c *gin.Context) {
 	response.OK(c, result)
 }
 
+// FilterOptions godoc
+// @Summary      Шүүлтүүрийн dropdown-д зориулсан хөнгөн жагсаалт
+// @Description  Тайлан/нэгж талбарын хуудасны "Төлөвлөгөө" ба "Газар чөлөөлөлт"
+// @Description  сонголтуудыг дүүргэхэд зориулав. Үндсэн жагсаалт (GET
+// @Description  /land-acquisitions) нь мөр тутамд нэгж талбарын COUNT(*) болон
+// @Description  sdplatform join хийдэг тул dropdown-д хэрэглэвэл өгөгдөл өсөх
+// @Description  тутам удааширч timeout болдог. Энд зөвхөн id, нэр, план код,
+// @Description  план нэр буцна — хуудаслалтгүй.
+// @Description
+// @Description  Эрх: нэвтэрсэн БҮХ хэрэглэгчид нээлттэй (роль/permission шалгахгүй).
+// @Description  Жагсаалтын шүүлтүүрийг хэн ч харж болно; бодит өгөгдлийн эрх нь
+// @Description  жагсаалтын endpoint-ууд дээрээ шалгагдана.
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  response.Response
+// @Router       /land-acquisitions/filter-options [get]
+func (h *LandHandler) FilterOptions(c *gin.Context) {
+	list, err := h.svc.ListFilterOptions(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]gin.H, 0, len(list))
+	for _, o := range list {
+		result = append(result, gin.H{
+			"id":               o.ID,
+			"acquisition_name": o.AcquisitionName,
+			"plan_code":        o.PlanCode,
+			"plan_name":        o.PlanName,
+		})
+	}
+	response.OK(c, result)
+}
+
 // List godoc
 // @Summary      Газар чөлөөлөлтийн жагсаалт
 // @Tags         land-acquisitions
@@ -253,10 +288,7 @@ func (h *LandHandler) Create(c *gin.Context) {
 		return
 	}
 
-	createdByStr := ""
-	if uid, ok := c.Get("userID"); ok {
-		createdByStr = uid.(uuid.UUID).String()
-	}
+	createdByStr := contextUserIDString(c)
 
 	var generalCategoryID *int
 	if s := c.PostForm("general_category_id"); s != "" {
@@ -467,9 +499,7 @@ func (h *LandHandler) Update(c *gin.Context) {
 		}
 	}
 
-	if uid, ok := c.Get("userID"); ok {
-		req.UpdatedBy = uid.(uuid.UUID).String()
-	}
+	req.UpdatedBy = contextUserIDString(c)
 
 	acq, geomChanged, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
@@ -909,10 +939,7 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 		return
 	}
 
-	changedBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		changedBy = uid.(uuid.UUID).String()
-	}
+	changedBy := contextUserIDString(c)
 
 	var decreeDate *time.Time
 	if body.DecreeDate != nil && *body.DecreeDate != "" {
@@ -1021,10 +1048,7 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
-	uploadedBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		uploadedBy = uid.(uuid.UUID).String()
-	}
+	uploadedBy := contextUserIDString(c)
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
@@ -1270,6 +1294,31 @@ func mikaOnlyCaller(c *gin.Context) bool {
 	return ctxHasRole(c, "mika", "МИКА") && !ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
 }
 
+// profOnlyCaller — дуудагч мэргэжлийн байгууллага бөгөөд дотоод (ахлах) эрхгүй.
+func profOnlyCaller(c *gin.Context) bool {
+	return ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага", "Мэргэжлийн байгуулл...") &&
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+}
+
+// callerValuationStreams — дуудагч УСТГАЖ болох үнэлгээний урсгалууд.
+// nil = хязгаарлалтгүй (дотоод ахлах мэргэжилтэн/админ).
+//
+// Бичих талд valuation_type нь mikaOnlyCaller-ээр хатуу тогтоогддог байсан ч
+// УСТГАХ талд ямар ч шалгалт байгаагүй тул МИКА (compensation:update эрхтэй ба
+// valuationEditor нь МИКА-г хуваарилалтаас чөлөөлдөг) аль ч чөлөөлөлтөөс
+// мэргэжлийн байгууллагын үнэлгээг устгаж чаддаг байв.
+func callerValuationStreams(c *gin.Context) []string {
+	if mikaOnlyCaller(c) {
+		return []string{domain.ValuationTypeMika}
+	}
+	if profOnlyCaller(c) {
+		// Мэргэжлийн байгууллага үндсэн (asset) ба хөндлөнгийн (independent)
+		// урсгалд ажиллана — МИКА-гийн урсгалд ХЭЗЭЭ Ч биш.
+		return []string{domain.ValuationTypeAsset, domain.ValuationTypeIndependent}
+	}
+	return nil
+}
+
 func (h *LandHandler) CreateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -1437,7 +1486,7 @@ func (h *LandHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.DeleteAsset(c.Request.Context(), acqID, assetID); err != nil {
+	if err := h.svc.DeleteAsset(c.Request.Context(), acqID, assetID, callerValuationStreams(c)); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -1651,6 +1700,20 @@ func (h *LandHandler) DeleteLandValuation(c *gin.Context) {
 	if mikaOnlyCaller(c) {
 		valuationType = domain.ValuationTypeMika
 	}
+	// Гадаад дуудагч зөвхөн ӨӨРИЙН урсгалыг устгана. valuation_type нь query-ээс
+	// ирдэг тул энэ шалгалтгүй бол мэрг. байгууллага `?valuation_type=mika`-аар
+	// МИКА-гийн газрын үнэлгээг устгах боломжтой.
+	if streams := callerValuationStreams(c); len(streams) > 0 {
+		if valuationType == "" {
+			// Хоосон = БҮХ урсгал устана — хязгаарлагдсан дуудагчид зөвшөөрөхгүй.
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+		if !domain.ValuationStreamAllowed(valuationType, streams) {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+	}
 	if err := h.svc.DeleteLandValuation(c.Request.Context(), acqID, parcelID, valuationType); err != nil {
 		response.Error(c, err)
 		return
@@ -1838,10 +1901,7 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 		return
 	}
 
-	createdBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		createdBy = uid.(uuid.UUID).String()
-	}
+	createdBy := contextUserIDString(c)
 	if mikaOnlyCaller(c) {
 		body.ValuationType = domain.ValuationTypeMika
 	}
@@ -1977,7 +2037,7 @@ func (h *LandHandler) DeleteCompensation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteCompensation(c.Request.Context(), acqID, compID); err != nil {
+	if err := h.svc.DeleteCompensation(c.Request.Context(), acqID, compID, callerValuationStreams(c)); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -2007,7 +2067,7 @@ func (h *LandHandler) ApproveCompensation(c *gin.Context) {
 		Note string `json:"note"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	reviewedBy := c.GetString("user_id")
+	reviewedBy := contextUserIDString(c)
 	if err := h.svc.ApproveCompensation(c.Request.Context(), acqID, compID, body.Note, reviewedBy); err != nil {
 		response.Error(c, err)
 		return
@@ -2039,7 +2099,7 @@ func (h *LandHandler) RejectCompensation(c *gin.Context) {
 		Note string `json:"note"`
 	}
 	_ = c.ShouldBindJSON(&body)
-	reviewedBy := c.GetString("user_id")
+	reviewedBy := contextUserIDString(c)
 	if err := h.svc.RejectCompensation(c.Request.Context(), acqID, compID, body.Note, reviewedBy); err != nil {
 		response.Error(c, err)
 		return
@@ -2081,10 +2141,7 @@ func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
-	uploadedBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		uploadedBy = uid.(uuid.UUID).String()
-	}
+	uploadedBy := contextUserIDString(c)
 	contentType, ok := allowedPDFContentType(data)
 	if !ok {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
@@ -2207,10 +2264,7 @@ func (h *LandHandler) CreateCompensationGrant(c *gin.Context) {
 		return
 	}
 
-	createdBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		createdBy = uid.(uuid.UUID).String()
-	}
+	createdBy := contextUserIDString(c)
 
 	g := &domain.CompensationGrant{
 		AcquisitionID:  acqID,
@@ -2392,10 +2446,7 @@ func (h *LandHandler) AddParcelPayment(c *gin.Context) {
 		currency = "MNT"
 	}
 
-	createdBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		createdBy = uid.(uuid.UUID).String()
-	}
+	createdBy := contextUserIDString(c)
 
 	p := &domain.ParcelPayment{
 		ParcelID:  parcelID,
@@ -2713,10 +2764,7 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
-	uploadedBy := ""
-	if uid, ok := c.Get("userID"); ok {
-		uploadedBy = uid.(uuid.UUID).String()
-	}
+	uploadedBy := contextUserIDString(c)
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
@@ -2959,7 +3007,7 @@ func (h *LandHandler) CreateFundingSource(c *gin.Context) {
 		Amount:           body.Amount,
 		Currency:         currency,
 		Note:             body.Note,
-		CreatedBy:        c.GetString("user_id"),
+		CreatedBy:        contextUserIDString(c),
 	}
 	created, err := h.svc.CreateFundingSource(c.Request.Context(), fs)
 	if err != nil {

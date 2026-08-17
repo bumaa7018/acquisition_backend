@@ -132,6 +132,14 @@ func (m *MockLandService) Suggest(ctx context.Context, q string, status int) ([]
 	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
 }
 
+func (m *MockLandService) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.LandAcquisitionOption), args.Error(1)
+}
+
 func (m *MockLandService) GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error) {
 	args := m.Called(ctx, acquisitionID, filter)
 	if args.Get(0) == nil {
@@ -290,8 +298,14 @@ func (m *MockLandService) UpdateAsset(ctx context.Context, b *domain.Asset) (*do
 	return args.Get(0).(*domain.Asset), args.Error(1)
 }
 
-func (m *MockLandService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) error {
-	return m.Called(ctx, acquisitionID, id).Error(0)
+func (m *MockLandService) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {
+	args := m.Called(ctx, assetID)
+	id, _ := args.Get(0).(uuid.UUID)
+	return id, args.Error(1)
+}
+
+func (m *MockLandService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error {
+	return m.Called(ctx, acquisitionID, id, allowedStreams).Error(0)
 }
 
 func (m *MockLandService) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
@@ -404,8 +418,8 @@ func (m *MockLandService) UpdateCompensation(ctx context.Context, c *domain.Comp
 	return args.Get(0).(*domain.Compensation), args.Error(1)
 }
 
-func (m *MockLandService) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
-	return m.Called(ctx, acquisitionID, id).Error(0)
+func (m *MockLandService) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error {
+	return m.Called(ctx, acquisitionID, id, allowedStreams).Error(0)
 }
 
 func (m *MockLandService) CreateCompensationGrant(ctx context.Context, g *domain.CompensationGrant) (*domain.CompensationGrant, error) {

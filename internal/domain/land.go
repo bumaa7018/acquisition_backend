@@ -269,6 +269,29 @@ const (
 	ValuationTypeMika        = "mika"        // МИКА-гийн үнэлгээ
 )
 
+// ValuationStreamAllowed — тухайн мөрийн урсгалд дуудагч ажиллаж болох эсэх.
+//
+// allowed хоосон = хязгаарлалтгүй (дотоод ахлах мэргэжилтэн/админ). Гадаад
+// ролиуд зөвхөн ӨӨРИЙН урсгалдаа ажиллана — эс бөгөөс МИКА мэргэжлийн
+// байгууллагын үнэлгээг (эсрэгээр нь ч) устгах боломжтой болно.
+//
+// Хоосон valuation_type нь түүхэн өгөгдөлд "asset" гэсэн утгатай (INSERT дээр
+// COALESCE(NULLIF(...),'asset') хийгддэгтэй ижил).
+func ValuationStreamAllowed(stream string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	if stream == "" {
+		stream = ValuationTypeAsset
+	}
+	for _, a := range allowed {
+		if a == stream {
+			return true
+		}
+	}
+	return false
+}
+
 // ValuationSubmission — нэгж талбарын нөхөх олговрын үнэлгээний илгээлтийн төлөв
 type ValuationSubmission struct {
 	ID            uuid.UUID  `json:"id"`
@@ -363,6 +386,22 @@ type LandAcquisition struct {
 	AssignedUsers       []AcquisitionAssignee
 	ProfessionalOrgID   *ID
 	ProfessionalOrgName string
+}
+
+// LandAcquisitionOption — шүүлтүүрийн dropdown-д зориулсан ХӨНГӨН бүтэц.
+//
+// ЯАГААД ТУСДАА: үндсэн жагсаалт (List) нь мөр тутамд
+// `(SELECT COUNT(*) FROM parcel ...)`, acquisition_category болон
+// valuation_org_profile join хийж, 25+ багана буцаадаг. Тайлан/нэгж
+// талбарын хуудасны "Төлөвлөгөө"/"Газар чөлөөлөлт" dropdown-ууд түүнийг
+// page_size=200-аар дуудаж байсан бөгөөд өгөгдөл нэмэгдэх тутам хүндэрч,
+// 30 секундын timeout-д ороод "Серверт холбогдоход алдаа гарлаа" гэж
+// хэрэглэгчид харагддаг байв. Dropdown-д зөвхөн эдгээр 4 талбар хэрэгтэй.
+type LandAcquisitionOption struct {
+	ID              uuid.UUID
+	AcquisitionName string
+	PlanCode        string
+	PlanName        string
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос

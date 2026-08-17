@@ -54,22 +54,39 @@ func systemRoleCode(level string) string {
 }
 
 // ensureAction — үйлдлийн эрхийг (read/create/update/delete ...) баталгаажуулна.
+//
+// ЖИЧ: permRepo.GetByName нь нэрийг SplitPermissionKey-ээр ДАХИН таслдаг тул
+// үйлдэл өөрөө цэг агуулбал ("structure:create") "create"-ийг хайж, буруу мөр
+// буцаадаг. sd_permission дээр name unique БИШ учир өмнө нь энэ функц seed алхам
+// бүрд шинэ давхардсан мөр үүсгэж байв. Тиймээс энд repo-гоор биш, ЯГ нэрээр
+// нэг мэдэгдлээр (атом) нэмж/уншина. Давхардсан мөр аль хэдийн байвал хамгийн
+// бага permission_id-г буцаана — SeedPermissionDedupe-ийн үлдээх мөртэй ижил.
 func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permission, error) {
-	// ЖИЧ: permRepo.GetByName нь нэрийг SplitPermissionKey-ээр дахин таслдаг тул
-	// үйлдэл өөрөө цэг агуулбал (жишээ нь "structure:create") буруу мөр
-	// буцаана ("create"). Тиймээс нэр ЯГ таарсан эсэхийг шалгана.
-	if p, err := s.permRepo.GetByName(ctx, action); err == nil && p.Name == action {
-		return p, nil
-	}
-	p := &domain.Permission{Name: action, Action: action, Code: action, CreatedAt: time.Now()}
-	if err := s.permRepo.Create(ctx, p); err != nil {
-		// Зэрэг ажиллахад давхардвал дахин уншина.
-		if existing, e := s.permRepo.GetByName(ctx, action); e == nil {
-			return existing, nil
-		}
+	p := &domain.Permission{Name: action, Action: action, Code: action}
+	var created bool
+	if err := s.db.QueryRow(ctx, `
+		WITH ins AS (
+			INSERT INTO sdplatform.sd_permission (code, name, created_at)
+			SELECT LEFT($1::text, 45), LEFT($1::text, 250), NOW()
+			WHERE NOT EXISTS (
+				SELECT 1 FROM sdplatform.sd_permission WHERE name = $1::text
+			)
+			RETURNING permission_id, created_at
+		)
+		SELECT permission_id, COALESCE(created_at::timestamptz, NOW()), TRUE FROM ins
+		UNION ALL
+		SELECT permission_id, COALESCE(created_at::timestamptz, NOW()), FALSE
+		FROM sdplatform.sd_permission WHERE name = $1::text
+		ORDER BY 3 DESC, 1
+		LIMIT 1`, action).Scan(&p.ID, &p.CreatedAt, &created); err != nil {
 		return nil, err
 	}
-	slog.Info("permission (action) created", "action", action)
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now()
+	}
+	if created {
+		slog.Info("permission (action) created", "action", action)
+	}
 	return p, nil
 }
 
@@ -204,9 +221,12 @@ func (s *Seeder) grantMenuActions(ctx context.Context, roleID domain.ID, menuCod
 		ON CONFLICT DO NOTHING`, roleID, menuCode); err != nil {
 		return err
 	}
+	// DISTINCT — нэг form дээр ижил эрхийн олон sd_form_permission мөр байвал
+	// (NOT EXISTS нь мэдэгдлийн ӨМНӨХ төлвийг хардаг тул) ижил role_permission
+	// мөр олон удаа орох эрсдэлтэй.
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at, updated_at)
-		SELECT $1, p.permission_id, m.menu_id, NOW(), NOW()
+		SELECT DISTINCT $1, p.permission_id, m.menu_id, NOW(), NOW()
 		FROM sdplatform.sd_menu m
 		JOIN sdplatform.sd_form f ON f.code = m.code
 		JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code

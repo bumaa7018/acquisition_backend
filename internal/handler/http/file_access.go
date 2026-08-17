@@ -1,0 +1,187 @@
+package http
+
+import (
+	"strings"
+
+	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/middleware"
+	"acquisition_backend/internal/pkg/response"
+	"acquisition_backend/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+// FileAccessHandler — файлын системийн объектод хандах эрхийг шалгана.
+//
+// Бүх файл MinIO дээр байх ба frontend-ийн `/api/files/<key>` proxy-гоор
+// тараагдана. Тэр proxy өмнө нь ЗӨВХӨН нэвтэрсэн эсэхийг шалгадаг байсан тул
+// нэвтэрсэн дурын хэрэглэгч (гадаад роль ч гэсэн) өөр байгууллагын баримтыг
+// татаж чаддаг байв. Түлхүүр нь `acquisition/<acq_id>/<файлын нэр>` хэлбэртэй
+// бөгөөд баримтын төрөл зааж өгсөн тохиолдолд файлын нэр нь ЭХ нэр хэвээр
+// үлддэг (санамсаргүй бүрэлдэхүүнгүй) тул таамаглах боломжтой байсан.
+//
+// Энэ маршрут түлхүүрийг задалж, харьяалагдах чөлөөлөлт/нэгж талбарыг олоод,
+// харгалзах API маршрутуудад мөрдөгддөг ЯГ ижил дүрмийг хэрэглэнэ. ШИНЭ эрх
+// нэмээгүй — одоо байгаа land:read / compensation:read болон хуваарилалт /
+// байгууллагын гишүүнчлэлийн шалгалтуудыг л ашиглана.
+type FileAccessHandler struct {
+	svc service.LandService
+}
+
+func NewFileAccessHandler(svc service.LandService) *FileAccessHandler {
+	return &FileAccessHandler{svc: svc}
+}
+
+// splitObjectKey — "acquisition/<uuid>/нэр.pdf" → ("acquisition", "<uuid>").
+// Гурван хэсэггүй түлхүүр (bucket/prefix жагсаах оролдлого) хүчингүй.
+func splitObjectKey(key string) (namespace, ownerID string, ok bool) {
+	parts := strings.Split(strings.Trim(key, "/"), "/")
+	if len(parts) < 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+// supervisoryReader — байгууллага даяар УНШИХ үүрэгтэй ролиуд
+// (middleware.RequireAssignedOrSenior-ийн supervisoryReadRoles-тэй ижил жагсаалт).
+func supervisoryReader(c *gin.Context) bool {
+	return ctxHasRole(c,
+		"finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү",
+		"mika", "МИКА",
+		"decision_registration", "Захирамж бүртгэл")
+}
+
+// Authorize godoc
+// @Summary      Файлын объектод хандах эрхийг шалгах
+// @Description  frontend-ийн /api/files proxy энэ маршрутаар объект тус бүрийн эрхийг шалгана
+// @Tags         files
+// @Produce      json
+// @Security     BearerAuth
+// @Param        key  query  string  true  "Объектын түлхүүр (namespace/owner_id/нэр)"
+// @Success      200  {object}  response.Response
+// @Failure      403  {object}  response.Response
+// @Router       /files/authorize [get]
+func (h *FileAccessHandler) Authorize(c *gin.Context) {
+	namespace, ownerID, ok := splitObjectKey(c.Query("key"))
+	if !ok {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
+
+	// 1-р давхарга: уншиж болох эрх огт байгаа эсэх.
+	if !callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
+
+	// 2-р давхарга: тухайн объектын ЭЗЭН рүү буулгаж шалгана.
+	var err error
+	switch namespace {
+	case "acquisition", "drone":
+		err = h.authorizeAcquisition(c, ownerID)
+	case "parcel":
+		err = h.authorizeParcel(c, ownerID)
+	case "compensation-report":
+		err = h.authorizeCompensation(c, ownerID)
+	case "asset-photo":
+		err = h.authorizeAsset(c, ownerID)
+	default:
+		// Танихгүй namespace — зөвшөөрөхгүй (шинэ төрөл нэмэгдвэл энд бүртгэнэ).
+		err = domain.ErrForbidden
+	}
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"allowed": true})
+}
+
+func (h *FileAccessHandler) authorizeAcquisition(c *gin.Context, id string) error {
+	acqID, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	// Мэргэжлийн байгууллага — БАЙГУУЛЛАГЫН гишүүнчлэлээр (/prof маршрутын адил).
+	if profOnlyCaller(c) {
+		orgID, ok := middleware.GetCallerOrgID(c)
+		if !ok {
+			return domain.ErrForbidden
+		}
+		member, err := h.svc.IsProfMemberOfAcquisition(c.Request.Context(), acqID, orgID)
+		if err != nil || !member {
+			return domain.ErrForbidden
+		}
+		return nil
+	}
+	// Ахлах/админ, мөн хяналтын унших ролиуд — хуваарилалтгүйгээр.
+	if middleware.IsSenior(c) || supervisoryReader(c) {
+		return nil
+	}
+	userID, ok := middleware.GetCallerID(c)
+	if !ok {
+		return domain.ErrForbidden
+	}
+	assigned, err := h.svc.IsAssigned(c.Request.Context(), acqID, userID)
+	if err != nil || !assigned {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+func (h *FileAccessHandler) authorizeParcel(c *gin.Context, id string) error {
+	parcelID, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	if profOnlyCaller(c) {
+		orgID, ok := middleware.GetCallerOrgID(c)
+		if !ok {
+			return domain.ErrForbidden
+		}
+		member, err := h.svc.IsProfMemberOfParcel(c.Request.Context(), parcelID, orgID)
+		if err != nil || !member {
+			return domain.ErrForbidden
+		}
+		return nil
+	}
+	if middleware.IsSenior(c) || supervisoryReader(c) {
+		return nil
+	}
+	userID, ok := middleware.GetCallerID(c)
+	if !ok {
+		return domain.ErrForbidden
+	}
+	assigned, err := h.svc.IsAssignedToParcel(c.Request.Context(), parcelID, userID)
+	if err != nil || !assigned {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
+// authorizeCompensation — үнэлгээний тайлан. Эзэн нь нөхөх олговрын мөр тул
+// эхлээд харьяалагдах чөлөөлөлтийг олж, дараа нь ижил дүрмээр шалгана.
+func (h *FileAccessHandler) authorizeCompensation(c *gin.Context, id string) error {
+	compID, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	comp, err := h.svc.GetGlobalCompensation(c.Request.Context(), compID)
+	if err != nil || comp == nil {
+		return domain.ErrForbidden
+	}
+	return h.authorizeAcquisition(c, comp.AcquisitionID.String())
+}
+
+// authorizeAsset — байгууламжийн зураг. Эзэн нь хөрөнгийн мөр.
+func (h *FileAccessHandler) authorizeAsset(c *gin.Context, id string) error {
+	assetID, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	acqID, err := h.svc.GetAssetAcquisition(c.Request.Context(), assetID)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	return h.authorizeAcquisition(c, acqID.String())
+}

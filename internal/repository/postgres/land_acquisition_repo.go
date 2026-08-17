@@ -260,7 +260,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
-		LEFT JOIN sdplatform.sd_organization po ON po.id = la.professional_org_id
+		LEFT JOIN valuation_org_profile po ON po.id = la.professional_org_id
 		WHERE %s
 		ORDER BY la.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -315,11 +315,8 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
-		-- Үнэлгээний байгууллага нь ЭНЭ сангийн sdplatform схемд байдаг тул
-		-- нэрийг шууд join-оор авна. Өмнө нь service давхаргад ХЭРЭГЛЭГЧИЙН
-		-- лавлахаас нөхдөг байсан — professional_org_id нь одоо БАЙГУУЛЛАГЫН
-		-- ID болсон тул тэр нь огт хамаагүй хүний нэрийг харуулж байв.
-		LEFT JOIN sdplatform.sd_organization po ON po.id = la.professional_org_id
+			-- Мэргэжлийн байгууллагын нэр нь app-owned profile-оос уншигдана.
+		LEFT JOIN valuation_org_profile po ON po.id = la.professional_org_id
 		WHERE la.id = $1
 	`, id).Scan(
 		&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
@@ -770,18 +767,15 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
-				       -- Хараат бус үнэлгээний БАЙГУУЛЛАГЫН нэр. Энэ ID нь өмнө нь
-				       -- хэрэглэгчийг заадаг байсан тул нэрийг нь буцаадаггүй байв;
-				       -- одоо байгууллага нь ижил сангийн sdplatform схемд байгаа
-				       -- тул шууд join-оор авна.
-				       COALESCE(io."name", ''),
+				       -- Хараат бус үнэлгээний байгууллагын нэрийг profile-оос авна.
+				       COALESCE(io.name, ''),
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
 				       COALESCE((SELECT jsonb_object_agg(vs.valuation_type, vs.status) FROM parcel_valuation_submission vs WHERE vs.acquisition_id = p.acquisition_id AND vs.parcel_id = p.parcel_id), '{}'::jsonb)
 				FROM parcel p
 				LEFT JOIN parcel_status ps ON ps.id = p.status
-				LEFT JOIN sdplatform.sd_organization io ON io.id = p.independent_org_id
+				LEFT JOIN valuation_org_profile io ON io.id = p.independent_org_id
 				WHERE %s
 			ORDER BY p.parcel_id
 			LIMIT $%d OFFSET $%d
@@ -2608,12 +2602,42 @@ func (r *landAcqRepo) UpdateAsset(ctx context.Context, b *domain.Asset) error {
 
 // DeleteAsset — хөрөнгийг устгаад, хавсаргасан зургийн PDF-ийн URL-ыг буцаана
 // (service нь тухайн файлыг хадгалалтаас устгахад ашиглана).
-func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID) (string, error) {
-	var photoURL string
-	err := r.db.QueryRow(ctx,
-		"DELETE FROM assets WHERE id=$1 AND acquisition_id=$2 RETURNING COALESCE(photo_pdf_url,'')",
-		id, acquisitionID).Scan(&photoURL)
+func (r *landAcqRepo) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {
+	var acqID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT acquisition_id FROM assets WHERE id=$1`, assetID).Scan(&acqID)
 	if err == pgx.ErrNoRows {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return acqID, nil
+}
+
+// allowedStreams хоосон бол хязгаарлалтгүй (дотоод ахлах/админ); эс бөгөөс
+// зөвхөн дуудагчийн үнэлгээний урсгалын мөр устана.
+func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) (string, error) {
+	var streams any
+	if len(allowedStreams) > 0 {
+		streams = allowedStreams
+	}
+	var photoURL string
+	err := r.db.QueryRow(ctx, `
+		DELETE FROM assets
+		WHERE id=$1 AND acquisition_id=$2
+		  AND ($3::text[] IS NULL OR COALESCE(NULLIF(valuation_type,''),'asset') = ANY($3::text[]))
+		RETURNING COALESCE(photo_pdf_url,'')`,
+		id, acquisitionID, streams).Scan(&photoURL)
+	if err == pgx.ErrNoRows {
+		// Мөр өөрөө байгаа хэрнээ урсгал таараагүй бол 404 биш 403 буцаана.
+		if len(allowedStreams) > 0 {
+			var exists bool
+			if e := r.db.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM assets WHERE id=$1 AND acquisition_id=$2)`,
+				id, acquisitionID).Scan(&exists); e == nil && exists {
+				return "", domain.ErrForbidden
+			}
+		}
 		return "", domain.ErrNotFound
 	}
 	if err != nil {
@@ -3258,6 +3282,39 @@ func (r *landAcqRepo) DeleteCompensationGrantByCompensationID(ctx context.Contex
 		return domain.ErrNotFound
 	}
 	return err
+}
+
+// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт.
+//
+// List()-ЭЭС ЗӨРӨӨТЭЙ: geometry, parcel COUNT(*), acquisition_category болон
+// sdplatform.sd_organization join БАЙХГҮЙ — зөвхөн land_acquisition хүснэгтийн
+// 4 багана. Иймд нэгж талбар/үнэлгээний өгөгдөл өсөхөд ч хугацаа нь өсөхгүй.
+//
+// ШҮҮЛТГҮЙ (status/роль): жагсаалтын шүүлтүүрийг БҮХ нэвтэрсэн хэрэглэгч
+// харна. Шүүлтүүрийн сонголт хязгаарлагдвал хэрэглэгч өөрт харагдах ёстой
+// мөрүүдийг шүүж чадахгүй болдог. Жагсаалтын БОДИТ өгөгдлийн эрх нь
+// List()/ListReportParcels() дээрээ хэвээр шалгагдана — энд зөвхөн нэр, план
+// код л буцна.
+func (r *landAcqRepo) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT la.id, COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
+		       COALESCE(la.plan_name,'')
+		FROM land_acquisition la
+		ORDER BY la.acquisition_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]*domain.LandAcquisitionOption, 0, 64)
+	for rows.Next() {
+		o := &domain.LandAcquisitionOption{}
+		if err := rows.Scan(&o.ID, &o.AcquisitionName, &o.PlanCode, &o.PlanName); err != nil {
+			return nil, err
+		}
+		result = append(result, o)
+	}
+	return result, rows.Err()
 }
 
 func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
