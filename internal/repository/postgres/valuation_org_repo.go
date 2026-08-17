@@ -259,14 +259,33 @@ func (r *ValuationOrgRepo) Delete(ctx context.Context, id domain.ID) error {
 	// БАЙХГҮЙ тул хэлтэс устахад ажилтан устсан дугаар руу зааж үлддэг —
 	// serial дугаар дахин ашиглагдвал тэр ажилтан ӨӨР байгууллагад чимээгүй
 	// наалдаж, тэр байгууллагын ажлыг харах эрсдэлтэй.
-	if _, err := tx.Exec(ctx, `
+	detached, err := tx.Query(ctx, `
 		UPDATE sdplatform.hr_employee e
 		SET department_id = NULL, is_active = 0,
 		    terminated_date = COALESCE(e.terminated_date, $2::date), updated_at = $2
 		WHERE e.department_id IN (
 			SELECT department_id FROM sdplatform.hr_department WHERE organization = $1
-		)`, id, time.Now()); err != nil {
+		)
+		RETURNING e.employee_id`, id, time.Now())
+	if err != nil {
 		return mapHRError(err)
+	}
+	var detachedIDs []domain.ID
+	for detached.Next() {
+		var empID domain.ID
+		if err := detached.Scan(&empID); err != nil {
+			detached.Close()
+			return err
+		}
+		detachedIDs = append(detachedIDs, empID)
+	}
+	detached.Close()
+	if err := detached.Err(); err != nil {
+		return err
+	}
+	// Байгууллага байхгүй болсон тул ажилтнуудын нэвтрэх эрхийг мөн хаана.
+	if err := deactivateEmployeeUsers(ctx, tx, detachedIDs); err != nil {
+		return err
 	}
 
 	res, err := tx.Exec(ctx, `DELETE FROM sdplatform.sd_organization WHERE id = $1`, id)
@@ -382,23 +401,45 @@ func saveValuationEmployees(ctx context.Context, tx pgx.Tx, orgID domain.ID, emp
 	}
 
 	// Үлдсэнийг идэвхгүй болгоно. keep хоосон байж болзошгүй тул ANY(NULL)
-	// биш, тусад нь салгаж бичнэ.
+	// биш, тусад нь салгаж бичнэ. Идэвхгүй болсон ажилтны employee_id-г
+	// буцааж авах нь чухал — нэвтрэх эрхийг нь мөн хаах хэрэгтэй.
 	now := time.Now()
+	var rows pgx.Rows
 	if len(keep) == 0 {
-		_, err = tx.Exec(ctx, `
+		rows, err = tx.Query(ctx, `
 			UPDATE sdplatform.hr_employee e
 			SET is_active = 0, terminated_date = COALESCE(e.terminated_date, $2::date), updated_at = $2
 			WHERE e.department_id IN (SELECT department_id FROM sdplatform.hr_department WHERE organization = $1)
-			  AND COALESCE(e.is_active, 1) <> 0`, orgID, now)
+			  AND COALESCE(e.is_active, 1) <> 0
+			RETURNING e.employee_id`, orgID, now)
 	} else {
-		_, err = tx.Exec(ctx, `
+		rows, err = tx.Query(ctx, `
 			UPDATE sdplatform.hr_employee e
 			SET is_active = 0, terminated_date = COALESCE(e.terminated_date, $3::date), updated_at = $3
 			WHERE e.department_id IN (SELECT department_id FROM sdplatform.hr_department WHERE organization = $1)
 			  AND COALESCE(e.is_active, 1) <> 0
-			  AND e.employee_id <> ALL($2::int4[])`, orgID, keep, now)
+			  AND e.employee_id <> ALL($2::int4[])
+			RETURNING e.employee_id`, orgID, keep, now)
 	}
-	return mapHRError(err)
+	if err != nil {
+		return mapHRError(err)
+	}
+	var removed []domain.ID
+	for rows.Next() {
+		var id domain.ID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		removed = append(removed, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Байгууллагаас хасагдсан ажилтан нэвтэрсээр байх ёсгүй.
+	return deactivateEmployeeUsers(ctx, tx, removed)
 }
 
 func saveValuationEmployee(ctx context.Context, tx pgx.Tx, orgID, deptID domain.ID, in *domain.ValuationOrgEmployee) (domain.ID, error) {

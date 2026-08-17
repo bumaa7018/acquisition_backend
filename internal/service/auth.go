@@ -164,21 +164,20 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	return tokens, nil
 }
 
+// findLoginUser — нэвтрэх нэр ЭСВЭЛ имэйлээр хэрэглэгчийг олно.
+//
+// `login` нь имэйл байх ШААРДЛАГАГҮЙ — "user0101010" гэх мэт энгийн нэр ч
+// хүчинтэй. Хайлт нь ЗӨВХӨН ИДЭВХТЭЙ хэрэглэгчийг олдог тул идэвхгүй бүртгэл
+// "олдсонгүй" болж, гаднаас бүртгэл байгаа эсэхийг таамаглах боломжгүй болно.
 func (s *authService) findLoginUser(ctx context.Context, login string) (*domain.User, repository.UserRepository, error) {
-	user, err := s.userRepo.GetByUsername(ctx, login)
-	if err == domain.ErrNotFound {
-		user, err = s.userRepo.GetByEmail(ctx, login)
-	}
+	user, err := s.userRepo.GetActiveByLogin(ctx, login)
 	if err == nil {
 		return user, s.userRepo, nil
 	}
 	if err != domain.ErrNotFound || s.externalUserRepo == nil {
 		return nil, nil, err
 	}
-	user, err = s.externalUserRepo.GetByUsername(ctx, login)
-	if err == domain.ErrNotFound {
-		user, err = s.externalUserRepo.GetByEmail(ctx, login)
-	}
+	user, err = s.externalUserRepo.GetActiveByLogin(ctx, login)
 	if err != nil {
 		return nil, nil, err
 	}

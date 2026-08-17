@@ -230,6 +230,21 @@ func (r *UserRepo) GetByEmployeeID(ctx context.Context, employeeID domain.ID) (*
 	return r.getBy(ctx, "e.employee_id = $1", employeeID)
 }
 
+// GetActiveByLogin — НЭВТРЭХЭД зориулсан хайлт: нэвтрэх нэр ЭСВЭЛ имэйлээр
+// хайх ба ЗӨВХӨН идэвхтэй хэрэглэгчийг олно.
+//
+// Яагаад тусдаа метод вэ: GetByUsername/GetByEmail нь seed-ийн давхардлын
+// шалгалт, хэрэглэгч үүсгэхийн өмнөх шалгалт, нууц үг сэргээх зэрэгт
+// хэрэглэгддэг бөгөөд тэдгээрт ИДЭВХГҮЙ хэрэглэгч ч олдох ёстой (эс бөгөөс
+// идэвхгүй хүнтэй ижил нэрээр давхардсан бүртгэл үүсгэх, эсвэл идэвхгүй
+// болгосон хүнээ буцааж идэвхжүүлэх боломжгүй болно).
+//
+// Нэвтрэх үед идэвхгүй хэрэглэгч ОГТ ОЛДОХГҮЙ байх нь "бүртгэл байгаа эсэх"-ийг
+// гаднаас таамаглах боломжийг ч хаана (403 биш 401 буцна).
+func (r *UserRepo) GetActiveByLogin(ctx context.Context, login string) (*domain.User, error) {
+	return r.getBy(ctx, "(u.username = $1 OR u.email = $1) AND COALESCE(u.is_active, false) = true", login)
+}
+
 // attachRoles — хэрэглэгчдийн ролиудыг НЭГ хүсэлтээр татна (N+1-ээс сэргийлнэ).
 func (r *UserRepo) attachRoles(ctx context.Context, users []*domain.User) error {
 	if len(users) == 0 {

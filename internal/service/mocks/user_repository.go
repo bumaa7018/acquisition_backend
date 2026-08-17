@@ -69,6 +69,14 @@ func (m *MockUserRepository) GetByUsername(ctx context.Context, username string)
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
+func (m *MockUserRepository) GetActiveByLogin(ctx context.Context, login string) (*domain.User, error) {
+	args := m.Called(ctx, login)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
+}
+
 func (m *MockUserRepository) GetByEmployeeID(ctx context.Context, employeeID domain.ID) (*domain.User, error) {
 	args := m.Called(ctx, employeeID)
 	if args.Get(0) == nil {

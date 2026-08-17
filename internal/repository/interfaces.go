@@ -15,6 +15,11 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id domain.ID) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
+	// GetActiveByLogin — нэвтрэх нэр ЭСВЭЛ имэйлээр хайх, ЗӨВХӨН идэвхтэй
+	// хэрэглэгч. Нэвтрэлтэд ҮҮНИЙГ хэрэглэнэ — GetByUsername/GetByEmail нь
+	// идэвхгүй хэрэглэгчийг ч олдог тул (давхардлын шалгалт, дахин
+	// идэвхжүүлэлтэд шаардлагатай) нэвтрэлтэд тохирохгүй.
+	GetActiveByLogin(ctx context.Context, login string) (*domain.User, error)
 	GetByEmployeeID(ctx context.Context, employeeID domain.ID) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	// UpdatePassword — Update() нь password баганыг хөндөхгүй тул нууц үг

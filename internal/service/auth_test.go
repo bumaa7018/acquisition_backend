@@ -46,7 +46,7 @@ func TestAuthService_Login_Success(t *testing.T) {
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782" // "secret"
 	user := &domain.User{ID: userID, Username: "testuser", Password: hashedPwd, IsActive: true}
 
-	userRepo.On("GetByUsername", context.Background(), "testuser").Return(user, nil)
+	userRepo.On("GetActiveByLogin", context.Background(), "testuser").Return(user, nil)
 	userRepo.On("GetPermissions", context.Background(), userID).Return([]string{"users:read"}, nil)
 	userRepo.On("GetRoles", context.Background(), userID).Return([]string{"admin"}, nil)
 
@@ -67,7 +67,7 @@ func TestAuthService_Login_WrongPassword(t *testing.T) {
 
 	hashedPwd := "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782"
 	user := &domain.User{ID: domain.ID(7), Username: "testuser", Password: hashedPwd, IsActive: true}
-	userRepo.On("GetByUsername", context.Background(), "testuser").Return(user, nil)
+	userRepo.On("GetActiveByLogin", context.Background(), "testuser").Return(user, nil)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Login(context.Background(), service.LoginRequest{
@@ -82,8 +82,7 @@ func TestAuthService_Login_UserNotFound(t *testing.T) {
 	pwdRepo := &mocks.MockPasswordResetRepository{}
 	es := &mockEmailSender{}
 
-	userRepo.On("GetByUsername", context.Background(), "noone").Return(nil, domain.ErrNotFound)
-	userRepo.On("GetByEmail", context.Background(), "noone").Return(nil, domain.ErrNotFound)
+	userRepo.On("GetActiveByLogin", context.Background(), "noone").Return(nil, domain.ErrNotFound)
 
 	svc := newAuthSvc(userRepo, pwdRepo, es)
 	_, err := svc.Login(context.Background(), service.LoginRequest{
