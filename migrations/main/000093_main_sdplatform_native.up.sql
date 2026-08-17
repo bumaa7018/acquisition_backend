@@ -383,6 +383,32 @@ DROP TABLE IF EXISTS sdplatform.sd_permission_api_meta;
 -- Хэрэглэгчийн ID заадаг багануудыг uuid → int4
 -- ---------------------------------------------------------------------------
 
+-- Хуучин uuid утгууд шинэ int4 хэрэглэгчид харгалзахгүй тул хөрвүүлэх үед
+-- бүгдийг NULL болгоно (гадаад холбоос алдагдана).
+--
+-- ЗААВАЛ ЭХЛЭЭД мөрийг устгах хүснэгтүүд: доорх багануудын зарим нь NOT NULL
+-- (land_acquisition_assignee.user_id нь бүр PK-ийн хэсэг) тул "USING NULL"
+-- шууд хийвэл өгөгдөлтэй DB дээр migration унана. Утга нь ямар ч тохиолдолд
+-- алдагдах тул мөрийг нь урьдчилан цэвэрлэх нь цорын ганц зөв арга.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'land_acquisition_assignee'
+          AND column_name = 'user_id' AND data_type = 'uuid'
+    ) THEN
+        DELETE FROM public.land_acquisition_assignee;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'notification'
+          AND column_name = 'recipient_id' AND data_type = 'uuid'
+    ) THEN
+        DELETE FROM public.notification;
+    END IF;
+END $$;
+
 DO $$
 DECLARE
     c record;
@@ -404,8 +430,6 @@ BEGIN
             WHERE table_schema = 'public' AND table_name = c.tbl
               AND column_name = c.col AND data_type = 'uuid'
         ) THEN
-            -- Хуучин uuid утгууд шинэ int4 хэрэглэгчид харгалзахгүй тул
-            -- цэвэрлээд төрлийг нь солино (гадаад холбоос алдагдана).
             EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I DROP DEFAULT', c.tbl, c.col);
             EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I TYPE int4 USING NULL', c.tbl, c.col);
         END IF;

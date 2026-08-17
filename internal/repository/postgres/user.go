@@ -246,6 +246,7 @@ func (r *UserRepo) attachRoles(ctx context.Context, users []*domain.User) error 
 		       COALESCE(r.role_type_code, ''), COALESCE(r.description, '')
 		FROM sdplatform.sd_user_role ur
 		JOIN sdplatform.sd_role r ON r.role_id = ur.role_id
+		JOIN sdplatform.sd_system_role sr ON sr.role_id = r.role_id AND sr.system_id = 10
 		WHERE ur.user_id = ANY($1)
 		ORDER BY r.name`, ids)
 	if err != nil {
@@ -337,6 +338,7 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 		where += fmt.Sprintf(` AND EXISTS (
 			SELECT 1 FROM sdplatform.sd_user_role ur
 			JOIN sdplatform.sd_role r ON r.role_id = ur.role_id
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = r.role_id AND sr.system_id = 10
 			WHERE ur.user_id = u.user_id
 			  AND (r.name = $%d OR r.name = COALESCE(r.role_type_code, '') || '_' || $%d)
 		)`, argIdx, argIdx)
@@ -416,6 +418,33 @@ func (r *UserRepo) attachEmployees(ctx context.Context, users []*domain.User) er
 	return rows.Err()
 }
 
+// OrgIDForUser — хэрэглэгчийн ХАРЬЯА байгууллага (JWT-ийн org_id).
+//
+// ЯАГААД ЭНЭ REPO ДЭЭР: хоёр эх сурвалж (auth / main) тус тусын serial4
+// дараалалтай тул user_id МӨРГӨЛДДӨГ — жишээ нь authdb-ийн 3 = admin, appdb-ийн
+// 3 = гадаад үнэлгээчин. Хэрэв байгууллагыг өөр сангаас хайвал admin нь
+// огт хамаагүй байгууллагын гишүүн болж тодорхойлогдоно. Тиймээс лавлагаа нь
+// хэрэглэгчийг ОЛСОН ЯГ ТЭР pool (r.db) дээр явах ёстой.
+//
+// Ажилтны бүртгэлгүй (иймд байгууллагад харьяалагдаагүй) хэрэглэгчид nil.
+func (r *UserRepo) OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	var orgID *domain.ID
+	err := r.db.QueryRow(ctx, `
+		SELECT d.organization
+		FROM sdplatform.hr_employee e
+		JOIN sdplatform.hr_department d ON d.department_id = e.department_id
+		WHERE e.user_id = $1 AND COALESCE(e.is_active, 1) <> 0
+		ORDER BY e.employee_id
+		LIMIT 1`, userID).Scan(&orgID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return orgID, nil
+}
+
 // InvalidateSessions — sd_user-т токены эх цэг хадгалах багана байхгүй тул
 // аппын өөрийн сан дахь user_token_epoch хүснэгтэд бичнэ.
 func (r *UserRepo) InvalidateSessions(ctx context.Context, userID domain.ID) error {
@@ -448,6 +477,7 @@ func (r *UserRepo) GetRoles(ctx context.Context, userID domain.ID) ([]string, er
 		SELECT COALESCE(r.name, ''), COALESCE(r.role_type_code, '')
 		FROM sdplatform.sd_role r
 		JOIN sdplatform.sd_user_role ur ON ur.role_id = r.role_id
+		JOIN sdplatform.sd_system_role sr ON sr.role_id = r.role_id AND sr.system_id = 10
 		WHERE ur.user_id = $1`, userID)
 	if err != nil {
 		return nil, err
@@ -473,12 +503,32 @@ func (r *UserRepo) GetRoles(ctx context.Context, userID domain.ID) ([]string, er
 // GetPermissions — эрх нь ролийн нөөц + эрхийн үйлдэл: "land:read".
 func (r *UserRepo) GetPermissions(ctx context.Context, userID domain.ID) ([]string, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT DISTINCT COALESCE(r.role_type_code, ''), COALESCE(p.name, '')
-		FROM sdplatform.sd_permission p
-		JOIN sdplatform.sd_role_permission rp ON rp.permission_id = p.permission_id
-		JOIN sdplatform.sd_role r ON r.role_id = rp.role_id
-		JOIN sdplatform.sd_user_role ur ON ur.role_id = r.role_id
-		WHERE ur.user_id = $1`, userID)
+		SELECT DISTINCT resource, action
+		FROM (
+			SELECT COALESCE(m.code, '') AS resource, COALESCE(p.name, '') AS action
+			FROM sdplatform.sd_user_role ur
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = ur.role_id AND sr.system_id = 10
+			JOIN sdplatform.sd_role_permission rp ON rp.role_id = ur.role_id
+			JOIN sdplatform.sd_menu m ON m.menu_id = rp.menu_id
+			JOIN sdplatform.sd_menu_form mf ON mf.menu_id = m.menu_id OR mf.menu_code = m.code
+			JOIN sdplatform.sd_form f ON f.form_id = mf.form_id OR f.code = mf.form_code
+			JOIN sdplatform.sd_permission p ON p.permission_id = rp.permission_id
+			JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+				AND (
+					fp.permission_id = p.permission_id
+					OR fp.permission_code = p.code
+					OR fp.permission_code = p.name
+				)
+			WHERE ur.user_id = $1
+			UNION ALL
+			SELECT COALESCE(r.role_type_code, '') AS resource, COALESCE(p.name, '') AS action
+			FROM sdplatform.sd_user_role ur
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = ur.role_id AND sr.system_id = 10
+			JOIN sdplatform.sd_role r ON r.role_id = ur.role_id
+			JOIN sdplatform.sd_role_permission rp ON rp.role_id = ur.role_id AND rp.menu_id IS NULL
+			JOIN sdplatform.sd_permission p ON p.permission_id = rp.permission_id
+			WHERE ur.user_id = $1
+		) q`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +544,7 @@ func (r *UserRepo) GetPermissions(ctx context.Context, userID domain.ID) ([]stri
 		if action == "" {
 			continue
 		}
-		key := domain.PermissionKey(resource, action)
+		key := domain.MenuPermissionKey(resource, action)
 		if !seen[key] {
 			seen[key] = true
 			perms = append(perms, key)

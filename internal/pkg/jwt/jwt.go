@@ -12,15 +12,23 @@ import (
 )
 
 type Claims struct {
-	UserID      domain.ID `json:"user_id"`
-	Username    string    `json:"username"`
-	Email       string    `json:"email"`
-	FullName    string    `json:"full_name"`
-	FirstName   string    `json:"first_name"`
-	LastName    string    `json:"last_name"`
-	Position    string    `json:"position"`
-	Roles       []string  `json:"roles"`
-	Permissions []string  `json:"permissions"`
+	UserID   domain.ID `json:"user_id"`
+	Username string    `json:"username"`
+	Email    string    `json:"email"`
+	FullName string    `json:"full_name"`
+	// OrgID — хэрэглэгчийн ХАРЬЯА байгууллага, ажилтны бүртгэлээр тогтоогдоно
+	// (sd_user → hr_employee → hr_department.organization).
+	//
+	// Мэргэжлийн байгууллагын хандалт үүн дээр тулгуурлана: чөлөөлөлт эсвэл
+	// нэгж талбарт оноогдсон байгууллагын ЯМАР Ч ажилтан ажиллаж чадна. Өмнө
+	// нь хэрэглэгчийн ID-тай шууд тулгадаг байсан тул нэг байгууллагад ганц
+	// хэрэглэгч байж чаддаг байв.
+	OrgID       *domain.ID `json:"org_id,omitempty"`
+	FirstName   string     `json:"first_name"`
+	LastName    string     `json:"last_name"`
+	Position    string     `json:"position"`
+	Roles       []string   `json:"roles"`
+	Permissions []string   `json:"permissions"`
 	jwt.RegisteredClaims
 }
 
@@ -67,6 +75,7 @@ func (m *Manager) SetSessionValidator(v SessionValidator) {
 
 type UserInfo struct {
 	ID          domain.ID
+	OrgID       *domain.ID
 	Username    string
 	Email       string
 	FullName    string
@@ -92,6 +101,7 @@ func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
 func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (string, error) {
 	claims := Claims{
 		UserID:      u.ID,
+		OrgID:       u.OrgID,
 		Username:    u.Username,
 		Email:       u.Email,
 		FullName:    u.FullName,

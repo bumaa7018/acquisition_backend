@@ -52,15 +52,42 @@ func (r *MenuRepo) collect(ctx context.Context, query string, args ...any) ([]*d
 
 // List — системийн бүх цэс.
 func (r *MenuRepo) List(ctx context.Context) ([]*domain.Menu, error) {
-	return r.collect(ctx, menuSelectSQL+` ORDER BY COALESCE(m.sort_order, 0), m."name"`)
+	menus, err := r.collect(ctx, menuSelectSQL+`
+		WHERE EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_form f
+			JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+			WHERE f.code = m.code
+		)
+		ORDER BY COALESCE(m.sort_order, 0), m."name"`)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachAvailablePermissions(ctx, menus); err != nil {
+		return nil, err
+	}
+	return menus, nil
 }
 
 // ListByRole — тухайн роль дээр холбогдсон цэсүүд.
 func (r *MenuRepo) ListByRole(ctx context.Context, roleID domain.ID) ([]*domain.Menu, error) {
-	return r.collect(ctx, menuSelectSQL+`
+	menus, err := r.collect(ctx, menuSelectSQL+`
 		JOIN sdplatform.sd_menu_role mr ON mr.menu_id = m.menu_id
 		WHERE mr.role_id = $1
+		  AND EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_form f
+			JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+			WHERE f.code = m.code
+		  )
 		ORDER BY COALESCE(m.sort_order, 0), m."name"`, roleID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachAvailablePermissions(ctx, menus); err != nil {
+		return nil, err
+	}
+	return menus, nil
 }
 
 // ListByUser — хэрэглэгчийн ролиудаар дамжин харагдах цэсүүд (давхардалгүй).
@@ -73,8 +100,86 @@ func (r *MenuRepo) ListByUser(ctx context.Context, userID domain.ID) ([]*domain.
 		FROM sdplatform.sd_menu m
 		JOIN sdplatform.sd_menu_role mr ON mr.menu_id = m.menu_id
 		JOIN sdplatform.sd_user_role ur ON ur.role_id = mr.role_id
+		JOIN sdplatform.sd_system_role sr ON sr.role_id = ur.role_id AND sr.system_id = 10
 		WHERE ur.user_id = $1
+		  AND EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_form f
+			JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+			WHERE f.code = m.code
+		  )
 		ORDER BY COALESCE(m.sort_order, 0), COALESCE(m."name", '')`, userID)
+}
+
+func (r *MenuRepo) ListPermissions(ctx context.Context, menuID domain.ID) ([]domain.Permission, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT p.permission_id, COALESCE(p.code, ''), COALESCE(p.name, ''),
+		       COALESCE(m.code, ''), COALESCE(p.created_at::timestamptz, NOW())
+		FROM sdplatform.sd_menu m
+		JOIN sdplatform.sd_form f ON f.code = m.code
+		JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+		JOIN sdplatform.sd_permission p ON
+			p.permission_id = fp.permission_id
+			OR p.code = fp.permission_code
+			OR p.name = fp.permission_code
+		WHERE m.menu_id = $1
+		ORDER BY COALESCE(p.name, '')`, menuID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Permission
+	for rows.Next() {
+		var p domain.Permission
+		if err := rows.Scan(&p.ID, &p.Code, &p.Action, &p.Resource, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		p.Resource = domain.MenuResource(p.Resource)
+		p.Name = domain.PermissionKey(p.Resource, p.Action)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (r *MenuRepo) attachAvailablePermissions(ctx context.Context, menus []*domain.Menu) error {
+	if len(menus) == 0 {
+		return nil
+	}
+	byID := make(map[domain.ID]*domain.Menu, len(menus))
+	ids := make([]domain.ID, 0, len(menus))
+	for _, m := range menus {
+		byID[m.ID] = m
+		ids = append(ids, m.ID)
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT m.menu_id, p.permission_id, COALESCE(p.code, ''), COALESCE(p.name, ''),
+		       COALESCE(m.code, ''), COALESCE(p.created_at::timestamptz, NOW())
+		FROM sdplatform.sd_menu m
+		JOIN sdplatform.sd_form f ON f.code = m.code
+		JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+		JOIN sdplatform.sd_permission p ON
+			p.permission_id = fp.permission_id
+			OR p.code = fp.permission_code
+			OR p.name = fp.permission_code
+		WHERE m.menu_id = ANY($1)
+		ORDER BY COALESCE(p.name, '')`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var menuID domain.ID
+		var p domain.Permission
+		if err := rows.Scan(&menuID, &p.ID, &p.Code, &p.Action, &p.Resource, &p.CreatedAt); err != nil {
+			return err
+		}
+		if m := byID[menuID]; m != nil {
+			p.Resource = domain.MenuResource(p.Resource)
+			p.Name = domain.PermissionKey(p.Resource, p.Action)
+			m.Permissions = append(m.Permissions, p)
+		}
+	}
+	return rows.Err()
 }
 
 // AttachToRole — цэсийг роль дээр холбоно (идемпотент).
@@ -88,7 +193,16 @@ func (r *MenuRepo) AttachToRole(ctx context.Context, roleID, menuID domain.ID) e
 
 // DetachFromRole — холбоосыг салгана.
 func (r *MenuRepo) DetachFromRole(ctx context.Context, roleID, menuID domain.ID) error {
-	res, err := r.db.Exec(ctx,
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1 AND menu_id = $2`, roleID, menuID); err != nil {
+		return err
+	}
+	res, err := tx.Exec(ctx,
 		`DELETE FROM sdplatform.sd_menu_role WHERE role_id = $1 AND menu_id = $2`, roleID, menuID)
 	if err != nil {
 		return err
@@ -96,5 +210,5 @@ func (r *MenuRepo) DetachFromRole(ctx context.Context, roleID, menuID domain.ID)
 	if res.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }

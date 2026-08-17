@@ -24,6 +24,10 @@ type UserRepository interface {
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
 	GetPermissions(ctx context.Context, userID domain.ID) ([]string, error)
 	GetRoles(ctx context.Context, userID domain.ID) ([]string, error)
+	// OrgIDForUser — хэрэглэгчийн харьяа байгууллага (JWT-ийн org_id).
+	// Эх сурвалж бүр (auth/main) тусдаа serial4 дараалалтай тул user_id
+	// мөргөлддөг — иймд лавлагаа нь хэрэглэгчийг ОЛСОН репогоор явах ёстой.
+	OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
 	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
 	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
@@ -73,6 +77,16 @@ type EmployeeRepository interface {
 	DeleteEmployee(ctx context.Context, id domain.ID) error
 }
 
+// ValuationOrgRepository — үнэлгээний байгууллага ба түүний ажилтнууд.
+// Ажилтнууд байгууллагатайгаа ХАМТ, нэг гүйлгээгээр хадгалагдана.
+type ValuationOrgRepository interface {
+	List(ctx context.Context, filter domain.ValuationOrgFilter) ([]*domain.ValuationOrg, int64, error)
+	GetByID(ctx context.Context, id domain.ID) (*domain.ValuationOrg, error)
+	Create(ctx context.Context, org *domain.ValuationOrg, employees []domain.ValuationOrgEmployee) error
+	Update(ctx context.Context, org *domain.ValuationOrg, employees []domain.ValuationOrgEmployee) error
+	Delete(ctx context.Context, id domain.ID) error
+}
+
 type RoleRepository interface {
 	Create(ctx context.Context, role *domain.Role) error
 	GetByID(ctx context.Context, id domain.ID) (*domain.Role, error)
@@ -82,6 +96,8 @@ type RoleRepository interface {
 	List(ctx context.Context) ([]*domain.Role, error)
 	AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error
 	RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error
+	SetMenuPermissions(ctx context.Context, roleID, menuID domain.ID, permissionIDs []domain.ID) error
+	RemoveMenuPermissions(ctx context.Context, roleID, menuID domain.ID) error
 	AssignToUser(ctx context.Context, userID, roleID domain.ID) error
 	RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error
 }
@@ -99,6 +115,7 @@ type MenuRepository interface {
 	List(ctx context.Context) ([]*domain.Menu, error)
 	ListByRole(ctx context.Context, roleID domain.ID) ([]*domain.Menu, error)
 	ListByUser(ctx context.Context, userID domain.ID) ([]*domain.Menu, error)
+	ListPermissions(ctx context.Context, menuID domain.ID) ([]domain.Permission, error)
 	AttachToRole(ctx context.Context, roleID, menuID domain.ID) error
 	DetachFromRole(ctx context.Context, roleID, menuID domain.ID) error
 }
@@ -293,8 +310,12 @@ type LandAssigneeRepository interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error)
+	// OrgUserIDs — тухайн байгууллагын НЭВТРЭХ ЭРХТЭЙ идэвхтэй ажилтнуудын
+	// хэрэглэгчийн ID-ууд. Байгууллагад мэдэгдэл илгээхэд хэрэглэнэ: ажил нь
+	// нэг хүнд биш байгууллагад оноогддог тул бүх ажилтанд мэдэгдэнэ.
+	OrgUserIDs(ctx context.Context, orgID domain.ID) ([]domain.ID, error)
 }
 
 type LandWorkflowRepository interface {

@@ -865,6 +865,14 @@ func (m *MockRoleService) RemovePermission(ctx context.Context, roleID, permissi
 	return m.Called(ctx, roleID, permissionID).Error(0)
 }
 
+func (m *MockRoleService) SetMenuPermissions(ctx context.Context, roleID, menuID domain.ID, permissionIDs []domain.ID) error {
+	return m.Called(ctx, roleID, menuID, permissionIDs).Error(0)
+}
+
+func (m *MockRoleService) RemoveMenuPermissions(ctx context.Context, roleID, menuID domain.ID) error {
+	return m.Called(ctx, roleID, menuID).Error(0)
+}
+
 func (m *MockRoleService) AssignToUser(ctx context.Context, userID, roleID domain.ID) error {
 	return m.Called(ctx, userID, roleID).Error(0)
 }

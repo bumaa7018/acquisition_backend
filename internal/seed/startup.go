@@ -239,6 +239,28 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 					SeedLegacySDPlatformSystem10(ctx)
 			},
 		},
+		{
+			name: "000027_system10_role_matrix",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
+					SeedSystemRoles(ctx)
+			},
+		},
+		{
+			// Хандалт нь хэрэглэгчийн ID-аас БАЙГУУЛЛАГЫН ID (JWT org_id) руу
+			// шилжсэн тул ажилтны бүртгэлгүй хуучин мэргэжлийн байгууллагын
+			// хэрэглэгчид харьяалалгүй үлдэж, юу ч харахгүй болно. Энэ алхам
+			// тэдгээрт байгууллага + ажилтны бүртгэл үүсгэж өгнө.
+			name: "000028_valuation_org_registry",
+			run: func(ctx context.Context) error {
+				return NewSeeder(
+					mainDB,
+					postgres.NewUserRepoFor("main", mainDB, mainDB),
+					postgres.NewRoleRepo(mainDB),
+					postgres.NewPermissionRepo(mainDB),
+				).SeedValuationOrgRegistry(ctx)
+			},
+		},
 	})
 
 	return nil

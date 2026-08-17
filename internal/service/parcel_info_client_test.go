@@ -13,6 +13,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHTTPParcelInfoClient_AddsMiddlewareCredentialsAndCallerAuthorization(t *testing.T) {
+	var gotAuthorization, gotMiddlewareUser, gotMiddlewarePassword string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		gotMiddlewareUser = r.Header.Get("X-Middleware-Username")
+		gotMiddlewarePassword = r.Header.Get("X-Middleware-Password")
+		_, _ = w.Write([]byte(`{"code":200,"data":{"parcel_id":"1800805431"},"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	client := service.NewHTTPParcelInfoClient(srv.URL, service.MiddlewareCredentials{
+		Username: "government-api",
+		Password: "secret",
+	})
+	reqCtx := service.ContextWithAuthorization(ctx, "Bearer user-token")
+
+	_, err := client.GetParcelInfo(reqCtx, "1800805431")
+	require.NoError(t, err)
+
+	assert.Equal(t, "Bearer user-token", gotAuthorization)
+	assert.Equal(t, "government-api", gotMiddlewareUser)
+	assert.Equal(t, "secret", gotMiddlewarePassword)
+}
+
 // Дундын сервисийн /application/persons хариултыг эзэмшигч болгон хөрвүүлэх:
 // bs_person.name → овог, first_name → өөрийн нэр.
 func TestHTTPParcelInfoClient_ListApplicationPersons(t *testing.T) {

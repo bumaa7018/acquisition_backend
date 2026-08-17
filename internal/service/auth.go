@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -75,6 +76,41 @@ func NewAuthService(
 	}
 }
 
+// orgIDFor — хэрэглэгчийн харьяа ҮНЭЛГЭЭНИЙ байгууллага (токены org_id).
+//
+// Энэ нэхэмжлэл нь land_acquisition.professional_org_id / parcel.
+// independent_org_id-тай тулгагддаг ба тэдгээр нь ГАДААД талуудын сан дахь
+// sd_organization.id-г заадаг. Иймд лавлагаа зөвхөн ТЭР сангаас явах ёстой.
+//
+// ЯАГААД ЭНЭ ХАТУУ ЗААГ ХЭРЭГТЭЙ: auth ба main сан тус тусын serial4
+// дараалалтай тул ID нь ХОЁР ТҮВШИНД мөргөлддөг —
+//   - user_id: authdb-ийн admin(3) ↔ appdb-ийн гадаад ажилтан(3);
+//   - organization.id: authdb-ийн "Нийслэлийн Газрын алба"(1) ↔ appdb-ийн
+//     "Үнэлгээний Байгууллага 3"(1).
+//
+// Дотоод ажилтны байгууллагыг энэ нэхэмжлэлд бичвэл тэр нь өөр байгууллагын
+// чөлөөлөлтөд тохирч, хөндлөнгийн хандалт үүсгэнэ. Тиймээс дотоод (auth)
+// хэрэглэгчид org_id ОГТ олгогдохгүй — тэдний хандалт роль/эрхээр шийдэгддэг.
+//
+// Тогтоох боломжгүй бол nil: нэвтрэлт ЗОГСОХГҮЙ, зүгээр л org_id-гүй токен.
+func (s *authService) orgIDFor(ctx context.Context, sourceRepo repository.UserRepository, userID domain.ID) *domain.ID {
+	// Гадаад талуудын (үнэлгээний байгууллага) сан. Нэг л репотой байвал
+	// мөргөлдөх зүйл байхгүй тул түүнийг ашиглана.
+	orgSource := s.externalUserRepo
+	if orgSource == nil {
+		orgSource = s.userRepo
+	}
+	if sourceRepo == nil || sourceRepo != orgSource {
+		return nil
+	}
+	orgID, err := orgSource.OrgIDForUser(ctx, userID)
+	if err != nil {
+		slog.Warn("org lookup for token failed", "user_id", userID, "error", err)
+		return nil
+	}
+	return orgID
+}
+
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
 	// Brute-force хамгаалалт: цонхонд хэт олон амжилтгүй оролдлого хийсэн бол
 	// нууц үг зөв эсэхийг ч шалгалгүй 429 буцаана (username-ээр, IP-ээс хамааралгүй).
@@ -109,6 +145,7 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	}
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
+		OrgID:       s.orgIDFor(ctx, sourceRepo, user.ID),
 		Username:    user.Username,
 		Email:       user.Email,
 		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
@@ -186,6 +223,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	}
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:          user.ID,
+		OrgID:       s.orgIDFor(ctx, sourceRepo, user.ID),
 		Username:    user.Username,
 		Email:       user.Email,
 		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),

@@ -314,13 +314,20 @@ func (s *landService) notifyAssigneesSet(reqCtx context.Context, acqID uuid.UUID
 	})
 }
 
-// Мэргэжлийн / хөндлөнгийн байгууллага оноогдох → тухайн байгууллагын хэрэглэгчид.
-func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID, parcelPK *uuid.UUID, orgUserID *domain.ID, independent bool) {
-	if orgUserID == nil {
+// Мэргэжлийн / хараат бус байгууллага оноогдох → тухайн байгууллагын БҮХ
+// нэвтрэх эрхтэй ажилтанд. Өмнө нь байгууллага = нэг хэрэглэгч байсан тул
+// ганц хүнд илгээдэг байв.
+func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID, parcelPK *uuid.UUID, assignedOrgID *domain.ID, independent bool) {
+	if assignedOrgID == nil {
 		return
 	}
-	orgID := *orgUserID
+	orgID := *assignedOrgID
 	s.notifyAsync(reqCtx, func(ctx context.Context, actor actorctx.Actor) {
+		recipients, err := s.landRepo.OrgUserIDs(ctx, orgID)
+		if err != nil || len(recipients) == 0 {
+			// Нэвтрэх эрхтэй ажилтангүй байгууллага — мэдэгдэх хүн байхгүй.
+			return
+		}
 		acqName := ""
 		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil {
 			acqName = acq.AcquisitionName
@@ -334,7 +341,7 @@ func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID,
 			resourceType = domain.NotifResourceParcel
 			resourceID = parcelPK.String()
 		}
-		s.notifier.Notify(ctx, []domain.ID{orgID}, domain.Notification{
+		s.notifier.Notify(ctx, recipients, domain.Notification{
 			ActorID:       actorPtr(actor),
 			ActorName:     actor.Name,
 			Type:          domain.NotifOrgAssigned,

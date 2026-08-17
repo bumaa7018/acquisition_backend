@@ -6,7 +6,6 @@ import (
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/repository"
-
 )
 
 type RoleService interface {
@@ -17,6 +16,8 @@ type RoleService interface {
 	List(ctx context.Context) ([]*domain.Role, error)
 	AssignPermission(ctx context.Context, roleID, permissionID domain.ID) error
 	RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error
+	SetMenuPermissions(ctx context.Context, roleID, menuID domain.ID, permissionIDs []domain.ID) error
+	RemoveMenuPermissions(ctx context.Context, roleID, menuID domain.ID) error
 	AssignToUser(ctx context.Context, userID, roleID domain.ID) error
 	RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error
 }
@@ -89,6 +90,23 @@ func (s *roleService) AssignPermission(ctx context.Context, roleID, permissionID
 
 func (s *roleService) RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	return s.roleRepo.RemovePermission(ctx, roleID, permissionID)
+}
+
+func (s *roleService) SetMenuPermissions(ctx context.Context, roleID, menuID domain.ID, permissionIDs []domain.ID) error {
+	if roleID == 0 || menuID == 0 {
+		return domain.ErrInvalidInput
+	}
+	if _, err := s.roleRepo.GetByID(ctx, roleID); err != nil {
+		return err
+	}
+	return s.roleRepo.SetMenuPermissions(ctx, roleID, menuID, permissionIDs)
+}
+
+func (s *roleService) RemoveMenuPermissions(ctx context.Context, roleID, menuID domain.ID) error {
+	if roleID == 0 || menuID == 0 {
+		return domain.ErrInvalidInput
+	}
+	return s.roleRepo.RemoveMenuPermissions(ctx, roleID, menuID)
 }
 
 func (s *roleService) AssignToUser(ctx context.Context, userID, roleID domain.ID) error {

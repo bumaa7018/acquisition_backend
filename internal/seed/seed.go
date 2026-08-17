@@ -14,15 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// defaultPermissions — системийн бүх эрх "нөөц:үйлдэл" хэлбэрээр.
-// sdplatform-д нөөц нь роль дээр, үйлдэл нь эрх дээр бүртгэгддэг тул эдгээр нь
-// grantLevel()-ээр (role=<нөөц>_<түвшин>, permission=<үйлдэл>) болж задарна.
+// defaultPermissions — системийн бүх эрх "menu/form:permission" хэлбэрээр.
 var defaultPermissions = []string{
 	"users:read", "users:create", "users:update", "users:delete",
 	"roles:read", "roles:create", "roles:update", "roles:delete",
 	"permissions:read", "permissions:create", "permissions:delete",
 	"admin:read", "admin:create", "admin:update", "admin:delete",
-	"hr:read", "hr:create", "hr:update", "hr:delete",
+	"hr:read", "hr:create", "hr:structure:create", "hr:update", "hr:delete",
 	"audit:read",
 	"land:read", "land:create", "land:update", "land:delete",
 	// Нөхөх олговрын (үнэлгээний) эрхүүд — гадаад ролиуд ЗӨВХӨН эдгээртэй.
@@ -31,14 +29,27 @@ var defaultPermissions = []string{
 	"decision:read", "decision:create", "decision:update", "decision:delete",
 }
 
-// seniorSpecialistPermissions / employeePermissions — дотоод түвшингүүдийн багц.
+// Дотоод системийн дүрүүдийн permission matrix.
+//
+// senior_specialist: тохиргоо/удирдлагаас бусад үндсэн ажлын урсгалд бүрэн
+// ажиллана. users:read нь хуучин тохиргооноос үлдсэн, ажилтан сонгох UI/API-д
+// хэрэгтэй туслах эрх.
 var seniorSpecialistPermissions = []string{
-	"land:read", "land:create", "land:update",
-	"decision:read", "decision:create", "decision:update",
+	"land:read", "land:create", "land:update", "land:delete",
+	"compensation:read", "compensation:create", "compensation:update",
+	"decision:read", "decision:create", "decision:update", "decision:delete",
 	"users:read",
 }
 
-var employeePermissions = []string{"land:read"}
+var employeePermissions = []string{
+	"land:read",
+	"decision:read",
+}
+
+var decisionRegistrationPermissions = []string{
+	"land:read",
+	"decision:read", "decision:create", "decision:update", "decision:delete",
+}
 
 func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
 	if err := s.grantLevel(ctx, "admin", []string{"hr:read", "hr:create", "hr:update", "hr:delete"}); err != nil {
@@ -300,19 +311,11 @@ var externalRolePermissions = map[string]struct {
 	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
 }
 
-var system10AdminPermissions = []string{
-	"users:read",
-	"users:create",
-	"roles:read",
-	"permissions:read",
-	"hr:read",
-	"hr:create",
-}
-
 var system10RoleNames = []string{
 	"admin",
 	"senior_specialist",
 	"employee",
+	"decision_registration",
 }
 
 var system10MenuSeeds = []struct {
@@ -321,19 +324,73 @@ var system10MenuSeeds = []struct {
 	url       string
 	sortOrder int
 }{
-	{"A010", "Газар чөлөөлөлт", "/land-acquisitions", 1},
-	{"A010001", "Газар чөлөөлөлтийн жагсаалт", "/land-acquisitions", 1},
-	{"A010002", "Нэгж талбар", "/land-acquisitions/:id/parcels", 2},
-	{"A010003", "Хөрөнгө, үнэлгээ", "/land-acquisitions/:id/assets", 3},
-	{"A010004", "Нөхөх олговор", "/land-acquisitions/:id/compensations", 4},
-	{"A010005", "Баримт бичиг", "/land-acquisitions/:id/documents", 5},
+	{"A010001", "Газар чөлөөлөлт", "/land-acquisitions", 1},
+	{"A010002", "Нөхөх олговор", "/land-acquisitions/:id/compensations", 2},
+	{"A010003", "Захирамжийн төсөл", "/decision-drafts", 3},
+	{"A010004", "Хэрэглэгч", "/users", 10},
+	{"A010005", "Хэрэглэгчийн эрх", "/roles", 11},
+	{"A010006", "Permission лавлах", "/roles", 12},
+	{"A010007", "Хүний нөөц", "/employee", 13},
+	{"A010008", "Системийн тохиргоо", "/acquisition-category", 14},
+	{"A010009", "Үйлдлийн лог", "/audit-logs", 15},
+}
+
+// menuScopedPermissions — "land:read" (эрхийн түлхүүр) → "A010001:read"
+// (sd_form/sd_menu-гийн бодит код). Түлхүүрийн нөөц нэр код руу хөрвөнө.
+func menuScopedPermissions(perms []string) []string {
+	out := make([]string, 0, len(perms))
+	for _, key := range perms {
+		resource, action := domain.SplitPermissionKey(key)
+		if resource == "" || action == "" {
+			continue
+		}
+		out = append(out, domain.MenuCodeForResource(resource)+":"+action)
+	}
+	return out
 }
 
 func (s *Seeder) SeedSystem10AccessPolicy(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
+	if err := s.SeedSystemRoles(ctx); err != nil {
 		return err
 	}
 	return s.SeedLegacySDPlatformSystem10(ctx)
+}
+
+// SeedSystemRoles — system_id=10 дээр харагдах үндсэн 4 дүрийг шинэ
+// role->menu->permission бүтцээр яг тохируулна.
+func (s *Seeder) SeedSystemRoles(ctx context.Context) error {
+	matrix := map[string][]string{
+		"admin":                 defaultPermissions,
+		"senior_specialist":     seniorSpecialistPermissions,
+		"employee":              employeePermissions,
+		"decision_registration": decisionRegistrationPermissions,
+	}
+	for _, level := range system10RoleNames {
+		if err := s.syncSystemLevel(ctx, level, matrix[level]); err != nil {
+			return err
+		}
+	}
+	if err := s.hideGeneratedInternalResourceRoles(ctx); err != nil {
+		return err
+	}
+	slog.Info("system 10 roles synced", "roles", system10RoleNames)
+	return nil
+}
+
+func (s *Seeder) hideGeneratedInternalResourceRoles(ctx context.Context) error {
+	names := make([]string, 0, len(system10MenuSeeds)*len(system10RoleNames))
+	for _, menu := range system10MenuSeeds {
+		for _, level := range system10RoleNames {
+			names = append(names, roleName(domain.MenuResource(menu.code), level))
+		}
+	}
+	_, err := s.db.Exec(ctx, `
+		DELETE FROM sdplatform.sd_system_role sr
+		USING sdplatform.sd_role r
+		WHERE sr.role_id = r.role_id
+		  AND sr.system_id = 10
+		  AND r.name = ANY($1)`, names)
+	return err
 }
 
 func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
@@ -395,10 +452,6 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 	}
 
 	for _, m := range system10MenuSeeds {
-		parentCode := ""
-		if m.code != "A010" {
-			parentCode = "A010"
-		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO sdplatform.sd_menu (code, "name", menu_url, sort_order, created_at, parent_code)
 			VALUES (LEFT($1, 32), LEFT($2, 250), LEFT($3, 250), $4, NOW(), NULLIF($5, ''))
@@ -408,7 +461,7 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 				sort_order = EXCLUDED.sort_order,
 				parent_code = EXCLUDED.parent_code,
 				updated_at = NOW()`,
-			m.code, m.name, m.url, m.sortOrder, parentCode); err != nil {
+			m.code, m.name, m.url, m.sortOrder, ""); err != nil {
 			return err
 		}
 	}
@@ -421,6 +474,20 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 	}
 
 	// Маягтууд (sd_form) — цэс бүрт нэг.
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS sdplatform.sd_form_permission (
+			form_permission_id serial4 NOT NULL,
+			form_id int4 NULL,
+			permission_id int4 NULL,
+			created_at timestamp NULL,
+			updated_at timestamp NULL,
+			form_code varchar(20) NULL DEFAULT NULL::character varying,
+			permission_code varchar(20) NULL DEFAULT NULL::character varying,
+			CONSTRAINT sd_form_permission_pkey PRIMARY KEY (form_permission_id)
+		)`); err != nil {
+		return err
+	}
+
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO sdplatform.sd_form (form_name, code, created_at)
 		SELECT m."name", m.code, NOW()
@@ -440,6 +507,56 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 			SELECT 1 FROM sdplatform.sd_menu_form mf
 			WHERE mf.form_code = f.code AND mf.menu_code = m.code
 		  )`, system10MenuCodes()); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		WITH wanted AS (
+			SELECT split_part(v, ':', 1) AS form_code,
+			       substring(v from position(':' in v) + 1) AS permission_code
+			FROM unnest($1::text[]) AS t(v)
+		)
+		INSERT INTO sdplatform.sd_form_permission (
+			form_id, permission_id, form_code, permission_code, created_at, updated_at
+		)
+		SELECT f.form_id, p.permission_id, f.code, p.name, NOW(), NOW()
+		FROM wanted w
+		JOIN sdplatform.sd_form f ON f.code = w.form_code
+		JOIN sdplatform.sd_permission p ON p.name = w.permission_code
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_form_permission fp
+			WHERE fp.form_code = f.code
+			  AND (
+				fp.permission_id = p.permission_id
+				OR fp.permission_code = p.code
+				OR fp.permission_code = p.name
+			  )
+		)`, menuScopedPermissions(defaultPermissions)); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at, updated_at)
+		SELECT rp.role_id, rp.permission_id, m.menu_id, COALESCE(rp.created_at, NOW()), NOW()
+		FROM sdplatform.sd_role_permission rp
+		JOIN sdplatform.sd_role r ON r.role_id = rp.role_id
+		JOIN sdplatform.sd_menu m ON m.code = r.role_type_code
+		WHERE rp.menu_id IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM sdplatform.sd_role_permission existing
+			WHERE existing.role_id = rp.role_id
+			  AND existing.permission_id = rp.permission_id
+			  AND existing.menu_id = m.menu_id
+		  )`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM sdplatform.sd_role_permission rp
+		USING sdplatform.sd_role r, sdplatform.sd_menu m
+		WHERE rp.role_id = r.role_id
+		  AND rp.menu_id IS NULL
+		  AND m.code = r.role_type_code`); err != nil {
 		return err
 	}
 
@@ -537,30 +654,16 @@ func (s *Seeder) SeedDecisionPermissions(ctx context.Context) error {
 	if err := s.grantLevel(ctx, "admin", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
 		return err
 	}
-	// land:<action> → decision:<action> тусгал: land нөөцийн роль бүрийн
-	// түвшинд харгалзах decision ролийг үүсгэж, ижил үйлдлүүдийг олгоно.
-	roles, err := s.roleRepo.List(ctx)
-	if err != nil {
+	if err := s.grantLevel(ctx, "senior_specialist", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
 		return err
 	}
-	mirrored := 0
-	for _, r := range roles {
-		if r.Resource != "land" {
-			continue
-		}
-		var perms []string
-		for _, p := range r.Permissions {
-			perms = append(perms, domain.PermissionKey("decision", p.Action))
-		}
-		if len(perms) == 0 {
-			continue
-		}
-		if err := s.grantLevel(ctx, r.Level(), perms); err != nil {
-			return err
-		}
-		mirrored += len(perms)
+	if err := s.grantLevel(ctx, "employee", []string{"decision:read"}); err != nil {
+		return err
 	}
-	slog.Info("decision permissions granted", "mirrored_from_land", mirrored)
+	if err := s.grantLevel(ctx, "decision_registration", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
+		return err
+	}
+	slog.Info("decision permissions granted")
 	return nil
 }
 
@@ -594,16 +697,10 @@ func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo re
 }
 
 func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig, employeeCfg config.EmployeeConfig) error {
-	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
+	if err := s.SeedSystemRoles(ctx); err != nil {
 		return err
 	}
-	if err := s.grantLevel(ctx, "senior_specialist", seniorSpecialistPermissions); err != nil {
-		return err
-	}
-	if err := s.grantLevel(ctx, "employee", employeePermissions); err != nil {
-		return err
-	}
-	if err := s.seedAdminUser(ctx, adminCfg, "admin", "senior_specialist"); err != nil {
+	if err := s.seedAdminUser(ctx, adminCfg, "admin"); err != nil {
 		return err
 	}
 	return s.seedEmployeeUser(ctx, employeeCfg, "employee")
@@ -657,7 +754,7 @@ func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig
 			return err
 		}
 		if existing.Position == "" {
-			existing.Position = "Ажилтан"
+			existing.Position = "Мэргэжилтэн"
 			existing.UpdatedAt = time.Now()
 			_ = s.userRepo.Update(ctx, existing)
 		}
@@ -674,9 +771,9 @@ func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig
 		Username:  cfg.Username,
 		Email:     cfg.Email,
 		Password:  hashed,
-		FirstName: "Энгийн",
-		LastName:  "Ажилтан",
-		Position:  "Ажилтан",
+		FirstName: "Мэргэжилтэн",
+		LastName:  "Хэрэглэгч",
+		Position:  "Мэргэжилтэн",
 		IsActive:  true,
 		CreatedAt: now,
 		UpdatedAt: now,

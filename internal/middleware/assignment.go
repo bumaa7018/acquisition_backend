@@ -31,13 +31,13 @@ type ParcelLockChecker interface {
 // ProfMemberChecker — professional_org хэрэглэгч тухайн чөлөөлөлтийн
 // үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгах интерфейс
 type ProfMemberChecker interface {
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
 }
 
 // ProfParcelMemberChecker — professional_org хэрэглэгч parcel-ээр дамжуулан тухайн
 // чөлөөлөлтийн үндсэн байгуулга эсвэл хөндлөнгийн байгуулга мөн эсэхийг шалгана.
 type ProfParcelMemberChecker interface {
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error)
 }
 
 // хяналтын (байгууллага даяар харах эрхтэй) ролиуд — санхүүгийн мэргэжилтэн, МИКА
@@ -47,6 +47,8 @@ var supervisoryReadRoles = map[string]bool{
 	"Санхүү":                 true,
 	"mika":                   true,
 	"МИКА":                   true,
+	"decision_registration":  true,
+	"Захирамж бүртгэл":       true,
 }
 
 // RequireAssignedOrSenior — ахлах мэргэжилтэн эсвэл
@@ -69,7 +71,7 @@ func RequireAssignedOrSenior(svc AssignmentChecker, extraWriteRoles ...string) g
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
-				if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || (isRead && supervisoryReadRoles[r]) || extra[r] {
+				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || (isRead && supervisoryReadRoles[r]) || extra[r] {
 					c.Next()
 					return
 				}
@@ -107,7 +109,7 @@ func IsSenior(c *gin.Context) bool {
 		return false
 	}
 	for _, r := range roles {
-		if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+		if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
 			return true
 		}
 	}
@@ -117,6 +119,14 @@ func IsSenior(c *gin.Context) bool {
 // GetCallerID — контекстоос userID авна
 func GetCallerID(c *gin.Context) (domain.ID, bool) {
 	raw, _ := c.Get(CtxUserID)
+	id, ok := raw.(domain.ID)
+	return id, ok
+}
+
+// GetCallerOrgID — контекстоос хэрэглэгчийн ХАРЬЯА байгууллагын ID авна.
+// Ажилтны бүртгэлгүй (иймд байгууллагад харьяалагдаагүй) хэрэглэгчид ok=false.
+func GetCallerOrgID(c *gin.Context) (domain.ID, bool) {
+	raw, _ := c.Get(CtxOrgID)
 	id, ok := raw.(domain.ID)
 	return id, ok
 }
@@ -141,7 +151,7 @@ func RequireParcelAssignedOrSenior(svc ParcelAssignmentChecker) gin.HandlerFunc 
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
-				if r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
 					c.Next()
 					return
 				}
@@ -299,9 +309,13 @@ func RequireProfParcelAcquisitionNotLocked(svc ParcelLockChecker) gin.HandlerFun
 }
 
 // RequireProfOrgMember — /prof/land-acquisitions/:id/* маршрутуудад ашиглана.
-// professional_org хэрэглэгч тухайн чөлөөлөлтийн үндсэн байгуулга
-// (professional_org_id) эсвэл аль нэгэн нэгж талбарын хөндлөнгийн байгуулга
-// (independent_org_id) мөн эсэхийг шалгана. Таарахгүй бол 403 буцаана.
+// Хэрэглэгчийн ХАРЬЯА БАЙГУУЛЛАГА (JWT-ийн org_id) нь тухайн чөлөөлөлтийн
+// үндсэн байгууллага (professional_org_id) эсвэл аль нэгэн нэгж талбарын
+// хараат бус байгууллага (independent_org_id) мөн эсэхийг шалгана. Таарахгүй
+// бол 403.
+//
+// Өмнө нь хэрэглэгчийн ID-тай тулгадаг байсан тул нэг байгууллагад ганц
+// хэрэглэгч байж чаддаг байв; одоо тухайн байгууллагын аль ч ажилтан ажиллана.
 func RequireProfOrgMember(svc ProfMemberChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acqID, err := uuid.Parse(c.Param("id"))
@@ -310,14 +324,13 @@ func RequireProfOrgMember(svc ProfMemberChecker) gin.HandlerFunc {
 			return
 		}
 
-		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(domain.ID)
+		orgID, ok := GetCallerOrgID(c)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
 		}
 
-		member, err := svc.IsProfMemberOfAcquisition(c.Request.Context(), acqID, userID)
+		member, err := svc.IsProfMemberOfAcquisition(c.Request.Context(), acqID, orgID)
 		if err != nil || !member {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
@@ -347,14 +360,13 @@ func RequireProfParcelMemberParam(svc ProfParcelMemberChecker, param string) gin
 			return
 		}
 
-		userIDRaw, _ := c.Get(CtxUserID)
-		userID, ok := userIDRaw.(domain.ID)
+		orgID, ok := GetCallerOrgID(c)
 		if !ok {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return
 		}
 
-		member, err := svc.IsProfMemberOfParcel(c.Request.Context(), parcelID, userID)
+		member, err := svc.IsProfMemberOfParcel(c.Request.Context(), parcelID, orgID)
 		if err != nil || !member {
 			response.Abort(c, 403, i18n.ErrNotAssigned)
 			return

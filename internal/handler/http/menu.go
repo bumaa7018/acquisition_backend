@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
@@ -12,11 +13,16 @@ import (
 
 // MenuHandler — цэсний харагдац болон роль ↔ цэсний холбоос.
 type MenuHandler struct {
-	svc service.MenuService
+	svc     service.MenuService
+	roleSvc service.RoleService
 }
 
-func NewMenuHandler(svc service.MenuService) *MenuHandler {
-	return &MenuHandler{svc: svc}
+func NewMenuHandler(svc service.MenuService, optionalRoleSvc ...service.RoleService) *MenuHandler {
+	var roleSvc service.RoleService
+	if len(optionalRoleSvc) > 0 {
+		roleSvc = optionalRoleSvc[0]
+	}
+	return &MenuHandler{svc: svc, roleSvc: roleSvc}
 }
 
 // List godoc
@@ -91,6 +97,98 @@ func (h *MenuHandler) Attach(c *gin.Context) {
 		return
 	}
 	response.Created(c, gin.H{"role_id": roleID, "menu_id": b.MenuID})
+}
+
+type setMenuPermissionsBody struct {
+	PermissionIDs []string `json:"permission_ids"`
+}
+
+// SetRoleMenuPermissions godoc
+// @Summary Роль + цэс дээр permission-үүд хадгалах
+// @Tags menus
+// @Param id path int true "Role ID"
+// @Param menu_id path int true "Menu ID"
+// @Success 200 {object} response.SuccessResponse
+// @Router /roles/{id}/menus/{menu_id}/permissions [put]
+func (h *MenuHandler) SetRoleMenuPermissions(c *gin.Context) {
+	if h.roleSvc == nil {
+		response.Error(c, domain.ErrInvalidInput)
+		return
+	}
+	roleID, ok := parseIDParam(c)
+	if !ok {
+		return
+	}
+	menuID, ok := parseID(c.Param("menu_id"))
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var b setMenuPermissionsBody
+	if err := c.ShouldBindJSON(&b); err != nil {
+		response.AbortValidation(c, err)
+		return
+	}
+	available, err := h.svc.ListPermissions(c.Request.Context(), menuID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	availableByID := make(map[domain.ID]domain.Permission, len(available))
+	for _, p := range available {
+		availableByID[p.ID] = p
+	}
+	permissionIDs := make([]domain.ID, 0, len(b.PermissionIDs))
+	for _, raw := range b.PermissionIDs {
+		permissionID, ok := parseID(raw)
+		if !ok {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+			return
+		}
+		perm, ok := availableByID[permissionID]
+		if !ok {
+			response.Error(c, domain.ErrInvalidInput)
+			return
+		}
+		if !callerHasRole(c, "admin") && !callerHasPermission(c, perm.Name) {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+		permissionIDs = append(permissionIDs, permissionID)
+	}
+	if err := h.roleSvc.SetMenuPermissions(c.Request.Context(), roleID, menuID, permissionIDs); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"role_id": roleID, "menu_id": menuID, "permission_ids": b.PermissionIDs})
+}
+
+// RemoveRoleMenuPermissions godoc
+// @Summary Ролиос цэс болон тухайн цэсний permission-үүдийг салгах
+// @Tags menus
+// @Param id path int true "Role ID"
+// @Param menu_id path int true "Menu ID"
+// @Success 204 "No Content"
+// @Router /roles/{id}/menus/{menu_id}/permissions [delete]
+func (h *MenuHandler) RemoveRoleMenuPermissions(c *gin.Context) {
+	if h.roleSvc == nil {
+		response.Error(c, domain.ErrInvalidInput)
+		return
+	}
+	roleID, ok := parseIDParam(c)
+	if !ok {
+		return
+	}
+	menuID, ok := parseID(c.Param("menu_id"))
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.roleSvc.RemoveMenuPermissions(c.Request.Context(), roleID, menuID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.NoContent(c)
 }
 
 // Detach godoc

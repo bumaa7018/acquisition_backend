@@ -16,6 +16,8 @@ import (
 
 const maxParcelInfoResponseBytes = 1 << 20
 const maxParcelListResponseBytes = 20 << 20
+const middlewareUsernameHeader = "X-Middleware-Username"
+const middlewarePasswordHeader = "X-Middleware-Password"
 
 type authHeaderContextKey struct{}
 
@@ -60,15 +62,38 @@ type PlanProjectClient interface {
 	GetPlanProject(ctx context.Context, code string) (*domain.Plan, error)
 }
 
-type httpParcelInfoClient struct {
-	baseURL string
-	http    *http.Client
+type MiddlewareCredentials struct {
+	Username string
+	Password string
 }
 
-func NewHTTPParcelInfoClient(baseURL string) ParcelInfoClient {
+type httpParcelInfoClient struct {
+	baseURL  string
+	username string
+	password string
+	http     *http.Client
+}
+
+func NewHTTPParcelInfoClient(baseURL string, credentials ...MiddlewareCredentials) ParcelInfoClient {
+	var creds MiddlewareCredentials
+	if len(credentials) > 0 {
+		creds = credentials[0]
+	}
 	return &httpParcelInfoClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{Timeout: 10 * time.Second},
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		username: strings.TrimSpace(creds.Username),
+		password: strings.TrimSpace(creds.Password),
+		http:     &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+func (c *httpParcelInfoClient) applyRequestHeaders(ctx context.Context, req *http.Request) {
+	if authorization := authorizationFromContext(ctx); authorization != "" {
+		req.Header.Set("Authorization", authorization)
+	}
+	if c.username != "" || c.password != "" {
+		req.Header.Set(middlewareUsernameHeader, c.username)
+		req.Header.Set(middlewarePasswordHeader, c.password)
 	}
 }
 
@@ -82,9 +107,7 @@ func (c *httpParcelInfoClient) GetParcelInfo(ctx context.Context, parcelID strin
 	if err != nil {
 		return nil, err
 	}
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -146,9 +169,7 @@ func (c *httpParcelInfoClient) ListApplicationPersons(ctx context.Context, appNo
 	if err != nil {
 		return nil, err
 	}
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -244,9 +265,7 @@ func (c *httpParcelInfoClient) ListApplicationDocuments(ctx context.Context, app
 	if err != nil {
 		return nil, err
 	}
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -331,9 +350,7 @@ func (c *httpParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, a
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -380,9 +397,7 @@ func (c *httpParcelInfoClient) getJSON(ctx context.Context, path string, out any
 	if err != nil {
 		return err
 	}
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -492,9 +507,7 @@ func (c *httpParcelInfoClient) GetPlanProject(ctx context.Context, code string) 
 	if err != nil {
 		return nil, err
 	}
-	if authorization := authorizationFromContext(ctx); authorization != "" {
-		req.Header.Set("Authorization", authorization)
-	}
+	c.applyRequestHeaders(ctx, req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {

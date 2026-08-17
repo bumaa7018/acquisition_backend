@@ -199,12 +199,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	if filter.AssignedUserID != "" {
 		where += fmt.Sprintf(` AND EXISTS (
 			SELECT 1 FROM land_acquisition_assignee
-			WHERE acquisition_id = la.id AND user_id = $%d::uuid
+			WHERE acquisition_id = la.id AND user_id = $%d::int4
 		)`, i)
 		args = append(args, filter.AssignedUserID)
 		i++
 	}
-	if filter.ProfessionalOrgUserID != "" {
+	if filter.ProfessionalOrgID != "" {
 		where += fmt.Sprintf(` AND (
 			la.professional_org_id = $%d::int4
 			OR EXISTS (
@@ -212,7 +212,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::int4
 			)
 		)`, i, i)
-		args = append(args, filter.ProfessionalOrgUserID)
+		args = append(args, filter.ProfessionalOrgID)
 		i++
 	}
 	if filter.HasSubmittedValuation {
@@ -256,10 +256,11 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       COALESCE(la.decree_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       la.professional_org_id,
-			       ''
+			       COALESCE(po."name", '')
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
+		LEFT JOIN sdplatform.sd_organization po ON po.id = la.professional_org_id
 		WHERE %s
 		ORDER BY la.created_at DESC
 		LIMIT $%d OFFSET $%d
@@ -310,10 +311,15 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(la.decree_number,''), la.decree_date,
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       la.professional_org_id,
-			       ''
+			       COALESCE(po."name", '')
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
+		-- Үнэлгээний байгууллага нь ЭНЭ сангийн sdplatform схемд байдаг тул
+		-- нэрийг шууд join-оор авна. Өмнө нь service давхаргад ХЭРЭГЛЭГЧИЙН
+		-- лавлахаас нөхдөг байсан — professional_org_id нь одоо БАЙГУУЛЛАГЫН
+		-- ID болсон тул тэр нь огт хамаагүй хүний нэрийг харуулж байв.
+		LEFT JOIN sdplatform.sd_organization po ON po.id = la.professional_org_id
 		WHERE la.id = $1
 	`, id).Scan(
 		&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
@@ -764,13 +770,18 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
-				       '',
+				       -- Хараат бус үнэлгээний БАЙГУУЛЛАГЫН нэр. Энэ ID нь өмнө нь
+				       -- хэрэглэгчийг заадаг байсан тул нэрийг нь буцаадаггүй байв;
+				       -- одоо байгууллага нь ижил сангийн sdplatform схемд байгаа
+				       -- тул шууд join-оор авна.
+				       COALESCE(io."name", ''),
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
 				       COALESCE((SELECT jsonb_object_agg(vs.valuation_type, vs.status) FROM parcel_valuation_submission vs WHERE vs.acquisition_id = p.acquisition_id AND vs.parcel_id = p.parcel_id), '{}'::jsonb)
 				FROM parcel p
 				LEFT JOIN parcel_status ps ON ps.id = p.status
+				LEFT JOIN sdplatform.sd_organization io ON io.id = p.independent_org_id
 				WHERE %s
 			ORDER BY p.parcel_id
 			LIMIT $%d OFFSET $%d
@@ -3322,12 +3333,12 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	}
 	if filter.AssignedUserID != "" {
 		where += fmt.Sprintf(` AND la.id IN (
-			SELECT acquisition_id FROM land_acquisition_assignee WHERE user_id = $%d::uuid
+			SELECT acquisition_id FROM land_acquisition_assignee WHERE user_id = $%d::int4
 		)`, i)
 		args = append(args, filter.AssignedUserID)
 		i++
 	}
-	if filter.ProfessionalOrgUserID != "" {
+	if filter.ProfessionalOrgID != "" {
 		profParam = i
 		where += fmt.Sprintf(` AND (
 			la.professional_org_id = $%d::int4
@@ -3336,7 +3347,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 				WHERE p_org.acquisition_id = la.id AND p_org.independent_org_id = $%d::int4
 			)
 		)`, i, i)
-		args = append(args, filter.ProfessionalOrgUserID)
+		args = append(args, filter.ProfessionalOrgID)
 		i++
 	}
 	parcelScopeCond := ""
@@ -3797,10 +3808,10 @@ func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, u
 	return exists, err
 }
 
-// IsProfMemberOfAcquisition — professional_org хэрэглэгч тухайн чөлөөлөлтийн
-// үндсэн байгуулга (professional_org_id) эсвэл аль нэгэн нэгж талбарын
-// хөндлөнгийн байгуулга (independent_org_id) мөн эсэхийг шалгана.
-func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
+// IsProfMemberOfAcquisition — өгсөн БАЙГУУЛЛАГА нь тухайн чөлөөлөлтийн үндсэн
+// гүйцэтгэгч (professional_org_id) эсвэл аль нэгэн нэгж талбарын хараат бус
+// үнэлгээчин (independent_org_id) мөн эсэх.
+func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -3808,13 +3819,13 @@ func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisition
 			UNION
 			SELECT 1 FROM parcel WHERE acquisition_id = $1 AND independent_org_id = $2
 		)
-	`, acquisitionID, userID).Scan(&exists)
+	`, acquisitionID, orgID).Scan(&exists)
 	return exists, err
 }
 
-// IsProfMemberOfParcel — professional_org хэрэглэгч parcel-ийн чөлөөлөлтийн
-// үндсэн байгуулга эсвэл тухайн parcel-ийн хөндлөнгийн байгуулга мөн эсэхийг шалгана.
-func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
+// IsProfMemberOfParcel — өгсөн БАЙГУУЛЛАГА нь parcel-ийн чөлөөлөлтийн үндсэн
+// гүйцэтгэгч эсвэл тухайн parcel-ийн хараат бус үнэлгээчин мөн эсэх.
+func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -3824,8 +3835,34 @@ func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UU
 			WHERE p.id = $1
 			  AND (la.professional_org_id = $2 OR p.independent_org_id = $2)
 		)
-	`, parcelID, userID).Scan(&exists)
+	`, parcelID, orgID).Scan(&exists)
 	return exists, err
+}
+
+// OrgUserIDs — байгууллагын идэвхтэй ажилтнуудын нэвтрэх эрхийн ID-ууд
+// (hr_department.organization → hr_employee.user_id). Нэвтрэх эрхгүй ажилтан
+// (user_id IS NULL) орохгүй.
+func (r *landAcqRepo) OrgUserIDs(ctx context.Context, orgID domain.ID) ([]domain.ID, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT e.user_id
+		FROM sdplatform.hr_employee e
+		JOIN sdplatform.hr_department d ON d.department_id = e.department_id
+		WHERE d.organization = $1
+		  AND e.user_id IS NOT NULL
+		  AND COALESCE(e.is_active, 1) <> 0`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.ID
+	for rows.Next() {
+		var id domain.ID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (r *landAcqRepo) ensureAssetInAcquisition(ctx context.Context, acquisitionID, assetID uuid.UUID) error {

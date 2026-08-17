@@ -6,7 +6,6 @@ import (
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/repository"
-
 )
 
 type PermissionService interface {

@@ -8,29 +8,50 @@ import (
 	"acquisition_backend/internal/domain"
 )
 
-// sdplatform-ын эрхийн загварт нөөц (resource) нь РОЛЬ дээр
-// (sd_role.role_type_code), үйлдэл (action) нь ЭРХ дээр (sd_permission.name)
-// бүртгэгддэг. Тиймээс "land:read" гэсэн нэг эрх нь
+// sdplatform-ын шинэ эрхийн загварт нэг системийн роль олон menu/permission
+// эзэмшинэ: sd_role -> sd_role_permission(menu_id, permission_id). Permission
+// key нь menu.code + ":" + sd_permission.name хэлбэрээр үүснэ.
 //
-//	role  = land_<түвшин>  (role_type_code = "land")
-//	perm  = read
-//
-// гэсэн хос болж задарна. Нэг хэрэглэгч олон нөөцийн роль авснаар өмнөх
-// "admin" гэсэн нэг роль эзэмшиж байсантай ЯГ ижил эрхийн багцтай болно —
-// JWT-ийн `roles` нэхэмжлэлд ролийн ТҮВШИН ордог тул (land_admin → admin)
-// маршрутын шалгалтууд ч хэвээр ажиллана.
+// Гадаад legacy түвшингүүдэд (professional_org/mika/finance_specialist) хуучин
+// resource_level нэршлийг дэмжсэн хэвээр үлдээнэ. JWT-ийн `roles` claim нь
+// Role.Level()-ээр хэвийн normalize хийгддэг.
 
 // roleDescriptions — түвшин тус бүрийн тайлбар.
 var roleDescriptions = map[string]string{
-	"admin":              "Системийн администратор",
-	"senior_specialist":  "Ахлах мэргэжилтэн",
-	"employee":           "Энгийн ажилтан",
-	"professional_org":   "Мэргэжлийн байгууллага",
-	"mika":               "МИКА",
-	"finance_specialist": "Санхүүгийн мэргэжилтэн",
+	"admin":                 "Системийн администратор",
+	"senior_specialist":     "Ахлах мэргэжилтэн",
+	"employee":              "Мэргэжилтэн",
+	"decision_registration": "Захирамж бүртгэл",
+	"professional_org":      "Мэргэжлийн байгууллага",
+	"mika":                  "МИКА",
+	"finance_specialist":    "Санхүүгийн мэргэжилтэн",
 }
 
 func roleName(resource, level string) string { return resource + "_" + level }
+
+func isSystemRoleLevel(level string) bool {
+	switch level {
+	case "admin", "senior_specialist", "employee", "decision_registration":
+		return true
+	default:
+		return false
+	}
+}
+
+func systemRoleCode(level string) string {
+	switch level {
+	case "admin":
+		return "A100"
+	case "senior_specialist":
+		return "A101"
+	case "employee":
+		return "A102"
+	case "decision_registration":
+		return "A103"
+	default:
+		return ""
+	}
+}
 
 // ensureAction — үйлдлийн эрхийг (read/create/update/delete ...) баталгаажуулна.
 func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permission, error) {
@@ -49,8 +70,45 @@ func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permi
 	return p, nil
 }
 
-// ensureRole — <resource>_<level> роль байгаа эсэхийг баталгаажуулна.
-func (s *Seeder) ensureRole(ctx context.Context, resource, level string) (*domain.Role, error) {
+// ensureSystemRole — system_id=10-д харьяалагдах нэг системийн роль.
+func (s *Seeder) ensureSystemRole(ctx context.Context, level string) (*domain.Role, error) {
+	if r, err := s.roleRepo.GetByName(ctx, level); err == nil {
+		if _, err := s.db.Exec(ctx, `
+			INSERT INTO sdplatform.sd_system_role (system_id, role_id, created_at)
+			SELECT 10, $1, NOW()
+			WHERE NOT EXISTS (
+				SELECT 1 FROM sdplatform.sd_system_role
+				WHERE system_id = 10 AND role_id = $1
+			)`, r.ID); err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
+	now := time.Now()
+	desc := roleDescriptions[level]
+	if desc == "" {
+		desc = level
+	}
+	r := &domain.Role{
+		Code:        systemRoleCode(level),
+		Name:        level,
+		Resource:    "system",
+		Description: desc,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := s.roleRepo.Create(ctx, r); err != nil {
+		if existing, e := s.roleRepo.GetByName(ctx, level); e == nil {
+			return existing, nil
+		}
+		return nil, err
+	}
+	slog.Info("system role created", "name", level)
+	return r, nil
+}
+
+// ensureResourceRole — legacy/static external role: <resource>_<level>.
+func (s *Seeder) ensureResourceRole(ctx context.Context, resource, level string) (*domain.Role, error) {
 	name := roleName(resource, level)
 	if r, err := s.roleRepo.GetByName(ctx, name); err == nil {
 		return r, nil
@@ -77,14 +135,22 @@ func (s *Seeder) ensureRole(ctx context.Context, resource, level string) (*domai
 	return r, nil
 }
 
-// grantLevel — өгсөн түвшинд "resource:action" эрхүүдийг олгоно.
+// grantLevel — системийн үндсэн role-д menu permission олгоно. Гадаад legacy
+// түвшин бол resource_level role-г хэвээр дэмжинэ.
 func (s *Seeder) grantLevel(ctx context.Context, level string, perms []string) error {
+	if isSystemRoleLevel(level) {
+		return s.grantSystemLevel(ctx, level, perms)
+	}
+	return s.grantResourceLevel(ctx, level, perms)
+}
+
+func (s *Seeder) grantResourceLevel(ctx context.Context, level string, perms []string) error {
 	for _, key := range perms {
 		resource, action := domain.SplitPermissionKey(key)
 		if resource == "" || action == "" {
 			continue
 		}
-		role, err := s.ensureRole(ctx, resource, level)
+		role, err := s.ensureResourceRole(ctx, resource, level)
 		if err != nil {
 			return err
 		}
@@ -97,6 +163,88 @@ func (s *Seeder) grantLevel(ctx context.Context, level string, perms []string) e
 		}
 	}
 	return nil
+}
+
+func (s *Seeder) grantSystemLevel(ctx context.Context, level string, perms []string) error {
+	role, err := s.ensureSystemRole(ctx, level)
+	if err != nil {
+		return err
+	}
+	byResource := map[string][]string{}
+	for _, key := range perms {
+		resource, action := domain.SplitPermissionKey(key)
+		if resource == "" || action == "" {
+			continue
+		}
+		if _, err := s.ensureAction(ctx, action); err != nil {
+			return err
+		}
+		byResource[resource] = append(byResource[resource], action)
+	}
+	for resource, actions := range byResource {
+		if err := s.grantMenuActions(ctx, role.ID, domain.MenuCodeForResource(resource), actions); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Seeder) grantMenuActions(ctx context.Context, roleID domain.ID, menuCode string, actions []string) error {
+	if len(actions) == 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO sdplatform.sd_menu_role (menu_id, role_id, created_at, updated_at)
+		SELECT m.menu_id, $1, NOW(), NOW()
+		FROM sdplatform.sd_menu m
+		WHERE m.code = $2
+		ON CONFLICT DO NOTHING`, roleID, menuCode); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at, updated_at)
+		SELECT $1, p.permission_id, m.menu_id, NOW(), NOW()
+		FROM sdplatform.sd_menu m
+		JOIN sdplatform.sd_form f ON f.code = m.code
+		JOIN sdplatform.sd_form_permission fp ON fp.form_code = f.code
+		JOIN sdplatform.sd_permission p ON (
+			p.permission_id = fp.permission_id
+			OR p.code = fp.permission_code
+			OR p.name = fp.permission_code
+		)
+		WHERE m.code = $2
+		  AND p.name = ANY($3)
+		  AND NOT EXISTS (
+			SELECT 1 FROM sdplatform.sd_role_permission rp
+			WHERE rp.role_id = $1
+			  AND rp.permission_id = p.permission_id
+			  AND rp.menu_id = m.menu_id
+		  )`, roleID, menuCode, actions)
+	return err
+}
+
+func (s *Seeder) syncSystemLevel(ctx context.Context, level string, perms []string) error {
+	role, err := s.ensureSystemRole(ctx, level)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM sdplatform.sd_role_permission rp
+		USING sdplatform.sd_menu m
+		WHERE rp.role_id = $1
+		  AND rp.menu_id = m.menu_id
+		  AND m.code = ANY($2)`, role.ID, system10MenuCodes()); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM sdplatform.sd_menu_role mr
+		USING sdplatform.sd_menu m
+		WHERE mr.role_id = $1
+		  AND mr.menu_id = m.menu_id
+		  AND m.code = ANY($2)`, role.ID, system10MenuCodes()); err != nil {
+		return err
+	}
+	return s.grantSystemLevel(ctx, level, perms)
 }
 
 // rolesForLevel — тухайн түвшний бүх нөөцийн роль (хэрэглэгчид олгоход).

@@ -77,6 +77,19 @@ func (m *MockUserRepository) GetByEmployeeID(ctx context.Context, employeeID dom
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
+// OrgIDForUser — токен үүсгэх бүрд дуудагдана. Тестүүд ихэвчлэн тохируулдаггүй
+// тул хүлээлт тавиагүй үед nil (харьяалалгүй) буцаана.
+func (m *MockUserRepository) OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "OrgIDForUser" {
+			args := m.Called(ctx, userID)
+			id, _ := args.Get(0).(*domain.ID)
+			return id, args.Error(1)
+		}
+	}
+	return nil, nil
+}
+
 func (m *MockUserRepository) GetRoles(ctx context.Context, userID domain.ID) ([]string, error) {
 	args := m.Called(ctx, userID)
 	if args.Get(0) == nil {

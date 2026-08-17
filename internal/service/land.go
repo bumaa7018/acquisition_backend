@@ -134,13 +134,13 @@ type LandAssigneeService interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
-	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
-	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
+	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error)
 	// IsProfMemberOfParcelByCode — parcel_id (код)-оор parcel-ийг олж, тухайн хэрэглэгч
 	// уг acquisition-д харьяалагдах parcel-ийн гишүүн мөн эсэхийг шалгана.
 	// ImportValuation зэрэг parcel_id-г JSON body-гоор хүлээн авдаг route-уудад ашиглана
 	// (URL param биш тул профParcelMemberByParam middleware-ээр шалгах боломжгүй).
-	IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID domain.ID) (bool, error)
+	IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, orgID domain.ID) (bool, error)
 }
 
 type LandWorkflowService interface {
@@ -727,17 +727,10 @@ func (s *landService) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	// Мэрг. байгууллага нь auth DB-ийн хэрэглэгч тул нэрийг эндээс нөхөж бөглөнө
-	// (main DB-ийн query JOIN хийж чадахгүй '' буцаадаг).
-	if acq.ProfessionalOrgID != nil && s.userRepo != nil {
-		if u, err := s.userRepo.GetByID(ctx, *acq.ProfessionalOrgID); err == nil && u != nil {
-			name := strings.TrimSpace(u.FirstName + " " + u.LastName)
-			if name == "" {
-				name = u.Email
-			}
-			acq.ProfessionalOrgName = name
-		}
-	}
+	// professional_org_name-г repo нь sdplatform.sd_organization-оос шууд
+	// join-оор авдаг болсон. Өмнө нь энд auth DB-ийн ХЭРЭГЛЭГЧЭЭС нөхдөг
+	// байсан бөгөөд байгууллага бие даасан нэгж болсны дараа тэр нь огт
+	// хамаагүй хүний нэрийг харуулдаг байв.
 	return acq, nil
 }
 
@@ -1470,15 +1463,15 @@ func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID
 	return s.landRepo.IsAssignedToParcel(ctx, parcelID, userID)
 }
 
-func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
-	return s.landRepo.IsProfMemberOfAcquisition(ctx, acquisitionID, userID)
+func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error) {
+	return s.landRepo.IsProfMemberOfAcquisition(ctx, acquisitionID, orgID)
 }
 
-func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
-	return s.landRepo.IsProfMemberOfParcel(ctx, parcelID, userID)
+func (s *landService) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error) {
+	return s.landRepo.IsProfMemberOfParcel(ctx, parcelID, orgID)
 }
 
-func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, userID domain.ID) (bool, error) {
+func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, orgID domain.ID) (bool, error) {
 	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
 	if err != nil {
 		return false, err
@@ -1486,27 +1479,30 @@ func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitio
 	if p.AcquisitionID != acquisitionID {
 		return false, domain.ErrNotFound
 	}
-	return s.landRepo.IsProfMemberOfParcel(ctx, p.ID, userID)
+	return s.landRepo.IsProfMemberOfParcel(ctx, p.ID, orgID)
 }
 
-func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
-	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgUserID); err != nil {
+// SetAcquisitionProfessionalOrg — orgID нь ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН ID
+// (өмнө нь хэрэглэгчийн ID байсан). nil бол оноолт салгагдана.
+func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgID *domain.ID) error {
+	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgID); err != nil {
 		return err
 	}
-	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgUserID, false)
+	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgID, false)
 	s.auditLog(ctx, "professional_org_set", domain.AuditResourceAcquisition, acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
-		"org_user_id": orgUserID,
+		"org_id": orgID,
 	})
 	return nil
 }
 
-func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
-	if err := s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgUserID); err != nil {
+// SetParcelIndependentOrg — orgID нь хараат бус үнэлгээний БАЙГУУЛЛАГЫН ID.
+func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgID *domain.ID) error {
+	if err := s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgID); err != nil {
 		return err
 	}
-	s.notifyOrgAssigned(ctx, acqID, &parcelID, orgUserID, true)
+	s.notifyOrgAssigned(ctx, acqID, &parcelID, orgID, true)
 	s.auditLog(ctx, "independent_org_set", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acqID), uuidPtr(parcelID), map[string]any{
-		"org_user_id": orgUserID,
+		"org_id": orgID,
 	})
 	return nil
 }

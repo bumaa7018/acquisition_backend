@@ -71,8 +71,10 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(501)
+	orgID := domain.ID(9001)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
+		OrgID:       &orgID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -82,7 +84,7 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	acq := &domain.LandAcquisition{ID: uuid.New(), PlanCode: "LA-2024-001"}
 	landSvc.On("List", mock.Anything, mock.MatchedBy(func(filter domain.LandAcquisitionFilter) bool {
-		return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
+		return filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
 			filter.Page == 1 &&
 			filter.PageSize == 20
 	})).Return([]*domain.LandAcquisition{acq}, int64(1), nil)
@@ -116,8 +118,10 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(502)
+	orgID := domain.ID(9002)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
+		OrgID:       &orgID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -126,7 +130,7 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
-		return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
+		return filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
 			filter.FilterByParcelStatus &&
 			filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 			filter.Status == 0
@@ -179,7 +183,7 @@ func TestRouter_Dashboard_ScopesFinanceSpecialist(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
-		return filter.ProfessionalOrgUserID == "" &&
+		return filter.ProfessionalOrgID == "" &&
 			filter.FilterByParcelStatus &&
 			filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 			filter.Status == domain.LandAcquisitionStatusField
@@ -235,7 +239,7 @@ func TestRouter_Dashboard_AdminKeepsLegacyShape(t *testing.T) {
 		return !filter.FilterByParcelStatus &&
 			filter.ParcelStatusID == 0 &&
 			filter.Status == 0 &&
-			filter.ProfessionalOrgUserID == ""
+			filter.ProfessionalOrgID == ""
 	})).Return(&domain.DashboardSummary{
 		ValuationStatuses: []domain.ValuationStatusStat{{Status: "approved", Count: 5}},
 		ValuationTypes:    []domain.ValuationTypeStat{{ValuationType: "asset", Count: 5, Amount: 12000000}},
@@ -327,8 +331,12 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 			userID := domain.ID(503)
+			// Байгууллагын харьяалал нь хэрэглэгчийн ID-аас ТУСДАА утга —
+			// хоёрыг андуурсан тохиолдолд тест барих ёстой.
+			orgID := domain.ID(9003)
 			tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 				ID:          userID,
+				OrgID:       &orgID,
 				Username:    tc.name,
 				Roles:       tc.roles,
 				Permissions: tc.permissions,
@@ -351,18 +359,18 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 					}
 
 					if tc.wantProfessionalScope {
-						return filter.ProfessionalOrgUserID == strconv.Itoa(int(userID)) &&
+						return filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
 							filter.FilterByParcelStatus &&
 							filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 							filter.Status == 0
 					}
 					if tc.wantReviewerScope {
-						return filter.ProfessionalOrgUserID == "" &&
+						return filter.ProfessionalOrgID == "" &&
 							filter.FilterByParcelStatus &&
 							filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
 							filter.Status == domain.LandAcquisitionStatusField
 					}
-					return filter.ProfessionalOrgUserID == "" &&
+					return filter.ProfessionalOrgID == "" &&
 						!filter.FilterByParcelStatus &&
 						filter.ParcelStatusID == 0 &&
 						filter.Status == 0
@@ -616,8 +624,10 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(505)
+	orgID := domain.ID(9005)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
+		OrgID:       &orgID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -627,7 +637,7 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 	parcelID := uuid.New()
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("IsParcelAcquisitionLocked", mock.Anything, parcelID).Return(false, nil)
-	landSvc.On("IsProfMemberOfParcel", mock.Anything, parcelID, userID).Return(false, nil)
+	landSvc.On("IsProfMemberOfParcel", mock.Anything, parcelID, orgID).Return(false, nil)
 
 	router := handler.NewRouter(
 		nil,
@@ -659,8 +669,10 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testin
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(506)
+	orgID := domain.ID(9006)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
 		ID:          userID,
+		OrgID:       &orgID,
 		Username:    "professional_primary",
 		Roles:       []string{"professional_org"},
 		Permissions: []string{"compensation:read"},
@@ -670,7 +682,7 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testin
 	acqID := uuid.New()
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("IsAcquisitionLocked", mock.Anything, acqID).Return(false, nil)
-	landSvc.On("IsProfMemberOfAcquisition", mock.Anything, acqID, userID).Return(true, nil)
+	landSvc.On("IsProfMemberOfAcquisition", mock.Anything, acqID, orgID).Return(true, nil)
 	landSvc.On("GetParcels", mock.Anything, acqID, mock.MatchedBy(func(filter domain.ParcelFilter) bool {
 		return filter.StatusID == domain.ParcelStatusEvaluating &&
 			filter.Page == 1 &&

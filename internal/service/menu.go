@@ -12,6 +12,7 @@ type MenuService interface {
 	List(ctx context.Context) ([]*domain.Menu, error)
 	ListByRole(ctx context.Context, roleID domain.ID) ([]*domain.Menu, error)
 	ListForUser(ctx context.Context, userID domain.ID) ([]*domain.Menu, error)
+	ListPermissions(ctx context.Context, menuID domain.ID) ([]domain.Permission, error)
 	Attach(ctx context.Context, roleID, menuID domain.ID) error
 	Detach(ctx context.Context, roleID, menuID domain.ID) error
 }
@@ -41,6 +42,13 @@ func (s *menuService) ListForUser(ctx context.Context, userID domain.ID) ([]*dom
 		return nil, domain.ErrForbidden
 	}
 	return s.repo.ListByUser(ctx, userID)
+}
+
+func (s *menuService) ListPermissions(ctx context.Context, menuID domain.ID) ([]domain.Permission, error) {
+	if menuID == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.repo.ListPermissions(ctx, menuID)
 }
 
 func (s *menuService) Attach(ctx context.Context, roleID, menuID domain.ID) error {

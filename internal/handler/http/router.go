@@ -87,12 +87,15 @@ func NewRouter(
 		var positionSvc service.PositionService
 		var personSvc service.PersonService
 		var employeeSvc service.EmployeeService
+		var valuationOrgSvc service.ValuationOrgService
 		var decisionSvcs service.DecisionServices
 		var menuSvc service.MenuService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.DecisionServices:
 				decisionSvcs = v
+			case service.ValuationOrgService:
+				valuationOrgSvc = v
 			case service.MenuService:
 				menuSvc = v
 			case service.NotificationService:
@@ -189,6 +192,24 @@ func NewRouter(
 			}
 		}
 
+		// Үнэлгээний (мэргэжлийн) байгууллага — ажилтнуудынх нь хамт.
+		//
+		// УНШИХ эрхийг land:read-тэй ажилтанд ч нээнэ: чөлөөлөлт/нэгж талбарт
+		// үнэлгээний байгууллага сонгох сонгогч энэ жагсаалтаас тэжээгддэг.
+		// БИЧИХ нь HR лавлахын адил зөвхөн admin.
+		if valuationOrgSvc != nil {
+			valuationOrgH := NewValuationOrgHandler(valuationOrgSvc)
+			valuationOrgAdmin := middleware.RequireAnyRole("admin")
+			valuationOrgs := protected.Group("/valuation-orgs")
+			{
+				valuationOrgs.GET("", middleware.RequireAnyPermission("hr:read", "land:read"), valuationOrgH.List)
+				valuationOrgs.GET("/:id", middleware.RequireAnyPermission("hr:read", "land:read"), valuationOrgH.GetByID)
+				valuationOrgs.POST("", middleware.RequirePermission("hr:create"), valuationOrgAdmin, valuationOrgH.Create)
+				valuationOrgs.PUT("/:id", middleware.RequirePermission("hr:update"), valuationOrgAdmin, valuationOrgH.Update)
+				valuationOrgs.DELETE("/:id", middleware.RequirePermission("hr:delete"), valuationOrgAdmin, valuationOrgH.Delete)
+			}
+		}
+
 		users := protected.Group("/users")
 		{
 			users.GET("/me", userH.GetMe)
@@ -216,10 +237,12 @@ func NewRouter(
 			roles.DELETE("/:id/permissions/:permission_id", middleware.RequirePermissionOrRole("roles:update", "admin"), roleH.RemovePermission)
 			// Цэс холбох (эрхийн 1-р давхарга) — menuSvc өгсөн үед л.
 			if menuSvc != nil {
-				menuH := NewMenuHandler(menuSvc)
+				menuH := NewMenuHandler(menuSvc, roleSvc)
 				roles.GET("/:id/menus", middleware.RequirePermission("roles:read"), menuH.ListByRole)
 				roles.POST("/:id/menus", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.Attach)
 				roles.DELETE("/:id/menus/:menu_id", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.Detach)
+				roles.PUT("/:id/menus/:menu_id/permissions", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.SetRoleMenuPermissions)
+				roles.DELETE("/:id/menus/:menu_id/permissions", middleware.RequirePermissionOrRole("roles:update", "admin"), menuH.RemoveRoleMenuPermissions)
 			}
 		}
 

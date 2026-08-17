@@ -387,17 +387,21 @@ type LandAcquisitionBoundaryHistory struct {
 
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
 type LandAcquisitionFilter struct {
-	PlanCode              string
-	AcquisitionName       string
-	Status                int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
-	AU3Code               string
-	StartDateFrom         *time.Time
-	StartDateTo           *time.Time
-	Years                 []int
-	GeneralCategoryID     int
-	SubCategoryID         int
-	AssignedUserID        string
-	ProfessionalOrgUserID string // empty = no filter; set = only acquisitions accessible by this user
+	PlanCode          string
+	AcquisitionName   string
+	Status            int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	AU3Code           string
+	StartDateFrom     *time.Time
+	StartDateTo       *time.Time
+	Years             []int
+	GeneralCategoryID int
+	SubCategoryID     int
+	AssignedUserID    string
+	// ProfessionalOrgID — хоосон бол шүүлт байхгүй; утгатай бол тухайн
+	// БАЙГУУЛЛАГАД оноогдсон чөлөөлөлтүүд л буцна (үндсэн гүйцэтгэгчээр
+	// эсвэл нэгж талбарын хараат бус үнэлгээчнээр). Байгууллагын аль ч
+	// ажилтан ижил жагсаалт харна.
+	ProfessionalOrgID string
 	// true = зөвхөн "Илгээсэн" (submitted) төлөвтэй нөхөх олговрын үнэлгээтэй
 	// нэгж талбар бүхий чөлөөлөлтүүд (санхүүгийн мэргэжилтний жагсаалт)
 	HasSubmittedValuation bool
@@ -1013,20 +1017,20 @@ type FundingSource struct {
 // FileName нь файлын системд хадгалагдсан нэр. Зураг тус бүр GeoServer дээр
 // ӨӨРИЙН давхаргатай бөгөөд давхаргын нэр нь эндээс тооцогдоно.
 type DroneImage struct {
-	ID            uuid.UUID  `json:"id"`
-	AcquisitionID uuid.UUID  `json:"acquisition_id"`
-	FileName      string     `json:"file_name"`
-	FileURL       string     `json:"file_url"`
-	OriginalName  string     `json:"original_name"`
-	ContentType   string     `json:"content_type"`
-	SizeBytes     int64      `json:"size_bytes"`
-	MinX          *float64   `json:"min_x,omitempty"`
-	MinY          *float64   `json:"min_y,omitempty"`
-	MaxX          *float64   `json:"max_x,omitempty"`
-	MaxY          *float64   `json:"max_y,omitempty"`
-	Published     bool       `json:"published"`
-	UploadedAt    time.Time  `json:"uploaded_at"`
-	UploadedBy    *ID        `json:"uploaded_by,omitempty"`
+	ID            uuid.UUID `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	FileName      string    `json:"file_name"`
+	FileURL       string    `json:"file_url"`
+	OriginalName  string    `json:"original_name"`
+	ContentType   string    `json:"content_type"`
+	SizeBytes     int64     `json:"size_bytes"`
+	MinX          *float64  `json:"min_x,omitempty"`
+	MinY          *float64  `json:"min_y,omitempty"`
+	MaxX          *float64  `json:"max_x,omitempty"`
+	MaxY          *float64  `json:"max_y,omitempty"`
+	Published     bool      `json:"published"`
+	UploadedAt    time.Time `json:"uploaded_at"`
+	UploadedBy    *ID       `json:"uploaded_by,omitempty"`
 }
 
 // AuthorizedRepresentative — нэгж талбарын итгэмжлэгдсэн төлөөлөгч
@@ -1047,16 +1051,16 @@ type AuthorizedRepresentative struct {
 
 // DashboardFilter — дашбоардын шүүлтүүрийн параметр
 type DashboardFilter struct {
-	AcquisitionID         string
-	PlanCode              string
-	Years                 []int
-	Status                int
-	GeneralCategoryID     int
-	SubCategoryID         int
-	AssignedUserID        string
-	ProfessionalOrgUserID string
-	FilterByParcelStatus  bool
-	ParcelStatusID        int
+	AcquisitionID        string
+	PlanCode             string
+	Years                []int
+	Status               int
+	GeneralCategoryID    int
+	SubCategoryID        int
+	AssignedUserID       string
+	ProfessionalOrgID    string
+	FilterByParcelStatus bool
+	ParcelStatusID       int
 }
 
 // ParcelStatusStat — нэгж талбарын төлөвийн статистик

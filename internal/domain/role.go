@@ -24,6 +24,7 @@ type Role struct {
 	CreatedAt   time.Time    `json:"created_at"`
 	UpdatedAt   time.Time    `json:"updated_at"`
 	Permissions []Permission `json:"permissions"`
+	Menus       []Menu       `json:"menus,omitempty"`
 }
 
 // Level — ролийн түвшин (admin, senior_specialist, employee ...).

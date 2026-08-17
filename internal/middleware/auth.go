@@ -12,6 +12,7 @@ import (
 
 const (
 	CtxUserID       = "userID"
+	CtxOrgID        = "orgID"
 	CtxUserName     = "userName"
 	CtxUserPosition = "userPosition"
 	CtxRoles        = "roles"
@@ -38,6 +39,9 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		}
 
 		c.Set(CtxUserID, claims.UserID)
+		if claims.OrgID != nil {
+			c.Set(CtxOrgID, *claims.OrgID)
+		}
 		userName := claims.FullName
 		if userName == "" {
 			userName = strings.TrimSpace(claims.FirstName + " " + claims.LastName)
@@ -110,7 +114,7 @@ func RequirePermissionOrRole(permission string, allowedRoles ...string) gin.Hand
 
 func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if hasAnyRole(c, allowedRoles...) {
+		if hasAnyRole(c, "admin", "Админ") || hasAnyRole(c, allowedRoles...) {
 			c.Next()
 			return
 		}

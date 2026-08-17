@@ -1729,7 +1729,12 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 	// шалгагдахгүй — энэ шалгалт байхгүй бол acquisition-ийн гишүүн ямар ч parcel_id-д
 	// (өөрт нь харьяалагдахгүй байсан ч) бичих боломжтой байсан (IDOR).
 	if ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага") {
-		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, callerID)
+		orgID, ok := middleware.GetCallerOrgID(c)
+		if !ok {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, orgID)
 		if err != nil || !member {
 			response.Error(c, domain.ErrForbidden)
 			return
@@ -2864,8 +2869,11 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 			filter.Status = domain.LandAcquisitionStatusField
 		}
 		if isProf {
-			if userUUID, ok := middleware.GetCallerID(c); ok {
-				filter.ProfessionalOrgUserID = strconv.FormatInt(int64(userUUID), 10)
+			// Байгууллагын харьяалалаар шүүнэ — тухайн байгууллагын аль ч
+			// ажилтан ижил хяналтын самбар харна. Харьяалалгүй (ажилтны
+			// бүртгэлгүй) хэрэглэгчид өгөгдөл харуулах ёсгүй.
+			if orgID, ok := middleware.GetCallerOrgID(c); ok {
+				filter.ProfessionalOrgID = strconv.FormatInt(int64(orgID), 10)
 			} else {
 				response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
 				return
@@ -3237,7 +3245,8 @@ func (h *LandHandler) DeleteAuthorizedRepresentative(c *gin.Context) {
 }
 
 // ListMyAcquisitions — professional_org хэрэглэгчид зориулсан endpoint.
-// JWT-ийн userID-г ProfessionalOrgUserID filter болгон ашиглана.
+// JWT-ийн org_id-г ProfessionalOrgID filter болгон ашиглана — иймд нэг
+// байгууллагын БҮХ ажилтан ижил жагсаалттай ажиллана.
 func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 	// Зөвхөн professional_org role-той хэрэглэгч дуудах боломжтой
 	rolesAny, _ := c.Get(middleware.CtxRoles)
@@ -3255,12 +3264,14 @@ func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 		return
 	}
 
-	userUUID, ok := middleware.GetCallerID(c)
+	orgID, ok := middleware.GetCallerOrgID(c)
 	if !ok {
-		response.Abort(c, http.StatusUnauthorized, i18n.ErrUnauthorized)
+		// Ажилтны бүртгэлгүй тул ямар ч байгууллагад харьяалагдахгүй —
+		// байгууллагад оноогдсон ажлыг харах эрхгүй.
+		response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
 		return
 	}
-	userIDStr := strconv.FormatInt(int64(userUUID), 10)
+	orgIDStr := strconv.FormatInt(int64(orgID), 10)
 
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
@@ -3270,11 +3281,11 @@ func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 		AcquisitionName: c.Query("acquisition_name"),
 		// Мэргэжлийн байгууллагад зөвхөн "Хээрийн судалгаа" төлөвтэй чөлөөлөлт
 		// харагдана — query-гийн status параметрийг үл хэрэгсэнэ.
-		Status:                domain.LandAcquisitionStatusField,
-		AU3Code:               c.Query("au3_code"),
-		ProfessionalOrgUserID: userIDStr,
-		Page:                  page,
-		PageSize:              pageSize,
+		Status:            domain.LandAcquisitionStatusField,
+		AU3Code:           c.Query("au3_code"),
+		ProfessionalOrgID: orgIDStr,
+		Page:              page,
+		PageSize:          pageSize,
 	}
 
 	list, total, err := h.svc.List(c.Request.Context(), filter)
@@ -3295,27 +3306,45 @@ func (h *LandHandler) SetAcquisitionProfessionalOrg(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	var body struct {
-		OrgUserID *string `json:"org_user_id"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
+	orgID, ok := bindOrgAssignmentBody(c)
+	if !ok {
 		return
 	}
-	var orgUID *domain.ID
-	if body.OrgUserID != nil && *body.OrgUserID != "" {
-		parsed, ok := parseID(*body.OrgUserID)
-		if !ok {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
-			return
-		}
-		orgUID = &parsed
-	}
-	if err := h.svc.SetAcquisitionProfessionalOrg(c.Request.Context(), acqID, orgUID); err != nil {
+	if err := h.svc.SetAcquisitionProfessionalOrg(c.Request.Context(), acqID, orgID); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.OK(c, nil)
+}
+
+// bindOrgAssignmentBody — үнэлгээний байгууллага оноох биеийг уншина.
+//
+// Утга нь одоо ХЭРЭГЛЭГЧИЙН биш БАЙГУУЛЛАГЫН ID. Шинэ нэр нь `org_id`; хуучин
+// `org_user_id` түлхүүрийг зэрэгцүүлж хүлээн авсаар байна (нэвтрүүлэлтийн үед
+// хуучин frontend эвдрэхээс сэргийлнэ). Хоосон/байхгүй = оноолтыг цуцлах.
+func bindOrgAssignmentBody(c *gin.Context) (*domain.ID, bool) {
+	var body struct {
+		OrgID *string `json:"org_id"`
+		// Deprecated: org_id-г хэрэглэнэ үү.
+		OrgUserID *string `json:"org_user_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
+		return nil, false
+	}
+	raw := body.OrgID
+	if raw == nil || *raw == "" {
+		raw = body.OrgUserID
+	}
+	if raw == nil || *raw == "" {
+		return nil, true
+	}
+	parsed, ok := parseID(*raw)
+	if !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return nil, false
+	}
+	return &parsed, true
 }
 
 func (h *LandHandler) SetParcelIndependentOrg(c *gin.Context) {
@@ -3329,23 +3358,11 @@ func (h *LandHandler) SetParcelIndependentOrg(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	var body struct {
-		OrgUserID *string `json:"org_user_id"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.Key(err.Error()))
+	orgID, ok := bindOrgAssignmentBody(c)
+	if !ok {
 		return
 	}
-	var orgUID *domain.ID
-	if body.OrgUserID != nil && *body.OrgUserID != "" {
-		parsed, ok := parseID(*body.OrgUserID)
-		if !ok {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
-			return
-		}
-		orgUID = &parsed
-	}
-	if err := h.svc.SetParcelIndependentOrg(c.Request.Context(), acqID, parcelID, orgUID); err != nil {
+	if err := h.svc.SetParcelIndependentOrg(c.Request.Context(), acqID, parcelID, orgID); err != nil {
 		response.Error(c, err)
 		return
 	}

@@ -129,7 +129,9 @@ type GeoServerConfig struct {
 }
 
 type MiddlewareConfig struct {
-	BaseURL string `env:"MIDDLEWARE_BASE_URL" envDefault:""`
+	BaseURL  string `env:"MIDDLEWARE_BASE_URL,required"`
+	Username string `env:"MIDDLEWARE_USERNAME,required"`
+	Password string `env:"MIDDLEWARE_PASSWORD,required"`
 }
 
 // SourceFileConfig — ЭХ СИСТЕМИЙН файл сервер (хавсралт хадгалагддаг).
@@ -193,7 +195,7 @@ func (d DBConfig) MigrateURL() string {
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	_ = godotenv.Load(".env")
 
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {

@@ -47,6 +47,8 @@ services:
       DB_PORT: 5432
       AUTH_DB_HOST: postgres
       AUTH_DB_PORT: 5432
+      # Backend container-аас middleware container рүү gov_network дотор хандана.
+      MIDDLEWARE_BASE_URL: http://goverment-middleware:8081
       # GeoServer нь gov_network дээрх "geoserver" сервис
       GEOSERVER_URL: http://geoserver:8080/geoserver
     # volumes БАЙХГҮЙ: backend ямар ч файл хадгалахгүй. Дроны ортофотог

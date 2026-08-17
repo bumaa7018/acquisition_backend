@@ -706,9 +706,23 @@ func (m *MockLandAcquisitionRepository) IsProfMemberOfAcquisition(ctx context.Co
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
-	args := m.Called(ctx, parcelID, userID)
+func (m *MockLandAcquisitionRepository) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error) {
+	args := m.Called(ctx, parcelID, orgID)
 	return args.Bool(0), args.Error(1)
+}
+
+// OrgUserIDs — байгууллагад мэдэгдэл илгээх урсгалд дуудагдана. Тестүүд үүнийг
+// ихэвчлэн тохируулдаггүй тул хүлээлт тавиагүй үед хоосон буцаана: мэдэгдэл
+// зүгээр л илгээгдэхгүй бөгөөд тест "unexpected call"-оор унахгүй.
+func (m *MockLandAcquisitionRepository) OrgUserIDs(ctx context.Context, orgID domain.ID) ([]domain.ID, error) {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "OrgUserIDs" {
+			args := m.Called(ctx, orgID)
+			ids, _ := args.Get(0).([]domain.ID)
+			return ids, args.Error(1)
+		}
+	}
+	return nil, nil
 }
 
 func (m *MockLandAcquisitionRepository) ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error) {

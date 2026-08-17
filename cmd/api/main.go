@@ -125,6 +125,10 @@ func main() {
 		emailSender = email.NoopSender{}
 	}
 
+	// Үнэлгээний байгууллага бол ГАДААД тал. Гадаад хэрэглэгчид (мэргэжлийн
+	// байгууллага, МИКА, санхүү) нь 000093-ын дагуу mainDB-ийн sdplatform схем
+	// дээр амьдардаг — энэ бүртгэл auth DB руу ХЭЗЭЭ Ч холбогдохгүй.
+	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB)
 	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo, externalUserRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
 	jwtManager.SetSessionValidator(userRepo)
@@ -137,6 +141,7 @@ func main() {
 	positionSvc := service.NewPositionService(hrRepo)
 	personSvc := service.NewPersonService(hrRepo)
 	employeeSvc := service.NewEmployeeService(hrRepo)
+	valuationOrgSvc := service.NewValuationOrgService(valuationOrgRepo)
 	// Файлын систем — системд оруулсан БҮХ файл (баримт, зураг, тайлан, дроны
 	// ортофото) MinIO/S3 дээр хадгалагдана. API нь өөр дээрээ файл хадгалахгүй,
 	// зөвхөн object-ийн замыг DB-д бичнэ.
@@ -168,10 +173,10 @@ func main() {
 	}
 
 	middlewareBaseURL := strings.TrimRight(cfg.Middleware.BaseURL, "/")
-	if middlewareBaseURL == "" {
-		middlewareBaseURL = "http://localhost:8081"
-	}
-	parcelInfoClient := service.NewHTTPParcelInfoClient(middlewareBaseURL)
+	parcelInfoClient := service.NewHTTPParcelInfoClient(middlewareBaseURL, service.MiddlewareCredentials{
+		Username: cfg.Middleware.Username,
+		Password: cfg.Middleware.Password,
+	})
 
 	// Эх системийн файл сервер — татсан хавсралтын ФАЙЛ тэнд байдаг.
 	// Тохируулаагүй бол хавсралт татах/бүртгэх нь ажиллах ч файл нээх үед
@@ -220,7 +225,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, decisionSvcs, menuSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

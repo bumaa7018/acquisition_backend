@@ -97,8 +97,13 @@ func (p *Person) DisplayName() string {
 // дамжина: hr_employee.department_id → hr_department.organization. Тиймээс
 // OrganizationID/OrganizationName нь зөвхөн УНШИХ талбарууд.
 type Employee struct {
-	ID               ID         `json:"id"`
-	PersonID         ID         `json:"person_id"`
+	ID       ID `json:"id"`
+	PersonID ID `json:"person_id"`
+	// UserID — ажилтны нэвтрэх эрх (hr_employee.user_id). Нэвтрэх эрхгүй
+	// ажилтанд nil. Чөлөөлөлтөд ажилтан хуваарилах / ажилтнаар шүүх үйлдэл
+	// нь land_acquisition_assignee.user_id-тай ажилладаг тул ажилтныг сонгоод
+	// ХЭРЭГЛЭГЧИЙН ID-г нь дамжуулах шаардлагатай.
+	UserID           *ID        `json:"user_id,omitempty"`
 	Person           *Person    `json:"person,omitempty"`
 	PersonName       string     `json:"person_name,omitempty"`
 	OrganizationID   *ID        `json:"organization_id,omitempty"`
@@ -119,14 +124,15 @@ type Employee struct {
 // Menu — sdplatform.sd_menu. Роль тус бүрт харагдах цэсийг sd_menu_role-оор
 // холбоно (цэс холбох үйлдэл).
 type Menu struct {
-	ID         ID        `json:"id"`
-	Code       string    `json:"code"`
-	Name       string    `json:"name"`
-	ParentID   *ID       `json:"parent_id,omitempty"`
-	ParentCode string    `json:"parent_code,omitempty"`
-	URL        string    `json:"menu_url,omitempty"`
-	Icon       string    `json:"menu_icon,omitempty"`
-	SortOrder  int       `json:"sort_order"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          ID           `json:"id"`
+	Code        string       `json:"code"`
+	Name        string       `json:"name"`
+	ParentID    *ID          `json:"parent_id,omitempty"`
+	ParentCode  string       `json:"parent_code,omitempty"`
+	URL         string       `json:"menu_url,omitempty"`
+	Icon        string       `json:"menu_icon,omitempty"`
+	SortOrder   int          `json:"sort_order"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	Permissions []Permission `json:"permissions,omitempty"`
 }

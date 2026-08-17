@@ -615,7 +615,7 @@ func (r *HRRepo) DeletePerson(ctx context.Context, id domain.ID) error {
 // ---------------------------------------------------------------------------
 
 func employeeSelectSQL() string {
-	return `SELECT e.employee_id, e.person_id, d.organization, COALESCE(o.name, ''),
+	return `SELECT e.employee_id, e.person_id, e.user_id, d.organization, COALESCE(o.name, ''),
 		e.department_id, COALESCE(d.name, ''), e.position_id, COALESCE(pos.name, ''),
 		e.email, e.mobile_phone, e.hired_date, e.terminated_date, COALESCE(e.is_active, 1) <> 0,
 		COALESCE(e.created_at::timestamptz, NOW()), COALESCE(e.updated_at::timestamptz, NOW()),
@@ -631,7 +631,7 @@ const employeeFromSQL = `
 	LEFT JOIN sdplatform.sd_organization o ON o.id = d.organization`
 
 func scanEmployeeRow(row rowScanner, e *domain.Employee, p *domain.Person) error {
-	return row.Scan(&e.ID, &e.PersonID, &e.OrganizationID, &e.OrganizationName,
+	return row.Scan(&e.ID, &e.PersonID, &e.UserID, &e.OrganizationID, &e.OrganizationName,
 		&e.DepartmentID, &e.DepartmentName, &e.PositionID, &e.PositionName,
 		&e.WorkEmail, &e.WorkPhone, &e.HiredAt, &e.ReleasedAt, &e.IsActive, &e.CreatedAt, &e.UpdatedAt,
 		&p.ID, &p.PersonType, &p.RegisterNo, &p.LastName, &p.FirstName, &p.LegalName,
@@ -759,8 +759,14 @@ func (r *HRRepo) CreateEmployeeWithPerson(ctx context.Context, e *domain.Employe
 }
 
 func (r *HRRepo) UpdateEmployee(ctx context.Context, e *domain.Employee) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	e.UpdatedAt = time.Now()
-	res, err := r.db.Exec(ctx, `
+	res, err := tx.Exec(ctx, `
 		UPDATE sdplatform.hr_employee e
 		SET person_id=$1, department_id=$2, position_id=$3,
 		    email=LEFT($4::text, 250), mobile_phone=LEFT($5::text, 50),
@@ -782,20 +788,36 @@ func (r *HRRepo) UpdateEmployee(ctx context.Context, e *domain.Employee) error {
 }
 
 // DeleteEmployee — схемд deleted_at байхгүй тул is_active=0 болгоно.
+// deactivateEmployeeUsers — ажилтан идэвхгүй болоход түүний НЭВТРЭХ ЭРХИЙГ мөн
+// хаана. Мөрийг устгахгүй, зөвхөн төлөв солино.
+//
+// Чиглэл нь НЭГ ТАЛТАЙ: ажилтан → хэрэглэгч. Хэрэглэгчийг идэвхгүй болгоход
+// ажилтны бүртгэлд хүрэхгүй (нэг хүн ажилтан хэвээр байж, зөвхөн системд
+// нэвтрэх эрхээ хаалгаж болно).
+//
+// employeeIDs хоосон бол юу ч хийхгүй.
+func deactivateEmployeeUsers(ctx context.Context, q hrQuerier, employeeIDs []domain.ID) error {
+	if len(employeeIDs) == 0 {
+		return nil
+	}
+	_, err := q.Exec(ctx, `
+		UPDATE sdplatform.sd_user u
+		SET is_active = false, updated_at = NOW()
+		WHERE u.user_id IN (
+			SELECT e.user_id FROM sdplatform.hr_employee e
+			WHERE e.employee_id = ANY($1::int4[]) AND e.user_id IS NOT NULL
+		)`, employeeIDs)
+	return mapHRError(err)
+}
+
 func (r *HRRepo) DeleteEmployee(ctx context.Context, id domain.ID) error {
-	linked, err := hrExists(ctx, r.db, `
-		SELECT EXISTS(
-			SELECT 1 FROM sdplatform.sd_user u
-			JOIN sdplatform.hr_employee e ON e.user_id = u.user_id
-			WHERE e.employee_id = $1 AND u.deleted_at IS NULL
-		)`, id)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if linked {
-		return domain.ErrAlreadyExists
-	}
-	res, err := r.db.Exec(ctx,
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	res, err := tx.Exec(ctx,
 		`UPDATE sdplatform.hr_employee SET is_active = 0, updated_at = NOW()
 		 WHERE employee_id = $1 AND COALESCE(is_active, 1) <> 0`, id)
 	if err != nil {
@@ -804,5 +826,10 @@ func (r *HRRepo) DeleteEmployee(ctx context.Context, id domain.ID) error {
 	if res.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	// Өмнө нь нэвтрэх эрхтэй ажилтныг идэвхгүй болгохыг ЗӨВШӨӨРДӨГГҮЙ байсан
+	// (409). Одоо эрхийг нь хамт хаадаг тул тэр хориг хэрэггүй болов.
+	if err := deactivateEmployeeUsers(ctx, tx, []domain.ID{id}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
