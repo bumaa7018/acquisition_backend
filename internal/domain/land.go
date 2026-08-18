@@ -415,6 +415,42 @@ type LandAcquisitionAU struct {
 	AU3Name           string
 }
 
+// AU2Overlap — чөлөөлөх хил нэг сум/дүүрэгтэй (au2) давхцсан хэсэг.
+type AU2Overlap struct {
+	Code string
+	Name string
+	// Covered — чөлөөлөх хил ЭНЭ сум/дүүрэгт БҮРЭН багтсан эсэх
+	// (ST_CoveredBy). Хилийн шугам дээр таарсныг багтсанд тооцно.
+	Covered bool
+	// AreaM2 — давхцсан хэсгийн талбай (м², geography). Зөвхөн лог/шалтгаан
+	// тайлбарлахад — шалгалт нь Covered-ээр хийгдэнэ.
+	AreaM2 float64
+}
+
+// AU2Coverage — чөлөөлөх хилийг сум/дүүргийн (au2) хилтэй харьцуулсан дүн.
+// Чөлөөлөлт нь ЗӨВХӨН нэг сум/дүүрэгт багтах ёстой тул бүртгэхийн өмнө
+// хилийг үүгээр шалгана.
+type AU2Coverage struct {
+	// ReferenceRows — геометртэй au2 мөрийн тоо. 0 бол лавлах өгөгдөл
+	// ачаалагдаагүй тул шалгах боломжгүй (scripts/load_admin_units.sh).
+	ReferenceRows int
+	// Overlaps — давхцсан сум/дүүргүүд (давхцсан талбайгаар буурахаар).
+	Overlaps []AU2Overlap
+}
+
+// GeomContainment — хил (geom) нь өөр хил (container) дотор багтаж байгаа
+// эсэхийн дүн.
+type GeomContainment struct {
+	// Covered — ST_CoveredBy: geom нь container-т БҮРЭН багтсан эсэх. Хилийн
+	// шугам дээр давхцаж таарсныг багтсанд тооцно (тиймээс геометрийн
+	// нарийвчлалын хүлцэл шаардахгүй).
+	Covered bool
+	// OutsideM2 — container-ээс ГАДНА гарсан хэсгийн талбай (м²).
+	OutsideM2 float64
+	// ContainerM2 — container-ийн бүтэн талбай (м²).
+	ContainerM2 float64
+}
+
 type LandAcquisitionBoundaryHistory struct {
 	ID                uuid.UUID
 	LandAcquisitionID uuid.UUID

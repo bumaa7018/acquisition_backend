@@ -166,8 +166,14 @@ type LandAcquisitionWriteRepository interface {
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
+	// FindAU2Coverage — чөлөөлөх хил ямар сум/дүүрэгтэй (au2) давхцаж, аль
+	// нь түүнийг бүрэн бүрхэж байгааг тооцно (дамналт шалгахад).
+	FindAU2Coverage(ctx context.Context, geomWKT string) (*domain.AU2Coverage, error)
 	// ComputeAreaM2 — чөлөөлөх хилийн талбайг м²-ээр PostGIS-аар тооцно.
 	ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error)
+	// CheckContainment — geomWKT нь containerWKT дотор БҮРЭН багтсан эсэх,
+	// гадна гарсан талбай ба container-ийн талбайг нэг дуудалтаар тооцно.
+	CheckContainment(ctx context.Context, geomWKT, containerWKT string) (*domain.GeomContainment, error)
 	CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error
 	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error
 	// InsertParcelCodes — ЗӨВХӨН дугаараар нэгж талбарын мөр үүсгэнэ

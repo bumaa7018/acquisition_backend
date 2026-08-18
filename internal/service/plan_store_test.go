@@ -60,6 +60,7 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 		Name:     "Дундын сервисийн төлөвлөгөө",
 	}, nil)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateProgress", ctx, mock.Anything).Return(nil).Maybe()
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
@@ -75,8 +76,8 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 	assert.Equal(t, testPlanCode, acq.PlanCode)
 	require.NotNil(t, acq.PlanID, "plan_id нь plan хүснэгтийн мөрийг хэлэх ёстой")
 	assert.Equal(t, storedID, *acq.PlanID)
-	// Хил ирсэн ч давхцлын шалгалт хийгдэхгүй (шалгалт хасагдсан)
-	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
+	// Хилийн шалгалт нь plan хүснэгтэд хадгалагдсан мөрийн хилээр хийгдэнэ
+	// (TestLandService_Create_ChecksStoredPlanBoundary-г үз).
 	projects.AssertExpectations(t)
 	planStore.AssertExpectations(t)
 }
@@ -140,21 +141,28 @@ func TestLandService_Create_PlanCodeRequired(t *testing.T) {
 	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
-// Хадгалагдсан төлөвлөгөөнд ХИЛ байсан ч давхцлын шалгалт хийхгүй (хасагдсан)
-func TestLandService_Create_IgnoresPlanBoundary(t *testing.T) {
+// Багтах шалгалт нь plan хүснэгтэд ХАДГАЛАГДСАН мөрийн хилээр хийгдэнэ:
+// чөлөөлөх хил тэр хилээс бүрэн гадна байвал бүртгэгдэхгүй.
+func TestLandService_Create_ChecksStoredPlanBoundary(t *testing.T) {
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
 	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
+	// Хадгалагдсан мөрөнд хол байрлах хил бий — шалгалт ҮҮГЭЭР хийгдэнэ.
+	farBoundary := "POLYGON((10 10,11 10,11 11,10 11,10 10))"
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
-	// Хадгалагдсан мөрөнд хол байрлах хил бий — гэхдээ шалгалтад хэрэглэгдэхгүй
 	planStore.On("Upsert", ctx, mock.Anything).Return(&domain.Plan{
-		ID: uuid.New(), PlanCode: testPlanCode, BoundaryWKT: "POLYGON((10 10,11 10,11 11,10 11,10 10))",
+		ID: uuid.New(), PlanCode: testPlanCode, BoundaryWKT: farBoundary,
 	}, nil)
-	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
-	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
-	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
+	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil).Maybe()
+	landRepo.On("FindAU2Coverage", ctx, mock.AnythingOfType("string")).Return(&domain.AU2Coverage{
+		ReferenceRows: 340,
+		Overlaps:      []domain.AU2Overlap{{Code: "0101", Covered: true, AreaM2: 41_250_000.0}},
+	}, nil)
+	// Чөлөөлөх хил бүхэлдээ төлөвлөгөөний хилээс гадна (100%).
+	landRepo.On("CheckContainment", ctx, mock.AnythingOfType("string"), farBoundary).
+		Return(&domain.GeomContainment{OutsideM2: 41_250_000, ContainerM2: 12_000_000}, nil)
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
@@ -163,8 +171,8 @@ func TestLandService_Create_IgnoresPlanBoundary(t *testing.T) {
 		CreatedBy:     "user-1",
 	})
 
-	require.NoError(t, err)
-	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
+	assert.Equal(t, domain.ErrOutsidePlanExceeds, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
 func TestPlanService_Search_StoresMiddlewareDataThenReadsAppDB(t *testing.T) {

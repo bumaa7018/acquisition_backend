@@ -159,6 +159,24 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnauthorized, i18n.ErrExpiredToken
 	case domain.ErrInvalidInput:
 		return http.StatusBadRequest, i18n.ErrInvalidInput
+	case domain.ErrAU2Crossing:
+		return http.StatusUnprocessableEntity, i18n.ErrAU2Crossing
+	case domain.ErrOutsidePlanExceeds:
+		return http.StatusUnprocessableEntity, i18n.ErrOutsidePlanExceeds
+	case domain.ErrOutsideParcelBoundary:
+		return http.StatusUnprocessableEntity, i18n.ErrOutsideParcelBoundary
+	case domain.ErrShapefileProjection:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileProjection
+	case domain.ErrShapefileOutsideCountry:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileOutsideCountry
+	case domain.ErrShapefileMultiRecord:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileMultiRecord
+	case domain.ErrShapefileShapeType:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileShapeType
+	case domain.ErrShapefileMultiPolygon:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileMultiPolygon
+	case domain.ErrShapefileFormat:
+		return http.StatusUnprocessableEntity, i18n.ErrShapefileFormat
 	case domain.ErrInvalidTransition:
 		return http.StatusConflict, i18n.ErrConflict
 	case domain.ErrValuationNotApproved:

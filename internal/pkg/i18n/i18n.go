@@ -61,6 +61,15 @@ const (
 	ErrShapefileRead            Key = "shapefile_read"
 	ErrBoundaryExceeds          Key = "boundary_exceeds"
 	ErrNewBoundaryExceeds       Key = "new_boundary_exceeds"
+	ErrAU2Crossing              Key = "au2_crossing"
+	ErrOutsidePlanExceeds       Key = "outside_plan_exceeds"
+	ErrOutsideParcelBoundary    Key = "outside_parcel_boundary"
+	ErrShapefileProjection      Key = "shapefile_projection"
+	ErrShapefileOutsideCountry  Key = "shapefile_outside_country"
+	ErrShapefileMultiRecord     Key = "shapefile_multi_record"
+	ErrShapefileShapeType       Key = "shapefile_shape_type"
+	ErrShapefileMultiPolygon    Key = "shapefile_multipolygon"
+	ErrShapefileFormat          Key = "shapefile_format"
 	ErrShapefileRequiredForPlan Key = "shapefile_required_for_plan"
 	ErrDeleteNotNew             Key = "delete_not_new"
 	WarnGeomChanged             Key = "geom_changed"
@@ -142,6 +151,15 @@ var messages = map[Key][2]string{
 	ErrShapefileRead:            {"shapefile уншихад алдаа", "Failed to read shapefile"},
 	ErrBoundaryExceeds:          {"Чөлөөлөх хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу", "Acquisition boundary exceeds plan boundary or invalid shapefile"},
 	ErrNewBoundaryExceeds:       {"Шинэ хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу", "New boundary exceeds plan boundary or invalid shapefile"},
+	ErrAU2Crossing:              {"Сум/дүүрэг дамнах боломжгүй. Чөлөөлөх хил нь зөвхөн нэг сум/дүүргийн хил дотор байх шаардлагатай.", "Cannot span multiple districts. The acquisition boundary must lie within a single district (au2)."},
+	ErrOutsidePlanExceeds:       {"Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс хэт их (50%-иас дээш) гарсан байна.", "The acquisition boundary extends beyond the plan parcel boundary by more than 50% of the plan area."},
+	ErrOutsideParcelBoundary:    {"Чөлөөлөх хил/талбай нь нэгж талбарын үндсэн хил дотор байх шаардлагатай. Оруулсан хил үндсэн хилээс гарсан байна.", "The acquisition geometry must lie inside the parcel's own boundary."},
+	ErrShapefileProjection:      {"Оруулсан файлын проекц зөрүүтэй. Хил нь WGS84 (EPSG:4326) координатын системд, градусаар байх шаардлагатай.", "Invalid projection: the boundary must be in WGS84 (EPSG:4326) degrees."},
+	ErrShapefileOutsideCountry:  {"Оруулсан хилийн координат Монгол Улсын хүрээнд байхгүй. Файлын проекц эсвэл координатыг шалгана уу.", "The boundary coordinates fall outside Mongolia. Check the file's projection."},
+	ErrShapefileMultiRecord:     {"Оруулсан файлд нэгээс олон полигон байна. Нэг полигон агуулсан файл оруулна уу.", "The file contains more than one polygon. Upload a file with exactly one polygon."},
+	ErrShapefileShapeType:       {"Оруулсан файлын геометр нь полигон биш байна (Polygon төрөл шаардлагатай). Цэг (Point) эсвэл шугам (PolyLine) төрөл дэмжигдэхгүй.", "The geometry must be a polygon; point and line types are not supported."},
+	ErrShapefileMultiPolygon:    {"Оруулсан файлд салангид олон полигон (MultiPolygon) байна. Хил нь нэг полигон байх шаардлагатай (цоорхой бүхий полигон зөвшөөрөгдөнө).", "MultiPolygon is not supported: the boundary must be a single polygon (holes are allowed)."},
+	ErrShapefileFormat:          {"Оруулсан файл ESRI Shapefile (.shp) бүтцэд тохирохгүй эсвэл эвдэрсэн байна.", "The file is not a valid ESRI Shapefile (.shp)."},
 	ErrShapefileRequiredForPlan: {"Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай", "Shapefile is required when changing plan"},
 	ErrDeleteNotNew:             {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
 	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдлээ", "The acquisition boundary was updated. Existing linked parcels were kept, and missing parcels intersecting the new boundary were added"},

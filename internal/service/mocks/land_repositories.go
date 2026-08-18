@@ -193,9 +193,25 @@ func (m *MockLandAcquisitionRepository) FindIntersectingAU3(ctx context.Context,
 	return args.Get(0).([]domain.LandAcquisitionAU), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) FindAU2Coverage(ctx context.Context, geomWKT string) (*domain.AU2Coverage, error) {
+	args := m.Called(ctx, geomWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AU2Coverage), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error) {
 	args := m.Called(ctx, geomWKT)
 	return args.Get(0).(float64), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) CheckContainment(ctx context.Context, geomWKT, containerWKT string) (*domain.GeomContainment, error) {
+	args := m.Called(ctx, geomWKT, containerWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.GeomContainment), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error {

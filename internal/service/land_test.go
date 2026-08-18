@@ -18,12 +18,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// buildSimpleShp нь нэг хэлбэр бүхий polygon .shp файлын байт буцаана.
+// buildSimpleShp нь нэг хэлбэр бүхий polygon .shp файлын байт буцаана
+// (Улаанбаатар орчмын WGS84 координат — стандартад тохирсон).
 func buildSimpleShp() []byte {
-	pts := [][2]float64{
+	return buildShpPts([][2]float64{
 		{106.76, 47.66}, {106.82, 47.66},
 		{106.82, 47.72}, {106.76, 47.72}, {106.76, 47.66},
-	}
+	})
+}
+
+// buildShpPts — заасан координатаар .shp байт бүтээнэ (проекцийн шалгалтыг
+// тестлэхэд метр координат ч дамжуулж болно).
+func buildShpPts(pts [][2]float64) []byte {
 	numParts, numPoints := 1, len(pts)
 	contentLen := 4 + 32 + 4 + 4 + numParts*4 + numPoints*16
 	shpBuf := make([]byte, 100+8+contentLen)
@@ -70,6 +76,23 @@ func (p planMocks) expectPlanMissing(code string) {
 	p.projects.On("GetPlanProject", ctx, code).Return(nil, domain.ErrNotFound)
 }
 
+// testAcqAreaM2 — тестийн shapefile-ийн (buildSimpleShp) талбай.
+const testAcqAreaM2 = 41_250_000.0
+
+// expectBoundaryOK — хилийн шалгалтыг ӨНГӨРҮҮЛЭХ mock: хил бүхэлдээ НЭГ
+// сум/дүүрэгт багтаж, төлөвлөгөөний хилээс гараагүй.
+func expectBoundaryOK(landRepo *mocks.MockLandAcquisitionRepository) {
+	landRepo.On("FindAU2Coverage", ctx, mock.AnythingOfType("string")).Return(&domain.AU2Coverage{
+		ReferenceRows: 340,
+		Overlaps: []domain.AU2Overlap{
+			{Code: "0101", Name: "Сүхбаатар", Covered: true, AreaM2: testAcqAreaM2},
+		},
+	}, nil).Maybe()
+	landRepo.On("CheckContainment", ctx,
+		mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{Covered: true, ContainerM2: 900_000_000}, nil).Maybe()
+}
+
 func newLandSvc(landRepo *mocks.MockLandAcquisitionRepository) (service.LandService, planMocks) {
 	pm := planMocks{
 		projects: &mocks.MockPlanProjectClient{},
@@ -108,6 +131,7 @@ func TestLandService_Create_Success(t *testing.T) {
 
 	pm.expectPlan(testPlanCode, plan)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{
 		{AU1Code: "01", AU2Code: "0101", AU3Code: "010101"},
@@ -145,6 +169,7 @@ func TestLandService_Create_DoesNotFetchParcels(t *testing.T) {
 
 	pm.expectPlan(testPlanCode, testPlan())
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
 	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateProgress", ctx, mock.Anything).Return(nil).Maybe()
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
@@ -193,36 +218,244 @@ func TestLandService_Create_InvalidShapefile(t *testing.T) {
 		ShapefileData: []byte("not-a-zip"),
 	})
 
-	assert.Equal(t, domain.ErrInvalidInput, err)
+	assert.Equal(t, domain.ErrShapefileFormat, err)
 	pm.projects.AssertExpectations(t)
 }
 
-// Чөлөөлөх хилийг төлөвлөгөөний хилтэй давхцуулах шалгалт БАЙХГҮЙ: төлөвлөгөөний
-// хилээс гадна байсан ч бүртгэгдэнэ (шалгалт кодоос хасагдсан).
-func TestLandService_Create_NoPlanBoundaryOverlapCheck(t *testing.T) {
+// Метр проекцтой (UTM) файл — координат градусын хүрээнд байхгүй тул
+// бүртгэгдэхгүй, шалтгаан нь ТОДОРХОЙ алдаа болж буцна.
+func TestLandService_Create_RejectsNonWGS84Shapefile(t *testing.T) {
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	svc, pm := newLandSvc(landRepo)
+	pm.expectPlan(testPlanCode, testPlan())
 
-	// Төлөвлөгөөний хил нь shapefile-ийн геометртэй огт давхцахгүй хол байрлана
-	farPlan := testPlan()
-	farPlan.BoundaryWKT = "POLYGON((10 10,11 10,11 11,10 11,10 10))"
+	// UTM 48N метр координат (X≈478000, Y≈5279000)
+	utm := buildShpPts([][2]float64{
+		{478000, 5279000}, {478500, 5279000},
+		{478500, 5279500}, {478000, 5279500}, {478000, 5279000},
+	})
 
-	pm.expectPlan(testPlanCode, farPlan)
-	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
-	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
-	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
+	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
+		PlanCode:      testPlanCode,
+		StartDate:     testStartDate,
+		ShapefileData: utm,
+	})
 
-	acq, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
+	assert.Equal(t, domain.ErrShapefileProjection, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// WGS84 градус боловч Монголын гадна байрлах хил бүртгэгдэхгүй.
+func TestLandService_Create_RejectsForeignCoordinates(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, pm := newLandSvc(landRepo)
+	pm.expectPlan(testPlanCode, testPlan())
+
+	// Берлин орчим
+	foreign := buildShpPts([][2]float64{
+		{13.40, 52.51}, {13.41, 52.51}, {13.41, 52.52}, {13.40, 52.52}, {13.40, 52.51},
+	})
+
+	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
+		PlanCode:      testPlanCode,
+		StartDate:     testStartDate,
+		ShapefileData: foreign,
+	})
+
+	assert.Equal(t, domain.ErrShapefileOutsideCountry, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// ── Хилийн шалгалт: сум/дүүрэг дамнах ────────────────────────
+
+// createBoundarySvc — хилийн шалгалтыг тест хийх бэлтгэл. Шалгалт өнгөрвөл
+// бүртгэгдэх бүх mock тавигдана (Maybe: шалгалт унавал дуудагдахгүй).
+func createBoundarySvc(landRepo *mocks.MockLandAcquisitionRepository) (service.LandService, planMocks) {
+	svc, pm := newLandSvc(landRepo)
+	pm.expectPlan(testPlanCode, testPlan())
+	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(testAcqAreaM2, nil)
+	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil).Maybe()
+	landRepo.On("CreateProgress", ctx, mock.Anything).Return(nil).Maybe()
+	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).
+		Return([]domain.LandAcquisitionAU{}, nil).Maybe()
+	return svc, pm
+}
+
+func createWithShapefile(svc service.LandService) (*domain.LandAcquisition, error) {
+	return svc.Create(ctx, service.CreateLandAcquisitionRequest{
 		PlanCode:      testPlanCode,
 		StartDate:     testStartDate,
 		EndDate:       &testEndDate,
 		ShapefileData: buildSimpleShp(),
 		CreatedBy:     "user-1",
 	})
+}
 
-	require.NoError(t, err, "хил давхцахгүй байсан ч бүртгэгдэх ёстой")
+// expectAU2 — сум/дүүргийн давхцлын mock.
+func expectAU2(landRepo *mocks.MockLandAcquisitionRepository, refRows int, overlaps ...domain.AU2Overlap) {
+	landRepo.On("FindAU2Coverage", ctx, mock.AnythingOfType("string")).
+		Return(&domain.AU2Coverage{ReferenceRows: refRows, Overlaps: overlaps}, nil)
+}
+
+// expectPlanContainment — төлөвлөгөөний хилд багтах эсэхийн mock.
+func expectPlanContainment(landRepo *mocks.MockLandAcquisitionRepository, covered bool, outsideM2, planM2 float64) {
+	landRepo.On("CheckContainment", ctx,
+		mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{
+			Covered: covered, OutsideM2: outsideM2, ContainerM2: planM2,
+		}, nil)
+}
+
+// Хоёр сум/дүүрэг дамнасан хил бүртгэгдэхгүй (нэг ч au2 бүрэн бүрхээгүй).
+func TestLandService_Create_RejectsAU2Crossing(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	expectAU2(landRepo, 340,
+		domain.AU2Overlap{Code: "0101", AreaM2: testAcqAreaM2 * 0.6},
+		domain.AU2Overlap{Code: "0102", AreaM2: testAcqAreaM2 * 0.4},
+	)
+
+	_, err := createWithShapefile(svc)
+
+	assert.Equal(t, domain.ErrAU2Crossing, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// Сум/дүүргийн хилээс ГАДНА гарсан хэсэг байвал бүртгэгдэхгүй.
+func TestLandService_Create_RejectsOutsideAU2(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	// Нэг сумтай давхцсан ч хилийн 30% нь ямар ч сумд хамаарахгүй тул
+	// бүрэн бүрхэгдээгүй (Covered=false).
+	expectAU2(landRepo, 340, domain.AU2Overlap{Code: "0101", AreaM2: testAcqAreaM2 * 0.7})
+
+	_, err := createWithShapefile(svc)
+
+	assert.Equal(t, domain.ErrAU2Crossing, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// Хөрш сум руу ХЭДХЭН м² орсон ч дамнасанд тооцно — хувиар хүлцэл БАЙХГҮЙ.
+func TestLandService_Create_RejectsSmallAU2Overlap(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	// 50 м² нь хилээс гарсан тул аль ч сум хилийг бүрэн бүрхэхгүй.
+	expectAU2(landRepo, 340,
+		domain.AU2Overlap{Code: "0101", AreaM2: testAcqAreaM2 - 50},
+		domain.AU2Overlap{Code: "0102", AreaM2: 50},
+	)
+
+	_, err := createWithShapefile(svc)
+
+	assert.Equal(t, domain.ErrAU2Crossing, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// Хил нь сумын хилийн шугамтай давхцаж таарсан (хөрш сумтай зүгээр
+// ХҮРЭЛЦСЭН) тохиолдол дамналт БИШ: ST_CoveredBy нь шугам дээрхийг багтсанд
+// тооцно.
+func TestLandService_Create_AllowsAU2BorderTouch(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	expectAU2(landRepo, 340,
+		domain.AU2Overlap{Code: "0101", Covered: true, AreaM2: testAcqAreaM2},
+		domain.AU2Overlap{Code: "0102", AreaM2: 0},
+	)
+	expectPlanContainment(landRepo, true, 0, 900_000_000)
+
+	acq, err := createWithShapefile(svc)
+
+	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, acq.ID)
-	landRepo.AssertNotCalled(t, "ValidateOverlap", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// au2 лавлах геометр ачаалагдаагүй бол шалгалт алгасагдана (бүртгэл зогсохгүй).
+func TestLandService_Create_SkipsAU2CheckWithoutReferenceData(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	expectAU2(landRepo, 0)
+	expectPlanContainment(landRepo, true, 0, 900_000_000)
+
+	_, err := createWithShapefile(svc)
+
+	require.NoError(t, err)
+}
+
+// ── Хилийн шалгалт: төлөвлөгөөний нэгж талбар ────────────────
+
+// Төлөвлөгөөний хилээс гарсан хэсэг 50%-иас БАГА бол бүртгэгдэнэ.
+func TestLandService_Create_AllowsOutsidePlanUnderHalf(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	expectAU2(landRepo, 340, domain.AU2Overlap{Code: "0101", Covered: true, AreaM2: testAcqAreaM2})
+	expectPlanContainment(landRepo, false, 40_000_000, 100_000_000) // 40%
+
+	acq, err := createWithShapefile(svc)
+
+	require.NoError(t, err)
+	assert.NotEqual(t, uuid.Nil, acq.ID)
+}
+
+// Төлөвлөгөөний хилээс гарсан хэсэг 50%-иас ИХ бол бүртгэгдэхгүй.
+func TestLandService_Create_RejectsOutsidePlanOverHalf(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := createBoundarySvc(landRepo)
+	expectAU2(landRepo, 340, domain.AU2Overlap{Code: "0101", Covered: true, AreaM2: testAcqAreaM2})
+	expectPlanContainment(landRepo, false, 60_000_000, 100_000_000) // 60%
+
+	_, err := createWithShapefile(svc)
+
+	assert.Equal(t, domain.ErrOutsidePlanExceeds, err)
+	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+// Төлөвлөгөөний хил байхгүй бол багтах шалгалт алгасагдана.
+func TestLandService_Create_SkipsPlanCheckWithoutBoundary(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, pm := newLandSvc(landRepo)
+	noGeomPlan := testPlan()
+	noGeomPlan.BoundaryWKT = ""
+	pm.expectPlan(testPlanCode, noGeomPlan)
+	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(testAcqAreaM2, nil)
+	expectAU2(landRepo, 340, domain.AU2Overlap{Code: "0101", Covered: true, AreaM2: testAcqAreaM2})
+	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
+	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).
+		Return([]domain.LandAcquisitionAU{}, nil)
+
+	_, err := createWithShapefile(svc)
+
+	require.NoError(t, err)
+	landRepo.AssertNotCalled(t, "CheckContainment", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// ХИЛ ШИНЭЧЛЭХ үед ч шалгалт хийгдэнэ: сум/дүүрэг дамнасан шинэ хил
+// хадгалагдахгүй (Update-ээр тойрч гарах боломжгүй).
+func TestLandService_Update_RejectsAU2Crossing(t *testing.T) {
+	id := uuid.New()
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, pm := newLandSvc(landRepo)
+
+	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{
+		ID: id, PlanCode: testPlanCode,
+		GeometryWKT: "POLYGON((106.76 47.66,106.82 47.66,106.82 47.72,106.76 47.72,106.76 47.66))",
+		Status:      domain.LandAcquisitionStatusField,
+	}, nil)
+	pm.expectPlan(testPlanCode, testPlan())
+	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(testAcqAreaM2, nil)
+	expectAU2(landRepo, 340,
+		domain.AU2Overlap{Code: "0101", AreaM2: testAcqAreaM2 * 0.5},
+		domain.AU2Overlap{Code: "0102", AreaM2: testAcqAreaM2 * 0.5},
+	)
+
+	_, _, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
+		AcquisitionName: "Тест",
+		ShapefileData:   buildSimpleShp(),
+		UpdatedBy:       "user-1",
+	})
+
+	assert.Equal(t, domain.ErrAU2Crossing, err)
+	landRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
 }
 
 // updateGeomSvc — ХИЛ ШИНЭЧЛЭХ (Update) урсгалын нэгж талбар татах хэсгийг
@@ -250,6 +483,7 @@ func updateGeomSvc(t *testing.T, id uuid.UUID) (
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
 	pm.expectPlan(testPlanCode, testPlan())
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
@@ -449,6 +683,7 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	landRepo.On("GetByID", ctx, id).Return(existing, nil)
 	pm.expectPlan(testPlanCode, plan)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
 	landRepo.On("Update", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
 	landRepo.On("CreateBoundaryHistory", ctx, mock.MatchedBy(func(h *domain.LandAcquisitionBoundaryHistory) bool {
 		return h.LandAcquisitionID == id &&
@@ -867,4 +1102,109 @@ func TestLandService_SyncParcel_FallsBackWhenSourceGeometryMissing(t *testing.T)
 	landRepo.AssertCalled(t, "UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string"))
 	landRepo.AssertNotCalled(t, "ApplyParcelGeometry",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// ── Нэгж талбарын чөлөөлөх хил/талбай шинэчлэх шалгалт ───────
+
+// parcelMetaSvc — UpdateParcelMeta-ийн шалгалтыг тестлэх бэлтгэл. Нэгж
+// талбарын үндсэн хил нь 100 x 100 нэгж (тестийн WKT).
+func parcelMetaSvc(parcelID uuid.UUID) (service.LandService, *mocks.MockLandAcquisitionRepository) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+	landRepo.On("GetParcelByID", ctx, parcelID).Return(&domain.Parcel{
+		ID:          parcelID,
+		ParcelID:    "010101000001",
+		GeometryWKT: "POLYGON((106.76 47.66,106.77 47.66,106.77 47.67,106.76 47.67,106.76 47.66))",
+		AreaM2:      1_000_000,
+	}, nil)
+	landRepo.On("UpdateParcelMeta", ctx, parcelID,
+		mock.AnythingOfType("bool"), mock.AnythingOfType("string"),
+		mock.Anything, mock.Anything).Return(nil).Maybe()
+	return svc, landRepo
+}
+
+func strPtr(s string) *string   { return &s }
+func f64Ptr(f float64) *float64 { return &f }
+
+// Үндсэн хил дотор БҮРЭН байгаа хил хадгалагдана.
+func TestLandService_UpdateParcelMeta_AcceptsGeomInsideParcel(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+	newWKT := "POLYGON((106.762 47.662,106.766 47.662,106.766 47.666,106.762 47.666,106.762 47.662))"
+
+	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{Covered: true, ContainerM2: 1_000_000}, nil)
+
+	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", f64Ptr(150_000), strPtr(newWKT))
+
+	require.NoError(t, err)
+	landRepo.AssertCalled(t, "UpdateParcelMeta", ctx, parcelID, false, "",
+		mock.Anything, mock.Anything)
+}
+
+// Үндсэн хилээс ГАРСАН хил хадгалагдахгүй.
+func TestLandService_UpdateParcelMeta_RejectsGeomOutsideParcel(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+	newWKT := "POLYGON((106.76 47.66,106.80 47.66,106.80 47.70,106.76 47.70,106.76 47.66))"
+
+	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{OutsideM2: 50_000, ContainerM2: 1_000_000}, nil)
+
+	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT))
+
+	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
+	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Үндсэн хилээс ХЭДХЭН м² гарсан ч хадгалагдахгүй — 100% дотор байх ёстой.
+func TestLandService_UpdateParcelMeta_RejectsTinyOverrun(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+	newWKT := "POLYGON((106.76 47.66,106.7701 47.66,106.7701 47.67,106.76 47.67,106.76 47.66))"
+
+	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{OutsideM2: 3, ContainerM2: 1_000_000}, nil)
+
+	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT))
+
+	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
+	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Үндсэн хилтэй ЯГ давхцсан (шугам дээр таарсан) хил хадгалагдана —
+// ST_CoveredBy нь хилийн шугамыг дотор гэж тооцно.
+func TestLandService_UpdateParcelMeta_AcceptsCoincidentBoundary(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+	newWKT := "POLYGON((106.76 47.66,106.77 47.66,106.77 47.67,106.76 47.67,106.76 47.66))"
+
+	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
+		Return(&domain.GeomContainment{Covered: true, ContainerM2: 1_000_000}, nil)
+
+	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT)))
+}
+
+// Чөлөөлөгдөх талбай нь нэгж талбарын талбайгаас их байвал хадгалагдахгүй.
+func TestLandService_UpdateParcelMeta_RejectsAreaOverParcelArea(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+
+	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", f64Ptr(1_500_000), nil)
+
+	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
+	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Хил/талбай хөндөөгүй үед шалгалт хийгдэхгүй (зөвхөн тэмдэглэгээ шинэчилнэ).
+func TestLandService_UpdateParcelMeta_SkipsCheckWithoutGeomOrArea(t *testing.T) {
+	parcelID := uuid.New()
+	svc, landRepo := parcelMetaSvc(parcelID)
+
+	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, true, "010101000002", nil, nil))
+	landRepo.AssertNotCalled(t, "CheckContainment",
+		mock.Anything, mock.Anything, mock.Anything)
 }

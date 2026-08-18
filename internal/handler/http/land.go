@@ -207,6 +207,9 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Description  plan_code-аар төлөвлөгөөг middleware-ээс татаж appdb-ийн plan хүснэгтэд хадгалаад чөлөөлөлт үүсгэнэ.
 // @Description  Талбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
 // @Description  Нэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).
+// @Description  Хилийн шалгалт (аль нэг нь биелэхгүй бол 422-оор бүртгэгдэхгүй):
+// @Description  1) Чөлөөлөх хил нь ЗӨВХӨН нэг сум/дүүрэгт (au2) багтсан байх — дамнасан эсвэл сум/дүүргийн хилээс гарсан бол "Сум/дүүрэг дамнах боломжгүй".
+// @Description  2) Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хил дотор байх — гарсан хэсэг нь төлөвлөгөөний талбайн 50%-иас ихгүй байх.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
@@ -215,6 +218,10 @@ func (h *LandHandler) List(c *gin.Context) {
 // @Param        start_date formData  string  true  "Эхлэх огноо (YYYY-MM-DD)"
 // @Param        end_date   formData  string  false  "Дуусах огноо (YYYY-MM-DD)"
 // @Param        shapefile  formData  file    true  "Чөлөөлөх бүсийн хил (.shp файл)"
+// @Description  Файлын шалгалт: ESRI Shapefile бүтэц, Polygon төрөл (цэг/шугам дэмжигдэхгүй),
+// @Description  НЭГ полигон (MultiPolygon дэмжигдэхгүй, цоорхой зөвшөөрөгдөнө), хаагдсан ринг,
+// @Description  проекц нь WGS84 (EPSG:4326) градус, координат Монгол Улсын хүрээнд байх.
+// @Description  Зөрвөл 422-оор шалтгааныг тодорхой заана.
 // @Success      201  {object}  response.Response
 // @Failure      400  {object}  response.Response
 // @Failure      404  {object}  response.Response
@@ -399,6 +406,7 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 // Update godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл засах
 // @Description  Геометр өөрчлөхдөө shapefile оруулна. Геометр өөрчлөгдвөл хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдэнэ.
+// @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах, төлөвлөгөөний нэгж талбарын хилээс 50%-иас ихгүй гарсан байх.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
@@ -966,6 +974,12 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 	response.OK(c, toLandAcqResponse(acq))
 }
 
+// UpdateParcelMeta — нэгж талбарын чөлөөлөгдөх талбай/хил болон эх системийн
+// өөрчлөлтийн тэмдэглэгээг шинэчилнэ.
+//
+// acquisition_geom_wkt / acquisition_area_m2 оруулсан тохиолдолд шинэ хил нь
+// нэгж талбарын ҮНДСЭН хил дотор байх ёстой — гарсан бол 422-оор
+// татгалзаж, өөрчлөлт хадгалагдахгүй.
 func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {

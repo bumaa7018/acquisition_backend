@@ -39,4 +39,32 @@ var (
 	// бүрт эх үүсвэр сонгосон байх ёстой.
 	ErrFundingSourceRequired = errors.New("a funding source must be added and selected first")
 	ErrFundingSourceInUse    = errors.New("funding source is in use by a linked parcel")
+
+	// Хилийн шалгалт (чөлөөлөлт үүсгэх / хил солих / нэгж талбарын хил)
+	//
+	// Чөлөөлөх хил нь нэг сум/дүүрэгт (au2) багтаагүй — дамнасан эсвэл
+	// сум/дүүргийн хилээс гарсан.
+	ErrAU2Crossing = errors.New("acquisition boundary crosses administrative unit (au2) borders")
+	// Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс хэт (50%-иас их) гарсан.
+	ErrOutsidePlanExceeds = errors.New("acquisition boundary outside the plan parcel exceeds 50% of the plan area")
+	// Нэгж талбарын чөлөөлөх хил/талбай нь тухайн нэгж талбарын ҮНДСЭН
+	// хилээс гарсан (хатуу шалгалт).
+	ErrOutsideParcelBoundary = errors.New("acquisition geometry must be inside the parcel boundary")
+
+	// Оруулсан shapefile нь appdb-ийн стандартаас зөрсөн
+	//
+	// Проекц нь WGS84 (EPSG:4326) биш — координат градус биш эсвэл .prj өөр
+	// координатын систем зарласан.
+	ErrShapefileProjection = errors.New("shapefile projection must be WGS84 (EPSG:4326)")
+	// Координат нь Монгол Улсын хүрээнд байхгүй.
+	ErrShapefileOutsideCountry = errors.New("shapefile coordinates are outside Mongolia")
+	// Нэгээс олон полигон бичлэгтэй файл (аль нь гэдэг тодорхойгүй).
+	ErrShapefileMultiRecord = errors.New("shapefile must contain exactly one polygon")
+	// Polygon биш геометр (шугам, цэг гэх мэт).
+	ErrShapefileShapeType = errors.New("shapefile geometry must be a polygon")
+	// Салангид олон полигон (MultiPolygon) — geometry(Polygon,4326) багананд
+	// хадгалагдахгүй.
+	ErrShapefileMultiPolygon = errors.New("multipolygon is not supported, a single polygon is required")
+	// Формат/бүтэц эвдэрсэн эсвэл shapefile биш.
+	ErrShapefileFormat = errors.New("invalid shapefile format")
 )

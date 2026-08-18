@@ -441,6 +441,96 @@ func (r *landAcqRepo) CreateAU(ctx context.Context, au *domain.LandAcquisitionAU
 	return err
 }
 
+// FindAU2Coverage — чөлөөлөх хил ямар сум/дүүрэгтэй (au2) давхцаж, тэдгээрийн
+// АЛЬ НЬ хилийг БҮРЭН бүрхэж байгааг тооцно.
+//
+// Гурван зүйлийг НЭГ дуудалтаар буцаана:
+//   - ReferenceRows: геометртэй au2 мөрийн тоо. Давхцал огт олдоогүй үед
+//     "хил нь сумын гадна" гэдгийг "лавлах өгөгдөл ачаалагдаагүй"-гээс
+//     ялгаж чадахын тулд шаардлагатай (тиймээс LEFT JOIN).
+//   - Covered: ST_CoveredBy — хил тухайн сум/дүүрэгт бүрэн багтсан эсэх.
+//     Дамналтын шалгалт ҮҮГЭЭР хийгдэнэ (хувиар бус, топологиор).
+//   - AreaM2: давхцлын талбай — татгалзсан шалтгааныг логлоход.
+//
+// ST_MakeValid — эвдэрсэн (self-intersect) хил ирэхэд ч ажиллана.
+func (r *landAcqRepo) FindAU2Coverage(ctx context.Context, geomWKT string) (*domain.AU2Coverage, error) {
+	if strings.TrimSpace(geomWKT) == "" {
+		return &domain.AU2Coverage{}, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		WITH g AS (
+			SELECT ST_MakeValid(ST_GeomFromText($1, 4326)) AS geom
+		), ref AS (
+			SELECT count(*)::int AS n FROM au2 WHERE geometry IS NOT NULL
+		), hit AS (
+			SELECT a2.code AS code,
+			       COALESCE(a2.name, '') AS name,
+			       ST_CoveredBy(g.geom, ST_MakeValid(a2.geometry)) AS covered,
+			       COALESCE(ST_Area(ST_Intersection(ST_MakeValid(a2.geometry), g.geom)::geography), 0) AS area_m2
+			FROM au2 a2, g
+			WHERE a2.geometry IS NOT NULL
+			  AND ST_Intersects(a2.geometry, g.geom)
+		)
+		SELECT ref.n, COALESCE(hit.code, ''), COALESCE(hit.name, ''),
+		       COALESCE(hit.covered, false), COALESCE(hit.area_m2, 0)
+		FROM ref LEFT JOIN hit ON TRUE
+		ORDER BY 5 DESC
+	`, geomWKT)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cov := &domain.AU2Coverage{}
+	for rows.Next() {
+		var (
+			refRows int
+			o       domain.AU2Overlap
+		)
+		if err := rows.Scan(&refRows, &o.Code, &o.Name, &o.Covered, &o.AreaM2); err != nil {
+			return nil, err
+		}
+		cov.ReferenceRows = refRows
+		// LEFT JOIN-ий хоосон мөр (давхцал олдоогүй) — зөвхөн тоог авна.
+		if o.Code == "" {
+			continue
+		}
+		cov.Overlaps = append(cov.Overlaps, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return cov, nil
+}
+
+// CheckContainment — geomWKT нь containerWKT дотор багтсан эсэх (ST_CoveredBy),
+// гадна гарсан хэсгийн талбай ба container-ийн бүтэн талбайг (м², geography)
+// нэг дуудалтаар тооцно.
+//
+// Covered нь ТОПОЛОГИЙН шалгалт: хилийн шугам дээр давхцаж таарсан хилийг
+// багтсанд тооцдог тул "хувиар хүлцэл" тавих шаардлагагүй.
+// Хоёрын аль нэг хоосон бол хоосон дүн буцаана.
+func (r *landAcqRepo) CheckContainment(ctx context.Context, geomWKT, containerWKT string) (*domain.GeomContainment, error) {
+	if strings.TrimSpace(geomWKT) == "" || strings.TrimSpace(containerWKT) == "" {
+		return &domain.GeomContainment{}, nil
+	}
+	res := &domain.GeomContainment{}
+	err := r.db.QueryRow(ctx, `
+		WITH g AS (
+			SELECT ST_MakeValid(ST_GeomFromText($1, 4326)) AS geom,
+			       ST_MakeValid(ST_GeomFromText($2, 4326)) AS container
+		)
+		SELECT ST_CoveredBy(g.geom, g.container),
+		       COALESCE(ST_Area(ST_Difference(g.geom, g.container)::geography), 0),
+		       COALESCE(ST_Area(g.container::geography), 0)
+		FROM g
+	`, geomWKT, containerWKT).Scan(&res.Covered, &res.OutsideM2, &res.ContainerM2)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 // ComputeAreaM2 — WKT хилийн талбайг м²-ээр тооцно (geography → бөмбөрцөг дээрх
 // бодит талбай). Хил хоосон бол 0 буцаана.
 func (r *landAcqRepo) ComputeAreaM2(ctx context.Context, geomWKT string) (float64, error) {
