@@ -67,4 +67,11 @@ var (
 	ErrShapefileMultiPolygon = errors.New("multipolygon is not supported, a single polygon is required")
 	// Формат/бүтэц эвдэрсэн эсвэл shapefile биш.
 	ErrShapefileFormat = errors.New("invalid shapefile format")
+
+	// Чөлөөлөлт устгах хязгаарлалт
+	//
+	// "Чөлөөлсөн" төлөвтэй нэгж талбар бүхий чөлөөлөлтийг устгах боломжгүй.
+	ErrHasReleasedParcels = errors.New("acquisition has released parcels and cannot be deleted")
+	// Баталгаажсан захирамжтай холбогдсон чөлөөлөлтийг устгах боломжгүй.
+	ErrConfirmedDecisionLinked = errors.New("acquisition is linked to a confirmed decision draft")
 )

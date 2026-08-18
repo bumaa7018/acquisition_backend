@@ -438,6 +438,24 @@ type AU2Coverage struct {
 	Overlaps []AU2Overlap
 }
 
+// AcquisitionDeleteCheck — чөлөөлөлтийг устгах боломжтой эсэхийг шалгасан дүн
+// (нэг DB дуудалтаар цуглуулна).
+type AcquisitionDeleteCheck struct {
+	// ParcelCount — чөлөөлөлтөд бүртгэлтэй нэгж талбарын НИЙТ тоо.
+	ParcelCount int
+	// ReleasedParcels — "Чөлөөлсөн" (ParcelStatusReleased) төлөвтэй нэгж
+	// талбарын тоо. 0-ээс их бол устгах боломжгүй.
+	ReleasedParcels int
+	// ParcelStatusCounts — төлөв → тоо. Устгалыг зогсоох шалтгааныг логлож,
+	// хэрэглэгчид тайлбарлахад.
+	ParcelStatusCounts map[int]int
+	// ConfirmedDecisions — баталгаажсан захирамжийн тоо (чөлөөлөлт дээр шууд
+	// холбогдсон, эсвэл нэгж талбараар холбогдсон).
+	ConfirmedDecisions int
+	// DecisionNumbers — баталгаажсан захирамжийн дугаарууд (логт).
+	DecisionNumbers []string
+}
+
 // GeomContainment — хил (geom) нь өөр хил (container) дотор багтаж байгаа
 // эсэхийн дүн.
 type GeomContainment struct {

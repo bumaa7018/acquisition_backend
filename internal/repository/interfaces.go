@@ -230,7 +230,17 @@ type LandAcquisitionWriteRepository interface {
 	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// CheckAcquisitionDeletable — устгахыг зогсоох шалтгаануудыг (Чөлөөлсөн
+	// нэгж талбар, баталгаажсан захирамж) нэг дуудалтаар тооцно.
+	CheckAcquisitionDeletable(ctx context.Context, id uuid.UUID) (*domain.AcquisitionDeleteCheck, error)
+	// ListAcquisitionFileURLs — чөлөөлөлтөд хамаарах ХАДГАЛАЛТ дээрх бүх
+	// файлын зам (хавсралт, нэгж талбарын хавсралт, дроны зураг, хөрөнгийн
+	// зураг, үнэлгээний тайлан). Устгасны дараа цэвэрлэхэд.
+	ListAcquisitionFileURLs(ctx context.Context, id uuid.UUID) ([]string, error)
+	// Delete — SOFT delete: мөрийг устгахгүй, deleted_at-ыг тэмдэглэнэ.
+	// Уншилтууд deleted_at IS NULL-ээр шүүгддэг тул API-д харагдахаа болино.
+	// CASCADE-ээр 23 хүснэгт цэвэрлэгдэхээс сэргийлнэ.
+	Delete(ctx context.Context, id uuid.UUID, deletedBy string) error
 }
 
 type LandProgressRepository interface {

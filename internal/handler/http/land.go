@@ -536,7 +536,11 @@ func (h *LandHandler) Update(c *gin.Context) {
 
 // Delete godoc
 // @Summary      Газар чөлөөлөлт устгах
-// @Description  Зөвхөн статус нь NEW үед устгах боломжтой
+// @Description  Устгалт нь SOFT delete — мөр устахгүй, "устгасан" гэж тэмдэглэгдэж
+// @Description  бүх уншилтаас хасагдана (CASCADE-ээр холбоотой 23 хүснэгт цэвэрлэгдэхгүй).
+// @Description  Хязгаарлалт: 1) зөвхөн "Шинэ" төлөвтэй (403), 2) "Чөлөөлсөн" төлөвтэй
+// @Description  нэгж талбартай бол устгахгүй (409), 3) баталгаажсан захирамжтай
+// @Description  холбогдсон бол устгахгүй (409). Хавсралт/дроны файлууд фонд цэвэрлэгдэнэ.
 // @Tags         land-acquisitions
 // @Produce      json
 // @Security     BearerAuth
@@ -544,6 +548,7 @@ func (h *LandHandler) Update(c *gin.Context) {
 // @Success      204
 // @Failure      403  {object}  response.Response
 // @Failure      404  {object}  response.Response
+// @Failure      409  {object}  response.Response
 // @Router       /land-acquisitions/{id} [delete]
 func (h *LandHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -552,7 +557,7 @@ func (h *LandHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
+	if err := h.svc.Delete(c.Request.Context(), id, contextUserIDString(c)); err != nil {
 		switch err {
 		case domain.ErrNotFound:
 			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)

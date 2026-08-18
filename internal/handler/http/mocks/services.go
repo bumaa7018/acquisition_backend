@@ -120,8 +120,8 @@ func (m *MockLandService) ListBoundaryHistory(ctx context.Context, acquisitionID
 	return args.Get(0).([]*domain.LandAcquisitionBoundaryHistory), args.Error(1)
 }
 
-func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID, deletedBy string) error {
+	return m.Called(ctx, id, deletedBy).Error(0)
 }
 
 func (m *MockLandService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {

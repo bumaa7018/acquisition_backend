@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down reset reset-db logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-e2e test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down reset reset-db logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 BINARY=server
 CMD=./cmd/api
@@ -54,6 +54,11 @@ build:
 
 test:
 	CGO_ENABLED=0 go test ./... -v -count=1
+
+# E2E — БОДИТ PostgreSQL шаардана (make up + make migrate-main-up).
+# .env-ийн DB_* хувьсагчаар холбогдоно; DB байхгүй бол тест skip болно.
+test-e2e:
+	E2E_DATABASE_URL="$(MAIN_DSN)" CGO_ENABLED=0 go test -tags e2e ./... -v -count=1 -run E2E
 
 test-cover:
 	CGO_ENABLED=0 go test ./... -coverprofile=coverage.out -count=1

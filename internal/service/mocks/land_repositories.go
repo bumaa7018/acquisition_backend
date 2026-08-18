@@ -412,8 +412,24 @@ func (m *MockLandAcquisitionRepository) DeleteParcelsAndAUs(ctx context.Context,
 	return m.Called(ctx, acquisitionID).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandAcquisitionRepository) Delete(ctx context.Context, id uuid.UUID, deletedBy string) error {
+	return m.Called(ctx, id, deletedBy).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) CheckAcquisitionDeletable(ctx context.Context, id uuid.UUID) (*domain.AcquisitionDeleteCheck, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionDeleteCheck), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListAcquisitionFileURLs(ctx context.Context, id uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]string), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status int) error {

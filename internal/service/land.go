@@ -33,7 +33,9 @@ type LandAcquisitionService interface {
 	IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
 	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error)
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	// Delete — чөлөөлөлтийг SOFT delete-ээр устгана (хязгаарлалтуудыг үз:
+	// landService.Delete).
+	Delete(ctx context.Context, id uuid.UUID, deletedBy string) error
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
 	GetParcelDetail(ctx context.Context, acquisitionID, parcelID uuid.UUID) (*domain.ParcelFull, error)
 	// EnsureParcelInAcquisition — parcel тухайн чөлөөлөлтөд харьяалагдаж буйг
@@ -879,7 +881,20 @@ func (s *landService) ListBoundaryHistory(ctx context.Context, acquisitionID uui
 }
 
 // Delete — зөвхөн "NEW" статустай чөлөөлөлтийг устгана.
-func (s *landService) Delete(ctx context.Context, id uuid.UUID) error {
+// Delete — чөлөөлөлтийг устгана. ХЯЗГААРЛАЛТУУД (дараалалаар):
+//
+//  1. Зөвхөн "Шинэ" (NEW) төлөвтэй чөлөөлөлт — domain.ErrForbidden.
+//  2. Доторх нэгж талбарын төлөв: "Чөлөөлсөн" (ParcelStatusReleased) нэгж
+//     талбар байвал — domain.ErrHasReleasedParcels.
+//  3. Баталгаажсан захирамжтай холбоо (шууд эсвэл нэгж талбараар) байвал —
+//     domain.ErrConfirmedDecisionLinked.
+//
+// Устгалт нь SOFT delete (deleted_at) — CASCADE-ээр 23 хүснэгт цэвэрлэгдэхээс
+// сэргийлнэ. Харин ХАДГАЛАЛТ дээрх файлууд (хавсралт, дроны ортофото,
+// хөрөнгийн зураг, үнэлгээний тайлан) нь зай эзэлдэг тул ФОНД, хоорондоо
+// зайтай (throttle) цэвэрлэгдэнэ — тэдгээрийг эргүүлэн авах боломжгүй,
+// зөвхөн бүртгэл нь хадгалагдана.
+func (s *landService) Delete(ctx context.Context, id uuid.UUID, deletedBy string) error {
 	acq, err := s.landRepo.GetByID(ctx, id)
 	if err != nil {
 		return domain.ErrNotFound
@@ -887,15 +902,119 @@ func (s *landService) Delete(ctx context.Context, id uuid.UUID) error {
 	if acq.Status != domain.LandAcquisitionStatusNew {
 		return domain.ErrForbidden
 	}
-	if err := s.landRepo.Delete(ctx, id); err != nil {
-		return err
+
+	check, err := s.landRepo.CheckAcquisitionDeletable(ctx, id)
+	if err != nil {
+		slog.Error("чөлөөлөлт устгах шалгалт хийхэд алдаа", "acquisition_id", id, "error", err)
+		return domain.ErrInternalServer
 	}
+	if check == nil {
+		return domain.ErrInternalServer
+	}
+	if check.ReleasedParcels > 0 {
+		slog.Warn("чөлөөлсөн нэгж талбартай чөлөөлөлтийг устгах оролдлого",
+			"acquisition_id", id,
+			"released_parcels", check.ReleasedParcels,
+			"parcel_count", check.ParcelCount)
+		return domain.ErrHasReleasedParcels
+	}
+	if check.ConfirmedDecisions > 0 {
+		slog.Warn("баталгаажсан захирамжтай чөлөөлөлтийг устгах оролдлого",
+			"acquisition_id", id,
+			"confirmed_decisions", check.ConfirmedDecisions,
+			"decree_numbers", strings.Join(check.DecisionNumbers, ","))
+		return domain.ErrConfirmedDecisionLinked
+	}
+
+	// Файлын замыг устгахаас ӨМНӨ уншина (дараа нь уншвал уншилтууд
+	// deleted_at-аар шүүгдэх эрсдэлтэй).
+	fileURLs, err := s.landRepo.ListAcquisitionFileURLs(ctx, id)
+	if err != nil {
+		// Файл цэвэрлэх нь устгалыг зогсоох шалтгаан биш — логлож үргэлжилнэ.
+		slog.Error("устгах файлын жагсаалт уншихад алдаа", "acquisition_id", id, "error", err)
+		fileURLs = nil
+	}
+
+	if err := s.landRepo.Delete(ctx, id, deletedBy); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrNotFound
+		}
+		slog.Error("чөлөөлөлт устгахад алдаа", "acquisition_id", id, "error", err)
+		return domain.ErrInternalServer
+	}
+
+	s.cleanupFilesInBackground(id, fileURLs)
+
 	s.auditLog(ctx, "deleted", domain.AuditResourceAcquisition, id.String(), uuidPtr(id), nil, map[string]any{
-		"name":      acq.AcquisitionName,
-		"plan_code": acq.PlanCode,
-		"status":    acq.Status,
+		"name":            acq.AcquisitionName,
+		"plan_code":       acq.PlanCode,
+		"status":          acq.Status,
+		"soft_delete":     true,
+		"deleted_by":      deletedBy,
+		"parcel_count":    check.ParcelCount,
+		"parcel_statuses": check.ParcelStatusCounts,
+		"file_count":      len(fileURLs),
 	})
 	return nil
+}
+
+const (
+	// fileCleanupDelay — файл устгах хүсэлт хоорондын зай. Нэг чөлөөлөлтөд
+	// мянга мянган хавсралт байж болох тул зэрэг дуудвал хадгалалтын
+	// сервисийг (MinIO/S3) дүүргэж, бодит хүсэлтүүдийг удаашруулна.
+	fileCleanupDelay = 200 * time.Millisecond
+	// fileCleanupTimeout — фонын цэвэрлэгээний хамгийн их хугацаа. Дуусаагүй
+	// файлууд хадгалалтад үлдэнэ (логлоно) — дахин устгах нь хэвийн.
+	fileCleanupTimeout = 30 * time.Minute
+)
+
+// cleanupFilesInBackground — устгасан чөлөөлөлтийн файлуудыг ФОНД, хоорондоо
+// fileCleanupDelay зайтай устгана.
+//
+// HTTP хүсэлтийн ctx-ийг ХЭРЭГЛЭХГҮЙ (хариу буцмагц cancel болно) — тусдаа
+// timeout-той context үүсгэнэ. Зэрэгцээ фон ажлын тоог backgroundWriteSem-ээр
+// хязгаарлана; ээлж дүүрсэн бол цэвэрлэгээг алгасаж, логлоно (файл нь хог
+// болж үлдэх нь устгалыг зогсоохоос дээр).
+func (s *landService) cleanupFilesInBackground(acquisitionID uuid.UUID, fileURLs []string) {
+	if len(fileURLs) == 0 || s.files == nil {
+		return
+	}
+	release, ok := tryAcquireBackgroundSlot()
+	if !ok {
+		slog.Warn("фон ажлын ээлж дүүрсэн тул файл цэвэрлэгээ алгасагдав",
+			"acquisition_id", acquisitionID, "file_count", len(fileURLs))
+		return
+	}
+
+	go func() {
+		defer release()
+		ctx, cancel := context.WithTimeout(context.Background(), fileCleanupTimeout)
+		defer cancel()
+
+		deleted, failed := 0, 0
+		for i, fileURL := range fileURLs {
+			if i > 0 {
+				// Хүсэлт хоорондын зай — хадгалалтыг дүүргэхгүй.
+				select {
+				case <-time.After(fileCleanupDelay):
+				case <-ctx.Done():
+					slog.Warn("файл цэвэрлэгээний хугацаа дууслаа",
+						"acquisition_id", acquisitionID,
+						"deleted", deleted, "remaining", len(fileURLs)-i)
+					return
+				}
+			}
+			if err := s.files.Delete(ctx, fileURL); err != nil {
+				failed++
+				slog.Warn("файл устгахад алдаа",
+					"acquisition_id", acquisitionID, "file_url", fileURL, "error", err)
+				continue
+			}
+			deleted++
+		}
+		slog.Info("устгасан чөлөөлөлтийн файл цэвэрлэгдлээ",
+			"acquisition_id", acquisitionID, "deleted", deleted, "failed", failed)
+	}()
 }
 
 func (s *landService) List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error) {

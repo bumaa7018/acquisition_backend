@@ -135,7 +135,7 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 
 func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error) {
 	args := []any{}
-	where := "1=1"
+	where := "la.deleted_at IS NULL" // soft delete: устгасан чөлөөлөлт жагсаалтад орохгүй
 	i := 1
 
 	if filter.PlanCode != "" {
@@ -317,7 +317,7 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
 			-- Мэргэжлийн байгууллагын нэр нь app-owned profile-оос уншигдана.
 		LEFT JOIN valuation_org_profile po ON po.id = la.professional_org_id
-		WHERE la.id = $1
+		WHERE la.id = $1 AND la.deleted_at IS NULL
 	`, id).Scan(
 		&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
 		&acq.PlanGeomWKT, &acq.PlanAreaM2,
@@ -725,10 +725,41 @@ func (r *landAcqRepo) insertParcelRow(
 	if err := r.db.QueryRow(ctx,
 		`SELECT id FROM parcel WHERE parcel_id = $1 AND acquisition_id = $2`,
 		sp.ParcelID, acquisitionID,
-	).Scan(&parcelID); err != nil {
-		return uuid.Nil, false, nil
+	).Scan(&parcelID); err == nil {
+		return parcelID, false, nil
 	}
-	return parcelID, false, nil
+
+	// Дугаарыг ӨӨР чөлөөлөлт эзэмшиж байна. Тэр чөлөөлөлт нь УСТГАСАН
+	// (soft delete) бол нэгж талбарыг ЭРГҮҮЛЭН ЭЗЭМШИНЭ.
+	//
+	// Шалтгаан: parcel.parcel_id глобал unique бөгөөд FK-ийн бай тул устгасан
+	// чөлөөлөлтийн нэгж талбар дугаараа эзэлсээр үлддэг. Эргүүлэн эзэмшихгүй
+	// бол буруу бүртгэсэн чөлөөлөлтийг устгаад ДАХИН бүртгэхэд нэгж талбарууд
+	// "өөрд бүртгэлтэй" гэж алгасагдаж, жагсаалт хоосон үлдэнэ.
+	//
+	// Хуучин (устгасан) чөлөөлөлтийн хүү мөрүүд (эзэмшигч, үнэлгээ) нь ХУУЧИН
+	// acquisition_id-тайгаа хэвээр үлдэнэ — тэдгээр нь acquisition_id-гаар
+	// шүүгддэг тул шинэ чөлөөлөлтөд харагдахгүй, өгөгдөл ч алдагдахгүй.
+	if err := r.db.QueryRow(ctx, `
+		UPDATE parcel p
+		SET acquisition_id = $2,
+		    deleted_at     = NULL,
+		    status         = $3,
+		    updated_at     = $4,
+		    updated_by     = 'system'
+		WHERE p.parcel_id = $1
+		  AND EXISTS (
+		      SELECT 1 FROM land_acquisition la
+		      WHERE la.id = p.acquisition_id AND la.deleted_at IS NOT NULL
+		  )
+		RETURNING p.id
+	`, sp.ParcelID, acquisitionID, domain.ParcelStatusPending, now).Scan(&parcelID); err == nil {
+		// Шинэ чөлөөлөлтөд ШИНЭЭР нэмэгдсэнтэй адил (created=true) —
+		// дуудагч статусын түүх үүсгэнэ.
+		return parcelID, true, nil
+	}
+
+	return uuid.Nil, false, nil
 }
 
 func (r *landAcqRepo) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
@@ -962,7 +993,7 @@ func (r *landAcqRepo) GetParcelByCode(ctx context.Context, parcelCode string) (*
 		       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0)),
 		       COALESCE(db_changed,false), COALESCE(changed_parcel_id,'')
 		FROM parcel
-		WHERE parcel_id = $1
+		WHERE parcel_id = $1 AND deleted_at IS NULL
 	`, parcelCode).Scan(
 		&p.ID, &p.ParcelID, &p.OldParcelID,
 		&p.AcquisitionID, &p.ValidFrom, &p.ValidTill,
@@ -1787,11 +1818,171 @@ func (r *landAcqRepo) DeleteParcelsAndAUs(ctx context.Context, acquisitionID uui
 	return tx.Commit(ctx)
 }
 
-// Delete газар чөлөөлөлт болон холбоотой бүх мэдээллийг устгана.
-// CASCADE: land_acquisition устгахад parcel, land_acquisition_au, parcel_detail автоматаар устана.
-func (r *landAcqRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.Exec(ctx, "DELETE FROM land_acquisition WHERE id = $1", id)
-	return err
+// CheckAcquisitionDeletable — устгах хязгаарлалтад шаардлагатай тоонуудыг
+// цуглуулна:
+//
+//   - нэгж талбарын төлөв бүрийн тоо (Чөлөөлсөн байгаа эсэхийг шалгахад),
+//   - баталгаажсан захирамжтай холбоо: чөлөөлөлт дээр ШУУД (acquisition_id)
+//     эсвэл НЭГЖ ТАЛБАРААР (decision_draft_parcel) холбогдсон эсэх.
+//
+// Захирамжийн холбоос нь чөлөөлөлт устгахад CASCADE-ээр (decision_draft_parcel)
+// чимээгүй устдаг тул баталгаажсан захирамжийг эвдэхээс сэргийлнэ.
+func (r *landAcqRepo) CheckAcquisitionDeletable(ctx context.Context, id uuid.UUID) (*domain.AcquisitionDeleteCheck, error) {
+	res := &domain.AcquisitionDeleteCheck{ParcelStatusCounts: map[int]int{}}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT COALESCE(status, 0) AS status, count(*)::int
+		FROM parcel
+		WHERE acquisition_id = $1
+		GROUP BY 1
+	`, id)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var status, n int
+		if err := rows.Scan(&status, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		res.ParcelStatusCounts[status] = n
+		res.ParcelCount += n
+		if status == domain.ParcelStatusReleased {
+			res.ReleasedParcels += n
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	drafts, err := r.db.Query(ctx, `
+		SELECT DISTINCT COALESCE(NULLIF(d.decree_number, ''), d.id::text)
+		FROM decision_draft d
+		WHERE d.status = $2
+		  AND (
+		        d.acquisition_id = $1
+		     OR EXISTS (
+		          SELECT 1
+		          FROM decision_draft_parcel dp
+		          JOIN parcel p ON p.id = dp.parcel_id
+		          WHERE dp.decision_draft_id = d.id
+		            AND dp.removed_at IS NULL
+		            AND p.acquisition_id = $1
+		        )
+		  )
+	`, id, domain.DecisionDraftStatusConfirmed)
+	if err != nil {
+		return nil, err
+	}
+	defer drafts.Close()
+	for drafts.Next() {
+		var number string
+		if err := drafts.Scan(&number); err != nil {
+			return nil, err
+		}
+		res.DecisionNumbers = append(res.DecisionNumbers, number)
+		res.ConfirmedDecisions++
+	}
+	return res, drafts.Err()
+}
+
+// ListAcquisitionFileURLs — чөлөөлөлтөд хамаарах хадгалалт дээрх бүх файлын
+// замыг цуглуулна. Хоосон/NULL зам орохгүй, давхардлыг DISTINCT-ээр хаяна.
+func (r *landAcqRepo) ListAcquisitionFileURLs(ctx context.Context, id uuid.UUID) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		-- чөлөөлөлтийн хавсралт (хоёр холбоос хүснэгт хоёулаа хэрэглэгддэг)
+		SELECT DISTINCT doc.file_url
+		FROM document doc
+		JOIN acquisition_document ad ON ad.document_id = doc.id
+		WHERE ad.acquisition_id = $1 AND COALESCE(doc.file_url, '') <> ''
+		UNION
+		SELECT DISTINCT doc.file_url
+		FROM document doc
+		JOIN land_acquisition_document lad ON lad.document_id = doc.id
+		WHERE lad.land_acquisition_id = $1 AND COALESCE(doc.file_url, '') <> ''
+		UNION
+		-- нэгж талбарын хавсралт
+		SELECT DISTINCT doc.file_url
+		FROM document doc
+		JOIN parcel_document pd ON pd.document_id = doc.id
+		JOIN parcel p ON p.id = pd.parcel_id
+		WHERE p.acquisition_id = $1 AND COALESCE(doc.file_url, '') <> ''
+		UNION
+		-- дроны ортофото
+		SELECT DISTINCT di.file_url
+		FROM drone_image di
+		WHERE di.acquisition_id = $1 AND COALESCE(di.file_url, '') <> ''
+		UNION
+		-- хөрөнгийн зураг (PDF)
+		SELECT DISTINCT a.photo_pdf_url
+		FROM assets a
+		WHERE a.acquisition_id = $1 AND COALESCE(a.photo_pdf_url, '') <> ''
+		UNION
+		-- үнэлгээний тайлан
+		SELECT DISTINCT c.valuation_report_url
+		FROM compensation c
+		WHERE c.acquisition_id = $1 AND COALESCE(c.valuation_report_url, '') <> ''
+	`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var urls []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		urls = append(urls, u)
+	}
+	return urls, rows.Err()
+}
+
+// Delete — SOFT delete: мөрийг УСТГАХГҮЙ, deleted_at/deleted_by-г тэмдэглэнэ.
+//
+// Хатуу DELETE нь 23 хүснэгтийг ON DELETE CASCADE-ээр цэвэрлэж, буцаах
+// боломжгүй болгодог (мөн decision_draft-ын нэгж талбарын холбоосыг чимээгүй
+// устгадаг) тул хэрэглэхээ больсон. Уншилтууд `deleted_at IS NULL`-ээр шүүнэ.
+//
+// Аль хэдийн устгасан мөрийг дахин устгах гэвэл domain.ErrNotFound.
+// Нэгж талбарууд нь МӨН тэмдэглэгдэнэ: parcel.parcel_id глобал unique тул
+// тэмдэглэхгүй бол устгасан чөлөөлөлт дугаарыг эзэлсээр байж, шинэ чөлөөлөлт
+// тэднийг бүртгэж чадахгүй болно (uq_parcel_parcel_id_active — хэсэгчилсэн
+// unique индекс нь устгасан мөрийг хамардаггүй).
+//
+// Хоёулаа НЭГ гүйлгээнд — хагас устгагдсан төлөв үүсэхгүй.
+func (r *landAcqRepo) Delete(ctx context.Context, id uuid.UUID, deletedBy string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE land_acquisition
+		SET deleted_at = NOW(),
+		    deleted_by = NULLIF($2, ''),
+		    updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL
+	`, id, deletedBy)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+
+	if _, err = tx.Exec(ctx, `
+		UPDATE parcel
+		SET deleted_at = NOW()
+		WHERE acquisition_id = $1 AND deleted_at IS NULL
+	`, id); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *landAcqRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status int) error {
@@ -1896,7 +2087,7 @@ func (r *landAcqRepo) SetParcelCompensation(ctx context.Context, parcelID uuid.U
 
 func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error) {
 	args := []any{}
-	where := "1=1"
+	where := "la.deleted_at IS NULL" // soft delete: устгасан чөлөөлөлтийн нэгж талбар харагдахгүй
 	i := 1
 
 	if filter.ParcelID != "" {
@@ -2040,7 +2231,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 // адилхан шүүлтээр ажилладаг тул WHERE өгүүлбэрийг нэг дор бүтээнэ.
 func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 	args := []any{}
-	where := "1=1"
+	where := "la.deleted_at IS NULL" // soft delete: тайланд устгасан чөлөөлөлт орохгүй
 	i := 1
 
 	if filter.AcquisitionID != "" {
@@ -3390,6 +3581,7 @@ func (r *landAcqRepo) ListFilterOptions(ctx context.Context) ([]*domain.LandAcqu
 		SELECT la.id, COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
 		       COALESCE(la.plan_name,'')
 		FROM land_acquisition la
+		WHERE la.deleted_at IS NULL
 		ORDER BY la.acquisition_name
 	`)
 	if err != nil {
@@ -3411,7 +3603,8 @@ func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*dom
 	rows, err := r.db.Query(ctx, `
 		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
 		FROM land_acquisition
-		WHERE (acquisition_name ILIKE $1 OR plan_code ILIKE $1)
+		WHERE deleted_at IS NULL
+		  AND (acquisition_name ILIKE $1 OR plan_code ILIKE $1)
 		  AND ($2 = 0 OR status = $2)
 		ORDER BY acquisition_name
 		LIMIT 20
@@ -3434,7 +3627,7 @@ func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*dom
 func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
 	// ── шүүлтүүрийн WHERE clause ──────────────────────────────────────────────
 	args := []any{}
-	where := "1=1"
+	where := "la.deleted_at IS NULL" // soft delete: дашбордод устгасан чөлөөлөлт орохгүй
 	i := 1
 	profParam := 0
 
@@ -3507,7 +3700,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		parcelScopeCond += fmt.Sprintf(` AND (
 			EXISTS (
 				SELECT 1 FROM land_acquisition la_scope
-				WHERE la_scope.id = p.acquisition_id AND la_scope.professional_org_id = $%d::int4
+				WHERE la_scope.id = p.acquisition_id AND la_scope.deleted_at IS NULL
+				  AND la_scope.professional_org_id = $%d::int4
 			)
 			OR p.independent_org_id = $%d::int4
 		)`, profParam, profParam)
@@ -3962,7 +4156,7 @@ func (r *landAcqRepo) IsProfMemberOfAcquisition(ctx context.Context, acquisition
 	var exists bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM land_acquisition WHERE id = $1 AND professional_org_id = $2
+			SELECT 1 FROM land_acquisition WHERE id = $1 AND professional_org_id = $2 AND deleted_at IS NULL
 			UNION
 			SELECT 1 FROM parcel WHERE acquisition_id = $1 AND independent_org_id = $2
 		)

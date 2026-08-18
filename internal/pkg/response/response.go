@@ -177,6 +177,10 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrShapefileMultiPolygon
 	case domain.ErrShapefileFormat:
 		return http.StatusUnprocessableEntity, i18n.ErrShapefileFormat
+	case domain.ErrHasReleasedParcels:
+		return http.StatusConflict, i18n.ErrHasReleasedParcels
+	case domain.ErrConfirmedDecisionLinked:
+		return http.StatusConflict, i18n.ErrConfirmedDecisionLinked
 	case domain.ErrInvalidTransition:
 		return http.StatusConflict, i18n.ErrConflict
 	case domain.ErrValuationNotApproved:

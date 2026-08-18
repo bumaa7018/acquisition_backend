@@ -605,7 +605,7 @@ func TestLandHandler_Delete_Success(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	id := uuid.New()
-	mockSvc.On("Delete", mock.Anything, id).Return(nil)
+	mockSvc.On("Delete", mock.Anything, id, mock.AnythingOfType("string")).Return(nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -623,7 +623,7 @@ func TestLandHandler_Delete_NotNewStatus(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	id := uuid.New()
-	mockSvc.On("Delete", mock.Anything, id).Return(domain.ErrForbidden)
+	mockSvc.On("Delete", mock.Anything, id, mock.AnythingOfType("string")).Return(domain.ErrForbidden)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -640,7 +640,7 @@ func TestLandHandler_Delete_NotFound(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	id := uuid.New()
-	mockSvc.On("Delete", mock.Anything, id).Return(domain.ErrNotFound)
+	mockSvc.On("Delete", mock.Anything, id, mock.AnythingOfType("string")).Return(domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -650,6 +650,36 @@ func TestLandHandler_Delete_NotFound(t *testing.T) {
 	h.Delete(c)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// Устгах хязгаарлалтууд 409 Conflict-оор, ТОДОРХОЙ мессежтэй буцна.
+func TestLandHandler_Delete_Conflicts(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		wantMsg string
+	}{
+		{"released parcels", domain.ErrHasReleasedParcels, "Чөлөөлсөн төлөвтэй нэгж талбар"},
+		{"confirmed decision", domain.ErrConfirmedDecisionLinked, "Баталгаажсан захирамжтай"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mocks.MockLandService{}
+			h := handler.NewLandHandler(mockSvc)
+
+			id := uuid.New()
+			mockSvc.On("Delete", mock.Anything, id, mock.AnythingOfType("string")).Return(tc.err)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodDelete, "/land-acquisitions/"+id.String(), nil)
+			c.Params = gin.Params{{Key: "id", Value: id.String()}}
+
+			h.Delete(c)
+
+			assert.Equal(t, http.StatusConflict, w.Code)
+			assert.Contains(t, w.Body.String(), tc.wantMsg)
+		})
+	}
 }
 
 // ── SyncParcel ────────────────────────────────────────────────

@@ -3,7 +3,9 @@ package service_test
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -740,16 +742,28 @@ func TestLandService_Update_NotFound(t *testing.T) {
 
 // ── Delete ────────────────────────────────────────────────────
 
+// deleteSvc — устгах урсгалын бэлтгэл: NEW төлөвтэй чөлөөлөлт.
+func deleteSvc(landRepo *mocks.MockLandAcquisitionRepository, id uuid.UUID) service.LandService {
+	svc, _ := newLandSvc(landRepo)
+	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{
+		ID: id, Status: domain.LandAcquisitionStatusNew, AcquisitionName: "Тест чөлөөлөлт",
+	}, nil)
+	return svc
+}
+
 func TestLandService_Delete_Success(t *testing.T) {
 	landRepo := &mocks.MockLandAcquisitionRepository{}
-	svc, _ := newLandSvc(landRepo)
-
 	id := uuid.New()
-	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusNew}, nil)
-	landRepo.On("Delete", ctx, id).Return(nil)
+	svc := deleteSvc(landRepo, id)
 
-	err := svc.Delete(ctx, id)
-	require.NoError(t, err)
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).Return(&domain.AcquisitionDeleteCheck{
+		ParcelCount:        2,
+		ParcelStatusCounts: map[int]int{domain.ParcelStatusPending: 2},
+	}, nil)
+	landRepo.On("ListAcquisitionFileURLs", ctx, id).Return([]string{}, nil)
+	landRepo.On("Delete", ctx, id, "user-1").Return(nil)
+
+	require.NoError(t, svc.Delete(ctx, id, "user-1"))
 	landRepo.AssertExpectations(t)
 }
 
@@ -760,9 +774,10 @@ func TestLandService_Delete_NotNewStatus(t *testing.T) {
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, Status: domain.LandAcquisitionStatusField}, nil)
 
-	err := svc.Delete(ctx, id)
+	err := svc.Delete(ctx, id, "user-1")
 	assert.Equal(t, domain.ErrForbidden, err)
 	landRepo.AssertNotCalled(t, "Delete")
+	landRepo.AssertNotCalled(t, "CheckAcquisitionDeletable")
 }
 
 func TestLandService_Delete_NotFound(t *testing.T) {
@@ -772,8 +787,167 @@ func TestLandService_Delete_NotFound(t *testing.T) {
 	id := uuid.New()
 	landRepo.On("GetByID", ctx, id).Return(nil, domain.ErrNotFound)
 
-	err := svc.Delete(ctx, id)
+	err := svc.Delete(ctx, id, "user-1")
 	assert.Equal(t, domain.ErrNotFound, err)
+}
+
+// "Чөлөөлсөн" төлөвтэй нэгж талбартай бол устгахгүй.
+func TestLandService_Delete_RejectsReleasedParcels(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	svc := deleteSvc(landRepo, id)
+
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).Return(&domain.AcquisitionDeleteCheck{
+		ParcelCount:     3,
+		ReleasedParcels: 1,
+		ParcelStatusCounts: map[int]int{
+			domain.ParcelStatusPending:  2,
+			domain.ParcelStatusReleased: 1,
+		},
+	}, nil)
+
+	err := svc.Delete(ctx, id, "user-1")
+	assert.Equal(t, domain.ErrHasReleasedParcels, err)
+	landRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "ListAcquisitionFileURLs", mock.Anything, mock.Anything)
+}
+
+// Баталгаажсан захирамжтай холбогдсон бол устгахгүй.
+func TestLandService_Delete_RejectsConfirmedDecision(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	svc := deleteSvc(landRepo, id)
+
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).Return(&domain.AcquisitionDeleteCheck{
+		ParcelCount:        1,
+		ParcelStatusCounts: map[int]int{domain.ParcelStatusEvaluating: 1},
+		ConfirmedDecisions: 1,
+		DecisionNumbers:    []string{"А/123"},
+	}, nil)
+
+	err := svc.Delete(ctx, id, "user-1")
+	assert.Equal(t, domain.ErrConfirmedDecisionLinked, err)
+	landRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Чөлөөлсөн нэгж талбар ба захирамж хоёулаа байвал нэгж талбарын шалгалт
+// эхэлж баригдана (илүү тодорхой шалтгаан).
+func TestLandService_Delete_ReleasedParcelsTakePrecedence(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	svc := deleteSvc(landRepo, id)
+
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).Return(&domain.AcquisitionDeleteCheck{
+		ParcelCount:        1,
+		ReleasedParcels:    1,
+		ConfirmedDecisions: 1,
+		ParcelStatusCounts: map[int]int{domain.ParcelStatusReleased: 1},
+	}, nil)
+
+	assert.Equal(t, domain.ErrHasReleasedParcels, svc.Delete(ctx, id, "user-1"))
+}
+
+// Шалгалтын дуудалт унавал устгахгүй (шалгаагүйгээр устгах нь илүү аюултай).
+func TestLandService_Delete_FailsWhenCheckErrors(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	svc := deleteSvc(landRepo, id)
+
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).Return(nil, errors.New("db унав"))
+
+	assert.Equal(t, domain.ErrInternalServer, svc.Delete(ctx, id, "user-1"))
+	landRepo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Файлын жагсаалт уншиж чадаагүй ч устгалт зогсохгүй (файл хог болж үлдэх нь
+// устгалыг блоклохоос дээр — логлоно).
+func TestLandService_Delete_ProceedsWhenFileListFails(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	svc := deleteSvc(landRepo, id)
+
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).
+		Return(&domain.AcquisitionDeleteCheck{ParcelStatusCounts: map[int]int{}}, nil)
+	landRepo.On("ListAcquisitionFileURLs", ctx, id).Return(nil, errors.New("db унав"))
+	landRepo.On("Delete", ctx, id, "user-1").Return(nil)
+
+	require.NoError(t, svc.Delete(ctx, id, "user-1"))
+	landRepo.AssertCalled(t, "Delete", ctx, id, "user-1")
+}
+
+// Файлууд ФОНД, хоорондоо зайтай устгагдана.
+func TestLandService_Delete_CleansUpFilesWithDelay(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	id := uuid.New()
+	files := &recordingStorage{done: make(chan struct{})}
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	svc := service.NewLandService(landRepo, files, nil, pm.projects, pm.store)
+
+	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{
+		ID: id, Status: domain.LandAcquisitionStatusNew,
+	}, nil)
+	landRepo.On("CheckAcquisitionDeletable", ctx, id).
+		Return(&domain.AcquisitionDeleteCheck{ParcelStatusCounts: map[int]int{}}, nil)
+	landRepo.On("ListAcquisitionFileURLs", ctx, id).
+		Return([]string{"acq/a.pdf", "parcel/b.pdf", "drone/c.tif"}, nil)
+	landRepo.On("Delete", ctx, id, "user-1").Return(nil)
+
+	files.expect(3)
+	require.NoError(t, svc.Delete(ctx, id, "user-1"))
+
+	select {
+	case <-files.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("файлын цэвэрлэгээ дуусаагүй")
+	}
+
+	deleted, gaps := files.result()
+	assert.Equal(t, []string{"acq/a.pdf", "parcel/b.pdf", "drone/c.tif"}, deleted)
+	// Дуудалт хоорондын зай (throttle) — хамгийн багадаа 100ms.
+	for i, gap := range gaps {
+		assert.Greater(t, gap, 100*time.Millisecond,
+			"%d-р дуудалт хэт хурдан гарлаа: %s", i+2, gap)
+	}
+}
+
+// recordingStorage — файл устгах дуудалтын дараалал ба хоорондын зайг хөтөлнө.
+type recordingStorage struct {
+	filestorage.DisabledStorage
+	mu      sync.Mutex
+	deleted []string
+	times   []time.Time
+	want    int
+	done    chan struct{}
+}
+
+func (r *recordingStorage) expect(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.want = n
+}
+
+func (r *recordingStorage) Delete(ctx context.Context, fileURL string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deleted = append(r.deleted, fileURL)
+	r.times = append(r.times, time.Now())
+	if r.want > 0 && len(r.deleted) == r.want {
+		close(r.done)
+	}
+	return nil
+}
+
+func (r *recordingStorage) result() ([]string, []time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	gaps := make([]time.Duration, 0, len(r.times))
+	for i := 1; i < len(r.times); i++ {
+		gaps = append(gaps, r.times[i].Sub(r.times[i-1]))
+	}
+	return append([]string(nil), r.deleted...), gaps
 }
 
 // ── SyncParcel ────────────────────────────────────────────────
