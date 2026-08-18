@@ -70,6 +70,7 @@ const (
 	ErrShapefileShapeType       Key = "shapefile_shape_type"
 	ErrShapefileMultiPolygon    Key = "shapefile_multipolygon"
 	ErrShapefileFormat          Key = "shapefile_format"
+	ErrPersonDeleteForbidden    Key = "person_delete_forbidden"
 	ErrHasReleasedParcels       Key = "has_released_parcels"
 	ErrConfirmedDecisionLinked  Key = "confirmed_decision_linked"
 	ErrShapefileRequiredForPlan Key = "shapefile_required_for_plan"
@@ -164,6 +165,7 @@ var messages = map[Key][2]string{
 	ErrShapefileFormat:          {"Оруулсан файл ESRI Shapefile (.shp) бүтцэд тохирохгүй эсвэл эвдэрсэн байна.", "The file is not a valid ESRI Shapefile (.shp)."},
 	ErrShapefileRequiredForPlan: {"Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай", "Shapefile is required when changing plan"},
 	ErrDeleteNotNew:             {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
+	ErrPersonDeleteForbidden:    {"Хүний мэдээллийг устгах боломжгүй. Ажилтныг чөлөөлөх бол ажилтны бүртгэлийг идэвхгүй болгоно.", "Person records cannot be deleted; deactivate the employee instead."},
 	ErrHasReleasedParcels:       {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
 	ErrConfirmedDecisionLinked:  {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
 	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдлээ", "The acquisition boundary was updated. Existing linked parcels were kept, and missing parcels intersecting the new boundary were added"},

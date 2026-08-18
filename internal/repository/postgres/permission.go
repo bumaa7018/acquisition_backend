@@ -87,7 +87,39 @@ func (r *PermissionRepo) GetByName(ctx context.Context, name string) (*domain.Pe
 }
 
 func (r *PermissionRepo) Delete(ctx context.Context, id domain.ID) error {
-	res, err := r.db.Exec(ctx, `DELETE FROM sdplatform.sd_permission WHERE permission_id = $1`, id)
+	// sd_permission нь системд ХАМААРАЛГҮЙ глобал лавлах: sdplatform схемийг
+	// бусад систем хуваалцдаг тул зөвхөн ЭНЭ системийн (10) хүрээнд
+	// хэрэглэгдэж байгаа эрхийг л устгана. Өөр системийн роль эсвэл өөр
+	// системийн маягт тэр эрхэд холбогдсон байвал ХӨНДӨХГҮЙ.
+	res, err := r.db.Exec(ctx, `
+		DELETE FROM sdplatform.sd_permission p
+		WHERE p.permission_id = $1
+		  -- систем 10-д хэрэглэгдэж байгаа
+		  AND EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_role_permission rp
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = rp.role_id AND sr.system_id = 10
+			WHERE rp.permission_id = p.permission_id
+		  )
+		  -- ӨӨР системийн ролид холбогдоогүй
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_role_permission rp
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = rp.role_id AND sr.system_id <> 10
+			WHERE rp.permission_id = p.permission_id
+		  )
+		  -- систем 10-ийн БИШ маягтад холбогдоогүй
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM sdplatform.sd_form_permission fp
+			WHERE (fp.permission_id = p.permission_id OR fp.permission_code = p.code)
+			  AND NOT EXISTS (
+				SELECT 1 FROM sdplatform.sd_menu_form mf
+				JOIN sdplatform.sd_menu_role mr ON mr.menu_id = mf.menu_id
+				JOIN sdplatform.sd_system_role sr ON sr.role_id = mr.role_id AND sr.system_id = 10
+				WHERE mf.form_code = fp.form_code
+			  )
+		  )`, id)
 	if err != nil {
 		return err
 	}

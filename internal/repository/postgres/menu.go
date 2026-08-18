@@ -199,11 +199,13 @@ func (r *MenuRepo) DetachFromRole(ctx context.Context, roleID, menuID domain.ID)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1 AND menu_id = $2`, roleID, menuID); err != nil {
+		`DELETE FROM sdplatform.sd_role_permission
+		 WHERE role_id = $1 AND menu_id = $2 AND `+roleInSystem10SQL, roleID, menuID); err != nil {
 		return err
 	}
 	res, err := tx.Exec(ctx,
-		`DELETE FROM sdplatform.sd_menu_role WHERE role_id = $1 AND menu_id = $2`, roleID, menuID)
+		`DELETE FROM sdplatform.sd_menu_role
+		 WHERE role_id = $1 AND menu_id = $2 AND `+roleInSystem10SQL, roleID, menuID)
 	if err != nil {
 		return err
 	}

@@ -424,14 +424,54 @@ func (r *HRRepo) DeletePosition(ctx context.Context, id domain.ID) error {
 // Person — base.bs_person
 // ---------------------------------------------------------------------------
 
-// bs_person нь API-ийн загвараас өөр: төрөл нь cl_person_type код (1=иргэн,
-// 2=хуулийн этгээд), овог/байгууллагын нэр нь нэг "name" багана, хүйс нь int.
-const personTypeExpr = `CASE p."type" WHEN 2 THEN 'legal'::text ELSE 'citizen'::text END`
-const personLastNameExpr = `CASE WHEN p."type" = 2 THEN NULL ELSE p."name" END`
-const personLegalNameExpr = `CASE WHEN p."type" = 2 THEN p."name" ELSE NULL END`
+// bs_person нь API-ийн загвараас өөр: төрөл нь codelists.cl_person_type-ийн код,
+// овог/байгууллагын нэр нь нэг "name" багана, хүйс нь int.
+//
+// ТӨРЛИЙН КОД нь ГУС-ийн лавлахаас гардаг (base.bs_person."type" → FK →
+// cl_person_type.code) ба 10-аар үсэрдэг:
+//
+//	10 иргэн (чадамжтай)      20 иргэн (чадамжгүй)     30 хуулийн этгээд
+//	40 төрийн байгууллага      50 гадаадын иргэн        60 гадаадын х/этгээд
+//	70 ГХО-тай х/этгээд        80 СӨХ                   90 чөлөөт бүс
+//	100 малчдын хоршоо
+//
+// Иймд ХУУЧИН 1/2 кодыг бичихээ болив — жинхэнэ санд тэр код БАЙХГҮЙ тул FK
+// зөрчил болно (seed.personTypes-ыг үз).
+const (
+	// personTypeCitizen — API-ийн "citizen" бичихэд хэрэглэх код
+	// (10 = Монгол улсын эрх зүйн чадамжтай иргэн).
+	personTypeCitizen = "10"
+	// personTypeLegal — API-ийн "legal" бичихэд хэрэглэх код.
+	//
+	// АНХААР: 10/20/30 нь ИРГЭН (individual) гэж тооцогддог тул хуулийн
+	// этгээдэд 30 хэрэглэх боломжгүй (бичээд уншихад "citizen" болж эргэнэ).
+	// Иймд иргэний бүлгээс ГАДНА хамгийн бага кодыг авав: 40 = Монгол улсын
+	// төрийн байгууллага. Хэрэв ГУС-д ердийн ХХК-д өөр код хэрэглэдэг бол
+	// ЗӨВХӨН энэ тогтмолыг солиход хүрнэ.
+	personTypeLegal = "40"
+)
+
+// personIndividualCodesSQL — ИРГЭН (individual)-д тооцох кодууд: 10, 20, 30.
+// Бусад БҮХ код (40…100) нь хуулийн этгээд (legal entity). 1 нь хуучин
+// өгөгдлийн нийцлийн үүднээс (шинээр бичигдэхгүй).
+//
+// Ингэж ЭСРЭГ (иргэнийг тоолж, бусдыг legal гэх) тодорхойлсон нь ГУС-ийн
+// лавлахад дараа нь ШИНЭ код нэмэгдвэл тэр нь автоматаар legal тал руу
+// орохын тулд — legal-ийн жагсаалт хоцрогдохгүй.
+const personIndividualCodesSQL = `(1, 10, 20, 30)`
+
+const personIsLegalExpr = `p."type" NOT IN ` + personIndividualCodesSQL
+
+const personTypeExpr = `CASE WHEN ` + personIsLegalExpr + ` THEN 'legal'::text ELSE 'citizen'::text END`
+const personLastNameExpr = `CASE WHEN ` + personIsLegalExpr + ` THEN NULL ELSE p."name" END`
+const personLegalNameExpr = `CASE WHEN ` + personIsLegalExpr + ` THEN p."name" ELSE NULL END`
 const personGenderExpr = `CASE p.gender WHEN 1 THEN 'M'::text WHEN 2 THEN 'F'::text ELSE NULL END`
-const personDisplayNameExpr = `CASE WHEN p."type" = 2 THEN COALESCE(p."name", '')
+const personDisplayNameExpr = `CASE WHEN ` + personIsLegalExpr + ` THEN COALESCE(p."name", '')
 	ELSE trim(COALESCE(p."name", '') || ' ' || COALESCE(p.first_name, '')) END`
+
+// personTypeWriteExpr — API-ийн 'citizen'/'legal'-ыг лавлахын код болгоно.
+const personTypeWriteExpr = `CASE $1::text WHEN 'legal' THEN ` +
+	personTypeLegal + ` ELSE ` + personTypeCitizen + ` END`
 
 const personColumnsSQL = `p.person_id, ` + personTypeExpr + `, p.person_register,
 	       ` + personLastNameExpr + `, p.first_name, ` + personLegalNameExpr + `,
@@ -519,7 +559,7 @@ func insertPerson(ctx context.Context, q hrQuerier, p *domain.Person) error {
 			("type", "name", first_name, gender, date_of_birth, person_register,
 			 phone, email_address, address_town_or_local_name, civil_id, created_at, updated_at)
 		VALUES (
-			CASE $1::text WHEN 'legal' THEN 2 ELSE 1 END,
+			`+personTypeWriteExpr+`,
 			LEFT(COALESCE($2::text, ''), 250),
 			LEFT($3::text, 50),
 			CASE $4::text WHEN 'M' THEN 1 WHEN 'F' THEN 2 ELSE NULL END,
@@ -552,7 +592,7 @@ func (r *HRRepo) UpdatePerson(ctx context.Context, p *domain.Person) error {
 	res, err := r.db.Exec(ctx, `
 		WITH upd AS (
 			UPDATE base.bs_person p
-			SET "type" = CASE $1::text WHEN 'legal' THEN 2 ELSE 1 END,
+			SET "type" = `+personTypeWriteExpr+`,
 			    "name" = LEFT(COALESCE($2::text, ''), 250),
 			    first_name = LEFT($3::text, 50),
 			    gender = CASE $4::text WHEN 'M' THEN 1 WHEN 'F' THEN 2 ELSE NULL END,
@@ -591,23 +631,14 @@ func (r *HRRepo) UpdatePerson(ctx context.Context, p *domain.Person) error {
 	return nil
 }
 
-func (r *HRRepo) DeletePerson(ctx context.Context, id domain.ID) error {
-	linked, err := hrExists(ctx, r.db,
-		`SELECT EXISTS(SELECT 1 FROM sdplatform.hr_employee WHERE person_id = $1 AND COALESCE(is_active, 1) <> 0)`, id)
-	if err != nil {
-		return err
-	}
-	if linked {
-		return domain.ErrAlreadyExists
-	}
-	res, err := r.db.Exec(ctx, `DELETE FROM base.bs_person WHERE person_id = $1`, id)
-	if err != nil {
-		return mapHRError(err)
-	}
-	if res.RowsAffected() == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+// DeletePerson — ХҮНИЙ мэдээллийг УСТГАХ БОЛОМЖГҮЙ.
+//
+// base.bs_person нь ГУС-ийн эх бүртгэл (эрх эзэмшигч, ажилтан, захирамж —
+// бүгд түүн рүү холбогддог) бөгөөд хүснэгтэд deleted_at багана байхгүй тул
+// устгал нь БОДИТ DELETE болно. Иймд үйлдлийг бүрмөсөн хаав: хүн ажлаас
+// гарахад ажилтныг л идэвхгүй болгоно (hr_employee.is_active = 0).
+func (r *HRRepo) DeletePerson(ctx context.Context, _ domain.ID) error {
+	return domain.ErrPersonDeleteForbidden
 }
 
 // ---------------------------------------------------------------------------

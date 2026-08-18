@@ -47,6 +47,9 @@ var (
 	ErrAU2Crossing = errors.New("acquisition boundary crosses administrative unit (au2) borders")
 	// Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс хэт (50%-иас их) гарсан.
 	ErrOutsidePlanExceeds = errors.New("acquisition boundary outside the plan parcel exceeds 50% of the plan area")
+	// base.bs_person (хүний бүртгэл) нь ГУС-ийн эх өгөгдөл — УСТГАХ БОЛОМЖГҮЙ.
+	ErrPersonDeleteForbidden = errors.New("person records cannot be deleted")
+
 	// Нэгж талбарын чөлөөлөх хил/талбай нь тухайн нэгж талбарын ҮНДСЭН
 	// хилээс гарсан (хатуу шалгалт).
 	ErrOutsideParcelBoundary = errors.New("acquisition geometry must be inside the parcel boundary")

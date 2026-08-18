@@ -53,6 +53,30 @@ func systemRoleCode(level string) string {
 	}
 }
 
+// permissionCodes — ҮЙЛДЭЛ → sd_permission.code.
+//
+// ГУС-ийн бусад лавлахтай ижил хэлбэрээр (A + гурван орон) кодлоно; name нь
+// үйлдлийн нэр (read/create/…) ХЭВЭЭР үлдэнэ. Эрхийн шалгалт нь sd_permission-ыг
+// permission_id / name-ээр холбодог (UserRepo.GetPermissions, menu.go, role.go —
+// бүгд `permission_id = … OR code = … OR name = …`) тул кодыг сольсноор
+// хэрэглэгчийн эрх ӨӨРЧЛӨГДӨХГҮЙ.
+var permissionCodes = map[string]string{
+	"read":             "A001",
+	"create":           "A002",
+	"update":           "A003",
+	"delete":           "A004",
+	"structure:create": "A005",
+}
+
+// permissionCode — үйлдлийн код. Жагсаалтад байхгүй ШИНЭ үйлдэл нэмэгдвэл
+// нэрийг нь хэвээр хэрэглэнэ (код давхцуулж санамсаргүй утга гаргахгүй).
+func permissionCode(action string) string {
+	if code, ok := permissionCodes[action]; ok {
+		return code
+	}
+	return action
+}
+
 // ensureAction — үйлдлийн эрхийг (read/create/update/delete ...) баталгаажуулна.
 //
 // ЖИЧ: permRepo.GetByName нь нэрийг SplitPermissionKey-ээр ДАХИН таслдаг тул
@@ -62,12 +86,13 @@ func systemRoleCode(level string) string {
 // нэг мэдэгдлээр (атом) нэмж/уншина. Давхардсан мөр аль хэдийн байвал хамгийн
 // бага permission_id-г буцаана — SeedPermissionDedupe-ийн үлдээх мөртэй ижил.
 func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permission, error) {
-	p := &domain.Permission{Name: action, Action: action, Code: action}
+	code := permissionCode(action)
+	p := &domain.Permission{Name: action, Action: action, Code: code}
 	var created bool
 	if err := s.db.QueryRow(ctx, `
 		WITH ins AS (
 			INSERT INTO sdplatform.sd_permission (code, name, created_at)
-			SELECT LEFT($1::text, 45), LEFT($1::text, 250), NOW()
+			SELECT LEFT($2::text, 45), LEFT($1::text, 250), NOW()
 			WHERE NOT EXISTS (
 				SELECT 1 FROM sdplatform.sd_permission WHERE name = $1::text
 			)
@@ -78,7 +103,18 @@ func (s *Seeder) ensureAction(ctx context.Context, action string) (*domain.Permi
 		SELECT permission_id, COALESCE(created_at::timestamptz, NOW()), FALSE
 		FROM sdplatform.sd_permission WHERE name = $1::text
 		ORDER BY 3 DESC, 1
-		LIMIT 1`, action).Scan(&p.ID, &p.CreatedAt, &created); err != nil {
+		LIMIT 1`, action, code).Scan(&p.ID, &p.CreatedAt, &created); err != nil {
+		return nil, err
+	}
+
+	// Өмнөх seed нь code баганад ҮЙЛДЛИЙН НЭРийг бичдэг байсан (code='read').
+	// Кодыг зөвхөн ТЭР тохиолдолд нөхнө — ГУС эсвэл админ өөр код тавьсан
+	// бол хөндөхгүй.
+	if _, err := s.db.Exec(ctx, `
+		UPDATE sdplatform.sd_permission
+		SET code = LEFT($2::text, 45)
+		WHERE permission_id = $3
+		  AND COALESCE(code, '') IN ('', $1::text)`, action, code, p.ID); err != nil {
 		return nil, err
 	}
 	if p.CreatedAt.IsZero() {

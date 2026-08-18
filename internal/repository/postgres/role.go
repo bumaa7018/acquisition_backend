@@ -32,6 +32,15 @@ const roleSelectSQL = `
 	FROM sdplatform.sd_role r`
 
 // Зөвхөн энэ системд (system_id=10) хамаарах ролиуд.
+// roleInSystem10SQL — тухайн role_id нь систем 10-д харьяалагдах эсэх.
+// УСТГАХ үйлдэл бүр үүгээр хязгаарлагдана: sdplatform схем нь бусад системтэй
+// ХУВААЛЦСАН тул зөвхөн энэ системийн мөрийг л хөндөх ёстой.
+const roleInSystem10SQL = `
+	EXISTS (
+		SELECT 1 FROM sdplatform.sd_system_role sr
+		WHERE sr.role_id = $1 AND sr.system_id = 10
+	)`
+
 const roleSystemFilter = `
 	EXISTS (
 		SELECT 1 FROM sdplatform.sd_system_role sr
@@ -121,7 +130,8 @@ func (r *RoleRepo) Update(ctx context.Context, role *domain.Role) error {
 }
 
 func (r *RoleRepo) Delete(ctx context.Context, id domain.ID) error {
-	res, err := r.db.Exec(ctx, `DELETE FROM sdplatform.sd_role WHERE role_id = $1`, id)
+	res, err := r.db.Exec(ctx,
+		`DELETE FROM sdplatform.sd_role WHERE role_id = $1 AND `+roleInSystem10SQL, id)
 	if err != nil {
 		return err
 	}
@@ -279,7 +289,8 @@ func (r *RoleRepo) AssignPermission(ctx context.Context, roleID, permissionID do
 
 func (r *RoleRepo) RemovePermission(ctx context.Context, roleID, permissionID domain.ID) error {
 	_, err := r.db.Exec(ctx,
-		`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1 AND permission_id = $2`,
+		`DELETE FROM sdplatform.sd_role_permission
+		 WHERE role_id = $1 AND permission_id = $2 AND `+roleInSystem10SQL,
 		roleID, permissionID)
 	return err
 }
@@ -298,7 +309,8 @@ func (r *RoleRepo) SetMenuPermissions(ctx context.Context, roleID, menuID domain
 		return err
 	}
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1 AND menu_id = $2`,
+		`DELETE FROM sdplatform.sd_role_permission
+		 WHERE role_id = $1 AND menu_id = $2 AND `+roleInSystem10SQL,
 		roleID, menuID); err != nil {
 		return err
 	}
@@ -330,12 +342,14 @@ func (r *RoleRepo) RemoveMenuPermissions(ctx context.Context, roleID, menuID dom
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM sdplatform.sd_role_permission WHERE role_id = $1 AND menu_id = $2`,
+		`DELETE FROM sdplatform.sd_role_permission
+		 WHERE role_id = $1 AND menu_id = $2 AND `+roleInSystem10SQL,
 		roleID, menuID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM sdplatform.sd_menu_role WHERE role_id = $1 AND menu_id = $2`,
+		`DELETE FROM sdplatform.sd_menu_role
+		 WHERE role_id = $1 AND menu_id = $2 AND `+roleInSystem10SQL,
 		roleID, menuID); err != nil {
 		return err
 	}
