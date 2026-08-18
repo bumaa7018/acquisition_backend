@@ -2,6 +2,8 @@ package config
 
 import (
 	"log/slog"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,45 +136,117 @@ type MiddlewareConfig struct {
 	Password string `env:"MIDDLEWARE_PASSWORD"`
 }
 
-// SourceFileConfig — ЭХ СИСТЕМИЙН файл сервер (хавсралт хадгалагддаг).
+// ГУС-ийн файл серверийн ТОГТМОЛ тохиргоо.
 //
-// Дундын сервисээс ирэх хавсралт нь хоёр талбартай:
-//   - file_url — харьцангуй зам, ж: mgis/011/01107/…/…-6a7e697d329b7.pdf
-//   - ftp_id   — АЛЬ сервер дээр байгааг заана, ж: 3
+// Эдгээр нь эх системээс өгсөн, орчноос ХАМААРАХГҮЙ утгууд тул .env-д
+// тавихгүй — зөвхөн ftp_id / host / нэвтрэх нэр / нэвтрэх код нь .env-д байна.
+// ГУС-аас өгсөн холболтын хүснэгт:
 //
-// Тиймээс хостыг ftp_id-гаар сонгоно. BaseURLs нь "ftp_id=хаяг" хосуудыг
-// таслалаар зааглаж авна; тохирох ftp_id олдоогүй эсвэл ftp_id хоосон үед
-// BaseURL (ганц/анхдагч сервер) хэрэглэгдэнэ.
+//	root_dir | port | passive | ssl | timeout
+//	/DATA/   |  22  |    1    |  1  |   30
+const (
+	// sourceRootDir — серверийн үндсэн хавтас. Хавсралтын харьцангуй зам
+	// (file_url) үүн дээр залгагдана.
+	sourceRootDir = "/DATA"
+	// sourcePort — 22 нь SSH порт тул холболт SFTP-ээр хийгдэнэ (FTP биш).
+	sourcePort = 22
+	// sourcePassive — FTP-ийн passive (PASV) режим. Клиент үргэлж passive
+	// байдаг; SFTP-д хамааралгүй.
+	sourcePassive = true
+	// sourceSSL — шифрлэлт шаардана. SFTP (SSH) нь өөрөө шифрлэгдсэн.
+	sourceSSL = true
+	// sourceTimeout — нэг файл татах хугацааны хязгаар (30 секунд).
+	sourceTimeout = 30 * time.Second
+)
+
+// SourceFileConfig — ЭХ СИСТЕМИЙН (ГУС) файл сервер: ЗӨВХӨН УНШИНА.
 //
-// Файлыг browser руу ШУУД өгдөггүй — API нь эндээс уншиж дамжуулна
-// (сервер дотоод сүлжээнд байж болох ба хандалтын эрх шалгагдана).
+// Системийн ҮНДСЭН файл сервер нь MinIO (S3_*). Энэ нь ГАДНЫ сервертэй
+// холбогдож хавсралт ТАТАХ зориулалттай (бичих/устгах үйлдэлгүй).
+//
+// .env-д ЗӨВХӨН дөрвөн параметр — бусад нь дээрх тогтмолууд.
 type SourceFileConfig struct {
-	// BaseURL — анхдагч хаяг. Ж: http://10.0.0.5:8080
-	BaseURL string `env:"SOURCE_FTP_BASE_URL" envDefault:""`
-	// BaseURLs — ftp_id тус бүрийн хаяг. Ж: "1=http://ftp1:8080,3=http://ftp3:8080"
-	BaseURLs string `env:"SOURCE_FTP_BASE_URLS" envDefault:""`
-	// Timeout — нэг файл татах хугацааны хязгаар.
-	Timeout time.Duration `env:"SOURCE_FTP_TIMEOUT" envDefault:"30s"`
+	// FtpID — ЭНЭ сервер аль ftp_id-г хариуцах (хавсралттай хамт ирдэг).
+	// Хоосон бол бүх ftp_id.
+	FtpID string `env:"SOURCE_FTP_ID" envDefault:""`
+	// Host — серверийн хаяг (IP эсвэл домэйн).
+	Host string `env:"SOURCE_FTP_HOST" envDefault:""`
+	// Username / Password — нэвтрэх мэдээлэл.
+	Username string `env:"SOURCE_FTP_USER" envDefault:""`
+	Password string `env:"SOURCE_FTP_PASSWORD" envDefault:""`
 }
 
-// BaseURLByFtpID — "1=http://a,3=http://b" хэлбэрийг map болгоно. Буруу
-// бичигдсэн хэсгийг чимээгүй алгасна (сервис асахаа болихгүй).
-func (s SourceFileConfig) BaseURLByFtpID() map[string]string {
-	result := map[string]string{}
-	for _, pair := range strings.Split(s.BaseURLs, ",") {
-		id, rawURL, found := strings.Cut(strings.TrimSpace(pair), "=")
-		id, rawURL = strings.TrimSpace(id), strings.TrimSpace(rawURL)
-		if !found || id == "" || rawURL == "" {
-			continue
-		}
-		result[id] = strings.TrimRight(rawURL, "/")
+// SourceProtocol — холбогдох протокол.
+type SourceProtocol string
+
+const (
+	// ProtocolFTP — ердийн FTP (шифрлэлтгүй).
+	ProtocolFTP SourceProtocol = "ftp"
+	// ProtocolFTPS — FTP + TLS. Порт 990 бол implicit, бусад үед explicit
+	// (AUTH TLS).
+	ProtocolFTPS SourceProtocol = "ftps"
+	// ProtocolSFTP — SSH дээрх файл дамжуулалт (порт 22).
+	ProtocolSFTP SourceProtocol = "sftp"
+)
+
+const (
+	sshPort          = 22
+	implicitFTPSPort = 990
+)
+
+// FTPTarget — холболтод бэлдсэн утгууд.
+type FTPTarget struct {
+	FtpID    string
+	Protocol SourceProtocol
+	// Addr — "host:port"
+	Addr     string
+	Username string
+	Password string
+	// RootDir — "/DATA" (сүүлийн "/" хасагдсан).
+	RootDir string
+	// ImplicitTLS — FTPS холболт шууд TLS-ээр эхлэх эсэх (порт 990).
+	ImplicitTLS bool
+	Passive     bool
+	Timeout     time.Duration
+}
+
+// FTPTarget — тохируулсан сервер. Host хоосон бол ok=false.
+//
+// Протоколыг ТОГТМОЛ порт/ssl-ээс тооцно:
+//   - порт 22 → SFTP (SSH)
+//   - ssl     → FTPS (порт 990 бол implicit, бусад үед explicit)
+//   - бусад   → FTP
+func (s SourceFileConfig) FTPTarget() (FTPTarget, bool) {
+	host := strings.TrimSpace(s.Host)
+	if host == "" {
+		return FTPTarget{}, false
 	}
-	return result
+
+	protocol := ProtocolFTP
+	switch {
+	case sourcePort == sshPort:
+		protocol = ProtocolSFTP
+	case sourceSSL:
+		protocol = ProtocolFTPS
+	}
+
+	return FTPTarget{
+		FtpID:       strings.TrimSpace(s.FtpID),
+		Protocol:    protocol,
+		Addr:        net.JoinHostPort(host, strconv.Itoa(sourcePort)),
+		Username:    strings.TrimSpace(s.Username),
+		Password:    s.Password,
+		RootDir:     strings.TrimRight(sourceRootDir, "/"),
+		ImplicitTLS: protocol == ProtocolFTPS && sourcePort == implicitFTPSPort,
+		Passive:     sourcePassive,
+		Timeout:     sourceTimeout,
+	}, true
 }
 
-// Enabled — хавсралт татах боломжтой эсэх (ядаж нэг хаяг тохируулсан).
+// Enabled — хавсралт татах боломжтой эсэх (Host тохируулсан).
 func (s SourceFileConfig) Enabled() bool {
-	return strings.TrimSpace(s.BaseURL) != "" || len(s.BaseURLByFtpID()) > 0
+	_, ok := s.FTPTarget()
+	return ok
 }
 
 func (e EmailConfig) Enabled() bool {

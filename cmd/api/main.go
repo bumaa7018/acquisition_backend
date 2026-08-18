@@ -176,19 +176,35 @@ func main() {
 		Password: cfg.Middleware.Password,
 	})
 
-	// Эх системийн файл сервер — татсан хавсралтын ФАЙЛ тэнд байдаг.
-	// Тохируулаагүй бол хавсралт татах/бүртгэх нь ажиллах ч файл нээх үед
-	// ErrSourceFileNotConfigured буцна.
+	// ГАДНЫ эх системийн файл сервер — татсан хавсралтын ФАЙЛ тэнд байдаг.
+	// ЗӨВХӨН УНШИНА (системийн үндсэн файл сервер нь MinIO — fileStorage).
+	//
+	// FTP (ip + нэвтрэх нэр/код) нь тэргүүн эрхтэй; ftp_id-д FTP хост
+	// тохируулаагүй бол HTTP руу унана. Тохируулаагүй бол хавсралт
+	// татах/бүртгэх нь ажиллах ч файл нээх үед ErrSourceFileNotConfigured.
 	var sourceFileClient service.SourceFileClient
-	if cfg.SourceFile.Enabled() {
-		byFtpID := cfg.SourceFile.BaseURLByFtpID()
-		sourceFileClient = service.NewHTTPSourceFileClient(
-			cfg.SourceFile.BaseURL, byFtpID, cfg.SourceFile.Timeout)
+	if target, ok := cfg.SourceFile.FTPTarget(); ok {
+		sourceTarget := service.SourceFTPTarget{
+			FtpID:       target.FtpID,
+			Addr:        target.Addr,
+			Username:    target.Username,
+			Password:    target.Password,
+			RootDir:     target.RootDir,
+			TLS:         target.Protocol == config.ProtocolFTPS,
+			ImplicitTLS: target.ImplicitTLS,
+		}
+		// Протокол нь тогтмол порт/ssl-ээс тооцогдоно (config.FTPTarget).
+		if target.Protocol == config.ProtocolSFTP {
+			sourceFileClient = service.NewSFTPSourceFileClient(sourceTarget, target.Timeout)
+		} else {
+			sourceFileClient = service.NewFTPSourceFileClient(sourceTarget, target.Timeout)
+		}
 		slog.Info("source file server ready",
-			"default_base_url", cfg.SourceFile.BaseURL, "ftp_hosts", len(byFtpID))
+			"protocol", target.Protocol, "addr", target.Addr,
+			"ftp_id", target.FtpID, "user", target.Username, "root_dir", target.RootDir)
 	} else {
 		slog.Warn("source file server тохируулаагүй — татсан хавсралтын файл нээгдэхгүй " +
-			"(SOURCE_FTP_BASE_URL эсвэл SOURCE_FTP_BASE_URLS)")
+			"(SOURCE_FTP_HOST)")
 	}
 
 	landSvc := service.NewLandService(landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient)
