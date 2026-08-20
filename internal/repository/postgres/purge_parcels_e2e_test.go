@@ -139,9 +139,9 @@ func countRows(t *testing.T, p *purgeFixture, query string, args ...any) int {
 func assertChildRowsExist(t *testing.T, p *purgeFixture) {
 	t.Helper()
 	for name, q := range map[string]string{
-		"parcel_detail":         `SELECT count(*) FROM parcel_detail WHERE parcel_id = $1`,
-		"parcel_payment":        `SELECT count(*) FROM parcel_payment WHERE parcel_id = $1`,
-		"parcel_document":       `SELECT count(*) FROM parcel_document WHERE parcel_id = $1`,
+		"parcel_detail":   `SELECT count(*) FROM parcel_detail WHERE parcel_id = $1`,
+		"parcel_payment":  `SELECT count(*) FROM parcel_payment WHERE parcel_id = $1`,
+		"parcel_document": `SELECT count(*) FROM parcel_document WHERE parcel_id = $1`,
 	} {
 		assert.NotZero(t, countRows(t, p, q, p.staleID), "%s мөр устгахын ӨМНӨ байх ёстой", name)
 	}
