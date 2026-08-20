@@ -536,7 +536,8 @@ func TestE2E_Delete_FreesParcelCodeForNewAcquisition(t *testing.T) {
 		_, _ = f.pool.Exec(cctx, `DELETE FROM land_acquisition WHERE id = $1`, newAcqID)
 	})
 
-	res, err := f.repo.InsertParcelCodes(ctx, newAcqID, []string{parcelCode}, e2eBoundary)
+	res, err := f.repo.InsertParcelCodes(ctx, newAcqID,
+		[]*domain.SourceParcel{{ParcelID: parcelCode}}, e2eBoundary)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Total)
 	assert.Equal(t, 0, res.Skipped, "устгасан чөлөөлөлтийн дугаар алгасагдах ёсгүй")

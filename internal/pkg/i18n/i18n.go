@@ -73,6 +73,7 @@ const (
 	ErrPersonDeleteForbidden    Key = "person_delete_forbidden"
 	ErrHasReleasedParcels       Key = "has_released_parcels"
 	ErrConfirmedDecisionLinked  Key = "confirmed_decision_linked"
+	ErrReleasedParcelOutside    Key = "released_parcel_outside_boundary"
 	ErrShapefileRequiredForPlan Key = "shapefile_required_for_plan"
 	ErrDeleteNotNew             Key = "delete_not_new"
 	WarnGeomChanged             Key = "geom_changed"
@@ -168,7 +169,8 @@ var messages = map[Key][2]string{
 	ErrPersonDeleteForbidden:    {"Хүний мэдээллийг устгах боломжгүй. Ажилтныг чөлөөлөх бол ажилтны бүртгэлийг идэвхгүй болгоно.", "Person records cannot be deleted; deactivate the employee instead."},
 	ErrHasReleasedParcels:       {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
 	ErrConfirmedDecisionLinked:  {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
-	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдлээ", "The acquisition boundary was updated. Existing linked parcels were kept, and missing parcels intersecting the new boundary were added"},
+	ErrReleasedParcelOutside:    {"Шинэ хил нь \"Чөлөөлсөн\" төлөвтэй нэгж талбарыг гадна орхиж байна. Чөлөөлсөн нэгж талбарууд бүгд шинэ хилд багтсан байх шаардлагатай.", "The new boundary excludes parcels that are already released. All released parcels must fall inside the new boundary."},
+	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},
 	ErrCodeRequired:             {"code параметр шаардлагатай", "code parameter is required"},
 
 	ErrStatusRequired:          {"to_status шаардлагатай", "to_status is required"},

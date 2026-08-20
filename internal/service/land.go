@@ -31,7 +31,7 @@ type LandAcquisitionService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error)
 	IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
-	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error)
+	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error)
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	// Delete — чөлөөлөлтийг SOFT delete-ээр устгана (хязгаарлалтуудыг үз:
 	// landService.Delete).
@@ -406,14 +406,21 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 // Update — газар чөлөөлөлтийн мэдээлэл шинэчлэх.
 // Хоёрдахь буцах утга (bool) нь геометр өөрчлөгдсөн эсэхийг илэрхийлнэ
 // (true үед шинэ хилээр дутуу нэгж талбар нэмэгдсэн тухай анхааруулга харуулна).
-func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error) {
+func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error) {
 	acq, err := s.landRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, false, domain.ErrNotFound
+		return nil, nil, domain.ErrNotFound
 	}
 
 	geometryChanged := false
 	oldGeometryWKT := acq.GeometryWKT
+	// Шинэ хилээр ГУС-аас олдсон нэгж талбарууд ба шинэ хилд ОРООГҮЙ болсон
+	// (хасагдах) талбарууд — хил хадгалагдсаны ДАРАА хэрэглэгдэнэ.
+	var (
+		boundaryParcels []*domain.SourceParcel
+		prunedParcels   []domain.ParcelRef
+		boundaryChange  *domain.BoundaryChange
+	)
 
 	if len(req.ShapefileData) > 0 {
 		// Шинэ план эсвэл шинэ хилийн файл өгсөн үед геометрийг шинэчилнэ
@@ -424,21 +431,30 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 
 		plan, err := s.resolvePlan(ctx, targetPlanCode)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, err
 		}
 
 		newWKT, err := shapefile.Parse(req.ShapefileData)
 		if err != nil {
-			return nil, false, shapefileError(err, "шинэ хил")
+			return nil, nil, shapefileError(err, "шинэ хил")
 		}
 
 		// Хилийн шалгалт Create-тай ИЖИЛ: шинэ хил нь нэг сум/дүүрэгт багтаж,
 		// төлөвлөгөөний хилээс 50%-иас ихгүй гарсан байх ёстой. Үгүй бол
 		// шинэчлэлт хийгдэхгүй (шалгалтыг Update-ээр тойрч гарах боломжгүй).
 		if err := s.validateBoundary(ctx, newWKT, plan); err != nil {
-			return nil, false, err
+			return nil, nil, err
 		}
 		newAreaM2 := s.computeAreaM2(ctx, newWKT)
+
+		// Шинэ хилээр нэгж талбарыг ЭНД (хил хадгалахаас ӨМНӨ) тодорхойлно:
+		// "Чөлөөлсөн" талбар шинэ хилээс гарч байвал хилийг ХҮЛЭЭЖ АВАХГҮЙ
+		// тул татах/шалгах алхам нь хадгалахаас өмнө байх ЁСТОЙ.
+		discovered, prune, err := s.resolveBoundaryParcels(ctx, id, newWKT)
+		if err != nil {
+			return nil, nil, err
+		}
+		boundaryParcels, prunedParcels = discovered, prune
 
 		geometryChanged = true
 
@@ -457,7 +473,7 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		acq.AreaM2 = newAreaM2
 	} else if req.PlanCode != "" {
 		// Shapefile өгөөгүй атал план солихыг хүсвэл алдаа
-		return nil, false, domain.ErrInvalidInput
+		return nil, nil, domain.ErrInvalidInput
 	}
 
 	if req.StartDate != nil {
@@ -482,7 +498,7 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	}
 
 	if err := s.landRepo.Update(ctx, acq); err != nil {
-		return nil, false, domain.ErrInternalServer
+		return nil, nil, domain.ErrInternalServer
 	}
 
 	if geometryChanged {
@@ -494,30 +510,52 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			ChangedBy:         req.UpdatedBy,
 			ChangedAt:         time.Now(),
 		}); err != nil {
-			return nil, false, domain.ErrInternalServer
+			return nil, nil, domain.ErrInternalServer
 		}
 
-		// Шинэ хилтэй огтлолцох AU-г шинэчилж, зөвхөн шинээр нэмэгдэх нэгж талбаруудыг холбоно.
+		// Шинэ хилтэй огтлолцох AU-г шинэчилнэ.
 		if err := s.landRepo.DeleteAUs(ctx, acq.ID); err != nil {
-			return nil, false, domain.ErrInternalServer
+			return nil, nil, domain.ErrInternalServer
 		}
 		acq.AUs = s.saveIntersectingAUs(ctx, acq.ID, acq.GeometryWKT)
-		s.saveSourceParcels(ctx, acq.ID, acq.PlanCode, acq.GeometryWKT)
 
-		// BulkInsertParcels шинэ нэгж талбар нэмсэн байж болзошгүй тул acq.ParcelCount
-		// (шинэ хилтэй давхцах parcel-үүд нэмэгдэхээс ӨМНӨ уншсан хуучин утга) хуучирсан
-		// байна — хариултад зөв тоо буцаахын тулд DB-ээс дахин уншина.
+		// Шинэ хилээр олдсон нэгж талбаруудыг бүртгэнэ (зөвхөн ДУТУУ нь —
+		// байгаа мөр хөндөгдөхгүй тул хэрэглэгчийн өгөгдөл хамгаалагдана).
+		boundaryChange = &domain.BoundaryChange{}
+		boundaryChange.Added = s.registerBoundaryParcels(ctx, acq.ID, boundaryParcels, acq.GeometryWKT)
+		// Шинэ хилд ороогүй болсон нэгж талбаруудыг хүү мөрүүдтэйгээ хамт
+		// БҮРМӨСӨН устгана ("Чөлөөлсөн" талбар зөрүүд байхгүй нь
+		// resolveBoundaryParcels дээр аль хэдийн батлагдсан).
+		boundaryChange.Removed = s.purgeBoundaryParcels(ctx, acq.ID, prunedParcels)
+
+		// Нэгж талбар нэмэгдэж/хасагдсан тул acq.ParcelCount (хилийн
+		// өөрчлөлтөөс ӨМНӨ уншсан хуучин утга) хуучирсан байна — хариултад зөв
+		// тоо буцаахын тулд DB-ээс дахин уншина.
 		if fresh, ferr := s.landRepo.GetByID(ctx, acq.ID); ferr == nil {
 			acq.ParcelCount = fresh.ParcelCount
 		}
 	}
 
-	s.auditLog(ctx, "updated", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, map[string]any{
+	audit := map[string]any{
 		"name":             acq.AcquisitionName,
 		"plan_code":        acq.PlanCode,
 		"geometry_changed": geometryChanged,
-	})
-	return acq, geometryChanged, nil
+	}
+	if boundaryChange != nil {
+		// Нэгж талбар устгах нь өөрөө audit-д бичигддэггүй тул хилийн
+		// өөрчлөлтийн бичлэгт хасагдсан дугаарыг ХАДГАЛНА (буцаах боломжгүй).
+		audit["parcels_added"] = boundaryChange.Added
+		audit["parcels_removed"] = boundaryChange.Removed
+		if len(prunedParcels) > 0 {
+			codes := make([]string, 0, len(prunedParcels))
+			for _, ref := range prunedParcels {
+				codes = append(codes, ref.ParcelID)
+			}
+			audit["removed_parcel_ids"] = codes
+		}
+	}
+	s.auditLog(ctx, "updated", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, audit)
+	return acq, boundaryChange, nil
 }
 
 // computeAreaM2 — чөлөөлөх хилийн талбайг (м²) shapefile-ийн геометрээс
@@ -805,75 +843,127 @@ func (s *landService) resolvePlan(ctx context.Context, planCode string) (*domain
 	return saved, nil
 }
 
-// listSourceParcelsByAcquisition — чөлөөлөх ХИЛЭЭР дундын сервисээс нэгж
-// талбарын ДУГААРУУДЫГ (/parcels/by/acquisition) авч, дугаар тус бүрээр
-// мэдээллийг (/parcel/info) татна. Нэгж талбарын мэдээлэл ингэж ЗӨВХӨН
-// дугаараар үүснэ.
+// resolveBoundaryParcels — ШИНЭ чөлөөлөх хилээр нэгж талбарыг багцаар татаж,
+// одоо бүртгэлтэй байгаатай ЗӨРҮҮЛНЭ.
 //
-// Нэг дугаарын мэдээлэл татагдахгүй бол ЗӨВХӨН тэр дугаарыг л алгасна —
-// өмнө нь бүх багц хаягдаж, жагсаалт хоосон үлддэг байсан.
-func (s *landService) listSourceParcelsByAcquisition(ctx context.Context, planCode, acquisitionWKT string) ([]*domain.SourceParcel, error) {
-	if s.parcelInfo == nil {
-		return nil, domain.ErrInternalServer
-	}
-
-	parcelIDs, err := s.parcelInfo.ListParcelIDsByAcquisition(ctx, acquisitionWKT)
+// Буцаах:
+//   - discovered — шинэ хилтэй давхцах бүх нэгж талбар (бүртгэх/шинэчлэхэд)
+//   - prune      — шинэ хилд ОРООГҮЙ болсон, тул устгагдах талбарууд
+//
+// Хилийг ХҮЛЭЭЖ АВАХГҮЙ 2 тохиолдол — аль нь ч болов хил хадгалагдахгүй:
+//  1. ГУС-аас татах явц бүтэлгүйтвэл: зөрүүг тодорхойлох боломжгүй үед
+//     хилийг хадгалбал устгах ёстой талбар нь мөнхөд хоцорно.
+//  2. Устгагдах талбаруудын дунд "Чөлөөлсөн" төлөвтэй байвал: аль хэдийн
+//     чөлөөлөгдсөн (олговор төлөгдсөн) бүртгэлийг устгаж болохгүй.
+func (s *landService) resolveBoundaryParcels(
+	ctx context.Context, acquisitionID uuid.UUID, newWKT string,
+) (discovered []*domain.SourceParcel, prune []domain.ParcelRef, err error) {
+	discovered, err = s.listParcelsByAcquisitionBatched(ctx, newWKT)
 	if err != nil {
-		return nil, err
-	}
-	if len(parcelIDs) == 0 {
-		return nil, nil
+		slog.Error("шинэ хилээр нэгж талбар татахад алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+		return nil, nil, domain.ErrInternalServer
 	}
 
-	parcels := make([]*domain.SourceParcel, 0, len(parcelIDs))
-	seen := make(map[string]struct{}, len(parcelIDs))
-	for _, parcelID := range parcelIDs {
-		parcelID = strings.TrimSpace(parcelID)
-		if parcelID == "" {
-			continue
-		}
-		if _, dup := seen[parcelID]; dup {
-			continue
-		}
-		seen[parcelID] = struct{}{}
-
-		src, err := s.parcelInfo.GetParcelInfo(ctx, parcelID)
-		if err != nil {
-			slog.Warn("нэгж талбарын мэдээлэл татахад алдаа",
-				"parcel_id", parcelID, "error", err)
-			continue
-		}
-		if src == nil {
-			continue
-		}
-		// Дундын сервис дугаарыг буцаагаагүй ч дуудсан дугаараар бүртгэнэ.
-		if strings.TrimSpace(src.ParcelID) == "" {
-			src.ParcelID = parcelID
-		}
-		parcels = append(parcels, src)
+	existing, err := s.landRepo.ListParcelRefs(ctx, acquisitionID)
+	if err != nil {
+		slog.Error("бүртгэлтэй нэгж талбарыг уншихад алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+		return nil, nil, domain.ErrInternalServer
 	}
-	return parcels, nil
+
+	found := make(map[string]struct{}, len(discovered))
+	for _, sp := range discovered {
+		if sp == nil {
+			continue
+		}
+		if code := strings.TrimSpace(sp.ParcelID); code != "" {
+			found[code] = struct{}{}
+		}
+	}
+
+	var released []string
+	for _, ref := range existing {
+		code := strings.TrimSpace(ref.ParcelID)
+		if code == "" {
+			continue
+		}
+		if _, ok := found[code]; ok {
+			continue // шинэ хилд хэвээр байна
+		}
+		if ref.Status == domain.ParcelStatusReleased {
+			released = append(released, code)
+			continue
+		}
+		prune = append(prune, ref)
+	}
+	if len(released) > 0 {
+		slog.Warn("шинэ хил нь Чөлөөлсөн төлөвтэй нэгж талбарыг гадна орхиж байна",
+			"acquisition_id", acquisitionID, "parcel_ids", released)
+		return nil, nil, domain.ErrReleasedParcelOutsideBoundary
+	}
+	return discovered, prune, nil
 }
 
-// saveSourceParcels — чөлөөлөх хилээр олдсон нэгж талбаруудыг main DB-д
-// бүртгэнэ. Чөлөөлөлт үүсэх/шинэчлэгдэхийг ЗОГСООХГҮЙ — гэхдээ жагсаалт
-// хоосон үлдсэн шалтгааныг олох боломжтой байхын тулд логлоно.
-func (s *landService) saveSourceParcels(ctx context.Context, acquisitionID uuid.UUID, planCode, acquisitionWKT string) {
-	srcParcels, err := s.listSourceParcelsByAcquisition(ctx, planCode, acquisitionWKT)
-	if err != nil {
-		slog.Error("чөлөөлөх хилээр нэгж талбар хайхад алдаа",
-			"acquisition_id", acquisitionID, "error", err)
-		return
-	}
-	if len(srcParcels) == 0 {
+// registerBoundaryParcels — чөлөөлөх хилээр олдсон нэгж талбаруудыг main DB-д
+// бүртгэнэ. ЗӨВХӨН ШИНЭ мөр бичигдэнэ (ON CONFLICT DO NOTHING): байгаа нэгж
+// талбарын хэрэглэгчийн үнэлгээ/олговор/төлөв БОЛОН sync-ээр татсан эрх зүйн
+// дэлгэрэнгүй хоёулаа хөндөгдөхгүй.
+//
+// (Өмнө нь энэ зам дугаар тус бүрээр /parcel/info татаж, ReplaceParcelDetail-
+// аар дэлгэрэнгүйг ДАРЖ бичдэг байсан — N+1 дуудалт + өгөгдөл дарагдах эрсдэл.)
+//
+// Чөлөөлөлт хадгалахыг ЗОГСООХГҮЙ — зөвхөн логлоно.
+func (s *landService) registerBoundaryParcels(
+	ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acquisitionWKT string,
+) int {
+	if len(parcels) == 0 {
 		slog.Warn("чөлөөлөх хилтэй давхцах нэгж талбар олдсонгүй",
 			"acquisition_id", acquisitionID)
-		return
+		return 0
 	}
-	if err := s.landRepo.BulkInsertParcels(ctx, acquisitionID, srcParcels, acquisitionWKT); err != nil {
-		slog.Error("нэгж талбар хадгалахад алдаа",
-			"acquisition_id", acquisitionID, "count", len(srcParcels), "error", err)
+	res, err := s.landRepo.InsertParcelCodes(ctx, acquisitionID, parcels, acquisitionWKT)
+	if err != nil {
+		slog.Error("нэгж талбар бүртгэхэд алдаа",
+			"acquisition_id", acquisitionID, "count", len(parcels), "error", err)
 	}
+	if res == nil {
+		return 0
+	}
+	return res.Created
+}
+
+// purgeBoundaryParcels — шинэ хилд ороогүй болсон нэгж талбаруудыг хүү
+// мөрүүдтэйгээ хамт БҮРМӨСӨН устгаж, файлуудыг хадгалалтаас цэвэрлэнэ.
+//
+// Хил хадгалагдсаны ДАРАА ажиллана: устгал бүтэлгүйтвэл хилийг буцаахгүй —
+// зөрүү нь дараагийн хил солиход дахин илэрч устгагдана.
+func (s *landService) purgeBoundaryParcels(
+	ctx context.Context, acquisitionID uuid.UUID, prune []domain.ParcelRef,
+) int {
+	if len(prune) == 0 {
+		return 0
+	}
+	ids := make([]uuid.UUID, 0, len(prune))
+	codes := make([]string, 0, len(prune))
+	for _, ref := range prune {
+		ids = append(ids, ref.ID)
+		codes = append(codes, ref.ParcelID)
+	}
+
+	removed, fileURLs, err := s.landRepo.PurgeParcels(ctx, acquisitionID, ids, codes)
+	if err != nil {
+		slog.Error("шинэ хилд ороогүй нэгж талбарыг устгахад алдаа",
+			"acquisition_id", acquisitionID, "count", len(ids), "error", err)
+		return 0
+	}
+	slog.Info("шинэ хилд ороогүй нэгж талбарууд устгагдлаа",
+		"acquisition_id", acquisitionID, "removed", removed, "parcel_ids", codes)
+
+	// Файлыг фонд, зайтай устгана (чөлөөлөлт устгах урсгалтай ижил хэв маяг):
+	// хадгалалт унасан ч хилийн өөрчлөлтийг зогсоох шалтгаан биш.
+	s.cleanupFilesInBackground(acquisitionID, fileURLs)
+	return removed
 }
 
 func (s *landService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
@@ -1298,12 +1388,14 @@ func (s *landService) GetReportSummary(ctx context.Context, filter domain.Report
 }
 
 // DiscoverParcels — чөлөөлөх ХИЛЭЭР дундын сервисээс (/parcels/by/acquisition)
-// нэгж талбарын ДУГААРУУДЫГ татаж, main DB-д бүртгэнэ.
+// нэгж талбаруудыг 100-ийн БАГЦААР татаж, main DB-д бүртгэнэ.
 //
-// Энэ алхам дэлгэрэнгүй мэдээлэл ТАТАХГҮЙ — зөвхөн "аль нэгж талбарууд энэ
-// чөлөөлөлтөд хамаарах вэ" гэдгийг тодорхойлно (нэг хүсэлт). Дэлгэрэнгүйг
-// дараа нь дугаар тус бүрээр SyncParcel татна — дундын сервис зэрэг олон
-// хүсэлтэд дүүрдэг тул тэр алхмыг дараалуулж, зайлуулж явуулна.
+// Багц бүр дугаар + БҮРТГЭЛИЙН баганыг (геометр, талбай, зориулалт, хаяг,
+// эрхийн хугацаа) агуулна тул нэгж талбар нь тэр даруй бүрэн бүртгэгдэнэ —
+// өмнө нь эдгээрийг дугаар тус бүрээр /parcel/info-аас татдаг байсан (N+1).
+//
+// ЭРХ ЗҮЙН дэлгэрэнгүй (хүсэлт, шийдвэр, гэрээ, улсын бүртгэл, эзэмшигч) нь
+// ЭНД татагдахгүй — түүнийг дараа нь дугаар тус бүрээр SyncParcel татна.
 //
 // Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгадаг тул дахин дуудахад
 // давхардал үүсэхгүй (repo дээрх InsertParcelCodes).
@@ -1320,14 +1412,14 @@ func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UU
 		return nil, domain.ErrInternalServer
 	}
 
-	codes, err := s.parcelInfo.ListParcelIDsByAcquisition(ctx, acq.GeometryWKT)
+	parcels, err := s.listParcelsByAcquisitionBatched(ctx, acq.GeometryWKT)
 	if err != nil {
-		slog.Error("чөлөөлөх хилээр нэгж талбарын дугаар татахад алдаа",
+		slog.Error("чөлөөлөх хилээр нэгж талбар татахад алдаа",
 			"acquisition_id", acquisitionID, "error", err)
 		return nil, domain.ErrInternalServer
 	}
 
-	res, err := s.landRepo.InsertParcelCodes(ctx, acquisitionID, codes, acq.GeometryWKT)
+	res, err := s.landRepo.InsertParcelCodes(ctx, acquisitionID, parcels, acq.GeometryWKT)
 	if err != nil {
 		slog.Error("нэгж талбарын дугаар бүртгэхэд алдаа",
 			"acquisition_id", acquisitionID, "error", err)
@@ -1338,6 +1430,105 @@ func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UU
 		}
 	}
 	return res, nil
+}
+
+// discoveryBatchSize — дундын сервисээс НЭГ дуудалтад авах нэгж талбарын тоо.
+// Дундын сервисийн ХАТУУ дээд хязгаараас (500) БАГА байх ЁСТОЙ: эс бөгөөс
+// хариулт чимээгүй хумигдаж, доорх "limit-ээс бага ирлээ = дууслаа" дүгнэлт
+// эрт зогсоно.
+const discoveryBatchSize = 100
+
+// maxDiscoveryBatches — гогцооны ХАМГААЛАЛТ (100 × 200 = 20 000 нэгж талбар).
+const maxDiscoveryBatches = 200
+
+// discoveryBatchPause — багц хоорондын зай: эх системийн (ГУС) өгөгдлийн санг
+// дараалсан хүнд SELECT-ээр дарахгүйн тулд.
+const discoveryBatchPause = 100 * time.Millisecond
+
+// listParcelsByAcquisitionBatched — чөлөөлөх ХИЛЭЭР давхцах нэгж талбаруудыг
+// 100-ийн БАГЦААР, keyset cursor-оор (өмнөх багцын сүүлийн parcel_id) татна:
+// 250 талбар = 3 дуудалт (100, 100, 50).
+//
+// Нэг том SELECT-ийн оронд жижиг багц явуулах нь эх системийн DB-ийн нэг
+// удаагийн ачааллыг болон хариултын хэмжээг барина (мөр бүрд геометрийн WKT
+// байдаг тул хариулт хурдан томордог).
+//
+// Зогсох нөхцөл:
+//  1. Багц limit-ээс БАГА ирвэл — дууссан.
+//  2. Багцаас ШИНЭ дугаар нэг ч нэмэгдээгүй бол — cursor хөдлөөгүй (cursor-ыг
+//     үл хэрэгсэх хуучин дундын сервис) тул мөнхийн гогцоо гарахгүй.
+//  3. maxDiscoveryBatches — хатуу тоолуур.
+//
+// ЭХНИЙ багц унавал алдаа буцна (юу ч бүртгэгдэхгүй). ДАРАА-гийн багц унавал
+// хуримтлагдсаныг буцаана: дахин дуудахад ON CONFLICT DO NOTHING тул дутууг
+// нөхөх боломжтой.
+func (s *landService) listParcelsByAcquisitionBatched(
+	ctx context.Context, acquisitionWKT string,
+) ([]*domain.SourceParcel, error) {
+	if s.parcelInfo == nil {
+		return nil, domain.ErrInternalServer
+	}
+
+	var (
+		after   string
+		out     []*domain.SourceParcel
+		seen    = map[string]struct{}{}
+		batches int
+	)
+	for batches = 0; batches < maxDiscoveryBatches; batches++ {
+		if batches > 0 {
+			select {
+			case <-ctx.Done():
+				return out, ctx.Err()
+			case <-time.After(discoveryBatchPause):
+			}
+		}
+
+		page, err := s.parcelInfo.ListParcelsByAcquisition(ctx, acquisitionWKT, after, discoveryBatchSize)
+		if err != nil {
+			if len(out) == 0 {
+				return nil, err
+			}
+			slog.Error("нэгж талбарын багц татахад алдаа, хуримтлагдсанаар үргэлжилнэ",
+				"batch", batches, "after", after, "collected", len(out), "error", err)
+			return out, nil
+		}
+
+		added := 0
+		for _, sp := range page {
+			if sp == nil {
+				continue
+			}
+			code := strings.TrimSpace(sp.ParcelID)
+			if code == "" {
+				continue
+			}
+			// Дундын сервис parcel_id-аар эрэмбэлж буцаадаг тул сүүлийн дугаар
+			// нь дараагийн багцын cursor болно.
+			after = code
+			if _, dup := seen[code]; dup {
+				continue
+			}
+			seen[code] = struct{}{}
+			sp.ParcelID = code
+			out = append(out, sp)
+			added++
+		}
+
+		if len(page) < discoveryBatchSize {
+			break
+		}
+		if added == 0 {
+			slog.Warn("нэгж талбарын багц шинэ дугаар нэмсэнгүй, гогцоо зогсоно",
+				"batch", batches, "after", after, "collected", len(out))
+			break
+		}
+	}
+	if batches >= maxDiscoveryBatches {
+		slog.Warn("нэгж талбарын багцын хязгаарт хүрлээ",
+			"batches", batches, "collected", len(out))
+	}
+	return out, nil
 }
 
 // SyncParcel — нэг нэгж талбарын дэлгэрэнгүй мэдээллийг дундын сервисээс татаж
@@ -1414,29 +1605,36 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 //   - үлдэх талбай (parcel.remaining_area_m2)
 //   - геометрээр харьяалах аймаг/сум/багийн код
 //
-// Геометр ирээгүй үед хадгалагдсан геометрээр л давхцлыг шинэчилнэ.
+// ХЭВИЙН зам нь одоо геометргүй: /parcel/info геометр буцаахаа больсон
+// (геометрийг discovery — /parcels/by/acquisition — хадгалдаг) тул
+// хадгалагдсан геометрээр л давхцлыг шинэчилнэ. АУ кодын нөхөлт нь ХОЁР
+// замд ч ажиллах ёстой — тэр нь хадгалагдсан геометрээс уншдаг.
+//
 // Тооцоолол sync-ийг ЗОГСООХГҮЙ — дэлгэрэнгүй аль хэдийн хадгалагдсан.
 func (s *landService) applyParcelGeometry(ctx context.Context, parcelID uuid.UUID, parcelWKT, acqWKT string) *domain.ParcelGeometryResult {
+	var result *domain.ParcelGeometryResult
+
 	if strings.TrimSpace(parcelWKT) == "" {
-		slog.Warn("эх системээс нэгж талбарын геометр ирсэнгүй, хадгалагдсан геометрээр тооцно",
+		slog.Debug("геометр нь discovery-д хадгалагддаг — хадгалагдсанаар тооцно",
 			"parcel_id", parcelID)
 		if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, parcelID, acqWKT); err != nil {
 			slog.Error("чөлөөлөгдөх талбайг тооцоолоход алдаа", "parcel_id", parcelID, "error", err)
 		}
-		return nil
-	}
-
-	result, err := s.landRepo.ApplyParcelGeometry(ctx, parcelID, parcelWKT, acqWKT)
-	if err != nil {
-		// Геометр невалид эсвэл polygon биш (MULTIPOLYGON) байж болно — чимээгүй
-		// үлдэхгүйн тулд логлоно.
-		slog.Error("нэгж талбарын геометрээр чөлөөлөгдөх талбайг тооцоолоход алдаа",
-			"parcel_id", parcelID, "error", err)
-		return nil
-	}
-	if !result.HasOverlap {
-		slog.Warn("нэгж талбар чөлөөлөлтийн бүстэй давхцахгүй",
-			"parcel_id", parcelID, "parcel_area_m2", result.ParcelAreaM2)
+	} else {
+		// Хуучин дундын сервис (deploy skew) геометр буцаасаар байж болно.
+		res, err := s.landRepo.ApplyParcelGeometry(ctx, parcelID, parcelWKT, acqWKT)
+		if err != nil {
+			// Геометр невалид эсвэл polygon биш (MULTIPOLYGON) байж болно — чимээгүй
+			// үлдэхгүйн тулд логлоно.
+			slog.Error("нэгж талбарын геометрээр чөлөөлөгдөх талбайг тооцоолоход алдаа",
+				"parcel_id", parcelID, "error", err)
+		} else {
+			result = res
+			if !result.HasOverlap {
+				slog.Warn("нэгж талбар чөлөөлөлтийн бүстэй давхцахгүй",
+					"parcel_id", parcelID, "parcel_area_m2", result.ParcelAreaM2)
+			}
+		}
 	}
 
 	// Аймаг/сум/баг — эх систем зөвхөн au2-ыг буцаадаг тул геометрээс нөхнө.

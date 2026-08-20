@@ -510,7 +510,7 @@ func TestLandHandler_Update_DatesOnly(t *testing.T) {
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
 		return r.PlanCode == "" && len(r.ShapefileData) == 0
-	})).Return(acq, false, nil)
+	})).Return(acq, nil, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"end_date":         "2025-06-30",
@@ -536,7 +536,7 @@ func TestLandHandler_Update_WithShapefile(t *testing.T) {
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
 		return len(r.ShapefileData) > 0
-	})).Return(acq, true, nil)
+	})).Return(acq, &domain.BoundaryChange{Added: 3, Removed: 2}, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"acquisition_name": "Test Project",
@@ -555,6 +555,10 @@ func TestLandHandler_Update_WithShapefile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	data := resp["data"].(map[string]any)
 	assert.NotEmpty(t, data["warning"]) // геометр өөрчлөгдсөн тул анхааруулга гарна
+	// Хил солиход нэмэгдсэн/хасагдсан нэгж талбарын тоо хариултад гарна —
+	// хасалт нь БУЦААХ БОЛОМЖГҮЙ тул хэрэглэгчид харагдах ёстой.
+	assert.Equal(t, float64(3), data["added_parcels"])
+	assert.Equal(t, float64(2), data["removed_parcels"])
 }
 
 func TestLandHandler_Update_PlanChangedWithoutShapefile(t *testing.T) {
@@ -583,7 +587,7 @@ func TestLandHandler_Update_NotFound(t *testing.T) {
 	h := handler.NewLandHandler(mockSvc)
 
 	id := uuid.New()
-	mockSvc.On("Update", mock.Anything, id, mock.Anything).Return(nil, false, domain.ErrNotFound)
+	mockSvc.On("Update", mock.Anything, id, mock.Anything).Return(nil, nil, domain.ErrNotFound)
 
 	body, ct := buildMultipartForm(t, map[string]string{"end_date": "2025-12-31", "acquisition_name": "Test Project"}, "", nil)
 

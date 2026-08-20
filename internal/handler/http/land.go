@@ -509,7 +509,7 @@ func (h *LandHandler) Update(c *gin.Context) {
 
 	req.UpdatedBy = contextUserIDString(c)
 
-	acq, geomChanged, err := h.svc.Update(c.Request.Context(), id, req)
+	acq, boundaryChange, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
 		switch err {
 		case domain.ErrNotFound:
@@ -526,10 +526,16 @@ func (h *LandHandler) Update(c *gin.Context) {
 	type updateResp struct {
 		landAcquisitionResponse
 		Warning string `json:"warning,omitempty"`
+		// Хил солиход нэгж талбарт гарсан өөрчлөлт. RemovedParcels нь
+		// БҮРМӨСӨН устгагдсан (шинэ хилд ороогүй) талбарын тоо.
+		AddedParcels   int `json:"added_parcels,omitempty"`
+		RemovedParcels int `json:"removed_parcels,omitempty"`
 	}
 	r := updateResp{landAcquisitionResponse: toLandAcqResponse(acq)}
-	if geomChanged {
+	if boundaryChange != nil {
 		r.Warning = i18n.T(l, i18n.WarnGeomChanged)
+		r.AddedParcels = boundaryChange.Added
+		r.RemovedParcels = boundaryChange.Removed
 	}
 	response.OK(c, r)
 }
@@ -607,9 +613,11 @@ func (h *LandHandler) GetByID(c *gin.Context) {
 
 // DiscoverParcels godoc
 // @Summary      Чөлөөлөх хилээр нэгж талбарыг тодорхойлж бүртгэх
-// @Description  Чөлөөлөлтийн хилээр дундын сервисийн /parcels/by/acquisition-ыг дуудаж,
-// @Description  давхцах нэгж талбарын ДУГААРУУДЫГ авч бүртгэнэ. Дэлгэрэнгүй мэдээлэл
-// @Description  ЭНД татагдахгүй — дараа нь дугаар тус бүрээр
+// @Description  Чөлөөлөлтийн хилээр дундын сервисийн /parcels/by/acquisition-ыг 100-ийн
+// @Description  БАГЦААР дуудаж (250 талбар = 3 хүсэлт), давхцах нэгж талбаруудыг
+// @Description  бүртгэлийн баганатайгаа (геометр, талбай, зориулалт, хаяг, эрхийн
+// @Description  хугацаа) хамт бүртгэнэ. ЭРХ ЗҮЙН дэлгэрэнгүй (хүсэлт, шийдвэр, гэрээ,
+// @Description  улсын бүртгэл, эзэмшигч) ЭНД татагдахгүй — дараа нь дугаар тус бүрээр
 // @Description  /land-acquisitions/{id}/parcels/{parcel_id}/sync дуудна.
 // @Description  Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгах тул давхардал үүсэхгүй.
 // @Tags         land-acquisitions

@@ -39,7 +39,18 @@ func authorizationFromContext(ctx context.Context) string {
 // ParcelInfoClient fetches parcel source data from the middleware service.
 type ParcelInfoClient interface {
 	GetParcelInfo(ctx context.Context, parcelID string) (*domain.SourceParcel, error)
-	ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error)
+	// ListParcelsByAcquisition — чөлөөлөх хилтэй давхцах нэгж талбаруудын НЭГ
+	// БАГЦ: дугаар + бүртгэлийн баганууд (геометр, талбай, зориулалт, хаяг,
+	// эрхийн хугацаа). Эрх зүйн дэлгэрэнгүй нь GetParcelInfo-д үлдэнэ.
+	//
+	//	after — өмнөх багцын СҮҮЛИЙН parcel_id (keyset cursor); эхэнд хоосон
+	//	limit — багцын хэмжээ
+	//
+	// Дундын сервис дээр limit-ийн ХАТУУ дээд хязгаар (500) байдаг ба түүнээс
+	// хэтэрсэн хүсэлтийг ЧИМЭЭГҮЙ хумина. Тиймээс limit нь тэр хязгаараас
+	// ХЭТРЭХ ЁСГҮЙ: эс бөгөөс дуудагч "limit-ээс бага ирлээ = дууслаа" гэж
+	// ЭРТ зогсоно.
+	ListParcelsByAcquisition(ctx context.Context, acquisitionWKT, after string, limit int) ([]*domain.SourceParcel, error)
 	// ListApplicationPersons — ЗӨВХӨН хүсэлтийн дугаараар (app_no)
 	// эзэмшигчдийн мэдээлэл. Нэг хүсэлт дээр хэд хэдэн хүн байж болно.
 	//
@@ -330,15 +341,21 @@ func (c *httpParcelInfoClient) ListApplicationDocuments(ctx context.Context, app
 	return docs, nil
 }
 
-func (c *httpParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error) {
-	if c.baseURL == "" || acquisitionWKT == "" {
+func (c *httpParcelInfoClient) ListParcelsByAcquisition(
+	ctx context.Context, acquisitionWKT, after string, limit int,
+) ([]*domain.SourceParcel, error) {
+	if c.baseURL == "" || acquisitionWKT == "" || limit <= 0 {
 		return nil, domain.ErrInvalidInput
 	}
 
 	payload, err := json.Marshal(struct {
 		Geometry string `json:"geometry"`
+		Limit    int    `json:"limit"`
+		After    string `json:"after"`
 	}{
 		Geometry: acquisitionWKT,
+		Limit:    limit,
+		After:    after,
 	})
 	if err != nil {
 		return nil, err
@@ -380,11 +397,23 @@ func (c *httpParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, a
 		return nil, nil
 	}
 
-	var parcelIDs []string
-	if err := json.Unmarshal(envelope.Data, &parcelIDs); err != nil {
+	var rows []parcelSummaryPayload
+	if err := json.Unmarshal(envelope.Data, &rows); err != nil {
 		return nil, err
 	}
-	return parcelIDs, nil
+
+	parcels := make([]*domain.SourceParcel, 0, len(rows))
+	for i := range rows {
+		src := rows[i].toSourceParcel("")
+		if strings.TrimSpace(src.ParcelID) == "" {
+			continue // дугааргүй мөрийг бүртгэх боломжгүй
+		}
+		// Геометр нь ST_GeomFromText руу шууд орох тул хэлбэрийг ЭНД шүүнэ:
+		// танигдахгүй текст бол мөр өөрөө бүртгэгдэж, зөвхөн геометр хаягдана.
+		src.GeometryWKT = sanitizeWKT(src.GeometryWKT)
+		parcels = append(parcels, src)
+	}
+	return parcels, nil
 }
 
 // getJSON — ГУС-ийн дундын сервисээс JSON уншиж, envelope-ийн data-г out руу

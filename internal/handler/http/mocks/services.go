@@ -104,12 +104,16 @@ func (m *MockLandService) GetByID(ctx context.Context, id uuid.UUID) (*domain.La
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandService) Update(ctx context.Context, id uuid.UUID, req service.UpdateLandAcquisitionRequest) (*domain.LandAcquisition, bool, error) {
+func (m *MockLandService) Update(ctx context.Context, id uuid.UUID, req service.UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error) {
 	args := m.Called(ctx, id, req)
-	if args.Get(0) == nil {
-		return nil, args.Bool(1), args.Error(2)
+	var change *domain.BoundaryChange
+	if args.Get(1) != nil {
+		change = args.Get(1).(*domain.BoundaryChange)
 	}
-	return args.Get(0).(*domain.LandAcquisition), args.Bool(1), args.Error(2)
+	if args.Get(0) == nil {
+		return nil, change, args.Error(2)
+	}
+	return args.Get(0).(*domain.LandAcquisition), change, args.Error(2)
 }
 
 func (m *MockLandService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {

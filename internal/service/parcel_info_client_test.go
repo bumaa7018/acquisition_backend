@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -159,6 +160,104 @@ func TestHTTPParcelInfoClient_ListApplicationDocuments_NoRoles(t *testing.T) {
 	assert.Equal(t, domain.ErrInvalidInput, err)
 }
 
+// /parcels/by/acquisition — БАГЦЫН хэлбэр: мөр бүр объект бөгөөд бүртгэлийн
+// баганыг агуулна. Хүсэлтэд geometry/limit/after гурвуулаа явах ёстой.
+func TestHTTPParcelInfoClient_ListParcelsByAcquisition_ObjectRows(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/parcels/by/acquisition", r.URL.Path)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+		_, _ = w.Write([]byte(`{"code":200,"data":[
+			{
+				"parcel_id":1800805431,
+				"old_parcel_id":0,
+				"geometry_wkt":"POLYGON ((106.8 47.9, 106.9 47.9, 106.9 48.0, 106.8 47.9))",
+				"au2":"01116",
+				"right_type":2,
+				"landuse":2201,
+				"landuse_name":"Гэр бүлийн хэрэгцээ",
+				"area_m2":49235,
+				"address_khashaa":0,
+				"address_streetname":"Их тойруу",
+				"valid_from":"2026-05-13",
+				"valid_till":"292278994-08-17",
+				"property_no":"Э-2201077008"
+			},
+			{"parcel_id":"010101000002","geometry_wkt":"мэдэгдэхгүй хэлбэр"},
+			{"parcel_id":""}
+		],"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	rows, err := service.NewHTTPParcelInfoClient(srv.URL).
+		ListParcelsByAcquisition(ctx, "POLYGON((1 1,2 1,2 2,1 2,1 1))", "010101000000", 100)
+	require.NoError(t, err)
+
+	// Хүсэлтийн бие
+	assert.Equal(t, "POLYGON((1 1,2 1,2 2,1 2,1 1))", gotBody["geometry"])
+	assert.Equal(t, float64(100), gotBody["limit"])
+	assert.Equal(t, "010101000000", gotBody["after"])
+
+	// Дугааргүй мөр алгасагдана
+	require.Len(t, rows, 2)
+
+	// Тоогоор ирсэн кодууд текст болно; "0" нь хоосон; au2/geometry_wkt уншигдана
+	assert.Equal(t, "1800805431", rows[0].ParcelID)
+	assert.Equal(t, "2201", rows[0].Landuse)
+	assert.Equal(t, "Гэр бүлийн хэрэгцээ", rows[0].LanduseName)
+	assert.Equal(t, 49235.0, rows[0].AreaM2)
+	assert.Equal(t, 2, rows[0].RightType)
+	assert.Equal(t, "01116", rows[0].AU2Code)
+	assert.Contains(t, rows[0].GeometryWKT, "POLYGON")
+	assert.Equal(t, "Их тойруу", rows[0].AddressStreet)
+	assert.Equal(t, "Э-2201077008", rows[0].PropertyNo)
+	assert.Empty(t, rows[0].OldParcelID, "old_parcel_id=0 нь хоосон")
+	assert.Empty(t, rows[0].AddressKhashaa, "address_khashaa=0 нь хоосон")
+	require.NotNil(t, rows[0].ValidFrom)
+	assert.Equal(t, "2026-05-13", rows[0].ValidFrom.Format("2006-01-02"))
+	assert.Nil(t, rows[0].ValidTill, "infinity → хугацаа хязгааргүй")
+
+	// Танигдахгүй геометр нь ХААГДАНА, харин мөр өөрөө үлдэнэ (дугаараараа
+	// бүртгэгдэх ёстой — ST_GeomFromText руу хог текст явуулж болохгүй).
+	assert.Equal(t, "010101000002", rows[1].ParcelID)
+	assert.Empty(t, rows[1].GeometryWKT)
+}
+
+// Хуучин (limit-гүй) хэлбэрийн хариулт — элемент нь зөвхөн дугаар. Deploy-ийн
+// дараалал хамаарахгүй байхын тулд backend үүнийг мөн уншина.
+func TestHTTPParcelInfoClient_ListParcelsByAcquisition_LegacyStringRows(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"data":["010101000001",1800805431,"",null],"message":"OK"}`))
+	}))
+	defer srv.Close()
+
+	rows, err := service.NewHTTPParcelInfoClient(srv.URL).
+		ListParcelsByAcquisition(ctx, "POLYGON((1 1,2 1,2 2,1 2,1 1))", "", 100)
+	require.NoError(t, err)
+
+	require.Len(t, rows, 2, "хоосон/null элемент алгасагдана")
+	assert.Equal(t, "010101000001", rows[0].ParcelID)
+	assert.Equal(t, "1800805431", rows[1].ParcelID)
+	assert.Empty(t, rows[0].GeometryWKT)
+}
+
+// limit нь 0 эсвэл сөрөг бол дуудалт хийхгүй (дундын сервис хязгааргүй
+// хэлбэрт унах эрсдэлтэй).
+func TestHTTPParcelInfoClient_ListParcelsByAcquisition_RequiresLimit(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	_, err := service.NewHTTPParcelInfoClient(srv.URL).
+		ListParcelsByAcquisition(ctx, "POLYGON((1 1,2 1,2 2,1 2,1 1))", "", 0)
+	assert.ErrorIs(t, err, domain.ErrInvalidInput)
+	assert.False(t, called, "хүсэлт илгээгдэх ёсгүй")
+}
+
+// /parcel/info нь бүртгэлийн баганыг БУЦААХАА БОЛЬСОН ч (тэднийг discovery
+// авдаг) хуучин хэлбэрийн хариултыг уншиж чадах ёстой — deploy skew.
 // Эх системийн SQL-ийн баганууд ЯГ ТЭР хэлбэрээрээ ирэхэд зөв уншигдах эсэх:
 //   - зөвхөн SQL-д байгаа багана ирнэ (id, plan_code, au1/au3, holder_* байхгүй)
 //   - геометр нь "geometry" нэрээр, хэсэг нь "au2" нэрээр

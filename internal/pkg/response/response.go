@@ -183,6 +183,8 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusConflict, i18n.ErrHasReleasedParcels
 	case domain.ErrConfirmedDecisionLinked:
 		return http.StatusConflict, i18n.ErrConfirmedDecisionLinked
+	case domain.ErrReleasedParcelOutsideBoundary:
+		return http.StatusConflict, i18n.ErrReleasedParcelOutside
 	case domain.ErrInvalidTransition:
 		return http.StatusConflict, i18n.ErrConflict
 	case domain.ErrValuationNotApproved:

@@ -218,6 +218,24 @@ type ParcelDiscoveryResult struct {
 	ParcelIDs []string `json:"parcel_ids"`
 }
 
+// BoundaryChange — чөлөөлөх ХИЛ солигдоход нэгж талбарт гарсан өөрчлөлт.
+// Хил хөндөгдөөгүй үед nil (Update-ийн хариултад geometry_changed-ийн үүрэг
+// хийнэ).
+type BoundaryChange struct {
+	// Added — шинэ хилээр НЭМЭГДСЭН (шинээр бүртгэгдсэн) нэгж талбар
+	Added int `json:"added"`
+	// Removed — шинэ хилд ороогүй тул БҮРМӨСӨН устгагдсан нэгж талбар
+	Removed int `json:"removed"`
+}
+
+// ParcelRef — нэгж талбарын хөнгөн лавлагаа (хил солиход ГУС-аас олдсон
+// дугаартай зөрүүлж, хасагдах талбаруудыг тодорхойлоход хэрэглэгдэнэ).
+type ParcelRef struct {
+	ID       uuid.UUID
+	ParcelID string
+	Status   int
+}
+
 // ConstructionType — бүтээн байгуулалтын төрөл (lookup, legacy)
 type ConstructionType struct {
 	ID        int    `json:"id"`

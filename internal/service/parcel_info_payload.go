@@ -151,6 +151,34 @@ func (p *parcelInfoPayload) toSourceParcel(parcelID string) *domain.SourceParcel
 	return src
 }
 
+// parcelSummaryPayload — /parcels/by/acquisition-ийн НЭГ элемент.
+//
+// Багана бүр parcelInfoPayload-д аль хэдийн байгаа тул түүнийг ДАХИН
+// ХЭРЭГЛЭНЭ — тоо/текст, "0"=хоосон, geometry/geometry_wkt, au2/au2_code,
+// infinity огноо зэрэг бүх зөрүүг тэвчих логик нэг дор үлдэнэ.
+//
+// ХОЁР хэлбэрийг уншина:
+//
+//	шинэ:   {"parcel_id":"010101000001","geometry_wkt":"POLYGON((...))", ...}
+//	хуучин: "010101000001" эсвэл 1800805431 (зөвхөн дугаар)
+//
+// Ингэснээр backend болон дундын сервисийн deploy-ийн ДАРААЛЛААС хамаарахгүй.
+type parcelSummaryPayload struct {
+	parcelInfoPayload
+}
+
+func (p *parcelSummaryPayload) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return nil
+	}
+	if data[0] != '{' {
+		// Хуучин хэлбэр: элемент нь зөвхөн дугаар (текст ч, тоо ч байж болно).
+		return p.ParcelID.UnmarshalJSON(data)
+	}
+	return json.Unmarshal(data, &p.parcelInfoPayload)
+}
+
 // wktGeometryTypes — эх системээс ирж болох геометрийн төрлүүд.
 var wktGeometryTypes = []string{
 	"POINT", "LINESTRING", "POLYGON",

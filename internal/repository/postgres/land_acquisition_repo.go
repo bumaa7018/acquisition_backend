@@ -547,82 +547,232 @@ func (r *landAcqRepo) ComputeAreaM2(ctx context.Context, geomWKT string) (float6
 	return areaM2, nil
 }
 
-// BulkInsertParcels — дундын сервисээс ирсэн нэгж талбаруудыг бүртгэнэ.
-//
-// Нэгж талбар ЗӨВХӨН дугаараараа (parcel_id) үүснэ: геометр нь заавал биш.
-// Дундын сервисийн /parcel/info геометр буцаадаггүй тул өмнө нь давхцлын
-// шалгалт бүх мөрийг хаяж, жагсаалт хоосон үлддэг байсан.
-//
-// Геометр ирсэн тохиолдолд чөлөөлөлттэй давхцах хэсэг (acquisition_geom) ба
-// түүний талбайг PostGIS-аар тооцож нэмэлтээр хадгална. Геометр нь невалид
-// эсвэл polygon биш бол зөвхөн геометрийг л хаяж, мөр өөрөө бүртгэгдэнэ.
-//
-// Нэг нэгж талбар дээрх алдаа бусдыг зогсоохгүй — бүгдийг оролдож, эхний
-// алдааг буцаана (дуудагч логлохын тулд).
-func (r *landAcqRepo) BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error {
-	now := time.Now()
-	var firstErr error
-	keep := func(err error) {
-		if err != nil && firstErr == nil {
-			firstErr = err
-		}
+// ListParcelRefs — чөлөөлөлтийн нэгж талбаруудын ХӨНГӨН лавлагаа (id, дугаар,
+// төлөв). Хил солиход ГУС-аас шинээр олдсон дугаартай ЗӨРҮҮЛЖ, хасагдах
+// талбаруудыг тодорхойлоход хэрэглэгдэнэ.
+func (r *landAcqRepo) ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, COALESCE(parcel_id, ''), COALESCE(status, 0)
+		FROM parcel
+		WHERE acquisition_id = $1 AND deleted_at IS NULL
+		ORDER BY parcel_id
+	`, acquisitionID)
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
 
-	for _, sp := range parcels {
-		if sp == nil || strings.TrimSpace(sp.ParcelID) == "" {
-			continue // дугааргүй бол бүртгэх боломжгүй
+	var refs []domain.ParcelRef
+	for rows.Next() {
+		var ref domain.ParcelRef
+		if err := rows.Scan(&ref.ID, &ref.ParcelID, &ref.Status); err != nil {
+			return nil, err
 		}
-
-		parcelID, created, err := r.insertParcelRow(ctx, acquisitionID, sp, sp.GeometryWKT, acqWKT, now)
-		if err != nil && strings.TrimSpace(sp.GeometryWKT) != "" {
-			// Геометр невалид/өөр төрөл байж болно. Нэгж талбар дугаараараа
-			// бүртгэгдэх ёстой тул геометргүйгээр дахин оролдоно.
-			parcelID, created, err = r.insertParcelRow(ctx, acquisitionID, sp, "", acqWKT, now)
-		}
-		if err != nil {
-			keep(err)
-			continue
-		}
-		if parcelID == uuid.Nil {
-			// parcel_id глобал unique — өөр чөлөөлөлтөд бүртгэгдсэн байна.
-			continue
-		}
-
-		if created {
-			_ = r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, 0, "system")
-		}
-		holderID, err := r.UpsertHolder(ctx, sp)
-		if err != nil {
-			keep(err)
-			holderID = uuid.Nil
-		}
-		keep(r.ReplaceParcelDetail(ctx, parcelID, acquisitionID, holderID, sp))
+		refs = append(refs, ref)
 	}
-	return firstErr
+	return refs, rows.Err()
 }
 
-// InsertParcelCodes — дундын сервисээс ирсэн нэгж талбарын ДУГААРУУДААР
-// хоосон (дэлгэрэнгүйгүй) мөр үүсгэнэ. Дэлгэрэнгүй нь дараагийн алхамд
-// SyncParcel-ээр дугаар тус бүрээр татагдана.
+// PurgeParcels — нэгж талбаруудыг өгөгдлийн сангаас БҮРМӨСӨН устгана (шинэ
+// чөлөөлөх хилд ороогүй болсон талбарууд).
+//
+// Хүү хүснэгтүүдийг CASCADE-д НАЙДАЛГҮЙ, нэг бүрчлэн ДАРААЛУУЛЖ устгана:
+//
+//   - CASCADE нь хамаагүй өргөн (23 хүснэгт) бөгөөд аль мөр устсаныг харуулдаггүй;
+//   - compensation / compensation_* / parcel_valuation_submission_history дээр
+//     parcel рүү FK БАЙХГҮЙ тул CASCADE тэднийг ХЭЗЭЭ Ч цэвэрлэхгүй — гараар
+//     устгахгүй бол ганцаардсан мөр (болон "хий" олговор) үлдэнэ.
+//
+// Устгахын ӨМНӨ хадгалалт (MinIO) дээрх файлын URL-уудыг цуглуулж буцаана —
+// дуудагч тэднийг фонд устгана (мөр устсаны дараа URL-ыг олох боломжгүй).
+//
+// БҮГД нэг транзакцид: хагас устгал нь FK-гүй хүснэгтүүд дээр ганцаардсан мөр
+// үлдээх тул хамгийн бохир төлөв болно.
+func (r *landAcqRepo) PurgeParcels(
+	ctx context.Context, acquisitionID uuid.UUID, parcelIDs []uuid.UUID, parcelCodes []string,
+) (int, []string, error) {
+	if len(parcelIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// ── Файлын URL-ууд (устгахын ӨМНӨ) ──────────────────────────────────────
+	var fileURLs []string
+	collect := func(query string, args ...any) error {
+		rows, err := tx.Query(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var url string
+			if err := rows.Scan(&url); err != nil {
+				return err
+			}
+			if url = strings.TrimSpace(url); url != "" {
+				fileURLs = append(fileURLs, url)
+			}
+		}
+		return rows.Err()
+	}
+	// Баримт нь ХЭД ХЭДЭН нэгж талбарт холбогдож болно (parcel_document-ийн PK
+	// нь (parcel_id, document_id)). Тиймээс ЗӨВХӨН устгагдах талбаруудаас
+	// гадна хаана ч холбогдоогүй баримтын файлыг устгана — эс бөгөөс үлдэх
+	// талбарын баримт нь хадгалалт дээр байхаа болино.
+	const orphanDocuments = `
+		SELECT d.id, COALESCE(d.file_url, '')
+		FROM document d
+		WHERE d.id IN (SELECT document_id FROM parcel_document WHERE parcel_id = ANY($1))
+		  AND NOT EXISTS (
+			SELECT 1 FROM parcel_document pd2
+			WHERE pd2.document_id = d.id AND NOT (pd2.parcel_id = ANY($1))
+		  )
+	`
+	var orphanDocIDs []uuid.UUID
+	docRows, err := tx.Query(ctx, orphanDocuments, parcelIDs)
+	if err != nil {
+		return 0, nil, err
+	}
+	for docRows.Next() {
+		var (
+			docID uuid.UUID
+			url   string
+		)
+		if err := docRows.Scan(&docID, &url); err != nil {
+			docRows.Close()
+			return 0, nil, err
+		}
+		orphanDocIDs = append(orphanDocIDs, docID)
+		if url = strings.TrimSpace(url); url != "" {
+			fileURLs = append(fileURLs, url)
+		}
+	}
+	docRows.Close()
+	if err := docRows.Err(); err != nil {
+		return 0, nil, err
+	}
+	if err := collect(`
+		SELECT COALESCE(valuation_report_url, '')
+		FROM compensation WHERE acquisition_id = $1 AND parcel_id = ANY($2)
+	`, acquisitionID, parcelCodes); err != nil {
+		return 0, nil, err
+	}
+	if err := collect(`
+		SELECT COALESCE(photo_pdf_url, '')
+		FROM assets WHERE parcel_id = ANY($1)
+	`, parcelCodes); err != nil {
+		return 0, nil, err
+	}
+
+	// ── Хүү мөрүүд: ХАМГИЙН ГҮНЭЭС дээш ────────────────────────────────────
+	// 1) assets-ийн хүүхдүүд (assets устахаас ӨМНӨ)
+	for _, q := range []string{
+		`DELETE FROM asset_calculation WHERE asset_id IN (SELECT id FROM assets WHERE parcel_id = ANY($1))`,
+		`DELETE FROM asset_spec WHERE asset_id IN (SELECT id FROM assets WHERE parcel_id = ANY($1))`,
+	} {
+		if _, err := tx.Exec(ctx, q, parcelCodes); err != nil {
+			return 0, nil, err
+		}
+	}
+	// 2) compensation-ийн хүүхдүүд (compensation устахаас ӨМНӨ)
+	for _, q := range []string{
+		`DELETE FROM compensation_grant WHERE compensation_id IN (
+			SELECT id FROM compensation WHERE acquisition_id = $1 AND parcel_id = ANY($2))`,
+		`DELETE FROM compensation_history WHERE compensation_id IN (
+			SELECT id FROM compensation WHERE acquisition_id = $1 AND parcel_id = ANY($2))`,
+	} {
+		if _, err := tx.Exec(ctx, q, acquisitionID, parcelCodes); err != nil {
+			return 0, nil, err
+		}
+	}
+	// 3) Нөхөх олговор + хөрөнгө (FK-гүй: parcel устахад автоматаар устахгүй)
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM compensation WHERE acquisition_id = $1 AND parcel_id = ANY($2)`,
+		acquisitionID, parcelCodes,
+	); err != nil {
+		return 0, nil, err
+	}
+	// 4) Нэгж талбарын ДУГААРААР холбогдсон мөрүүд
+	for _, q := range []string{
+		`DELETE FROM assets WHERE parcel_id = ANY($1)`,
+		`DELETE FROM land_valuation WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_valuation_submission WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_valuation_submission_history WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_status_history WHERE parcel_id = ANY($1)`,
+	} {
+		if _, err := tx.Exec(ctx, q, parcelCodes); err != nil {
+			return 0, nil, err
+		}
+	}
+	// 5) Ганцаардах баримтууд: document устахад parcel_document нь CASCADE-ээр
+	// дагаж устна. Бусад талбартай ХУВААЛЦСАН баримт үлдэх ба доорх
+	// parcel_document DELETE зөвхөн холбоосыг л тасална.
+	if len(orphanDocIDs) > 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM document WHERE id = ANY($1)`, orphanDocIDs); err != nil {
+			return 0, nil, err
+		}
+	}
+	// 6) Нэгж талбарын UUID-аар холбогдсон мөрүүд
+	for _, q := range []string{
+		`DELETE FROM parcel_detail WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_holder WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_document WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_payment WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_invoice WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_mortgage WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_court_decision WHERE parcel_id = ANY($1)`,
+		`DELETE FROM parcel_monitoring WHERE parcel_id = ANY($1)`,
+		`DELETE FROM decision_draft_parcel WHERE parcel_id = ANY($1)`,
+	} {
+		if _, err := tx.Exec(ctx, q, parcelIDs); err != nil {
+			return 0, nil, err
+		}
+	}
+	// 7) Нэгж талбар өөрөө
+	ct, err := tx.Exec(ctx, `DELETE FROM parcel WHERE id = ANY($1)`, parcelIDs)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, err
+	}
+	return int(ct.RowsAffected()), fileURLs, nil
+}
+
+// InsertParcelCodes — дундын сервисийн /parcels/by/acquisition-аас ирсэн нэгж
+// талбаруудыг бүртгэнэ: дугаар + БҮРТГЭЛИЙН баганууд (геометр, талбай,
+// зориулалт, хаяг, эрхийн хугацаа). Эрх зүйн ДЭЛГЭРЭНГҮЙ (хүсэлт, шийдвэр,
+// гэрээ, улсын бүртгэл) нь ЭНД БИЧИГДЭХГҮЙ — түүнийг дараа нь дугаар тус
+// бүрээр SyncParcel татна.
 //
 // insertParcelRow нь ON CONFLICT (parcel_id) DO NOTHING хийдэг тул дахин
 // дуудахад давхардал үүсэхгүй: өмнө нь ЭНЭ чөлөөлөлтөд бүртгэгдсэн бол
 // existing, ӨӨР чөлөөлөлтөд бүртгэгдсэн бол (uuid.Nil) skipped болно.
+// БАЙГАА мөрийг ШИНЭЧЛЭХГҮЙ — зөвхөн шинэ мөр бичигдэнэ.
 //
 // Нэг дугаар дээрх алдаа бусдыг зогсоохгүй — эхний алдааг л буцаана.
 func (r *landAcqRepo) InsertParcelCodes(
 	ctx context.Context,
 	acquisitionID uuid.UUID,
-	codes []string,
+	parcels []*domain.SourceParcel,
 	acqWKT string,
 ) (*domain.ParcelDiscoveryResult, error) {
 	now := time.Now()
 	res := &domain.ParcelDiscoveryResult{ParcelIDs: []string{}}
 	var firstErr error
 
-	seen := make(map[string]struct{}, len(codes))
-	for _, code := range codes {
-		code = strings.TrimSpace(code)
+	seen := make(map[string]struct{}, len(parcels))
+	for _, sp := range parcels {
+		if sp == nil {
+			continue
+		}
+		code := strings.TrimSpace(sp.ParcelID)
 		if code == "" {
 			continue
 		}
@@ -632,8 +782,14 @@ func (r *landAcqRepo) InsertParcelCodes(
 		seen[code] = struct{}{}
 		res.Total++
 
-		sp := &domain.SourceParcel{ParcelID: code}
-		parcelID, created, err := r.insertParcelRow(ctx, acquisitionID, sp, "", acqWKT, now)
+		sp.ParcelID = code
+		parcelID, created, err := r.insertParcelRow(ctx, acquisitionID, sp, sp.GeometryWKT, acqWKT, now)
+		if err != nil && strings.TrimSpace(sp.GeometryWKT) != "" {
+			// Геометр невалид эсвэл polygon болгож хөрвөхгүй төрөл байж болно.
+			// Нэгж талбар дугаараараа бүртгэгдэх ЁСТОЙ тул геометргүйгээр
+			// дахин оролдоно (BulkInsertParcels-ийн батлагдсан хэв маяг).
+			parcelID, created, err = r.insertParcelRow(ctx, acquisitionID, sp, "", acqWKT, now)
+		}
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -668,10 +824,24 @@ func (r *landAcqRepo) insertParcelRow(
 	now time.Time,
 ) (parcelID uuid.UUID, created bool, err error) {
 	err = r.db.QueryRow(ctx, `
-			WITH geom AS (
+			WITH raw AS (
 				SELECT
-					ST_GeomFromText(NULLIF($9, ''), 4326)::geometry(Polygon, 4326) AS parcel_geom,
+					ST_GeomFromText(NULLIF($9, ''), 4326)                           AS parcel_geom,
 					ST_GeomFromText(NULLIF($10, ''), 4326)::geometry(Polygon, 4326) AS acquisition_geom
+			),
+			geom AS (
+				-- parcel.geometry нь geometry(Polygon,4326): эх системээс ирсэн
+				-- ӨӨР төрлийг (нэг хэсэгтэй MULTIPOLYGON) шууд cast-лахад
+				-- query УНАНА. Нэг хэсэгтэйг гаргаж авна; бусад тохиолдолд
+				-- NULL (мөр нь дугаараараа бүртгэгдэнэ).
+				SELECT
+					CASE
+						WHEN parcel_geom IS NULL THEN NULL
+						WHEN GeometryType(parcel_geom) = 'POLYGON' THEN parcel_geom
+						ELSE ST_GeometryN(ST_CollectionExtract(parcel_geom, 3), 1)
+					END::geometry(Polygon, 4326) AS parcel_geom,
+					acquisition_geom
+				FROM raw
 			),
 			overlap AS (
 				SELECT ST_GeometryN(ST_CollectionExtract(ST_Intersection(parcel_geom, acquisition_geom), 3), 1)::geometry(Polygon, 4326) AS geom
@@ -1142,6 +1312,12 @@ func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID 
 		UPDATE parcel SET
 			acquisition_geom    = (SELECT geom FROM overlap),
 			acquisition_area_m2 = ST_Area((SELECT geom FROM overlap)::geography),
+			-- Геометр нь discovery-д хадгалагдах болсон тул sync нь ЭНЭ замаар
+			-- л давхцлыг тооцно — үлдэх талбайг мөн ЭНД бодно (өмнө нь зөвхөн
+			-- ApplyParcelGeometry бичдэг байсан).
+			remaining_area_m2   = GREATEST(
+				COALESCE(NULLIF(area_m2, 0), ST_Area(geometry::geography))
+				- ST_Area((SELECT geom FROM overlap)::geography), 0),
 			updated_at          = NOW()
 		WHERE id = $1
 		  AND geometry IS NOT NULL
@@ -1648,31 +1824,25 @@ func (r *landAcqRepo) ReplaceParcelDetail(ctx context.Context, parcelID, acquisi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `
-		UPDATE parcel SET
-			old_parcel_id = NULLIF($2, ''),
-			valid_from = $3,
-			valid_till = $4,
-			au1_code = NULLIF($5, ''),
-			au2_code = NULLIF($6, ''),
-			au3_code = NULLIF($7, ''),
-			right_type = $8,
-			landuse = NULLIF($9, ''),
-			landuse_name = NULLIF($10, ''),
-			area_m2 = $11,
-			address_khashaa = NULLIF($12, ''),
-			address_streetname = NULLIF($13, ''),
-			property_no = NULLIF($14, ''),
-			updated_at = NOW(),
-			updated_by = 'system'
-		WHERE id = $1
-	`,
+	// Нэгж талбарын БҮРТГЭЛИЙН баганууд (old_parcel_id, valid_*, au*_code,
+	// right_type, landuse*, area_m2, address_*, property_no) нь DISCOVERY-ийн
+	// эзэмшил: /parcels/by/acquisition тэднийг нэгж талбарыг бүртгэх үедээ
+	// бичнэ, au1/au3-ыг геометрээс FillParcelAUCodesFromGeometry нөхнө.
+	// /parcel/info тэднийг БУЦААХАА БОЛЬСОН тул ЭНД ХӨНДӨХГҮЙ — эс бөгөөс
+	// sync бүр тэднийг NULL/0 болгож хоослох болно.
+	if _, err := tx.Exec(ctx,
+		`UPDATE parcel SET updated_at = NOW(), updated_by = 'system' WHERE id = $1`,
 		parcelID,
-		src.OldParcelID, src.ValidFrom, src.ValidTill,
-		src.AU1Code, src.AU2Code, src.AU3Code,
-		src.RightType, src.Landuse, src.LanduseName, src.AreaM2,
-		src.AddressKhashaa, src.AddressStreet, src.PropertyNo,
 	); err != nil {
+		return err
+	}
+
+	// right_type-ыг ХАДГАЛАГДСАН мөрөөс уншина: /parcel/info үүнийг буцаахаа
+	// больсон (discovery эзэмшинэ) тул src.RightType үргэлж 0 байх болно.
+	var rightType int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(right_type, 0) FROM parcel WHERE id = $1`, parcelID,
+	).Scan(&rightType); err != nil {
 		return err
 	}
 
@@ -1728,7 +1898,7 @@ func (r *landAcqRepo) ReplaceParcelDetail(ctx context.Context, parcelID, acquisi
 			'system', 'system'
 		)
 	`,
-		parcelID, acquisitionID, src.RightType, holderIDParam,
+		parcelID, acquisitionID, rightType, holderIDParam,
 		src.AppNo, src.AppTimestamp, src.AppType, src.AppStatus,
 		src.DecisionNo, src.DecisionDate,
 		src.ContractNo, src.ContractDate, src.ContractBegin, src.ContractEnd,

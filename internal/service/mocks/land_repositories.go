@@ -49,15 +49,16 @@ func (m *MockPlanProjectClient) GetPlanProject(ctx context.Context, code string)
 }
 
 // MockParcelInfoClient — дундын сервисийн нэгж талбарын дуудалтуудын mock
-// (/parcels/by/acquisition — хилээр дугаар; /parcel/info/{id} — дугаараар мэдээлэл)
+// (/parcels/by/acquisition — хилээр БАГЦААР дугаар + бүртгэлийн баганууд;
+// /parcel/info/{id} — дугаараар эрх зүйн дэлгэрэнгүй)
 type MockParcelInfoClient struct{ mock.Mock }
 
-func (m *MockParcelInfoClient) ListParcelIDsByAcquisition(ctx context.Context, acquisitionWKT string) ([]string, error) {
-	args := m.Called(ctx, acquisitionWKT)
+func (m *MockParcelInfoClient) ListParcelsByAcquisition(ctx context.Context, acquisitionWKT, after string, limit int) ([]*domain.SourceParcel, error) {
+	args := m.Called(ctx, acquisitionWKT, after, limit)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]string), args.Error(1)
+	return args.Get(0).([]*domain.SourceParcel), args.Error(1)
 }
 
 func (m *MockParcelInfoClient) GetParcelInfo(ctx context.Context, parcelID string) (*domain.SourceParcel, error) {
@@ -218,16 +219,29 @@ func (m *MockLandAcquisitionRepository) CreateAU(ctx context.Context, au *domain
 	return m.Called(ctx, au).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error {
-	return m.Called(ctx, acquisitionID, parcels, acqWKT).Error(0)
-}
-
-func (m *MockLandAcquisitionRepository) InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, codes []string, acqWKT string) (*domain.ParcelDiscoveryResult, error) {
-	args := m.Called(ctx, acquisitionID, codes, acqWKT)
+func (m *MockLandAcquisitionRepository) InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) (*domain.ParcelDiscoveryResult, error) {
+	args := m.Called(ctx, acquisitionID, parcels, acqWKT)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.ParcelDiscoveryResult), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelRef), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) PurgeParcels(ctx context.Context, acquisitionID uuid.UUID, parcelIDs []uuid.UUID, parcelCodes []string) (int, []string, error) {
+	args := m.Called(ctx, acquisitionID, parcelIDs, parcelCodes)
+	var urls []string
+	if args.Get(1) != nil {
+		urls = args.Get(1).([]string)
+	}
+	return args.Int(0), urls, args.Error(2)
 }
 
 func (m *MockLandAcquisitionRepository) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {

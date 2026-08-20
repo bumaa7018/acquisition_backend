@@ -77,4 +77,11 @@ var (
 	ErrHasReleasedParcels = errors.New("acquisition has released parcels and cannot be deleted")
 	// Баталгаажсан захирамжтай холбогдсон чөлөөлөлтийг устгах боломжгүй.
 	ErrConfirmedDecisionLinked = errors.New("acquisition is linked to a confirmed decision draft")
+
+	// Чөлөөлөх ХИЛ солих хязгаарлалт
+	//
+	// Шинэ хил нь "Чөлөөлсөн" төлөвтэй нэгж талбарыг гадна орхиж байвал хилийг
+	// хүлээж авахгүй: тэр талбарууд шинэ хилээр хасагдах бөгөөд аль хэдийн
+	// чөлөөлөгдсөн (олговор төлөгдсөн) бүртгэлийг устгах боломжгүй.
+	ErrReleasedParcelOutsideBoundary = errors.New("new boundary excludes released parcels")
 )

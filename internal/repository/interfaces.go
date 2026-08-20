@@ -175,11 +175,18 @@ type LandAcquisitionWriteRepository interface {
 	// гадна гарсан талбай ба container-ийн талбайг нэг дуудалтаар тооцно.
 	CheckContainment(ctx context.Context, geomWKT, containerWKT string) (*domain.GeomContainment, error)
 	CreateAU(ctx context.Context, au *domain.LandAcquisitionAU) error
-	BulkInsertParcels(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) error
-	// InsertParcelCodes — ЗӨВХӨН дугаараар нэгж талбарын мөр үүсгэнэ
-	// (дэлгэрэнгүй нь дараа нь SyncParcel-ээр татагдана). Дугаар бүрийг
-	// бүртгэхийн өмнө байгаа эсэхийг шалгаж, давхардлыг үүсгэхгүй.
-	InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, codes []string, acqWKT string) (*domain.ParcelDiscoveryResult, error)
+	// InsertParcelCodes — дугаар + БҮРТГЭЛИЙН баганаар (геометр, талбай,
+	// зориулалт, хаяг, эрхийн хугацаа) нэгж талбарын мөр үүсгэнэ. Эрх зүйн
+	// дэлгэрэнгүй нь дараа нь SyncParcel-ээр татагдана. Дугаар бүрийг
+	// бүртгэхийн өмнө байгаа эсэхийг шалгаж, давхардлыг үүсгэхгүй; БАЙГАА
+	// мөрийг ШИНЭЧЛЭХГҮЙ.
+	InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) (*domain.ParcelDiscoveryResult, error)
+	// ListParcelRefs — чөлөөлөлтийн нэгж талбаруудын id/дугаар/төлөв.
+	ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error)
+	// PurgeParcels — нэгж талбаруудыг хүү мөрүүдтэйгээ БҮРМӨСӨН устгана
+	// (шинэ хилд ороогүй болсон талбарууд). Устгасан мөрийн тоо болон
+	// хадгалалтаас устгах файлын URL-уудыг буцаана.
+	PurgeParcels(ctx context.Context, acquisitionID uuid.UUID, parcelIDs []uuid.UUID, parcelCodes []string) (int, []string, error)
 	CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
