@@ -390,6 +390,19 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 		PageSize:  pageSize,
 	}
 
+	// Үнэлгээний байгууллага: чөлөөлөлтийн үндсэн байгууллага бол бүх нэгж
+	// талбар, зөвхөн хөндлөнгийн үнэлгээчин бол ӨӨРТ холбогдсон нэгж талбар л
+	// харагдана. Гишүүнчлэлийн middleware нь чөлөөлөлтөд хандахыг зөвшөөрдөг ч
+	// ЖАГСААЛТЫГ хязгаарладаггүй тул шүүлтийг энд тавина.
+	if middleware.IsValuationOrgCaller(c) {
+		orgID, ok := middleware.GetCallerOrgID(c)
+		if !ok {
+			response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
+			return
+		}
+		filter.ProfessionalOrgID = strconv.FormatInt(int64(orgID), 10)
+	}
+
 	parcels, total, err := h.svc.GetParcels(c.Request.Context(), id, filter)
 	if err != nil {
 		response.Error(c, err)
@@ -1321,9 +1334,14 @@ func mikaOnlyCaller(c *gin.Context) bool {
 	return ctxHasRole(c, "mika", "МИКА") && !ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
 }
 
-// profOnlyCaller — дуудагч мэргэжлийн байгууллага бөгөөд дотоод (ахлах) эрхгүй.
+// profOnlyCaller — дуудагч үнэлгээний байгууллагын ажилтан бөгөөд дотоод
+// (ахлах) эрхгүй.
+//
+// Байгууллагын ажилтныг РОЛЬ-оор БИШ, токены `valuation_org` тэмдгээр
+// (appdb.valuation_org_employee) таньдаг: тэдгээр хэрэглэгчид системийн роль
+// огт эзэмшихгүй.
 func profOnlyCaller(c *gin.Context) bool {
-	return ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага", "Мэргэжлийн байгуулл...") &&
+	return middleware.IsValuationOrgCaller(c) &&
 		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
 }
 
@@ -1818,7 +1836,7 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 	// JSON body-гоор ирдэг (URL param биш) тул profParcelMemberByParam middleware-ээр
 	// шалгагдахгүй — энэ шалгалт байхгүй бол acquisition-ийн гишүүн ямар ч parcel_id-д
 	// (өөрт нь харьяалагдахгүй байсан ч) бичих боломжтой байсан (IDOR).
-	if ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага") {
+	if middleware.IsValuationOrgCaller(c) {
 		orgID, ok := middleware.GetCallerOrgID(c)
 		if !ok {
 			response.Error(c, domain.ErrForbidden)
@@ -2934,7 +2952,8 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	}
 
 	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
-	isProf := ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага", "Мэргэжлийн байгуулл...")
+	// Үнэлгээний байгууллага — роль БИШ, аппын өөрийн бүртгэлээр танигдана.
+	isProf := middleware.IsValuationOrgCaller(c)
 	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")
 	isExternalDashboard := !isSenior && (isProf || isReviewer)
 	if isExternalDashboard {
@@ -3319,22 +3338,17 @@ func (h *LandHandler) DeleteAuthorizedRepresentative(c *gin.Context) {
 	response.OK(c, nil)
 }
 
-// ListMyAcquisitions — professional_org хэрэглэгчид зориулсан endpoint.
+// ListMyAcquisitions — үнэлгээний байгууллагын ажилтанд зориулсан endpoint.
 // JWT-ийн org_id-г ProfessionalOrgID filter болгон ашиглана — иймд нэг
 // байгууллагын БҮХ ажилтан ижил жагсаалттай ажиллана.
+//
+// Шүүлт нь чөлөөлөлтийн үндсэн байгууллага (professional_org_id) БОЛОН нэгж
+// талбарын хөндлөнгийн байгууллага (independent_org_id) хоёуланг хамарна —
+// байгууллага холбогдоогүй чөлөөлөлт ХАРАГДАХГҮЙ.
 func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
-	// Зөвхөн professional_org role-той хэрэглэгч дуудах боломжтой
-	rolesAny, _ := c.Get(middleware.CtxRoles)
-	isProfOrg := false
-	if roles, ok := rolesAny.([]string); ok {
-		for _, r := range roles {
-			if r == "professional_org" {
-				isProfOrg = true
-				break
-			}
-		}
-	}
-	if !isProfOrg {
+	// Зөвхөн үнэлгээний байгууллагын ажилтан (роль БИШ — токены
+	// `valuation_org` тэмдэг).
+	if !middleware.IsValuationOrgCaller(c) {
 		response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
 		return
 	}

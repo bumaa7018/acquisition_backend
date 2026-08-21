@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
@@ -45,6 +46,12 @@ func (h *MenuHandler) List(c *gin.Context) {
 // @Success 200 {object} response.SuccessResponse
 // @Router /menus/me [get]
 func (h *MenuHandler) Mine(c *gin.Context) {
+	// Үнэлгээний байгууллагын ажилтан — цэс нь sd_menu_role (роль) БИШ, аппын
+	// өөрийн жагсаалт. Тэдэнд зөвхөн Дашбоард ба Чөлөөлөлт харагдана.
+	if middleware.IsValuationOrgCaller(c) {
+		response.OK(c, domain.ValuationOrgMenus())
+		return
+	}
 	items, err := h.svc.ListForUser(c.Request.Context(), callerID(c))
 	if err != nil {
 		response.Error(c, err)

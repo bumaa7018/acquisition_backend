@@ -33,6 +33,14 @@ type UserRepository interface {
 	// Эх сурвалж бүр (auth/main) тусдаа serial4 дараалалтай тул user_id
 	// мөргөлддөг — иймд лавлагаа нь хэрэглэгчийг ОЛСОН репогоор явах ёстой.
 	OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	// ValuationOrgIDForUser — хэрэглэгч ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН идэвхтэй
+	// ажилтан бол тухайн байгууллагын id (valuation_org_profile.id), эс бөгөөс
+	// nil. HR-ийн бүтэц рүү fallback ХИЙХГҮЙ — иймд буцах ID нь ҮРГЭЛЖ
+	// professional_org_id / independent_org_id-тай ижил дараалалынх.
+	//
+	// Токены `valuation_org` нэхэмжлэл үүн дээр тогтоогддог ба тэр нэхэмжлэл нь
+	// эдгээр хэрэглэгчийн ЦОРЫН ГАНЦ эрхийн эх сурвалж (роль хэрэглэхгүй).
+	ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
 	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
 	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
@@ -82,13 +90,17 @@ type EmployeeRepository interface {
 	DeleteEmployee(ctx context.Context, id domain.ID) error
 }
 
-// ValuationOrgRepository — app-owned мэргэжлийн байгууллагын profile.
-// Ерөнхий HR болон ажилтны өгөгдөл энэ interface-ийн үүрэг биш.
+// ValuationOrgRepository — app-owned мэргэжлийн байгууллага БА түүний
+// ажилтнууд (valuation_org_profile / valuation_org_employee).
+//
+// Create/Update-ийн emps нь nil бол ажилтнуудад ХҮРЭХГҮЙ (зөвхөн байгууллагын
+// мэдээлэл засварлана). nil биш бол жагсаалт нь БҮРЭН төлөвийг илэрхийлнэ:
+// ороогүй ажилтан идэвхгүй болно.
 type ValuationOrgRepository interface {
 	List(ctx context.Context, filter domain.ValuationOrgFilter) ([]*domain.ValuationOrg, int64, error)
 	GetByID(ctx context.Context, id domain.ID) (*domain.ValuationOrg, error)
-	Create(ctx context.Context, org *domain.ValuationOrg) error
-	Update(ctx context.Context, org *domain.ValuationOrg) error
+	Create(ctx context.Context, org *domain.ValuationOrg, emps []domain.ValuationOrgEmployee) error
+	Update(ctx context.Context, org *domain.ValuationOrg, emps []domain.ValuationOrgEmployee) error
 	Delete(ctx context.Context, id domain.ID) error
 }
 

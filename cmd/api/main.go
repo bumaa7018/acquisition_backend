@@ -126,7 +126,8 @@ func main() {
 	// Үнэлгээний байгууллагын identity/profile нь mainDB-ийн app-owned
 	// valuation_org_profile хүснэгтэд байна. sdplatform-ийн ердийн HR лавлах
 	// энэ бүртгэлийн эх сурвалж биш.
-	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB)
+	// Байгууллага/ажилтан mainDB-д, нэвтрэх эрх (sd_user) authDB-д тул хоёулаа.
+	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB, authDB)
 	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
 	jwtManager.SetSessionValidator(userRepo)

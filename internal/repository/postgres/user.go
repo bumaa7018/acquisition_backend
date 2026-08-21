@@ -442,14 +442,29 @@ func (r *UserRepo) attachEmployees(ctx context.Context, users []*domain.User) er
 
 // OrgIDForUser — хэрэглэгчийн ХАРЬЯА байгууллага (JWT-ийн org_id).
 //
-// ЯАГААД ЭНЭ REPO ДЭЭР: хоёр эх сурвалж (auth / main) тус тусын serial4
-// дараалалтай тул user_id МӨРГӨЛДДӨГ — жишээ нь authdb-ийн 3 = admin, appdb-ийн
-// 3 = гадаад үнэлгээчин. Хэрэв байгууллагыг өөр сангаас хайвал admin нь
-// огт хамаагүй байгууллагын гишүүн болж тодорхойлогдоно. Тиймээс лавлагаа нь
-// хэрэглэгчийг ОЛСОН ЯГ ТЭР pool (r.db) дээр явах ёстой.
+// ЭХЛЭЭД appdb-ийн valuation_org_employee-г хайна. Энэ нэхэмжлэл нь
+// land_acquisition.professional_org_id / parcel.independent_org_id-тай
+// тулгагддаг ба тэдгээр нь valuation_org_profile.id-г заадаг тул org_id нь ЯГ
+// ТЭР дараалалаас гарах ёстой.
 //
-// Ажилтны бүртгэлгүй (иймд байгууллагад харьяалагдаагүй) хэрэглэгчид nil.
+// Олдохгүй бол sdplatform-ийн HR бүтэц (hr_employee → hr_department.
+// organization = sd_organization.id) руу шилжинэ — mika / finance_specialist
+// зэрэг үнэлгээний байгууллагын бүртгэлд байхгүй гадаад ролиудын хувьд өмнөх
+// зан төлөв хэвээр үлдэнэ.
+//
+// АНХААР: HR-ийн замаар гарсан ID нь ӨӨР дараалалынх тул professional_org_id-
+// тай санамсаргүй тааралдаж болзошгүй. Үнэлгээний байгууллагын ажилтныг
+// ҮРГЭЛЖ /valuation-orgs цонхоор бүртгэ — тэгвэл дээрх нэгдүгээр зам ажиллаж,
+// HR fallback хэрэглэгдэхгүй.
+//
+// Байгууллагад харьяалагдаагүй хэрэглэгчид nil (нэвтрэлт ЗОГСОХГҮЙ).
 func (r *UserRepo) OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	if orgID, err := r.ValuationOrgIDForUser(ctx, userID); err != nil {
+		return nil, err
+	} else if orgID != nil {
+		return orgID, nil
+	}
+
 	var orgID *domain.ID
 	err := r.db.QueryRow(ctx, `
 		SELECT d.organization
@@ -465,6 +480,34 @@ func (r *UserRepo) OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.
 		return nil, err
 	}
 	return orgID, nil
+}
+
+// ValuationOrgIDForUser — ЗӨВХӨН appdb-ийн valuation_org_employee-г хайна
+// (HR fallback БАЙХГҮЙ). Иймд буцах ID нь ҮРГЭЛЖ valuation_org_profile.id
+// бөгөөд professional_org_id / independent_org_id-тай шууд тулгагдана.
+//
+// Токены `valuation_org` нэхэмжлэл ба түүнээс хамаарах бүх хаалт (цэс,
+// маршрутын allowlist, /prof) ЯГ ЭНЭ нэхэмжлэл дээр тогтоно — тиймээс HR-ийн
+// замаар гарсан санамсаргүй таарсан ID эндээс ХЭЗЭЭ Ч гарахгүй байх ёстой.
+func (r *UserRepo) ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	if r.appDB == nil {
+		return nil, nil
+	}
+	var orgID *domain.ID
+	err := r.appDB.QueryRow(ctx, `
+		SELECT org_id
+		FROM valuation_org_employee
+		WHERE user_id = $1 AND is_active
+		ORDER BY id
+		LIMIT 1`, userID).Scan(&orgID)
+	switch {
+	case err == nil:
+		return orgID, nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, nil
+	default:
+		return nil, err
+	}
 }
 
 // InvalidateSessions — sd_user-т токены эх цэг хадгалах багана байхгүй тул

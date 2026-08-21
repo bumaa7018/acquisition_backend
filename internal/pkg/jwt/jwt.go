@@ -23,12 +23,25 @@ type Claims struct {
 	// нэгж талбарт оноогдсон байгууллагын ЯМАР Ч ажилтан ажиллаж чадна. Өмнө
 	// нь хэрэглэгчийн ID-тай шууд тулгадаг байсан тул нэг байгууллагад ганц
 	// хэрэглэгч байж чаддаг байв.
-	OrgID       *domain.ID `json:"org_id,omitempty"`
-	FirstName   string     `json:"first_name"`
-	LastName    string     `json:"last_name"`
-	Position    string     `json:"position"`
-	Roles       []string   `json:"roles"`
-	Permissions []string   `json:"permissions"`
+	OrgID *domain.ID `json:"org_id,omitempty"`
+	// ValuationOrg — хэрэглэгч нь ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН ажилтан эсэх
+	// (appdb-ийн valuation_org_employee дээр идэвхтэй мөр байгаа эсэх).
+	//
+	// Эдгээр хэрэглэгч системийн үндсэн хэрэглэгчээс ТУСДАА явдаг тул тэдний
+	// хандалтыг sdplatform-ийн роль/эрхээр БИШ, зөвхөн энэ нэхэмжлэлээр
+	// шийднэ: цэс (ValuationOrgMenus), маршрутын allowlist
+	// (middleware.ValuationOrgScope) болон /prof-ийн хаалт
+	// (middleware.RequireValuationOrgCaller) бүгд үүнээс уншина.
+	//
+	// ҮНЭН үед OrgID нь ҮРГЭЛЖ valuation_org_profile.id байна — өөрөөр хэлбэл
+	// land_acquisition.professional_org_id / parcel.independent_org_id-тай
+	// шууд тулгагдана.
+	ValuationOrg bool     `json:"valuation_org,omitempty"`
+	FirstName    string   `json:"first_name"`
+	LastName     string   `json:"last_name"`
+	Position     string   `json:"position"`
+	Roles        []string `json:"roles"`
+	Permissions  []string `json:"permissions"`
 	jwt.RegisteredClaims
 }
 
@@ -74,16 +87,18 @@ func (m *Manager) SetSessionValidator(v SessionValidator) {
 }
 
 type UserInfo struct {
-	ID          domain.ID
-	OrgID       *domain.ID
-	Username    string
-	Email       string
-	FullName    string
-	FirstName   string
-	LastName    string
-	Position    string
-	Roles       []string
-	Permissions []string
+	ID    domain.ID
+	OrgID *domain.ID
+	// ValuationOrg — үнэлгээний байгууллагын ажилтан (Claims.ValuationOrg-ийг үз).
+	ValuationOrg bool
+	Username     string
+	Email        string
+	FullName     string
+	FirstName    string
+	LastName     string
+	Position     string
+	Roles        []string
+	Permissions  []string
 }
 
 func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
@@ -100,16 +115,17 @@ func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
 
 func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (string, error) {
 	claims := Claims{
-		UserID:      u.ID,
-		OrgID:       u.OrgID,
-		Username:    u.Username,
-		Email:       u.Email,
-		FullName:    u.FullName,
-		FirstName:   u.FirstName,
-		LastName:    u.LastName,
-		Position:    u.Position,
-		Roles:       u.Roles,
-		Permissions: u.Permissions,
+		UserID:       u.ID,
+		OrgID:        u.OrgID,
+		ValuationOrg: u.ValuationOrg,
+		Username:     u.Username,
+		Email:        u.Email,
+		FullName:     u.FullName,
+		FirstName:    u.FirstName,
+		LastName:     u.LastName,
+		Position:     u.Position,
+		Roles:        u.Roles,
+		Permissions:  u.Permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

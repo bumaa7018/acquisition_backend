@@ -103,7 +103,14 @@ type Employee struct {
 	// ажилтанд nil. Чөлөөлөлтөд ажилтан хуваарилах / ажилтнаар шүүх үйлдэл
 	// нь land_acquisition_assignee.user_id-тай ажилладаг тул ажилтныг сонгоод
 	// ХЭРЭГЛЭГЧИЙН ID-г нь дамжуулах шаардлагатай.
-	UserID           *ID        `json:"user_id,omitempty"`
+	UserID *ID `json:"user_id,omitempty"`
+	// Username — ажилтны нэвтрэх нэр (sd_user.username). Нэвтрэх эрхгүй бол
+	// хоосон. Засварлах цонхонд ажилтан ямар эрхээр нэвтэрдгийг харуулахад
+	// хэрэгтэй — үгүй бол зассан үед хоосон нэр илгээгдэх эрсдэлтэй.
+	//
+	// ЗӨВХӨН үнэлгээний байгууллагын ажилтны хариултад бөглөгдөнө: HR-ийн
+	// ерөнхий жагсаалт нь өөр САНГИЙН sd_user-ийг join хийж чадахгүй.
+	Username         string     `json:"username,omitempty"`
 	Person           *Person    `json:"person,omitempty"`
 	PersonName       string     `json:"person_name,omitempty"`
 	OrganizationID   *ID        `json:"organization_id,omitempty"`

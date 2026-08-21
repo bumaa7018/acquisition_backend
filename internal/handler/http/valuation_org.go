@@ -1,6 +1,10 @@
 package http
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
@@ -29,6 +33,53 @@ type valuationOrgBody struct {
 	Address          string  `json:"address"`
 	Note             string  `json:"note"`
 	IsActive         *bool   `json:"is_active"`
+	// Employees — байгууллагын ажилтнууд. Талбарыг ОГТ илгээхгүй бол
+	// ажилтнуудад хүрэхгүй; илгээвэл жагсаалт нь БҮРЭН төлөвийг илэрхийлнэ
+	// (ороогүй ажилтан идэвхгүй болно). Хоосон массив = бүх ажилтныг хасах.
+	Employees []valuationOrgEmployeeBody `json:"employees"`
+}
+
+// valuationOrgEmployeeBody — ажилтны оролт.
+//
+// ID-г nullableID-гаар уншина: UI нь бүх ID-г МӨР болгож жигдрүүлдэг
+// (sdplatform int4 буцаадаг ч "12" === 12 хэзээ ч true болдоггүй тул) бөгөөд
+// бичих үед хаа сайгүй тоо болгож хөрвүүлдэггүй. Хоёуланг ч хүлээж авна.
+type valuationOrgEmployeeBody struct {
+	ID           nullableID `json:"id"`
+	LastName     string     `json:"last_name"`
+	FirstName    string     `json:"first_name"`
+	RegisterNo   string     `json:"register_no"`
+	Phone        string     `json:"phone"`
+	Email        string     `json:"email"`
+	PositionName string     `json:"position_name"`
+	Username     string     `json:"username"`
+	Password     string     `json:"password"`
+}
+
+// nullableID — JSON-оос ID уншина: тоо (12), тоон мөр ("12"), null, хоосон
+// мөр (""). Хоосон/null бол ШИНЭ мөр гэсэн үг.
+type nullableID struct {
+	Value *domain.ID
+}
+
+func (n *nullableID) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		n.Value = nil
+		return nil
+	}
+	raw = strings.TrimSpace(strings.Trim(raw, `"`))
+	if raw == "" {
+		n.Value = nil
+		return nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 32)
+	if err != nil {
+		return fmt.Errorf("id %q нь бүхэл тоо биш", raw)
+	}
+	id := domain.ID(v)
+	n.Value = &id
+	return nil
 }
 
 func valuationOrgReqFromBody(b valuationOrgBody) (service.ValuationOrgRequest, error) {
@@ -58,8 +109,33 @@ func valuationOrgReqFromBody(b valuationOrgBody) (service.ValuationOrgRequest, e
 			Note:             b.Note,
 			IsActive:         isActive,
 		},
+		Employees: valuationOrgEmployees(b.Employees),
 	}
 	return req, nil
+}
+
+// valuationOrgEmployees — nil (талбар илгээгээгүй) ба хоосон массив (бүх
+// ажилтныг хас) хоёрыг ЯЛГАЖ хадгална: service/repo нь nil-ийг "хүрэхгүй",
+// хоосныг "цэвэрлэ" гэж ойлгодог.
+func valuationOrgEmployees(in []valuationOrgEmployeeBody) []domain.ValuationOrgEmployee {
+	if in == nil {
+		return nil
+	}
+	out := make([]domain.ValuationOrgEmployee, 0, len(in))
+	for _, e := range in {
+		out = append(out, domain.ValuationOrgEmployee{
+			ID:           e.ID.Value,
+			LastName:     e.LastName,
+			FirstName:    e.FirstName,
+			RegisterNo:   e.RegisterNo,
+			Phone:        e.Phone,
+			Email:        e.Email,
+			PositionName: e.PositionName,
+			Username:     e.Username,
+			Password:     e.Password,
+		})
+	}
+	return out
 }
 
 // List godoc

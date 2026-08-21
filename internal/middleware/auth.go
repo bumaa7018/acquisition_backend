@@ -17,6 +17,10 @@ const (
 	CtxUserPosition = "userPosition"
 	CtxRoles        = "roles"
 	CtxPermissions  = "permissions"
+	// CtxValuationOrg — хэрэглэгч үнэлгээний байгууллагын ажилтан эсэх
+	// (jwt.Claims.ValuationOrg). Эдгээр хэрэглэгчийн хандалт РОЛЬ/ЭРХЭЭР БИШ,
+	// зөвхөн үүгээр шийдэгдэнэ.
+	CtxValuationOrg = "isValuationOrg"
 )
 
 func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
@@ -50,6 +54,7 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		c.Set(CtxUserPosition, claims.Position)
 		c.Set(CtxRoles, claims.Roles)
 		c.Set(CtxPermissions, claims.Permissions)
+		c.Set(CtxValuationOrg, claims.ValuationOrg)
 
 		// Actor-ийг request context-д хийж service давхаргад дамжуулна
 		// (мэдэгдэл илгээхэд хэн үйлдэл хийснийг тэндээс уншина).
@@ -132,27 +137,10 @@ func DenyAnyRole(blockedRoles ...string) gin.HandlerFunc {
 	}
 }
 
-func RequireOnlyRole(allowedRole string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		rolesAny, exists := c.Get(CtxRoles)
-		if !exists {
-			response.Error(c, ErrForbidden)
-			return
-		}
-		roles, ok := rolesAny.([]string)
-		if !ok || len(roles) == 0 {
-			response.Error(c, ErrForbidden)
-			return
-		}
-		for _, r := range roles {
-			if r != allowedRole {
-				response.Error(c, ErrForbidden)
-				return
-			}
-		}
-		c.Next()
-	}
-}
+// ЖИЧ: RequireOnlyRole (ЗӨВХӨН тухайн роль-той хэрэглэгчийг нэвтрүүлэх) нь
+// зөвхөн /prof группэд хэрэглэгддэг байсан бөгөөс хасагдав — үнэлгээний
+// байгууллага роль эзэмшихээ больж, RequireValuationOrgCaller-ээр шалгагдана
+// (internal/middleware/valuation_org.go).
 
 func hasPermission(c *gin.Context, permission string) bool {
 	permsAny, exists := c.Get(CtxPermissions)

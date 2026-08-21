@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
@@ -203,7 +204,8 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	// байгууллага (эсвэл ахлах), МИКА бол ЗӨВХӨН өөрийн "mika" урсгалыг илгээнэ.
 	isFinance := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү")
 	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
-	isProf := ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага")
+	// Үнэлгээний байгууллага — роль БИШ, токены `valuation_org` тэмдгээр.
+	isProf := middleware.IsValuationOrgCaller(c)
 	isMika := ctxHasRole(c, "mika", "МИКА")
 	switch req.Action {
 	case "approve", "return":

@@ -300,11 +300,21 @@ func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 }
 
 // Гадаад ролиудын permission багц — ЗӨВХӨН compensation:* (өөр эрх олгогдохгүй).
+//
+// professional_org ЭНД БАЙХГҮЙ: үнэлгээний байгууллага системийн үндсэн
+// хэрэглэгчээс тусдаа явдаг тул роль/эрх ОГТ хэрэглэхээ больсон. Тэдний
+// хандалт нь appdb-ийн valuation_org_employee (токены `valuation_org` тэмдэг)
+// ба аппын маршрутын allowlist-ээр шийдэгддэг — internal/middleware/
+// valuation_org.go-г үз.
+//
+// Хуучин сан дээр үүссэн compensation_professional_org роль болон түүний эрх
+// хэвээр үлдэнэ (seeder өгөгдөл УСТГАХГҮЙ) — гэхдээ тэр нь ямар ч хандалт
+// НЭМЭХГҮЙ: /prof ба дашбоард `valuation_org` тэмдэг шаардана, бусад бүх зам
+// allowlist-ээр хаагдана.
 var externalRolePermissions = map[string]struct {
 	description string
 	perms       []string
 }{
-	"professional_org":   {"Мэргэжлийн байгууллага", []string{"compensation:read", "compensation:create", "compensation:update"}},
 	"mika":               {"МИКА", []string{"compensation:read", "compensation:create", "compensation:update"}},
 	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
 }
@@ -406,10 +416,15 @@ func (s *Seeder) hideGeneratedInternalResourceRoles(ctx context.Context) error {
 	return nil
 }
 
-// SeedExternalValuationOrgUsers — гадаад (үнэлгээний байгууллага) хэрэглэгчид.
+// SeedExternalValuationOrgUsers — үнэлгээний байгууллагын туршилтын
+// хэрэглэгчид (РОЛЬГҮЙ нэвтрэх эрх).
 //
-// Эрхийн хэсэг (SeedCompensationAccess: роль/эрх) нь ҮРГЭЛЖ ажиллана; ХЭРЭГЛЭГЧ
-// нь ЗӨВХӨН sd_user хоосон үед л үүснэ (Seed-тэй ижил дүрэм).
+// Хандалт нь 000031 seed-ийн үүсгэх valuation_org_employee холбоосоор
+// тогтоогдоно — sdplatform-ийн роль/эрх ЭНД ОНООГДОХГҮЙ.
+//
+// mika / finance_specialist ролиудын эрх (SeedCompensationAccess) нь ҮРГЭЛЖ
+// синк болно; ХЭРЭГЛЭГЧ нь ЗӨВХӨН sd_user хоосон үед л үүснэ (Seed-тэй ижил
+// дүрэм).
 func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
 	if err := s.SeedCompensationAccess(ctx); err != nil {
 		return err
@@ -433,7 +448,7 @@ func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
 		{"valuation_org_3", "valuation.org3@example.mn", "Үнэлгээний", "Байгууллага 3"},
 	}
 	for _, u := range users {
-		if err := s.seedRoleUser(ctx, "professional_org", u.username, u.email, "Testpass123!", u.first, u.last, "Мэргэжлийн байгууллага"); err != nil {
+		if err := s.seedLoginOnlyUser(ctx, u.username, u.email, "Testpass123!", u.first, u.last, domain.ValuationOrgDefaultPosition); err != nil {
 			return err
 		}
 	}
@@ -1042,5 +1057,39 @@ func (s *Seeder) seedRoleUser(ctx context.Context, level, username, email, passw
 		return err
 	}
 	slog.Info("external user created", "email", email, "level", level)
+	return nil
+}
+
+// seedLoginOnlyUser — РОЛЬГҮЙ нэвтрэх эрх (sd_user мөр).
+//
+// Үнэлгээний байгууллагын ажилтанд хэрэглэнэ: тэдний хандалт нь appdb-ийн
+// valuation_org_employee (000031 seed нь холбоно) дээр тогтдог тул sdplatform-д
+// роль оноох ЯМАР Ч шаардлага байхгүй. Роль оноовол эрхийн эх сурвалж хоёр
+// болж, дотоод маршрут руу санамсаргүй эрх нэмэх эрсдэл гарна.
+func (s *Seeder) seedLoginOnlyUser(ctx context.Context, username, email, password, firstName, lastName, position string) error {
+	if _, err := s.userRepo.GetByEmail(ctx, email); err == nil {
+		// Бүртгэл байна — роль оноох зүйл байхгүй тул хөндөхгүй.
+		return nil
+	}
+	hashed, err := hash.Password(password)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	user := &domain.User{
+		Username:  username,
+		Email:     email,
+		Password:  hashed,
+		FirstName: firstName,
+		LastName:  lastName,
+		Position:  position,
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.userRepo.Create(ctx, user); err != nil {
+		return err
+	}
+	slog.Info("login-only user created (role-гүй)", "email", email)
 	return nil
 }

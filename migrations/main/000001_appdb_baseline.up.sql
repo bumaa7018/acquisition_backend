@@ -1294,6 +1294,39 @@ ALTER SEQUENCE public.valuation_org_profile_id_seq
     OWNED BY public.valuation_org_profile.id;
 
 --
+-- Name: valuation_org_employee; Type: TABLE; Schema: public; Owner: -
+--
+-- Үнэлгээний байгууллагын ажилтан. user_id нь sdplatform.sd_user.user_id —
+-- ӨӨР САН тул гадаад түлхүүр байхгүй. Дэлгэрэнгүйг 000004 миграцад үз.
+--
+
+CREATE SEQUENCE IF NOT EXISTS public.valuation_org_employee_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+CREATE TABLE IF NOT EXISTS public.valuation_org_employee (
+    id integer DEFAULT nextval('public.valuation_org_employee_id_seq'::regclass) NOT NULL,
+    org_id integer NOT NULL,
+    user_id integer,
+    last_name character varying(250) DEFAULT ''::character varying NOT NULL,
+    first_name character varying(250) DEFAULT ''::character varying NOT NULL,
+    register_no character varying(20) DEFAULT ''::character varying NOT NULL,
+    position_name character varying(250) DEFAULT ''::character varying NOT NULL,
+    phone character varying(50) DEFAULT ''::character varying NOT NULL,
+    email character varying(250) DEFAULT ''::character varying NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER SEQUENCE public.valuation_org_employee_id_seq
+    OWNED BY public.valuation_org_employee.id;
+
+--
 -- Name: acquisition_category id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -1926,6 +1959,28 @@ ALTER TABLE ONLY public.valuation_org_profile
     ADD CONSTRAINT valuation_org_profile_pkey PRIMARY KEY (id);
 
 --
+-- Name: valuation_org_employee valuation_org_employee_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'valuation_org_employee_pkey'
+    ) THEN
+        ALTER TABLE ONLY public.valuation_org_employee
+            ADD CONSTRAINT valuation_org_employee_pkey PRIMARY KEY (id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'valuation_org_employee_org_fkey'
+    ) THEN
+        ALTER TABLE ONLY public.valuation_org_employee
+            ADD CONSTRAINT valuation_org_employee_org_fkey
+            FOREIGN KEY (org_id) REFERENCES public.valuation_org_profile(id) ON DELETE CASCADE;
+    END IF;
+END $$;
+
+--
 -- Name: au_level1_code_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2536,6 +2591,28 @@ CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user ON public.revoked_tokens USIN
 --
 
 CREATE INDEX IF NOT EXISTS idx_valuation_org_active ON public.valuation_org_profile USING btree (is_active);
+
+--
+-- Name: idx_valuation_org_employee_org; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX IF NOT EXISTS idx_valuation_org_employee_org ON public.valuation_org_employee USING btree (org_id);
+
+--
+-- Name: uq_valuation_org_employee_user; Type: INDEX; Schema: public; Owner: -
+--
+-- Нэг нэвтрэх эрх ЗӨВХӨН нэг ИДЭВХТЭЙ ажилтанд — токенд тавих org_id хоёрдмол
+-- байвал өөр байгууллагын өгөгдөл рүү хандах эрсдэл үүснэ. is_active нөхцөл нь
+-- хасагдсан ажилтан (мөр устдаггүй) user_id-г эзэлсээр байхаас сэргийлнэ.
+--
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_valuation_org_employee_user ON public.valuation_org_employee USING btree (user_id) WHERE (user_id IS NOT NULL AND is_active);
+
+--
+-- Name: uq_valuation_org_employee_register; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_valuation_org_employee_register ON public.valuation_org_employee USING btree (org_id, register_no) WHERE ((register_no)::text <> ''::text);
 
 --
 -- Name: st_idx_au_level1; Type: INDEX; Schema: public; Owner: -

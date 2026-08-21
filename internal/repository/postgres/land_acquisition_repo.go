@@ -1146,6 +1146,22 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 		args = append(args, filter.StatusID)
 		i++
 	}
+	// Үнэлгээний байгууллагын хүрээ. Дашбоардын parcelScopeCond-той ИЖИЛ
+	// дүрэм: үндсэн байгууллага бол чөлөөлөлтийн бүх нэгж талбар, эс бөгөөс
+	// зөвхөн өөрт хөндлөнгийн үнэлгээгээр холбогдсон нэгж талбар.
+	if filter.ProfessionalOrgID != "" {
+		where += fmt.Sprintf(` AND (
+			p.independent_org_id = $%d::int4
+			OR EXISTS (
+				SELECT 1 FROM land_acquisition la_scope
+				WHERE la_scope.id = p.acquisition_id
+				  AND la_scope.deleted_at IS NULL
+				  AND la_scope.professional_org_id = $%d::int4
+			)
+		)`, i, i)
+		args = append(args, filter.ProfessionalOrgID)
+		i++
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx,

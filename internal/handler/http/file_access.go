@@ -70,7 +70,11 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	}
 
 	// 1-р давхарга: уншиж болох эрх огт байгаа эсэх.
-	if !callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") {
+	//
+	// Үнэлгээний байгууллагын ажилтан системийн эрх (permission) ЭЗЭМШИХГҮЙ —
+	// түүний хандалт нь 2-р давхаргын БАЙГУУЛЛАГЫН гишүүнчлэлээр шалгагдана.
+	if !middleware.IsValuationOrgCaller(c) &&
+		!callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") {
 		response.Error(c, domain.ErrForbidden)
 		return
 	}

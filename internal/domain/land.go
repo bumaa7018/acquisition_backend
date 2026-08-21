@@ -535,8 +535,17 @@ type ParcelFilter struct {
 	RightType int
 	Landuse   string
 	StatusID  int
-	Page      int
-	PageSize  int
+	// ProfessionalOrgID — ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН хүрээ (хоосон бол шүүлт
+	// байхгүй). Утгатай бол нэгж талбар ЗӨВХӨН дараах тохиолдолд харагдана:
+	//
+	//	чөлөөлөлтийн үндсэн байгууллага (professional_org_id) = тухайн байгууллага
+	//	ЭСВЭЛ нэгж талбарын хөндлөнгийн байгууллага (independent_org_id) = тухайн байгууллага
+	//
+	// Хөндлөнгийн үнэлгээгээр нэг л нэгж талбарт холбогдсон байгууллага
+	// чөлөөлөлтийн БУСАД (өөр байгууллагын) нэгж талбарыг харах ёсгүй.
+	ProfessionalOrgID string
+	Page              int
+	PageSize          int
 }
 
 // Parcel — нэгж талбар (main DB-д хадгалагдана)

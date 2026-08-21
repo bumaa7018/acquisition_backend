@@ -248,6 +248,15 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewReferenceSeeder(mainDB).SeedAcquisitionCategories(ctx)
 			},
 		},
+		{
+			// 000025-д үүссэн гадаад хэрэглэгчдийг үнэлгээний байгууллагын
+			// бүртгэлд холбоно — эс бөгөөс токенд org_id гарахгүй тул /prof
+			// маршрутууд 403 буцаана.
+			name: "000031_valuation_org_employees",
+			run: func(ctx context.Context) error {
+				return SeedValuationOrgEmployees(ctx, mainDB, authDB)
+			},
+		},
 	}); err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package http_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -73,11 +74,12 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 	userID := domain.ID(501)
 	orgID := domain.ID(9001)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          userID,
-		OrgID:       &orgID,
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       userID,
+		OrgID:    &orgID,
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -120,11 +122,12 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 	userID := domain.ID(502)
 	orgID := domain.ID(9002)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          userID,
-		OrgID:       &orgID,
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       userID,
+		OrgID:    &orgID,
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -279,8 +282,10 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	type dashboardCase struct {
-		name                  string
-		roles                 []string
+		name  string
+		roles []string
+		// valuationOrg — үнэлгээний байгууллагын ажилтан (роль/эрхгүй).
+		valuationOrg          bool
 		permissions           []string
 		wantProfessionalScope bool
 		wantReviewerScope     bool
@@ -302,9 +307,9 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 			wantLegacyShape: true,
 		},
 		{
-			name:                  "professional org",
-			roles:                 []string{"professional_org"},
-			permissions:           []string{},
+			// Роль/эрхгүй — зөвхөн токены `valuation_org` тэмдэг.
+			name:                  "valuation org employee",
+			valuationOrg:          true,
 			wantProfessionalScope: true,
 		},
 		{
@@ -335,11 +340,12 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 			// хоёрыг андуурсан тохиолдолд тест барих ёстой.
 			orgID := domain.ID(9003)
 			tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-				ID:          userID,
-				OrgID:       &orgID,
-				Username:    tc.name,
-				Roles:       tc.roles,
-				Permissions: tc.permissions,
+				ID:           userID,
+				OrgID:        &orgID,
+				Username:     tc.name,
+				ValuationOrg: tc.valuationOrg,
+				Roles:        tc.roles,
+				Permissions:  tc.permissions,
 			})
 			require.NoError(t, err)
 
@@ -540,22 +546,25 @@ func TestRouter_ProfLandAcquisitions_DeniesAdmin(t *testing.T) {
 	landSvc.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
 }
 
-func TestRouter_GeneralLandAcquisition_DeniesProfessionalOrgWhenNotAssigned(t *testing.T) {
+// Дотоод чөлөөлөлтийн маршрут нь үнэлгээний байгууллагад ХААЛТТАЙ: хүсэлт
+// хуваарилалтын шалгалт хүрэхээсээ ӨМНӨ allowlist-ээр (ValuationOrgScope)
+// таслагдана. Ингэснээр /prof-ээс гадуурх ямар ч зам тэдэнд нээгдэхгүй.
+func TestRouter_GeneralLandAcquisition_DeniesValuationOrg(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(504)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          userID,
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       userID,
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
 	acqID := uuid.New()
 	landSvc := &mocks.MockLandService{}
-	landSvc.On("IsAssigned", mock.Anything, acqID, userID).Return(false, nil)
 
 	router := handler.NewRouter(
 		nil,
@@ -578,7 +587,8 @@ func TestRouter_GeneralLandAcquisition_DeniesProfessionalOrgWhenNotAssigned(t *t
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	landSvc.AssertExpectations(t)
+	// Handler-ийн шалгалт ХҮРЭХГҮЙ — хүсэлт allowlist дээр таслагдсан.
+	landSvc.AssertNotCalled(t, "IsAssigned", mock.Anything, mock.Anything, mock.Anything)
 	landSvc.AssertNotCalled(t, "GetByID", mock.Anything, mock.Anything)
 }
 
@@ -587,10 +597,11 @@ func TestRouter_GeneralLandAcquisitionList_DeniesProfessionalOrg(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          domain.ID(6),
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       domain.ID(6),
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -626,11 +637,12 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 	userID := domain.ID(505)
 	orgID := domain.ID(9005)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          userID,
-		OrgID:       &orgID,
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       userID,
+		OrgID:    &orgID,
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -664,18 +676,21 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 	landSvc.AssertNotCalled(t, "ListParcelDocuments", mock.Anything, mock.Anything)
 }
 
-func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testing.T) {
+// /prof-ийн нэгж талбарын жагсаалт: "Хөндлөнгийн үнэлгээ" төлөвөөр шүүгдэхээс
+// гадна БАЙГУУЛЛАГЫН хүрээгээр хязгаарлагдана.
+func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatusScopedToOrg(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	userID := domain.ID(506)
 	orgID := domain.ID(9006)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          userID,
-		OrgID:       &orgID,
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       userID,
+		OrgID:    &orgID,
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -684,7 +699,10 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatus(t *testin
 	landSvc.On("IsAcquisitionLocked", mock.Anything, acqID).Return(false, nil)
 	landSvc.On("IsProfMemberOfAcquisition", mock.Anything, acqID, orgID).Return(true, nil)
 	landSvc.On("GetParcels", mock.Anything, acqID, mock.MatchedBy(func(filter domain.ParcelFilter) bool {
+		// Байгууллагын хүрээ ЗААВАЛ тавигдана: хөндлөнгийн үнэлгээгээр нэг
+		// нэгж талбарт холбогдсон байгууллага бусдын нэгж талбарыг харахгүй.
 		return filter.StatusID == domain.ParcelStatusEvaluating &&
+			filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
 			filter.Page == 1 &&
 			filter.PageSize == 20
 	})).Return([]*domain.Parcel{
@@ -720,10 +738,11 @@ func TestRouter_ParcelStatuses_AllowsProfessionalOrgRead(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          domain.ID(8),
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read"},
+		ID:       domain.ID(8),
+		Username: "professional_primary",
+		// Үнэлгээний байгууллагын ажилтан — РОЛЬ/ЭРХГҮЙ, зөвхөн
+		// `valuation_org` тэмдэгтэй.
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -925,10 +944,9 @@ func TestRouter_ParcelStatuses_DeniesProfessionalOrgWrite(t *testing.T) {
 
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
-		ID:          domain.ID(13),
-		Username:    "professional_primary",
-		Roles:       []string{"professional_org"},
-		Permissions: []string{"compensation:read", "compensation:update"},
+		ID:           domain.ID(13),
+		Username:     "professional_primary",
+		ValuationOrg: true,
 	})
 	require.NoError(t, err)
 
@@ -1083,4 +1101,165 @@ func TestRouter_FilterOptions_StillRequiresAuth(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	landSvc.AssertNotCalled(t, "ListFilterOptions", mock.Anything)
+}
+
+// ── Үнэлгээний байгууллага: роль БИШ, аппын өөрийн хаалт ─────────────────────
+
+// stubMenuService — /menus/me-д цэсний service ДУУДАГДАХ ЁСГҮЙ (үнэлгээний
+// байгууллагын цэс нь аппын өөрийн жагсаалт). Дуудагдвал тест барина.
+type stubMenuService struct{ t *testing.T }
+
+func (s stubMenuService) List(context.Context) ([]*domain.Menu, error) { return nil, nil }
+func (s stubMenuService) ListByRole(context.Context, domain.ID) ([]*domain.Menu, error) {
+	return nil, nil
+}
+func (s stubMenuService) ListForUser(context.Context, domain.ID) ([]*domain.Menu, error) {
+	s.t.Fatal("ListForUser дуудагдах ёсгүй: үнэлгээний байгууллагын цэс роль/DB-ээс уншигдахгүй")
+	return nil, nil
+}
+func (s stubMenuService) ListPermissions(context.Context, domain.ID) ([]domain.Permission, error) {
+	return nil, nil
+}
+func (s stubMenuService) Attach(context.Context, domain.ID, domain.ID) error { return nil }
+func (s stubMenuService) Detach(context.Context, domain.ID, domain.ID) error { return nil }
+
+func valuationOrgToken(t *testing.T, jwtManager *jwtpkg.Manager, orgID domain.ID) string {
+	t.Helper()
+	pair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
+		ID:       domain.ID(777),
+		OrgID:    &orgID,
+		Username: "valuation_org_1",
+		// РОЛЬ/ЭРХ ХООСОН — хандалт зөвхөн энэ тэмдгээр шийдэгдэнэ.
+		ValuationOrg: true,
+	})
+	require.NoError(t, err)
+	return pair.AccessToken
+}
+
+// Цэс: ЗӨВХӨН Дашбоард ба Чөлөөлөлт.
+func TestRouter_ValuationOrg_MenusMe_ReturnsAppOwnedMenus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	token := valuationOrgToken(t, jwtManager, domain.ID(9001))
+
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
+		&mocks.MockLandService{}, nil, nil, nil, nil, stubMenuService{t: t})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/menus/me", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		Data []domain.Menu `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Data, 2)
+	assert.Equal(t, domain.ValuationOrgMenuDashboardCode, body.Data[0].Code)
+	assert.Equal(t, "/dashboard", body.Data[0].URL)
+	assert.Equal(t, domain.ValuationOrgMenuLandCode, body.Data[1].Code)
+	assert.Equal(t, "/land-acquisitions", body.Data[1].URL)
+}
+
+// Allowlist-ээс гадуурх БҮХ зам 403 — эрх/роль шалгах давхарга хүрэхгүй.
+func TestRouter_ValuationOrg_DeniesRoutesOutsideAllowlist(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	token := valuationOrgToken(t, jwtManager, domain.ID(9001))
+
+	landSvc := &mocks.MockLandService{}
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
+		landSvc, nil, nil, nil, nil, stubMenuService{t: t})
+
+	// Дотоод хэрэглэгчийн бүх хэсэг, тайлан, лавлахын БИЧИХ үйлдэл, мөн
+	// байгууллага даяарх шүүлтүүрийн жагсаалт.
+	blocked := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/users"},
+		{http.MethodGet, "/api/v1/roles"},
+		{http.MethodGet, "/api/v1/menus"},
+		{http.MethodGet, "/api/v1/land-acquisitions"},
+		{http.MethodGet, "/api/v1/report/download"},
+		{http.MethodPost, "/api/v1/parcel-statuses"},
+		// ЖИЧ: /audit-logs, /valuation-orgs, /decision-drafts зэрэг нь
+		// харгалзах service өгөгдсөн үед л бүртгэгддэг тул энд 404 буцаана —
+		// хаалтыг ValuationOrgScope-ийн unit тест хамарна.
+	}
+	for _, tc := range blocked {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusForbidden, w.Code, "%s %s", tc.method, tc.path)
+	}
+	landSvc.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
+}
+
+// Шүүлтүүрийн dropdown нь НЭВТЭРСЭН бүх хэрэглэгчид (үнэлгээний байгууллага
+// ч) нээлттэй — эрх/роль шаардахгүй.
+func TestRouter_ValuationOrg_AllowsFilterOptions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	token := valuationOrgToken(t, jwtManager, domain.ID(9001))
+
+	landSvc := &mocks.MockLandService{}
+	landSvc.On("ListFilterOptions", mock.Anything).
+		Return([]*domain.LandAcquisitionOption{{PlanCode: "LA-2024-001"}}, nil)
+
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
+		landSvc, nil, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	landSvc.AssertExpectations(t)
+}
+
+// Лавлах/шүүлтүүрийн маршрутууд — үнэлгээний байгууллага ЭРХГҮЙ ч токеноороо
+// дуудна (dropdown-ууд ажиллах ёстой).
+func TestRouter_ValuationOrg_AllowsLookupRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	token := valuationOrgToken(t, jwtManager, domain.ID(9001))
+
+	parentID := 2
+	landSvc := &mocks.MockLandService{}
+	landSvc.On("ListAcquisitionCategories", mock.Anything, (*int)(nil)).
+		Return([]*domain.AcquisitionCategory{{ID: 1, Name: "Ерөнхий"}}, nil)
+	landSvc.On("ListAcquisitionCategories", mock.Anything, &parentID).
+		Return([]*domain.AcquisitionCategory{{ID: 3, Name: "Дэд", ParentID: &parentID}}, nil)
+	landSvc.On("ListAssetSpecTypes", mock.Anything, mock.Anything).
+		Return([]*domain.AssetSpecType{}, nil)
+
+	planSvc := &mocks.MockPlanService{}
+	planSvc.On("Suggest", mock.Anything, "PLAN").
+		Return([]*domain.Plan{{PlanCode: "PLAN-2024-001"}}, nil)
+
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
+		landSvc, planSvc, nil, nil, nil)
+
+	for _, path := range []string{
+		"/api/v1/acquisition-categories",
+		"/api/v1/acquisition-categories?parent_id=2",
+		"/api/v1/asset-spec-types",
+		"/api/v1/plans/suggest?q=PLAN",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, path)
+	}
 }

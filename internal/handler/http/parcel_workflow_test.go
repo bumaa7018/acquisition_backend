@@ -10,6 +10,7 @@ import (
 	"acquisition_backend/internal/domain"
 	handler "acquisition_backend/internal/handler/http"
 	"acquisition_backend/internal/handler/http/mocks"
+	"acquisition_backend/internal/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,6 +22,14 @@ import (
 // transitionCtx — TransitionValuationSubmission handler-ийг шууд дуудах туслах.
 // roles/userID-г auth middleware-ийн адилаар context-д тавьж өгнө.
 func transitionCtx(t *testing.T, roles []string, body map[string]any) (*mocks.MockLandService, *httptest.ResponseRecorder, func(acqID, parcelID uuid.UUID)) {
+	t.Helper()
+	return transitionCtxAs(t, roles, false, body)
+}
+
+// transitionCtxAs — valuationOrg=true бол дуудагч нь ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН
+// ажилтан (токены `valuation_org`). Тэдгээр хэрэглэгч роль эзэмшихгүй тул
+// roles нь хоосон байхыг зөвшөөрнө.
+func transitionCtxAs(t *testing.T, roles []string, valuationOrg bool, body map[string]any) (*mocks.MockLandService, *httptest.ResponseRecorder, func(acqID, parcelID uuid.UUID)) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	mockSvc := &mocks.MockLandService{}
@@ -40,6 +49,7 @@ func transitionCtx(t *testing.T, roles []string, body map[string]any) (*mocks.Mo
 			{Key: "parcel_id", Value: parcelID.String()},
 		}
 		c.Set("roles", roles)
+		c.Set(middleware.CtxValuationOrg, valuationOrg)
 		c.Set("userID", uuid.New())
 		h.TransitionValuationSubmission(c)
 	}
@@ -105,8 +115,8 @@ func TestTransitionValuation_FinanceCannotSubmit(t *testing.T) {
 // Мэргэжлийн байгууллага submit хийж болно.
 func TestTransitionValuation_ProfCanSubmit(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
-	mockSvc, w, run := transitionCtx(t,
-		[]string{"professional_org"},
+	mockSvc, w, run := transitionCtxAs(t,
+		nil, true,
 		map[string]any{"action": "submit", "note": "илгээв", "valuation_type": "asset"})
 	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
 		"asset", "submit", "илгээв", mock.Anything).
@@ -120,8 +130,8 @@ func TestTransitionValuation_ProfCanSubmit(t *testing.T) {
 
 // Мэргэжлийн байгууллага approve хийж болохгүй.
 func TestTransitionValuation_ProfCannotApprove(t *testing.T) {
-	mockSvc, w, run := transitionCtx(t,
-		[]string{"professional_org"},
+	mockSvc, w, run := transitionCtxAs(t,
+		nil, true,
 		map[string]any{"action": "approve", "note": "т", "valuation_type": "asset"})
 
 	run(uuid.New(), uuid.New())
@@ -220,8 +230,8 @@ func TestTransitionValuation_SeniorCanSubmitAndApprove(t *testing.T) {
 // Repo-гийн ErrInvalidTransition (ж: rejected урсгалыг дахин илгээх) — 409.
 func TestTransitionValuation_InvalidTransitionConflict(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
-	mockSvc, w, run := transitionCtx(t,
-		[]string{"professional_org"},
+	mockSvc, w, run := transitionCtxAs(t,
+		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
 	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
 		"asset", "submit", "т", mock.Anything).
@@ -236,8 +246,8 @@ func TestTransitionValuation_InvalidTransitionConflict(t *testing.T) {
 // Зураггүй үл хөдлөх хөрөнгөтэй илгээлт — 422 (repo ErrAssetPhotoRequired).
 func TestTransitionValuation_PhotoRequired(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
-	mockSvc, w, run := transitionCtx(t,
-		[]string{"professional_org"},
+	mockSvc, w, run := transitionCtxAs(t,
+		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
 	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
 		"asset", "submit", "т", mock.Anything).

@@ -88,9 +88,19 @@ func NewAuthService(
 // хэрэглэгчид org_id ОГТ олгогдохгүй — тэдний хандалт роль/эрхээр шийдэгддэг.
 //
 // Тогтоох боломжгүй бол nil: нэвтрэлт ЗОГСОХГҮЙ, зүгээр л org_id-гүй токен.
-// externalOrgRoles — org_id олгогдох ролиуд. Хэрэглэгч бүр нэг санд байдаг
-// болсон тул "аль репоос уншсан" гэдгээр нь ялгах боломжгүй; ДОТООД ажилтанд
-// org_id олгогдохгүй байх шаардлагыг РОЛЬ-оор хангана.
+//
+// ХОЁР ЗАМ бий:
+//  1. ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН ажилтан (appdb.valuation_org_employee) — РОЛЬ
+//     ШАЛГАХГҮЙ. Эдгээр хэрэглэгч системийн үндсэн хэрэглэгчээс тусдаа явдаг
+//     тул sdplatform-ийн роль/эрх тэдэнд ямар ч үүрэг хүлээхгүй; токенд
+//     нэмээд `valuation_org` тэмдэг тавигдаж, хандалт нь ЗӨВХӨН түүгээр
+//     хязгаарлагдана (middleware.ValuationOrgScope-ийг үз).
+//  2. mika / finance_specialist зэрэг РОЛЬ-той гадаад хянагчид — HR бүтцээр
+//     (өмнөх зан төлөв хэвээр).
+//
+// externalOrgRoles — 2-р замд org_id олгогдох ролиуд. Хэрэглэгч бүр нэг санд
+// байдаг болсон тул "аль репоос уншсан" гэдгээр нь ялгах боломжгүй; ДОТООД
+// ажилтанд org_id олгогдохгүй байх шаардлагыг РОЛЬ-оор хангана.
 var externalOrgRoles = map[string]bool{
 	"professional_org":   true,
 	"mika":               true,
@@ -101,7 +111,17 @@ var externalOrgRoles = map[string]bool{
 	"Санхүү": true,
 }
 
-func (s *authService) orgIDFor(ctx context.Context, roles []string, userID domain.ID) *domain.ID {
+// orgContextFor — токены org_id БОЛОН `valuation_org` тэмдэг.
+func (s *authService) orgContextFor(ctx context.Context, roles []string, userID domain.ID) (*domain.ID, bool) {
+	// 1. Үнэлгээний байгууллагын ажилтан — роль үл хамаарна.
+	orgID, err := s.userRepo.ValuationOrgIDForUser(ctx, userID)
+	if err != nil {
+		slog.Warn("valuation org lookup for token failed", "user_id", userID, "error", err)
+	} else if orgID != nil {
+		return orgID, true
+	}
+
+	// 2. Ролийн замаар (mika / санхүү) — HR бүтцээр.
 	external := false
 	for _, r := range roles {
 		if externalOrgRoles[r] {
@@ -110,14 +130,14 @@ func (s *authService) orgIDFor(ctx context.Context, roles []string, userID domai
 		}
 	}
 	if !external {
-		return nil
+		return nil, false
 	}
-	orgID, err := s.userRepo.OrgIDForUser(ctx, userID)
+	orgID, err = s.userRepo.OrgIDForUser(ctx, userID)
 	if err != nil {
 		slog.Warn("org lookup for token failed", "user_id", userID, "error", err)
-		return nil
+		return nil, false
 	}
-	return orgID
+	return orgID, false
 }
 
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
@@ -152,17 +172,19 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	if err != nil {
 		return nil, err
 	}
+	orgID, isValuationOrg := s.orgContextFor(ctx, roles, user.ID)
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
-		ID:          user.ID,
-		OrgID:       s.orgIDFor(ctx, roles, user.ID),
-		Username:    user.Username,
-		Email:       user.Email,
-		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
-		FirstName:   user.FirstName,
-		LastName:    user.LastName,
-		Position:    user.Position,
-		Roles:       roles,
-		Permissions: perms,
+		ID:           user.ID,
+		OrgID:        orgID,
+		ValuationOrg: isValuationOrg,
+		Username:     user.Username,
+		Email:        user.Email,
+		FullName:     strings.TrimSpace(user.FirstName + " " + user.LastName),
+		FirstName:    user.FirstName,
+		LastName:     user.LastName,
+		Position:     user.Position,
+		Roles:        roles,
+		Permissions:  perms,
 	})
 	if err != nil {
 		return nil, err
@@ -219,17 +241,19 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
+	orgID, isValuationOrg := s.orgContextFor(ctx, roles, user.ID)
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
-		ID:          user.ID,
-		OrgID:       s.orgIDFor(ctx, roles, user.ID),
-		Username:    user.Username,
-		Email:       user.Email,
-		FullName:    strings.TrimSpace(user.FirstName + " " + user.LastName),
-		FirstName:   user.FirstName,
-		LastName:    user.LastName,
-		Position:    user.Position,
-		Roles:       roles,
-		Permissions: perms,
+		ID:           user.ID,
+		OrgID:        orgID,
+		ValuationOrg: isValuationOrg,
+		Username:     user.Username,
+		Email:        user.Email,
+		FullName:     strings.TrimSpace(user.FirstName + " " + user.LastName),
+		FirstName:    user.FirstName,
+		LastName:     user.LastName,
+		Position:     user.Position,
+		Roles:        roles,
+		Permissions:  perms,
 	})
 	if err != nil {
 		return nil, err
