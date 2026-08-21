@@ -216,7 +216,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		FirstName  string        `json:"first_name"`
 		LastName   string        `json:"last_name"`
 		Position   string        `json:"position"`
-		EmployeeID *domain.ID    `json:"employee_id"`
+		EmployeeID *string       `json:"employee_id"`
 		Employee   *employeeBody `json:"employee"`
 		IsActive   *bool         `json:"is_active"`
 		RoleIDs    []string      `json:"role_ids"`
@@ -228,6 +228,16 @@ func (h *UserHandler) Create(c *gin.Context) {
 	if err := h.validate.Struct(req); err != nil {
 		response.AbortValidation(c, err)
 		return
+	}
+
+	var employeeID *domain.ID
+	if req.EmployeeID != nil {
+		id, okID := parseID(*req.EmployeeID)
+		if !okID {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+			return
+		}
+		employeeID = &id
 	}
 
 	// Ролиудыг хэрэглэгч үүсгэхээс ӨМНӨ шалгана — эрхгүй роль дурдсан хүсэлт
@@ -267,7 +277,7 @@ func (h *UserHandler) Create(c *gin.Context) {
 		FirstName:  req.FirstName,
 		LastName:   req.LastName,
 		Position:   req.Position,
-		EmployeeID: req.EmployeeID,
+		EmployeeID: employeeID,
 		Employee:   employeeReq,
 		IsActive:   req.IsActive,
 	})

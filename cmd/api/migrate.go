@@ -91,10 +91,10 @@ func reconcileMainBaseline(ctx context.Context, dsn string) error {
 	}
 
 	// Бүтэц байхгүй, эсвэл төлөв нь аль хэдийн зөв — хэвийн зам.
-	if !hasStructure || (recorded && !dirty) {
+	if !hasStructure || (recorded && !dirty && version == baselineVersion) {
 		return nil
 	}
-	if recorded && version != baselineVersion {
+	if recorded && dirty && version != baselineVersion {
 		return nil
 	}
 
