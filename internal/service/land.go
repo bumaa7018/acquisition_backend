@@ -906,9 +906,13 @@ func (s *landService) resolveBoundaryParcels(
 }
 
 // registerBoundaryParcels — чөлөөлөх хилээр олдсон нэгж талбаруудыг main DB-д
-// бүртгэнэ. ЗӨВХӨН ШИНЭ мөр бичигдэнэ (ON CONFLICT DO NOTHING): байгаа нэгж
-// талбарын хэрэглэгчийн үнэлгээ/олговор/төлөв БОЛОН sync-ээр татсан эрх зүйн
-// дэлгэрэнгүй хоёулаа хөндөгдөхгүй.
+// бүртгэнэ. Шинэ мөр үүсэж, БАЙГАА мөрийн бүртгэлийн багана (геометр, талбай,
+// зориулалт, хаяг) ГУС-аас ирсэн утгаар шинэчлэгдэнэ — хэрэглэгчийн
+// үнэлгээ/олговор/төлөв БОЛОН sync-ээр татсан эрх зүйн дэлгэрэнгүй
+// (parcel_detail) хоёулаа хөндөгдөхгүй.
+//
+// Шинэ хил дээр дахин бодогдох тул хилд хэвээр үлдсэн нэгж талбарын
+// чөлөөлөгдөх хил/талбай хоцрогдохгүй.
 //
 // (Өмнө нь энэ зам дугаар тус бүрээр /parcel/info татаж, ReplaceParcelDetail-
 // аар дэлгэрэнгүйг ДАРЖ бичдэг байсан — N+1 дуудалт + өгөгдөл дарагдах эрсдэл.)
@@ -1398,7 +1402,10 @@ func (s *landService) GetReportSummary(ctx context.Context, filter domain.Report
 // ЭНД татагдахгүй — түүнийг дараа нь дугаар тус бүрээр SyncParcel татна.
 //
 // Дугаар бүрийг бүртгэхийн өмнө байгаа эсэхийг шалгадаг тул дахин дуудахад
-// давхардал үүсэхгүй (repo дээрх InsertParcelCodes).
+// давхардал үүсэхгүй (repo дээрх InsertParcelCodes). ДАХИН дуудахад байгаа
+// нэгж талбарын бүртгэлийн багана нь ирсэн мэдээллээр ШИНЭЧЛЭГДЭНЭ — эх
+// системийн өөрчлөлт тусах ба хуучин хувилбараар зөвхөн дугаараар
+// бүртгэгдсэн мөрүүд нөхөгдөнө.
 func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error) {
 	acq, err := s.landRepo.GetByID(ctx, acquisitionID)
 	if err != nil {
@@ -1433,7 +1440,8 @@ func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UU
 }
 
 // discoveryBatchSize — дундын сервисээс НЭГ дуудалтад авах нэгж талбарын тоо.
-// Дундын сервисийн ХАТУУ дээд хязгаараас (500) БАГА байх ЁСТОЙ: эс бөгөөс
+// Дундын сервисийн ХАТУУ дээд хязгаараас (maxParcelsByAcquisitionLimit = 200)
+// БАГА байх ЁСТОЙ: эс бөгөөс
 // хариулт чимээгүй хумигдаж, доорх "limit-ээс бага ирлээ = дууслаа" дүгнэлт
 // эрт зогсоно.
 const discoveryBatchSize = 100
@@ -1544,6 +1552,12 @@ func (s *landService) listParcelsByAcquisitionBatched(
 // мөрүүд УСТГАГДАЖ, дундын сервисийн одоогийн мэдээллээр шинээр үүснэ. Ингэснээр
 // эх системд байхаа больсон эзэмшигч/гэрээ хоцрогдож үлдэхгүй.
 //
+// /parcel/info нь БҮРТГЭЛИЙН баганыг (геометр, талбай, зориулалт, хаяг,
+// эрхийн хугацаа) мөн буцаадаг тул нэгж талбарын ДУТУУ мэдээлэл ЭНД
+// нөхөгдөнө — багцаар (discovery) бүртгэгдээгүй, эсвэл хуучин хувилбараар
+// зөвхөн дугаараар бүртгэгдсэн мөрүүд бүрэн болно. Ирсэн утга л дарж бичнэ:
+// хоосон/0 ирвэл хадгалагдсан утга үлдэнэ.
+//
 // Хэрэглэгчийн оруулсан өгөгдөл (үнэлгээ, нөхөх олговор, хөрөнгө, төлөв,
 // баримт) хөндөгдөхгүй.
 func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error {
@@ -1605,29 +1619,33 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 //   - үлдэх талбай (parcel.remaining_area_m2)
 //   - геометрээр харьяалах аймаг/сум/багийн код
 //
-// ХЭВИЙН зам нь одоо геометргүй: /parcel/info геометр буцаахаа больсон
-// (геометрийг discovery — /parcels/by/acquisition — хадгалдаг) тул
-// хадгалагдсан геометрээр л давхцлыг шинэчилнэ. АУ кодын нөхөлт нь ХОЁР
-// замд ч ажиллах ёстой — тэр нь хадгалагдсан геометрээс уншдаг.
+// ХЭВИЙН зам нь ИРСЭН геометрээр: /parcel/info геометрийг (geometry_wkt)
+// discovery-тэй ижил хэллэгээр буцаадаг тул нэгж талбарын хил ЭНД нөхөгдөж,
+// давхцал шинэчлэгдэнэ. Геометр ирээгүй үед (танигдахгүй WKT, эсвэл хуучин
+// дундын сервис) хадгалагдсан геометрээр л давхцлыг тооцно. АУ кодын нөхөлт
+// нь ХОЁР замд ч ажиллах ёстой — тэр нь хадгалагдсан геометрээс уншдаг.
 //
 // Тооцоолол sync-ийг ЗОГСООХГҮЙ — дэлгэрэнгүй аль хэдийн хадгалагдсан.
 func (s *landService) applyParcelGeometry(ctx context.Context, parcelID uuid.UUID, parcelWKT, acqWKT string) *domain.ParcelGeometryResult {
 	var result *domain.ParcelGeometryResult
 
 	if strings.TrimSpace(parcelWKT) == "" {
-		slog.Debug("геометр нь discovery-д хадгалагддаг — хадгалагдсанаар тооцно",
+		slog.Debug("геометр ирсэнгүй — хадгалагдсанаар давхцлыг тооцно",
 			"parcel_id", parcelID)
 		if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, parcelID, acqWKT); err != nil {
 			slog.Error("чөлөөлөгдөх талбайг тооцоолоход алдаа", "parcel_id", parcelID, "error", err)
 		}
 	} else {
-		// Хуучин дундын сервис (deploy skew) геометр буцаасаар байж болно.
 		res, err := s.landRepo.ApplyParcelGeometry(ctx, parcelID, parcelWKT, acqWKT)
 		if err != nil {
-			// Геометр невалид эсвэл polygon биш (MULTIPOLYGON) байж болно — чимээгүй
-			// үлдэхгүйн тулд логлоно.
+			// Геометр невалид байж болно — чимээгүй үлдэхгүйн тулд логлоод,
+			// ХАДГАЛАГДСАН геометрээр давхцлыг нөхөхийг оролдоно.
 			slog.Error("нэгж талбарын геометрээр чөлөөлөгдөх талбайг тооцоолоход алдаа",
 				"parcel_id", parcelID, "error", err)
+			if err := s.landRepo.UpdateParcelAcquisitionGeom(ctx, parcelID, acqWKT); err != nil {
+				slog.Error("чөлөөлөгдөх талбайг хадгалагдсан геометрээр тооцоолоход алдаа",
+					"parcel_id", parcelID, "error", err)
+			}
 		} else {
 			result = res
 			if !result.HasOverlap {

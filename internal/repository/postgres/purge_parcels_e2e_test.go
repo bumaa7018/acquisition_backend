@@ -282,3 +282,134 @@ func TestE2E_InsertParcelCodes_StoresGeometryAndAttributes(t *testing.T) {
 	assert.Equal(t, 700.0, areaM2)
 	assert.Equal(t, 2, rightType)
 }
+
+// parcelSourceRow — refresh шалгалтад уншигдах бүртгэлийн баганууд.
+type parcelSourceRow struct {
+	geomType                     string
+	au1, au2, landuse, landuseNm string
+	khashaa, street, propertyNo  string
+	oldParcelID                  string
+	areaM2                       float64
+	rightType, status            int
+	acquisitionM2, remainingM2   *float64
+	hasAcquisitionGeom           bool
+	appNo                        string
+}
+
+func readParcelSourceRow(t *testing.T, f *fixture, code string) parcelSourceRow {
+	t.Helper()
+	var r parcelSourceRow
+	require.NoError(t, f.pool.QueryRow(context.Background(), `
+		SELECT COALESCE(GeometryType(p.geometry), ''),
+		       COALESCE(p.au1_code,''), COALESCE(p.au2_code,''),
+		       COALESCE(p.landuse,''), COALESCE(p.landuse_name,''),
+		       COALESCE(p.address_khashaa,''), COALESCE(p.address_streetname,''),
+		       COALESCE(p.property_no,''), COALESCE(p.old_parcel_id,''),
+		       COALESCE(p.area_m2,0), COALESCE(p.right_type,0), p.status,
+		       p.acquisition_area_m2, p.remaining_area_m2, p.acquisition_geom IS NOT NULL,
+		       COALESCE((SELECT d.app_no FROM parcel_detail d WHERE d.parcel_id = p.id LIMIT 1), '')
+		FROM parcel p WHERE p.parcel_id = $1
+	`, code).Scan(
+		&r.geomType, &r.au1, &r.au2, &r.landuse, &r.landuseNm,
+		&r.khashaa, &r.street, &r.propertyNo, &r.oldParcelID,
+		&r.areaM2, &r.rightType, &r.status,
+		&r.acquisitionM2, &r.remainingM2, &r.hasAcquisitionGeom, &r.appNo,
+	))
+	return r
+}
+
+// Гол шалгалт: ХУУЧИН хувилбараар зөвхөн ДУГААРААР бүртгэгдсэн нэгж талбар
+// дээр дахин "нэгж талбар татах" хийхэд ГУС-аас ирсэн бүртгэлийн багана бүр
+// нөхөгдөж, чөлөөлөгдөх хил/талбай тооцоологдох ёстой. Хэрэглэгчийн өгөгдөл
+// (төлөв) ба эрх зүйн дэлгэрэнгүй (parcel_detail.app_no) хөндөгдөхгүй.
+func TestE2E_InsertParcelCodes_RefreshesExistingRow(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, 0)
+
+	code := fmt.Sprintf("E2ER%s", uuid.NewString()[:8])
+	// Хилээс (e2eBoundary: 106.76..106.82) ХАГАС гарсан нэгж талбар — давхцал
+	// ба үлдэх талбай хоёулаа 0-ээс их гарна.
+	parcelWKT := "POLYGON((106.80 47.70,106.84 47.70,106.84 47.71,106.80 47.71,106.80 47.70))"
+
+	// ── 1. ХУУЧИН хувилбарын бүртгэл: зөвхөн дугаар ─────────────────────────
+	res, err := f.repo.InsertParcelCodes(ctx, f.acqID,
+		[]*domain.SourceParcel{{ParcelID: code}}, e2eBoundary)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Created)
+
+	before := readParcelSourceRow(t, f, code)
+	require.Empty(t, before.geomType, "хуучин бүртгэл геометргүй байх ёстой")
+	require.Empty(t, before.landuse)
+
+	var parcelUUID uuid.UUID
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT id FROM parcel WHERE parcel_id = $1`, code).Scan(&parcelUUID))
+
+	// Хэрэглэгчийн төлөв, эрх зүйн дэлгэрэнгүй, геометрээс нөхсөн АУ код —
+	// дахин татахад хөндөгдөх ЁСГҮЙ.
+	_, err = f.pool.Exec(ctx,
+		`UPDATE parcel SET status = $2, au1_code = '01' WHERE id = $1`,
+		parcelUUID, domain.ParcelStatusProcessing)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `
+		INSERT INTO parcel_detail (id, parcel_id, acquisition_id, right_type, app_no)
+		VALUES (uuid_generate_v4(), $1, $2, 2, 'E2E-KEEP-APP')
+	`, parcelUUID, f.acqID)
+	require.NoError(t, err)
+
+	// ── 2. ДАХИН татах: бүх багана шинэчлэгдэнэ ─────────────────────────────
+	res, err = f.repo.InsertParcelCodes(ctx, f.acqID, []*domain.SourceParcel{{
+		ParcelID:       code,
+		OldParcelID:    "OLD-1",
+		GeometryWKT:    parcelWKT,
+		AU2Code:        "0101",
+		RightType:      2,
+		Landuse:        "2201",
+		LanduseName:    "Гэр бүлийн хэрэгцээ",
+		AreaM2:         3_000_000,
+		AddressKhashaa: "12",
+		AddressStreet:  "Их тойруу",
+		PropertyNo:     "Э-1",
+	}}, e2eBoundary)
+	require.NoError(t, err)
+	assert.Equal(t, 0, res.Created, "байгаа мөр дахин үүсэх ЁСГҮЙ")
+	assert.Equal(t, 1, res.Existing)
+	assert.Equal(t, 0, res.Skipped)
+
+	after := readParcelSourceRow(t, f, code)
+	assert.Equal(t, "POLYGON", after.geomType, "геометр нөхөгдөх ёстой")
+	assert.Equal(t, "OLD-1", after.oldParcelID)
+	assert.Equal(t, "0101", after.au2)
+	assert.Equal(t, "2201", after.landuse)
+	assert.Equal(t, "Гэр бүлийн хэрэгцээ", after.landuseNm)
+	assert.Equal(t, "12", after.khashaa)
+	assert.Equal(t, "Их тойруу", after.street)
+	assert.Equal(t, "Э-1", after.propertyNo)
+	assert.Equal(t, 3_000_000.0, after.areaM2)
+	assert.Equal(t, 2, after.rightType)
+
+	// Геометр орж ирсэн тул чөлөөлөгдөх хил/талбай, үлдэх талбай бодогдоно.
+	assert.True(t, after.hasAcquisitionGeom, "чөлөөлөгдөх хил тооцоологдох ёстой")
+	require.NotNil(t, after.acquisitionM2)
+	assert.Greater(t, *after.acquisitionM2, 0.0)
+	require.NotNil(t, after.remainingM2, "хилээс гарсан хэсэг бий тул үлдэх талбай бодогдоно")
+	assert.Greater(t, *after.remainingM2, 0.0)
+
+	// ХӨНДӨГДӨХГҮЙ: хэрэглэгчийн төлөв, дэлгэрэнгүй, геометрээс нөхсөн au1.
+	assert.Equal(t, domain.ParcelStatusProcessing, after.status, "төлөв хөндөгдөх ЁСГҮЙ")
+	assert.Equal(t, "E2E-KEEP-APP", after.appNo, "parcel_detail хөндөгдөх ЁСГҮЙ")
+	assert.Equal(t, "01", after.au1, "эх систем au1 буцаадаггүй — хадгалагдсан утга үлдэнэ")
+
+	// ── 3. ДУТУУ мэдээлэл ирвэл хадгалагдсаныг ХООСЛОХГҮЙ ───────────────────
+	res, err = f.repo.InsertParcelCodes(ctx, f.acqID,
+		[]*domain.SourceParcel{{ParcelID: code}}, e2eBoundary)
+	require.NoError(t, err)
+	require.Equal(t, 1, res.Existing)
+
+	kept := readParcelSourceRow(t, f, code)
+	assert.Equal(t, "POLYGON", kept.geomType, "геометр хоосон ирэхэд УСТАХ ёсгүй")
+	assert.Equal(t, "2201", kept.landuse)
+	assert.Equal(t, "Их тойруу", kept.street)
+	assert.Equal(t, 3_000_000.0, kept.areaM2)
+	assert.True(t, kept.hasAcquisitionGeom)
+}

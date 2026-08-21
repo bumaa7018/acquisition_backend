@@ -753,8 +753,13 @@ func (r *landAcqRepo) PurgeParcels(
 //
 // insertParcelRow нь ON CONFLICT (parcel_id) DO NOTHING хийдэг тул дахин
 // дуудахад давхардал үүсэхгүй: өмнө нь ЭНЭ чөлөөлөлтөд бүртгэгдсэн бол
-// existing, ӨӨР чөлөөлөлтөд бүртгэгдсэн бол (uuid.Nil) skipped болно.
-// БАЙГАА мөрийг ШИНЭЧЛЭХГҮЙ — зөвхөн шинэ мөр бичигдэнэ.
+// existing, ӨӨР АКТИВ чөлөөлөлтөд бүртгэгдсэн бол (uuid.Nil) skipped болно.
+//
+// БАЙГАА мөрийн бүртгэлийн баганыг ГУС-аас ирсэн утгаар нэг бүрчлэн ШИНЭЧИЛНЭ
+// (refreshParcelRow): дахин татах нь эх системийн өөрчлөлтийг тусгана, хуучин
+// хувилбараар зөвхөн дугаараар бүртгэгдсэн мөрүүд нөхөгдөнө. Хэрэглэгчийн
+// оруулсан өгөгдөл (үнэлгээ, олговор, төлөв, баримт) болон эрх зүйн
+// дэлгэрэнгүй (parcel_detail) хөндөгдөхгүй.
 //
 // Нэг дугаар дээрх алдаа бусдыг зогсоохгүй — эхний алдааг л буцаана.
 func (r *landAcqRepo) InsertParcelCodes(
@@ -814,8 +819,8 @@ func (r *landAcqRepo) InsertParcelCodes(
 
 // insertParcelRow — нэгж талбарын мөрийг үүсгэнэ. parcelWKT хоосон бол
 // геометргүйгээр бүртгэнэ. created=false нь мөр өмнө нь байсныг (ON CONFLICT)
-// илэрхийлнэ — тэр үед парцелын ID-г тухайн чөлөөлөлтөөс хайж буцаана
-// (өөр чөлөөлөлтийнх бол uuid.Nil).
+// илэрхийлнэ — тэр үед refreshParcelRow түүнийг ГУС-аас ирсэн мэдээллээр
+// шинэчилж ID-г буцаана (өөр АКТИВ чөлөөлөлтийнх бол uuid.Nil).
 func (r *landAcqRepo) insertParcelRow(
 	ctx context.Context,
 	acquisitionID uuid.UUID,
@@ -890,46 +895,161 @@ func (r *landAcqRepo) insertParcelRow(
 		return uuid.Nil, false, err
 	}
 
-	// ON CONFLICT DO NOTHING — мөр аль хэдийн байна. Тухайн чөлөөлөлтийн
-	// парцел бол мэдээллийг шинэчлэхийн тулд ID-г буцаана.
-	if err := r.db.QueryRow(ctx,
-		`SELECT id FROM parcel WHERE parcel_id = $1 AND acquisition_id = $2`,
-		sp.ParcelID, acquisitionID,
-	).Scan(&parcelID); err == nil {
-		return parcelID, false, nil
+	// ON CONFLICT DO NOTHING — мөр аль хэдийн байна. ГУС-аас ИРСЭН бүртгэлийн
+	// баганыг нэг бүрчлэн ШИНЭЧИЛНЭ (устгасан чөлөөлөлтийн мөрийг зэрэг
+	// эргүүлэн эзэмшинэ).
+	refreshedID, reclaimed, refreshErr := r.refreshParcelRow(ctx, acquisitionID, sp, parcelWKT, acqWKT, now)
+	if refreshErr != nil {
+		return uuid.Nil, false, refreshErr
 	}
-
-	// Дугаарыг ӨӨР чөлөөлөлт эзэмшиж байна. Тэр чөлөөлөлт нь УСТГАСАН
-	// (soft delete) бол нэгж талбарыг ЭРГҮҮЛЭН ЭЗЭМШИНЭ.
-	//
-	// Шалтгаан: parcel.parcel_id глобал unique бөгөөд FK-ийн бай тул устгасан
-	// чөлөөлөлтийн нэгж талбар дугаараа эзэлсээр үлддэг. Эргүүлэн эзэмшихгүй
-	// бол буруу бүртгэсэн чөлөөлөлтийг устгаад ДАХИН бүртгэхэд нэгж талбарууд
-	// "өөрд бүртгэлтэй" гэж алгасагдаж, жагсаалт хоосон үлдэнэ.
-	//
-	// Хуучин (устгасан) чөлөөлөлтийн хүү мөрүүд (эзэмшигч, үнэлгээ) нь ХУУЧИН
-	// acquisition_id-тайгаа хэвээр үлдэнэ — тэдгээр нь acquisition_id-гаар
-	// шүүгддэг тул шинэ чөлөөлөлтөд харагдахгүй, өгөгдөл ч алдагдахгүй.
-	if err := r.db.QueryRow(ctx, `
-		UPDATE parcel p
-		SET acquisition_id = $2,
-		    deleted_at     = NULL,
-		    status         = $3,
-		    updated_at     = $4,
-		    updated_by     = 'system'
-		WHERE p.parcel_id = $1
-		  AND EXISTS (
-		      SELECT 1 FROM land_acquisition la
-		      WHERE la.id = p.acquisition_id AND la.deleted_at IS NOT NULL
-		  )
-		RETURNING p.id
-	`, sp.ParcelID, acquisitionID, domain.ParcelStatusPending, now).Scan(&parcelID); err == nil {
-		// Шинэ чөлөөлөлтөд ШИНЭЭР нэмэгдсэнтэй адил (created=true) —
-		// дуудагч статусын түүх үүсгэнэ.
-		return parcelID, true, nil
+	if refreshedID == uuid.Nil {
+		// Дугаарыг ӨӨР, АКТИВ чөлөөлөлт эзэмшиж байна.
+		return uuid.Nil, false, nil
 	}
+	// Эргүүлэн эзэмшсэн мөр нь шинэ чөлөөлөлтөд ШИНЭЭР нэмэгдсэнтэй адил
+	// (created=true) — дуудагч статусын түүх үүсгэнэ.
+	return refreshedID, reclaimed, nil
+}
 
-	return uuid.Nil, false, nil
+// refreshParcelRow — ГУС-аас (/parcels/by/acquisition) ИРСЭН бүртгэлийн
+// баганыг БАЙГАА мөр дээр нэг бүрчлэн шинэчилнэ. insertParcelRow-ийн
+// ON CONFLICT DO NOTHING-ийн ДАРАА ажиллана.
+//
+// ХОЁР тохиолдлыг НЭГ query-гээр гүйцэтгэнэ:
+//
+//  1. Мөр нь ЭНЭ чөлөөлөлтийнх — зөвхөн бүртгэлийн багана шинэчлэгдэнэ
+//     (reclaimed=false).
+//  2. Мөр нь УСТГАСАН (soft delete) өөр чөлөөлөлтийнх — эргүүлэн эзэмшинэ
+//     (acquisition_id, deleted_at, status) + бүртгэлийн багана
+//     шинэчлэгдэнэ (reclaimed=true).
+//
+// Эргүүлэн эзэмших шалтгаан: parcel.parcel_id глобал unique бөгөөд FK-ийн бай
+// тул устгасан чөлөөлөлтийн нэгж талбар дугаараа эзэлсээр үлддэг. Эргүүлэн
+// эзэмшихгүй бол буруу бүртгэсэн чөлөөлөлтийг устгаад ДАХИН бүртгэхэд нэгж
+// талбарууд "өөрд бүртгэлтэй" гэж алгасагдаж, жагсаалт хоосон үлдэнэ. Хуучин
+// (устгасан) чөлөөлөлтийн хүү мөрүүд (эзэмшигч, үнэлгээ) нь ХУУЧИН
+// acquisition_id-тайгаа хэвээр үлдэнэ — тэдгээр нь acquisition_id-гаар
+// шүүгддэг тул шинэ чөлөөлөлтөд харагдахгүй, өгөгдөл ч алдагдахгүй.
+//
+// Дугаарыг ӨӨР, АКТИВ чөлөөлөлт эзэмшиж байвал юу ч бичихгүй — (uuid.Nil, false, nil).
+//
+// ИРСЭН утга л дарж бичнэ: хоосон/0 ирвэл хадгалагдсан утга үлдэнэ. Шалтгаан:
+//   - au1_code/au3_code-ыг эх систем БУЦААХГҮЙ — тэднийг геометрээс
+//     FillParcelAUCodesFromGeometry нөхдөг тул хоослож болохгүй.
+//   - Геометр невалид үед дуудагч parcelWKT="" болгож ДАХИН оролддог тул
+//     хадгалагдсан геометрийг хоослох ёсгүй.
+//
+// Геометр шинэчлэгдэж байгаа тул чөлөөлөгдөх хил/талбай, үлдэх талбайг мөн ЭНД
+// дахин бодно — эс бөгөөс хил сольсны дараа хуучин давхцал хоцорно.
+//
+// Хэрэглэгчийн оруулсан өгөгдөл (үнэлгээ, олговор, төлөв, баримт) БОЛОН
+// эрх зүйн дэлгэрэнгүй (parcel_detail) хөндөгдөхгүй.
+func (r *landAcqRepo) refreshParcelRow(
+	ctx context.Context,
+	acquisitionID uuid.UUID,
+	sp *domain.SourceParcel,
+	parcelWKT, acqWKT string,
+	now time.Time,
+) (parcelID uuid.UUID, reclaimed bool, err error) {
+	err = r.db.QueryRow(ctx, `
+			WITH src AS (
+				SELECT
+					-- parcel.geometry нь geometry(Polygon,4326): нэг хэсэгтэй
+					-- MULTIPOLYGON-ыг гаргаж авна, бусад төрөл NULL болно
+					-- (тэр үед хадгалагдсан геометр хэвээр үлдэнэ).
+					CASE
+						WHEN raw IS NULL THEN NULL
+						WHEN GeometryType(raw) = 'POLYGON' THEN raw
+						ELSE ST_GeometryN(ST_CollectionExtract(raw, 3), 1)
+					END::geometry(Polygon, 4326) AS parcel_geom,
+					acq_geom
+				FROM (
+					SELECT ST_GeomFromText(NULLIF($3, ''), 4326)                          AS raw,
+					       ST_GeomFromText(NULLIF($4, ''), 4326)::geometry(Polygon, 4326) AS acq_geom
+				) t
+			),
+			target AS (
+				-- Дугаараар (глобал unique) — эзэмшлийг доорх WHERE шалгана.
+				SELECT id, acquisition_id, geometry FROM parcel WHERE parcel_id = $1
+			),
+			calc AS (
+				SELECT
+					t.id,
+					t.acquisition_id                        AS old_acquisition_id,
+					COALESCE(s.parcel_geom, t.geometry)     AS parcel_geom,
+					ST_GeometryN(
+						ST_CollectionExtract(
+							ST_Intersection(
+								ST_MakeValid(COALESCE(s.parcel_geom, t.geometry)),
+								ST_MakeValid(s.acq_geom)
+							), 3
+						), 1
+					)::geometry(Polygon, 4326)              AS overlap_geom
+				FROM target t CROSS JOIN src s
+			)
+			UPDATE parcel p SET
+				old_parcel_id      = COALESCE(NULLIF($5, ''), p.old_parcel_id),
+				valid_from         = COALESCE($6, p.valid_from),
+				valid_till         = COALESCE($7, p.valid_till),
+				au1_code           = COALESCE(NULLIF($8, ''), p.au1_code),
+				au2_code           = COALESCE(NULLIF($9, ''), p.au2_code),
+				au3_code           = COALESCE(NULLIF($10, ''), p.au3_code),
+				right_type         = COALESCE(NULLIF($11, 0), p.right_type),
+				landuse            = COALESCE(NULLIF($12, ''), p.landuse),
+				landuse_name       = COALESCE(NULLIF($13, ''), p.landuse_name),
+				area_m2            = COALESCE(NULLIF($14, 0), p.area_m2),
+				address_khashaa    = COALESCE(NULLIF($15, ''), p.address_khashaa),
+				address_streetname = COALESCE(NULLIF($16, ''), p.address_streetname),
+				property_no        = COALESCE(NULLIF($17, ''), p.property_no),
+				geometry           = c.parcel_geom,
+				acquisition_geom = CASE
+					WHEN c.overlap_geom IS NOT NULL AND NOT ST_IsEmpty(c.overlap_geom)
+					THEN c.overlap_geom ELSE p.acquisition_geom
+				END,
+				acquisition_area_m2 = CASE
+					WHEN c.overlap_geom IS NOT NULL AND NOT ST_IsEmpty(c.overlap_geom)
+					THEN ST_Area(c.overlap_geom::geography) ELSE p.acquisition_area_m2
+				END,
+				remaining_area_m2 = CASE
+					WHEN c.overlap_geom IS NOT NULL AND NOT ST_IsEmpty(c.overlap_geom)
+					THEN GREATEST(
+						COALESCE(NULLIF($14, 0), NULLIF(p.area_m2, 0), ST_Area(c.parcel_geom::geography))
+						- ST_Area(c.overlap_geom::geography), 0)
+					ELSE p.remaining_area_m2
+				END,
+				-- Эргүүлэн эзэмших (хуучин мөр устгасан чөлөөлөлтийнх байсан)
+				-- үед л acquisition_id/deleted_at/status хөдөлнө.
+				acquisition_id = $2,
+				deleted_at = CASE WHEN p.acquisition_id = $2 THEN p.deleted_at ELSE NULL END,
+				status     = CASE WHEN p.acquisition_id = $2 THEN p.status ELSE $18 END,
+				updated_at = $19,
+				updated_by = 'system'
+			FROM calc c
+			WHERE p.id = c.id
+			  AND (
+			      p.acquisition_id = $2
+			      OR EXISTS (
+			          SELECT 1 FROM land_acquisition la
+			          WHERE la.id = p.acquisition_id AND la.deleted_at IS NOT NULL
+			      )
+			  )
+			RETURNING p.id, (c.old_acquisition_id <> $2)
+		`,
+		sp.ParcelID, acquisitionID, parcelWKT, acqWKT,
+		sp.OldParcelID, sp.ValidFrom, sp.ValidTill,
+		sp.AU1Code, sp.AU2Code, sp.AU3Code,
+		sp.RightType, sp.Landuse, sp.LanduseName, sp.AreaM2,
+		sp.AddressKhashaa, sp.AddressStreet, sp.PropertyNo,
+		domain.ParcelStatusPending, now,
+	).Scan(&parcelID, &reclaimed)
+	if err == nil {
+		return parcelID, reclaimed, nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Мөр нь ӨӨР, АКТИВ чөлөөлөлтийнх — хөндөхгүй.
+		return uuid.Nil, false, nil
+	}
+	return uuid.Nil, false, err
 }
 
 func (r *landAcqRepo) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
@@ -1338,6 +1458,10 @@ func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID 
 // Давхцахгүй бол чөлөөлөгдөх хил/хэмжээ NULL болж, үлдэх талбай нь бүтэн
 // талбайтай тэнцэнэ. Үлдэх талбайг тооцохдоо эх системийн area_m2-ыг эрхэмлэж,
 // байхгүй үед геометрээс тооцно.
+//
+// Эх системээс нэг хэсэгтэй MULTIPOLYGON ирж болох тул түүнийг polygon болгож
+// хөрвүүлнэ (insertParcelRow-той ижил хэв маяг) — эс бөгөөс шууд cast нь
+// query-г УНАГААЖ, геометр нөхөгдөхгүй үлдэнэ.
 func (r *landAcqRepo) ApplyParcelGeometry(
 	ctx context.Context,
 	parcelID uuid.UUID,
@@ -1349,9 +1473,19 @@ func (r *landAcqRepo) ApplyParcelGeometry(
 
 	result := &domain.ParcelGeometryResult{}
 	err := r.db.QueryRow(ctx, `
-		WITH src AS (
-			SELECT ST_GeomFromText($2, 4326)::geometry(Polygon, 4326)             AS parcel_geom,
-			       ST_GeomFromText(NULLIF($3, ''), 4326)::geometry(Polygon, 4326) AS acq_geom
+		WITH raw AS (
+			SELECT ST_GeomFromText($2, 4326)                                       AS parcel_geom,
+			       ST_GeomFromText(NULLIF($3, ''), 4326)::geometry(Polygon, 4326)  AS acq_geom
+		),
+		src AS (
+			SELECT
+				CASE
+					WHEN parcel_geom IS NULL THEN NULL
+					WHEN GeometryType(parcel_geom) = 'POLYGON' THEN parcel_geom
+					ELSE ST_GeometryN(ST_CollectionExtract(parcel_geom, 3), 1)
+				END::geometry(Polygon, 4326) AS parcel_geom,
+				acq_geom
+			FROM raw
 		),
 		calc AS (
 			SELECT parcel_geom,
@@ -1369,20 +1503,25 @@ func (r *landAcqRepo) ApplyParcelGeometry(
 			FROM calc
 		)
 		UPDATE parcel p SET
-			geometry            = f.parcel_geom,
-			acquisition_geom    = f.overlap_geom,
+			-- Хөрвүүлэлт NULL болвол (олон хэсэгтэй MULTIPOLYGON) ХАДГАЛАГДСАН
+			-- геометр/давхцал хэвээр үлдэнэ — нөхөх үйлдэл байгааг хоослохгүй.
+			geometry            = COALESCE(f.parcel_geom, p.geometry),
+			acquisition_geom    = COALESCE(f.overlap_geom, p.acquisition_geom),
 			acquisition_area_m2 = CASE WHEN f.overlap_geom IS NULL
-			                           THEN NULL ELSE ST_Area(f.overlap_geom::geography) END,
-			remaining_area_m2   = GREATEST(
+			                           THEN p.acquisition_area_m2
+			                           ELSE ST_Area(f.overlap_geom::geography) END,
+			remaining_area_m2   = CASE WHEN f.parcel_geom IS NULL
+			                           THEN p.remaining_area_m2
+			                           ELSE GREATEST(
 				COALESCE(NULLIF(p.area_m2, 0), ST_Area(f.parcel_geom::geography))
 				- COALESCE(CASE WHEN f.overlap_geom IS NULL
 				                THEN 0 ELSE ST_Area(f.overlap_geom::geography) END, 0),
-				0),
+				0) END,
 			updated_at = NOW(),
 			updated_by = 'system'
 		FROM final f
 		WHERE p.id = $1
-		RETURNING ST_Area(p.geometry::geography),
+		RETURNING COALESCE(ST_Area(p.geometry::geography), 0),
 		          COALESCE(p.acquisition_area_m2, 0),
 		          COALESCE(p.remaining_area_m2, 0),
 		          (p.acquisition_geom IS NOT NULL)
@@ -1824,21 +1963,46 @@ func (r *landAcqRepo) ReplaceParcelDetail(ctx context.Context, parcelID, acquisi
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Нэгж талбарын БҮРТГЭЛИЙН баганууд (old_parcel_id, valid_*, au*_code,
-	// right_type, landuse*, area_m2, address_*, property_no) нь DISCOVERY-ийн
-	// эзэмшил: /parcels/by/acquisition тэднийг нэгж талбарыг бүртгэх үедээ
-	// бичнэ, au1/au3-ыг геометрээс FillParcelAUCodesFromGeometry нөхнө.
-	// /parcel/info тэднийг БУЦААХАА БОЛЬСОН тул ЭНД ХӨНДӨХГҮЙ — эс бөгөөс
-	// sync бүр тэднийг NULL/0 болгож хоослох болно.
-	if _, err := tx.Exec(ctx,
-		`UPDATE parcel SET updated_at = NOW(), updated_by = 'system' WHERE id = $1`,
+	// Нэгж талбарын БҮРТГЭЛИЙН баганууд (old_parcel_id, valid_*, au2_code,
+	// right_type, landuse*, area_m2, address_*, property_no) нь /parcel/info-д
+	// БАС ирдэг тул ирсэн утгаар нэг бүрчлэн шинэчилнэ — багцаар бүртгэгдээгүй
+	// (эсвэл хуучин хувилбараар зөвхөн дугаараар бүртгэгдсэн) нэгж талбарын
+	// ДУТУУ мэдээлэл ингэж НӨХӨГДӨНӨ.
+	//
+	// ИРСЭН утга л дарж бичнэ (COALESCE/NULLIF): хоосон/0 ирвэл хадгалагдсан
+	// утга үлдэнэ. Эс бөгөөс дутуу хариулт бүр бүртгэлийг хоослох болно.
+	// au1_code/au3_code нь эх системээс ИРДЭГГҮЙ (геометрээс
+	// FillParcelAUCodesFromGeometry нөхдөг) тул ЭНД огт хөндөхгүй.
+	//
+	// ГЕОМЕТР нь ЭНД бичигдэхгүй — түүнийг ApplyParcelGeometry давхцалтай
+	// хамт тооцож бичнэ (SyncParcel-ийн дараагийн алхам).
+	if _, err := tx.Exec(ctx, `
+		UPDATE parcel SET
+			old_parcel_id      = COALESCE(NULLIF($2, ''), old_parcel_id),
+			valid_from         = COALESCE($3, valid_from),
+			valid_till         = COALESCE($4, valid_till),
+			au2_code           = COALESCE(NULLIF($5, ''), au2_code),
+			right_type         = COALESCE(NULLIF($6, 0), right_type),
+			landuse            = COALESCE(NULLIF($7, ''), landuse),
+			landuse_name       = COALESCE(NULLIF($8, ''), landuse_name),
+			area_m2            = COALESCE(NULLIF($9, 0), area_m2),
+			address_khashaa    = COALESCE(NULLIF($10, ''), address_khashaa),
+			address_streetname = COALESCE(NULLIF($11, ''), address_streetname),
+			property_no        = COALESCE(NULLIF($12, ''), property_no),
+			updated_at         = NOW(),
+			updated_by         = 'system'
+		WHERE id = $1
+	`,
 		parcelID,
+		src.OldParcelID, src.ValidFrom, src.ValidTill, src.AU2Code,
+		src.RightType, src.Landuse, src.LanduseName, src.AreaM2,
+		src.AddressKhashaa, src.AddressStreet, src.PropertyNo,
 	); err != nil {
 		return err
 	}
 
-	// right_type-ыг ХАДГАЛАГДСАН мөрөөс уншина: /parcel/info үүнийг буцаахаа
-	// больсон (discovery эзэмшинэ) тул src.RightType үргэлж 0 байх болно.
+	// right_type-ыг ШИНЭЧИЛСНИЙ ДАРАА мөрөөс уншина: эх систем 0 буцаасан
+	// (эсвэл багана хоосон ирсэн) үед хадгалагдсан утга хэрэглэгдэнэ.
 	var rightType int
 	if err := tx.QueryRow(ctx,
 		`SELECT COALESCE(right_type, 0) FROM parcel WHERE id = $1`, parcelID,

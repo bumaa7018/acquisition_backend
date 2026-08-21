@@ -179,7 +179,8 @@ type LandAcquisitionWriteRepository interface {
 	// зориулалт, хаяг, эрхийн хугацаа) нэгж талбарын мөр үүсгэнэ. Эрх зүйн
 	// дэлгэрэнгүй нь дараа нь SyncParcel-ээр татагдана. Дугаар бүрийг
 	// бүртгэхийн өмнө байгаа эсэхийг шалгаж, давхардлыг үүсгэхгүй; БАЙГАА
-	// мөрийг ШИНЭЧЛЭХГҮЙ.
+	// мөрийн бүртгэлийн баганыг ГУС-аас ИРСЭН утгаар нэг бүрчлэн ШИНЭЧИЛНЭ
+	// (хэрэглэгчийн өгөгдөл болон parcel_detail хөндөгдөхгүй).
 	InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) (*domain.ParcelDiscoveryResult, error)
 	// ListParcelRefs — чөлөөлөлтийн нэгж талбаруудын id/дугаар/төлөв.
 	ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error)

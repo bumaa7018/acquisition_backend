@@ -46,7 +46,7 @@ type ParcelInfoClient interface {
 	//	after — өмнөх багцын СҮҮЛИЙН parcel_id (keyset cursor); эхэнд хоосон
 	//	limit — багцын хэмжээ
 	//
-	// Дундын сервис дээр limit-ийн ХАТУУ дээд хязгаар (500) байдаг ба түүнээс
+	// Дундын сервис дээр limit-ийн ХАТУУ дээд хязгаар (200) байдаг ба түүнээс
 	// хэтэрсэн хүсэлтийг ЧИМЭЭГҮЙ хумина. Тиймээс limit нь тэр хязгаараас
 	// ХЭТРЭХ ЁСГҮЙ: эс бөгөөс дуудагч "limit-ээс бага ирлээ = дууслаа" гэж
 	// ЭРТ зогсоно.
@@ -161,6 +161,10 @@ func (c *httpParcelInfoClient) GetParcelInfo(ctx context.Context, parcelID strin
 	if src.ParcelID == "" {
 		return nil, domain.ErrNotFound
 	}
+	// Геометр нь ST_GeomFromText руу шууд орох тул хэлбэрийг ЭНД шүүнэ
+	// (discovery-тэй ижил): танигдахгүй текст бол дэлгэрэнгүй хадгалагдаж,
+	// зөвхөн геометр хаягдана.
+	src.GeometryWKT = sanitizeWKT(src.GeometryWKT)
 	return src, nil
 }
 

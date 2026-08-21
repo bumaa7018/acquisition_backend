@@ -1,5 +1,12 @@
 .PHONY: run dev build test test-e2e test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down reset reset-db logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
+# GOROOT-ыг Go өөрөө тодорхойлно. gvm (~/.zshrc) нь GOROOT=/usr/local/go гэж
+# тавьдаг ба тэр нь go.mod-ийн шаардаж татдаг toolchain-аас (GOTOOLCHAIN=auto)
+# ЗӨРВӨЛ std сан "олдохгүй" болно: go build "package crypto/mlkem is not in
+# std" гэж унана, golangci-lint нь go/packages дээр timeout-д хүрнэ. Тиймээс
+# recipe-үүд рүү GOROOT дамжуулахгүй.
+unexport GOROOT
+
 BINARY=server
 CMD=./cmd/api
 COMPOSE=docker compose -f deployments/docker-compose.yml --env-file .env
