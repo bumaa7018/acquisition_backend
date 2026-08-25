@@ -63,6 +63,9 @@ type ParcelInfoClient interface {
 	ListApplicationDocuments(ctx context.Context, appNo string, roles []string) ([]*domain.SourceDocument, error)
 	// Газрын суурь үнэ, төлбөр, барьцаа, шүүхийн шийдвэр — ГУС-ийн тусдаа гарцууд
 	GetParcelBasePrice(ctx context.Context, parcelID string) (*domain.ParcelBasePrice, error)
+	// CalculateParcelFee — газрын ТӨЛБӨРИЙН БОДОЛТ (POST). Өмчлөлийн газарт
+	// дуудахгүй — тэр шалгалтыг дуудагч тал хийнэ.
+	CalculateParcelFee(ctx context.Context, parcelID string) (*domain.ParcelFee, error)
 	ListParcelInvoices(ctx context.Context, parcelID string) ([]*domain.ParcelInvoice, error)
 	ListParcelMortgages(ctx context.Context, parcelID string) ([]*domain.ParcelMortgage, error)
 	ListCourtDecisions(ctx context.Context, appNo string) ([]*domain.ParcelCourtDecision, error)
@@ -423,12 +426,34 @@ func (c *httpParcelInfoClient) ListParcelsByAcquisition(
 // getJSON — ГУС-ийн дундын сервисээс JSON уншиж, envelope-ийн data-г out руу
 // задална. 404 үед notFoundNil=true бол (nil, nil) буцна (хоосон жагсаалт).
 func (c *httpParcelInfoClient) getJSON(ctx context.Context, path string, out any, notFoundNil bool) error {
+	return c.sendJSON(ctx, http.MethodGet, path, nil, out, notFoundNil)
+}
+
+// postJSON — getJSON-той ижил, гэхдээ JSON биетэй POST (ж: төлбөрийн бодолт).
+func (c *httpParcelInfoClient) postJSON(ctx context.Context, path string, payload, out any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return c.sendJSON(ctx, http.MethodPost, path, body, out, false)
+}
+
+func (c *httpParcelInfoClient) sendJSON(
+	ctx context.Context, method, path string, payload []byte, out any, notFoundNil bool,
+) error {
 	if c.baseURL == "" {
 		return domain.ErrInvalidInput
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	var reqBody io.Reader
+	if payload != nil {
+		reqBody = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reqBody)
 	if err != nil {
 		return err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	c.applyRequestHeaders(ctx, req)
 	resp, err := c.http.Do(req)
@@ -466,16 +491,37 @@ func (c *httpParcelInfoClient) getJSON(ctx context.Context, path string, out any
 	return json.Unmarshal(envelope.Data, out)
 }
 
+// GetParcelBasePrice — суурь үнэ + үнэлгээний хүчин зүйлийн задаргаа.
+//
+// /factors гарцыг хэрэглэнэ: суурь үнийг хүчин зүйлүүдтэйгээ НЭГ хүсэлтээр
+// авдаг тул хоёр өөр гарцаас зөрүүтэй үнэ гарах эрсдэл байхгүй.
 func (c *httpParcelInfoClient) GetParcelBasePrice(ctx context.Context, parcelID string) (*domain.ParcelBasePrice, error) {
 	parcelID = strings.TrimSpace(parcelID)
 	if parcelID == "" {
 		return nil, domain.ErrInvalidInput
 	}
 	bp := &domain.ParcelBasePrice{}
-	if err := c.getJSON(ctx, "/parcel/base-price/"+url.PathEscape(parcelID), bp, false); err != nil {
+	if err := c.getJSON(ctx, "/parcel/base-price/"+url.PathEscape(parcelID)+"/factors", bp, false); err != nil {
 		return nil, err
 	}
 	return bp, nil
+}
+
+// CalculateParcelFee — газрын төлбөрийн бодолт (POST /parcel/fee).
+//
+// "Төлбөр бодох боломжгүй" нь алдаа биш: ГУС 200 + status=false, msg буцаадаг
+// тул тэр хариултыг ХЭВЭЭР дамжуулна (шалтгааныг хэрэглэгчид харуулна).
+func (c *httpParcelInfoClient) CalculateParcelFee(ctx context.Context, parcelID string) (*domain.ParcelFee, error) {
+	parcelID = strings.TrimSpace(parcelID)
+	if parcelID == "" {
+		return nil, domain.ErrInvalidInput
+	}
+	fee := &domain.ParcelFee{}
+	payload := map[string]string{"parcel": parcelID}
+	if err := c.postJSON(ctx, "/parcel/fee", payload, fee); err != nil {
+		return nil, err
+	}
+	return fee, nil
 }
 
 func (c *httpParcelInfoClient) ListParcelInvoices(ctx context.Context, parcelID string) ([]*domain.ParcelInvoice, error) {

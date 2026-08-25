@@ -128,6 +128,8 @@ type LandDocumentService interface {
 	// Газрын төлбөр үнэлгээний бүлгийн дуудалтууд
 	SyncParcelBasePrice(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelBasePrice, error)
 	SyncParcelInvoices(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]*domain.ParcelInvoice, error)
+	// SyncParcelFee — газрын төлбөрийн бодолт. Өмчлөлийн газарт хийгдэхгүй.
+	SyncParcelFee(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelFee, error)
 	SyncParcelMortgages(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
 	SyncParcelCourtDecisions(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
 	SyncParcelMonitorings(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)

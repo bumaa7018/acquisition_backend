@@ -80,16 +80,68 @@ func (s *landService) SyncParcelBasePrice(
 		auctionCoeff = full.Detail.AuctionCoeff
 		auctionPrice = full.Detail.AuctionPrice
 	}
-	if err := s.landRepo.UpdateParcelValuation(ctx, p.ID, zone, &bp.BasePrice, auctionCoeff, auctionPrice); err != nil {
-		slog.Error("суурь үнэ хадгалахад алдаа", "parcel_id", p.ID, "error", err)
-		return nil, domain.ErrInternalServer
+	// ГУС-д суурь үнэ байхгүй бол (base_price null/0) хадгалагдсан үнийг 0-оор
+	// ДАРЖ БИЧИХГҮЙ — "Олдоогүй" гэж мэдэгдээд хуучин утгыг хэвээр үлдээнэ.
+	if bp.BasePrice > 0 {
+		if err := s.landRepo.UpdateParcelValuation(ctx, p.ID, zone, &bp.BasePrice, auctionCoeff, auctionPrice); err != nil {
+			slog.Error("суурь үнэ хадгалахад алдаа", "parcel_id", p.ID, "error", err)
+			return nil, domain.ErrInternalServer
+		}
+	} else {
+		slog.Warn("ГУС-д газрын суурь үнэ олдсонгүй", "parcel_code", parcelCode)
+	}
+	// Хүчин зүйлийн задаргаа — суурь үнэ хадгалагдсаны дараа. Задаргаа
+	// хадгалагдаагүй ч суурь үнэ бичигдсэн тул алхмыг унагахгүй.
+	if _, ferr := s.landRepo.ReplaceParcelBasePriceFactors(ctx, p.ID, acquisitionID, bp.Factors); ferr != nil {
+		slog.Error("суурь үнийн хүчин зүйл хадгалахад алдаа", "parcel_id", p.ID, "error", ferr)
 	}
 
 	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(),
 		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
-			"parcel_code": parcelCode, "base_price": bp.BasePrice, "year": bp.CalculateYear,
+			"parcel_code": parcelCode, "base_price": bp.BasePrice, "factors": len(bp.Factors),
 		})
 	return bp, nil
+}
+
+// SyncParcelFee — ГАЗРЫН ТӨЛБӨРийн бодолтыг ГУС-аас татаж хадгална.
+// ӨМЧЛӨЛИЙН (right_type=3) газарт төлбөр байдаггүй тул ГУС руу хандахгүй.
+func (s *landService) SyncParcelFee(
+	ctx context.Context, acquisitionID uuid.UUID, parcelCode string,
+) (*domain.ParcelFee, error) {
+	if s.parcelInfo == nil {
+		return nil, domain.ErrInternalServer
+	}
+	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return nil, domain.ErrNotFound
+	}
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if p.RightType == domain.RightTypeOwnership {
+		return nil, domain.ErrParcelOwnedNoPayment
+	}
+
+	fee, err := s.parcelInfo.CalculateParcelFee(ctx, parcelCode)
+	if err != nil {
+		slog.Error("газрын төлбөр бодоход алдаа", "parcel_code", parcelCode, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	// status=false бол ГУС төлбөрийг бодож ЧАДААГҮЙ (шалтгаан msg-д). Тэр
+	// тохиолдолд хадгалагдсан бодолтыг УСТГАХГҮЙ — хоосон биш, хуучин үлдэнэ.
+	if !fee.Status {
+		slog.Warn("газрын төлбөр бодогдсонгүй", "parcel_code", parcelCode, "msg", fee.Msg)
+		return fee, nil
+	}
+	if _, err := s.landRepo.ReplaceParcelFeeItems(ctx, p.ID, acquisitionID, fee.Items); err != nil {
+		slog.Error("газрын төлбөрийн бодолт хадгалахад алдаа", "parcel_id", p.ID, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
+			"parcel_code": parcelCode, "fee_items": len(fee.Items), "total_payment": fee.TotalPayment,
+		})
+	return fee, nil
 }
 
 // SyncParcelInvoices — газрын төлбөрийн нэхэмжлэл. ӨМЧЛӨЛИЙН (right_type=3)

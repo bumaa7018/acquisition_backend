@@ -239,6 +239,13 @@ type LandAcquisitionWriteRepository interface {
 	ListParcelCourtDecisions(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelCourtDecision, error)
 	ReplaceParcelInvoices(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelInvoice) (int, error)
 	ListParcelInvoices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelInvoice, error)
+	// Газрын төлбөрийн бодолт, суурь үнийн хүчин зүйл — ГУС-аас татагдаж
+	// БҮХЭЛДЭЭ орлуулагдана: бодолт нь бүсээр задардаг тул хэсэгчлэн upsert
+	// хийвэл эх системд байхгүй болсон бүс үлдэж нийт төлбөр буруу гарна.
+	ReplaceParcelFeeItems(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelFeeItem) (int, error)
+	ListParcelFeeItems(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelFeeItem, error)
+	ReplaceParcelBasePriceFactors(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelBasePriceFactor) (int, error)
+	ListParcelBasePriceFactors(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelBasePriceFactor, error)
 	UpsertParcelMonitorings(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelMonitoring) (int, error)
 	ListParcelMonitorings(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelMonitoring, error)
 	// SetParcelDetailHolder — parcel_detail.holder_id-г үндсэн эзэмшигчид холбоно.

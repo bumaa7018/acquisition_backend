@@ -112,6 +112,9 @@ type parcelFullResponse struct {
 	CourtDecisions []domain.ParcelCourtDecision `json:"court_decisions"`
 	Invoices       []domain.ParcelInvoice       `json:"invoices"`
 	Monitorings    []domain.ParcelMonitoring    `json:"monitorings"`
+	// Fees — газрын төлбөрийн бодолт бүсээр. Нийт төлбөр нь payment-ийн нийлбэр.
+	Fees             []domain.ParcelFeeItem         `json:"fees"`
+	BasePriceFactors []domain.ParcelBasePriceFactor `json:"base_price_factors"`
 }
 
 type parcelHolderResponse struct {
@@ -708,6 +711,8 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		CourtDecisions:     pf.CourtDecisions,
 		Invoices:           pf.Invoices,
 		Monitorings:        pf.Monitorings,
+		Fees:               pf.Fees,
+		BasePriceFactors:   pf.BasePriceFactors,
 		ID:                 pf.ID.String(),
 		ParcelID:           pf.ParcelID,
 		OldParcelID:        pf.OldParcelID,

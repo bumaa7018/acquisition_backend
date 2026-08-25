@@ -2599,6 +2599,36 @@ func (h *LandHandler) SyncParcelInvoices(c *gin.Context) {
 	response.OKMsg(c, gin.H{"found": len(items), "invoices": items}, i18n.MsgSynced)
 }
 
+// SyncParcelFee — газрын ТӨЛБӨРИЙН БОДОЛТ. Өмчлөлийн газарт 422 буцна.
+//
+// status=false нь HTTP алдаа БИШ: ГУС төлбөрийг бодож чадаагүй шалтгаан msg-д
+// монголоор ирнэ (жишээ нь үнэлгээний зэрэглэл тодорхойгүй).
+func (h *LandHandler) SyncParcelFee(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
+	res, err := h.svc.SyncParcelFee(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	items := res.Items
+	if items == nil {
+		items = []domain.ParcelFeeItem{}
+	}
+	response.OKMsg(c, gin.H{
+		"found":         len(items),
+		"status":        res.Status,
+		"msg":           res.Msg,
+		"area_m2":       res.AreaM2,
+		"total_payment": res.TotalPayment,
+		"items":         items,
+	}, i18n.MsgSynced)
+}
+
 // SyncParcelMortgages — барьцааны бүртгэл (давхар барьцаатай)
 func (h *LandHandler) SyncParcelMortgages(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))

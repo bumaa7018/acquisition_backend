@@ -85,6 +85,14 @@ func (m *MockParcelInfoClient) GetParcelBasePrice(ctx context.Context, parcelID 
 	return args.Get(0).(*domain.ParcelBasePrice), args.Error(1)
 }
 
+func (m *MockParcelInfoClient) CalculateParcelFee(ctx context.Context, parcelID string) (*domain.ParcelFee, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelFee), args.Error(1)
+}
+
 func (m *MockParcelInfoClient) ListParcelInvoices(ctx context.Context, parcelID string) ([]*domain.ParcelInvoice, error) {
 	args := m.Called(ctx, parcelID)
 	if args.Get(0) == nil {
@@ -382,6 +390,32 @@ func (m *MockLandAcquisitionRepository) ListParcelInvoices(ctx context.Context, 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.ParcelInvoice), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ReplaceParcelFeeItems(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelFeeItem) (int, error) {
+	args := m.Called(ctx, parcelID, acquisitionID, items)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelFeeItems(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelFeeItem, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelFeeItem), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ReplaceParcelBasePriceFactors(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelBasePriceFactor) (int, error) {
+	args := m.Called(ctx, parcelID, acquisitionID, items)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelBasePriceFactors(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelBasePriceFactor, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelBasePriceFactor), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) UpsertParcelMonitorings(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelMonitoring) (int, error) {

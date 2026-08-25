@@ -125,11 +125,65 @@ type SourceParcel struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
-// ParcelBasePrice — газрын СУУРЬ ҮНЭ (ГУС data_cama).
+// ParcelBasePrice — газрын СУУРЬ ҮНЭ + үнэлгээний ХҮЧИН ЗҮЙЛийн задаргаа
+// (ГУС data_cama, GET /parcel/base-price/{parcel_id}/factors).
+//
+// Status=false нь транспортын алдаа БИШ — эх систем нь суурь үнэ олдоогүй ч
+// status=true буцаадаг тул практикт үргэлж true байна.
 type ParcelBasePrice struct {
-	BasePrice     float64 `json:"base_price"`
-	BasePriceM2   float64 `json:"base_price_m2"`
-	CalculateYear int     `json:"calculate_year"`
+	Status    bool                    `json:"status"`
+	ParcelID  string                  `json:"parcel_id"`
+	BasePrice float64                 `json:"base_price"`
+	Factors   []ParcelBasePriceFactor `json:"factor_values"`
+}
+
+// ParcelBasePriceFactor — нэгж талбарын НЭГ үнэлгээний хүчин зүйлийн утга.
+type ParcelBasePriceFactor struct {
+	FactorID       int      `json:"factor_id"`
+	FactorCode     string   `json:"factor_code"`
+	FactorName     string   `json:"factor_name"`
+	FactorDataType string   `json:"factor_data_type"`
+	FactorValue    *float64 `json:"factor_value"`
+	YearValue      *int     `json:"year_value"`
+	InActive       *bool    `json:"in_active"`
+	// ClosetsParcelID — эх хүснэгтийн баганын нэр ЯГ ингэж бичигдсэн
+	// (closets ≠ closest). ГУС-тай зөрөхгүйн тулд ЗАСААГҮЙ.
+	ClosetsParcelID string `json:"closets_parcel_id"`
+}
+
+// ParcelFee — ГАЗРЫН ТӨЛБӨРийн бодолт (ГУС, POST /parcel/fee). Төлбөрийн бүс
+// тус бүрээр задарна; нийт төлбөр нь Items-ийн payment-ийн нийлбэр.
+//
+// Status=false нь ТРАНСПОРТЫН алдаа БИШ: "төлбөр бодох боломжгүй" гэсэн
+// бизнесийн дүгнэлт, шалтгаан нь Msg-д монголоор ирнэ.
+type ParcelFee struct {
+	Status       bool            `json:"status"`
+	Msg          string          `json:"msg"`
+	ParcelID     string          `json:"parcel_id"`
+	AreaM2       float64         `json:"area_m2"`
+	TotalPayment float64         `json:"total_payment"`
+	Items        []ParcelFeeItem `json:"items"`
+}
+
+// ParcelFeeItem — нэг төлбөрийн бүсийн бодолт.
+type ParcelFeeItem struct {
+	ZoneID            string  `json:"zone_id"`
+	ZoneType          string  `json:"zone_type"`
+	ZoneNo            string  `json:"zone_no"`
+	ZoneName          string  `json:"zone_name"`
+	Area              float64 `json:"area"`
+	LanduseArea       float64 `json:"landuse_area"`
+	ZoneArea          float64 `json:"zone_area"`
+	BaseFeeID         string  `json:"base_fee_id"`
+	ResolutionID      string  `json:"resolution_id"`
+	ConfidencePercent float64 `json:"confidence_percent"`
+	SubsidizedArea    float64 `json:"subsidized_area"`
+	SubsidizedFeeRate float64 `json:"subsidized_fee_rate"`
+	BasePriceM2       float64 `json:"base_price_m2"`
+	BaseFeePerM2      float64 `json:"base_fee_per_m2"`
+	Landuses          string  `json:"landuses"`
+	Value             float64 `json:"value"`
+	Payment           float64 `json:"payment"`
 }
 
 // ParcelInvoice — газрын төлбөрийн нэхэмжлэл (ГУС data_estimate).
@@ -697,6 +751,10 @@ type ParcelFull struct {
 	CourtDecisions []ParcelCourtDecision
 	Invoices       []ParcelInvoice
 	Monitorings    []ParcelMonitoring
+	// Fees — газрын төлбөрийн бодолт бүсээр (ГУС-аас татагдаж хадгалагдсан)
+	Fees []ParcelFeeItem
+	// BasePriceFactors — суурь үнийн хүчин зүйлийн задаргаа
+	BasePriceFactors []ParcelBasePriceFactor
 	// Holders — БҮХ эзэмшигч (үндсэн нь эхэнд). Detail нь зөвхөн үндсэнийг агуулна.
 	Holders []ParcelHolder
 }

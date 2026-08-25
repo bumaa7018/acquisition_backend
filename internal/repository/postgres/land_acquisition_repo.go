@@ -1391,7 +1391,13 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	if d.HolderName != "" || d.RightType != 0 {
+	// parcel_detail нь LEFT JOIN тул мөр байхгүй үед бүх талбар хоосон гарна.
+	// Үнэлгээний талбарууд (суурь үнэ, бүс) нь эзэмшигч/эрхийн төрлөөс ХАМААРАЛГҮЙ
+	// бөглөгддөг тул тэднийг ч шалгана — эс бөгөөс татсан суурь үнэ дэлгэцэд
+	// хүрэхгүй хаягдана.
+	if d.HolderName != "" || d.RightType != 0 || d.AppNo != "" ||
+		d.BasePricePerHa != nil || d.ValuationZone != "" ||
+		d.AuctionCoeff != nil || d.AuctionPrice != nil {
 		pf.Detail = d
 	}
 	// Эзэмшигчид (олон байж болно). Алдаа гарсан ч дэлгэрэнгүйг буцаана —
@@ -1409,6 +1415,12 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	}
 	if items, iErr := r.ListParcelInvoices(ctx, id); iErr == nil {
 		pf.Invoices = items
+	}
+	if items, fErr := r.ListParcelFeeItems(ctx, id); fErr == nil {
+		pf.Fees = items
+	}
+	if items, bErr := r.ListParcelBasePriceFactors(ctx, id); bErr == nil {
+		pf.BasePriceFactors = items
 	}
 	if items, monErr := r.ListParcelMonitorings(ctx, id); monErr == nil {
 		pf.Monitorings = items
@@ -2093,7 +2105,7 @@ func (r *landAcqRepo) ReplaceParcelDetail(ctx context.Context, parcelID, acquisi
 }
 
 func (r *landAcqRepo) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {
-	_, err := r.db.Exec(ctx, `
+	tag, err := r.db.Exec(ctx, `
 		UPDATE parcel_detail SET
 			valuation_zone    = $2,
 			base_price_per_ha = $3,
@@ -2101,6 +2113,24 @@ func (r *landAcqRepo) UpdateParcelValuation(ctx context.Context, parcelID uuid.U
 			auction_price     = $5,
 			updated_by        = 'user'
 		WHERE parcel_id = $1
+	`, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	// parcel_detail мөр байхгүй бол ЗӨВХӨН үнэлгээний талбартай мөр үүсгэнэ.
+	// Эс бөгөөс ГУС-аас татсан суурь үнэ чимээгүй хаягдана (дэлгэрэнгүй нь
+	// хараахан татагдаагүй нэгж талбар дээр тохиолддог).
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO parcel_detail (
+			parcel_id, acquisition_id, valuation_zone,
+			base_price_per_ha, auction_coeff, auction_price,
+			created_by, updated_by
+		)
+		SELECT p.id, p.acquisition_id, $2, $3, $4, $5, 'user', 'user'
+		FROM parcel p WHERE p.id = $1
 	`, parcelID, zone, basePricePerHa, auctionCoeff, auctionPrice)
 	return err
 }

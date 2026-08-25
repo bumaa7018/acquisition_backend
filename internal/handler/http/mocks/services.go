@@ -506,6 +506,14 @@ func (m *MockLandService) SyncParcelInvoices(ctx context.Context, acquisitionID 
 	return args.Get(0).([]*domain.ParcelInvoice), args.Error(1)
 }
 
+func (m *MockLandService) SyncParcelFee(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelFee, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelFee), args.Error(1)
+}
+
 func (m *MockLandService) SyncParcelMortgages(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
 	args := m.Called(ctx, acquisitionID, parcelCode)
 	if args.Get(0) == nil {

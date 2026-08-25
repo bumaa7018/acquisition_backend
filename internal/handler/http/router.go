@@ -364,6 +364,7 @@ func NewRouter(
 			land.POST("/:id/parcels/:parcel_id/sync/holders", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelHolders)
 			land.POST("/:id/parcels/:parcel_id/sync/base-price", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelBasePrice)
 			land.POST("/:id/parcels/:parcel_id/sync/invoices", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelInvoices)
+			land.POST("/:id/parcels/:parcel_id/sync/fee", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelFee)
 			land.POST("/:id/parcels/:parcel_id/sync/mortgages", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMortgages)
 			land.POST("/:id/parcels/:parcel_id/sync/court-decisions", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelCourtDecisions)
 			land.POST("/:id/parcels/:parcel_id/sync/monitoring", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMonitorings)
