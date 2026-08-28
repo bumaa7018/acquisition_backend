@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strings"
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/i18n"
@@ -32,9 +33,15 @@ type planResponse struct {
 	Gazner string  `json:"gazner,omitempty"`
 	AreaM2 float64 `json:"area_m2"`
 	Status int     `json:"status"`
-	// Хилийн геометр (boundary_wkt) ЗОРИУД буцаагдахгүй: дэлгэц дээр
-	// хэрэглэгддэггүй, харин хариултыг олон зуун КБ болгож хүндрүүлдэг.
-	// Хил нь backend-д plan хүснэгтэд хадгалагдана.
+	// HasBoundary — хил байгаа ЭСЭХ. Чөлөөлөлтийн хил нь төлөвлөгөөнөөс
+	// хуулагддаг тул хилгүй төлөвлөгөөгөөр цааш үргэлжлэх боломжгүй; дэлгэц
+	// үүнийг хайлтын мөчид анхааруулахад ашиглана (Search-д л утга дүүрнэ).
+	HasBoundary bool `json:"has_boundary"`
+	// BoundaryWKT — хилийн геометр. Анхдагчаар буцаагддаггүй: хариултыг олон
+	// зуун КБ болгож хүндрүүлдэг ба хайлтын сонголтод (suggest) хэрэггүй.
+	// ЗӨВХӨН `?with_boundary=1` үед дүүрнэ — дэлгэц олдсон төлөвлөгөөний хилийг
+	// газрын зураг дээр зурахад ашиглана.
+	BoundaryWKT  string  `json:"boundary_wkt,omitempty"`
 	StartDate    *string `json:"start_date,omitempty"`
 	EndDate      *string `json:"end_date,omitempty"`
 	StartData    *string `json:"start_data,omitempty"`
@@ -48,6 +55,7 @@ type planResponse struct {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        code  query  string  true  "Төлөвлөгөөний дугаар"
+// @Param        with_boundary  query  bool  false  "1/true бол хилийн геометрийг (boundary_wkt) хамт буцаана — дэлгэц дээр зурахад"
 // @Success      200  {object}  response.Response
 // @Failure      400  {object}  response.Response
 // @Failure      404  {object}  response.Response
@@ -58,6 +66,8 @@ func (h *PlanHandler) Search(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrCodeRequired)
 		return
 	}
+	// Хил нь том тул ЗӨВХӨН хүссэн үед буцаана (дэлгэц зурахад л хэрэгтэй).
+	withBoundary := c.Query("with_boundary") == "1" || c.Query("with_boundary") == "true"
 
 	plan, err := h.svc.Search(c.Request.Context(), code)
 	if err != nil {
@@ -68,6 +78,12 @@ func (h *PlanHandler) Search(c *gin.Context) {
 			response.Error(c, err)
 		}
 		return
+	}
+
+	boundary := strings.TrimSpace(plan.BoundaryWKT)
+	responseBoundary := ""
+	if withBoundary {
+		responseBoundary = boundary
 	}
 
 	response.OK(c, planResponse{
@@ -81,6 +97,8 @@ func (h *PlanHandler) Search(c *gin.Context) {
 		Gazner:       plan.Gazner,
 		AreaM2:       plan.AreaM2,
 		Status:       plan.Status,
+		HasBoundary:  boundary != "",
+		BoundaryWKT:  responseBoundary,
 		StartDate:    plan.StartData,
 		EndDate:      plan.EndData,
 		StartData:    plan.StartData,

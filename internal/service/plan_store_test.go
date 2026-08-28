@@ -22,6 +22,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// storedPlanBoundary — plan хүснэгтэд хадгалагдсан мөрийн хил. Чөлөөлөлтийн
+// хил нь ҮҮНЭЭС хуулагдана (дундын сервисийн түүхий хариунаас БИШ).
+const storedPlanBoundary = "POLYGON((106.9274 47.9846,106.9259 47.9831,106.9280 47.9820,106.9274 47.9846))"
+
 func middlewarePlan() *domain.Plan {
 	return &domain.Plan{
 		ProjectID:    "PRJ-9",
@@ -54,10 +58,11 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 			p.Gazner == "Дамбадаржаа дэд төвийн бүтээн байгуулалтын ажил" &&
 			strings.HasPrefix(p.BoundaryWKT, "POLYGON((106.9274")
 	})).Return(&domain.Plan{
-		ID:       storedID,
-		PlanCode: testPlanCode,
-		Code:     testPlanCode,
-		Name:     "Дундын сервисийн төлөвлөгөө",
+		ID:          storedID,
+		PlanCode:    testPlanCode,
+		Code:        testPlanCode,
+		Name:        "Дундын сервисийн төлөвлөгөө",
+		BoundaryWKT: storedPlanBoundary,
 	}, nil)
 	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
 	expectBoundaryOK(landRepo)
@@ -66,18 +71,17 @@ func TestLandService_Create_StoresPlanFromMiddleware(t *testing.T) {
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
 
 	acq, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
-		PlanCode:      testPlanCode,
-		StartDate:     testStartDate,
-		ShapefileData: buildSimpleShp(),
-		CreatedBy:     "user-1",
+		PlanCode:  testPlanCode,
+		StartDate: testStartDate,
+		CreatedBy: "user-1",
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, testPlanCode, acq.PlanCode)
 	require.NotNil(t, acq.PlanID, "plan_id нь plan хүснэгтийн мөрийг хэлэх ёстой")
 	assert.Equal(t, storedID, *acq.PlanID)
-	// Хилийн шалгалт нь plan хүснэгтэд хадгалагдсан мөрийн хилээр хийгдэнэ
-	// (TestLandService_Create_ChecksStoredPlanBoundary-г үз).
+	// Чөлөөлөлтийн хил нь plan хүснэгтэд ХАДГАЛАГДСАН мөрийн хилээс хуулагдана.
+	assert.Equal(t, storedPlanBoundary, acq.GeometryWKT)
 	projects.AssertExpectations(t)
 	planStore.AssertExpectations(t)
 }
@@ -93,10 +97,9 @@ func TestLandService_Create_NoFallbackWhenMiddlewareNotFound(t *testing.T) {
 	projects.On("GetPlanProject", ctx, "UNKNOWN").Return(nil, domain.ErrNotFound)
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
-		PlanCode:      "UNKNOWN",
-		StartDate:     testStartDate,
-		ShapefileData: buildSimpleShp(),
-		CreatedBy:     "user-1",
+		PlanCode:  "UNKNOWN",
+		StartDate: testStartDate,
+		CreatedBy: "user-1",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrNotFound)
@@ -115,10 +118,9 @@ func TestLandService_Create_MiddlewareErrorPropagates(t *testing.T) {
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(nil, domain.ErrInternalServer)
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
-		PlanCode:      testPlanCode,
-		StartDate:     testStartDate,
-		ShapefileData: buildSimpleShp(),
-		CreatedBy:     "user-1",
+		PlanCode:  testPlanCode,
+		StartDate: testStartDate,
+		CreatedBy: "user-1",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrInternalServer)
@@ -131,48 +133,48 @@ func TestLandService_Create_PlanCodeRequired(t *testing.T) {
 	svc := service.NewLandService(landRepo, nil, nil, &mocks.MockPlanProjectClient{}, &mocks.MockPlanStoreRepository{})
 
 	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
-		PlanCode:      "   ",
-		StartDate:     testStartDate,
-		ShapefileData: buildSimpleShp(),
-		CreatedBy:     "user-1",
+		PlanCode:  "   ",
+		StartDate: testStartDate,
+		CreatedBy: "user-1",
 	})
 
 	assert.ErrorIs(t, err, domain.ErrInvalidInput)
 	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
 }
 
-// Багтах шалгалт нь plan хүснэгтэд ХАДГАЛАГДСАН мөрийн хилээр хийгдэнэ:
-// чөлөөлөх хил тэр хилээс бүрэн гадна байвал бүртгэгдэхгүй.
-func TestLandService_Create_ChecksStoredPlanBoundary(t *testing.T) {
+// Чөлөөлөлтийн хил нь plan хүснэгтэд ХАДГАЛАГДСАН мөрийн хилээс хуулагдана —
+// дундын сервисийн түүхий хариунаас БИШ. (Upsert нь хоосон утгаар хуучныг дарж
+// бичдэггүй тул хоёр нь зөрж болно.)
+func TestLandService_Create_CopiesStoredPlanBoundary(t *testing.T) {
 	landRepo := &mocks.MockLandAcquisitionRepository{}
 	planStore := &mocks.MockPlanStoreRepository{}
 	projects := &mocks.MockPlanProjectClient{}
 	svc := service.NewLandService(landRepo, nil, nil, projects, planStore)
 
-	// Хадгалагдсан мөрөнд хол байрлах хил бий — шалгалт ҮҮГЭЭР хийгдэнэ.
-	farBoundary := "POLYGON((10 10,11 10,11 11,10 11,10 10))"
+	// Хадгалагдсан мөрийн хил нь дундын сервисийн буцаасан хилээс ӨӨР.
+	otherBoundary := "POLYGON((106.70 47.60,106.75 47.60,106.75 47.65,106.70 47.65,106.70 47.60))"
 	projects.On("GetPlanProject", ctx, testPlanCode).Return(middlewarePlan(), nil)
 	planStore.On("Upsert", ctx, mock.Anything).Return(&domain.Plan{
-		ID: uuid.New(), PlanCode: testPlanCode, BoundaryWKT: farBoundary,
+		ID: uuid.New(), PlanCode: testPlanCode, BoundaryWKT: otherBoundary,
 	}, nil)
-	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil).Maybe()
-	landRepo.On("FindAU2Coverage", ctx, mock.AnythingOfType("string")).Return(&domain.AU2Coverage{
-		ReferenceRows: 340,
-		Overlaps:      []domain.AU2Overlap{{Code: "0101", Covered: true, AreaM2: 41_250_000.0}},
-	}, nil)
-	// Чөлөөлөх хил бүхэлдээ төлөвлөгөөний хилээс гадна (100%).
-	landRepo.On("CheckContainment", ctx, mock.AnythingOfType("string"), farBoundary).
-		Return(&domain.GeomContainment{OutsideM2: 41_250_000, ContainerM2: 12_000_000}, nil)
+	// Талбай, огтлолцол ХАДГАЛАГДСАН хилээр тооцогдоно (аргумент нь яг тэр WKT).
+	landRepo.On("ComputeAreaM2", ctx, otherBoundary).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
+	landRepo.On("Create", ctx, mock.AnythingOfType("*domain.LandAcquisition")).Return(nil)
+	landRepo.On("CreateProgress", ctx, mock.Anything).Return(nil).Maybe()
+	landRepo.On("FindIntersectingAU3", ctx, otherBoundary).Return([]domain.LandAcquisitionAU{}, nil)
 
-	_, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
-		PlanCode:      testPlanCode,
-		StartDate:     testStartDate,
-		ShapefileData: buildSimpleShp(),
-		CreatedBy:     "user-1",
+	acq, err := svc.Create(ctx, service.CreateLandAcquisitionRequest{
+		PlanCode:  testPlanCode,
+		StartDate: testStartDate,
+		CreatedBy: "user-1",
 	})
 
-	assert.Equal(t, domain.ErrOutsidePlanExceeds, err)
-	landRepo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+	require.NoError(t, err)
+	assert.Equal(t, otherBoundary, acq.GeometryWKT)
+	assert.Equal(t, otherBoundary, acq.PlanGeomWKT)
+	assert.Equal(t, 41_250_000.0, acq.AreaM2)
+	landRepo.AssertExpectations(t)
 }
 
 func TestPlanService_Search_StoresMiddlewareDataThenReadsAppDB(t *testing.T) {

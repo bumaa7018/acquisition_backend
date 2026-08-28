@@ -204,24 +204,20 @@ func (h *LandHandler) List(c *gin.Context) {
 
 // Create godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл үүсгэх
-// @Description  plan_code-аар төлөвлөгөөг middleware-ээс татаж appdb-ийн plan хүснэгтэд хадгалаад чөлөөлөлт үүсгэнэ.
-// @Description  Талбайн хэмжээ (area_m2) нь shapefile-ийн хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
+// @Description  plan_parcel_id-аар төлөвлөгөөг middleware-ээс татаж appdb-ийн plan хүснэгтэд хадгалаад чөлөөлөлт үүсгэнэ.
+// @Description  Чөлөөлөлтийн ХИЛ нь олдсон ТӨЛӨВЛӨГӨӨНИЙ хилээс ХУУЛАГДАНА — гараас shapefile оруулахгүй.
+// @Description  Төлөвлөгөөнд хил байхгүй бол 422-оор бүртгэгдэхгүй.
+// @Description  Талбайн хэмжээ (area_m2) нь тэр хилээс АВТОМАТААР тооцогдоно — гараас оруулахгүй.
 // @Description  Нэгж талбарыг үүсгэх үед автоматаар ТАТАХГҮЙ (хил шинэчлэх эсвэл sync-ээр татагдана).
-// @Description  Хилийн шалгалт (аль нэг нь биелэхгүй бол 422-оор бүртгэгдэхгүй):
-// @Description  1) Чөлөөлөх хил нь ЗӨВХӨН нэг сум/дүүрэгт (au2) багтсан байх — дамнасан эсвэл сум/дүүргийн хилээс гарсан бол "Сум/дүүрэг дамнах боломжгүй".
-// @Description  2) Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хил дотор байх — гарсан хэсэг нь төлөвлөгөөний талбайн 50%-иас ихгүй байх.
+// @Description  Хилийн шалгалт (биелэхгүй бол 422-оор бүртгэгдэхгүй):
+// @Description  Чөлөөлөх хил нь ЗӨВХӨН нэг сум/дүүрэгт (au2) багтсан байх — дамнасан бол "Сум/дүүрэг дамнах боломжгүй".
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
 // @Security     BearerAuth
-// @Param        plan_code  formData  string  true  "Газар зохион байгуулалтын төлөвлөгөөний дугаар"
+// @Param        plan_parcel_id formData string true  "Төлөвлөгөөний нэгж талбарын дугаар"
 // @Param        start_date formData  string  true  "Эхлэх огноо (YYYY-MM-DD)"
 // @Param        end_date   formData  string  false  "Дуусах огноо (YYYY-MM-DD)"
-// @Param        shapefile  formData  file    true  "Чөлөөлөх бүсийн хил (.shp файл)"
-// @Description  Файлын шалгалт: ESRI Shapefile бүтэц, Polygon төрөл (цэг/шугам дэмжигдэхгүй),
-// @Description  НЭГ полигон (MultiPolygon дэмжигдэхгүй, цоорхой зөвшөөрөгдөнө), хаагдсан ринг,
-// @Description  проекц нь WGS84 (EPSG:4326) градус, координат Монгол Улсын хүрээнд байх.
-// @Description  Зөрвөл 422-оор шалтгааныг тодорхой заана.
 // @Success      201  {object}  response.Response
 // @Failure      400  {object}  response.Response
 // @Failure      404  {object}  response.Response
@@ -272,28 +268,8 @@ func (h *LandHandler) Create(c *gin.Context) {
 		endDate = &t
 	}
 
-	fh, err := c.FormFile("shapefile")
-	if err != nil {
-		if isBodyTooLarge(err) {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-			return
-		}
-		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequired)
-		return
-	}
-	if fh.Size > maxShapefileSize {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-		return
-	}
-	zipData, err := readMultipartFile(fh, maxShapefileSize)
-	if err == errUploadTooLarge {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-		return
-	}
-	if err != nil {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
-		return
-	}
+	// Хилийн файл ХҮЛЭЭЖ АВАХГҮЙ: чөлөөлөлтийн хил нь олдсон төлөвлөгөөний
+	// хилээс хуулагдана (service.Create → planBoundaryWKT).
 
 	createdByStr := contextUserIDString(c)
 
@@ -314,7 +290,6 @@ func (h *LandHandler) Create(c *gin.Context) {
 		PlanCode:          planCode,
 		StartDate:         startDate,
 		EndDate:           endDate, // nil if not provided
-		ShapefileData:     zipData,
 		CreatedBy:         createdByStr,
 		AcquisitionName:   projectName,
 		ImplementingOrg:   implementingOrg,
@@ -418,17 +393,17 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 
 // Update godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл засах
-// @Description  Геометр өөрчлөхдөө shapefile оруулна. Геометр өөрчлөгдвөл хуучин холбогдсон нэгж талбарууд хэвээр үлдэж, шинэ хилтэй давхцах дутуу нэгж талбарууд нэмэгдэнэ.
-// @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах, төлөвлөгөөний нэгж талбарын хилээс 50%-иас ихгүй гарсан байх.
+// @Description  ХИЛ солих: plan_parcel_id өгвөл тэр дугаараар төлөвлөгөөг дахин хайж, олдсон ТӨЛӨВЛӨГӨӨНИЙ хилийг шинэ хил болгож тохируулна (shapefile хүлээж авахгүй).
+// @Description  Хил өөрчлөгдвөл шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нь устана.
+// @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
 // @Produce      json
 // @Security     BearerAuth
 // @Param        id         path      string  true   "LandAcquisition UUID"
-// @Param        plan_code  formData  string  false  "Шинэ төлөвлөгөөний дугаар (солих бол shapefile заавал)"
+// @Param        plan_parcel_id formData string false "Төлөвлөгөөний нэгж талбарын дугаар — өгвөл хил тэр төлөвлөгөөнөөс дахин хуулагдана"
 // @Param        start_date formData  string  false  "Эхлэх огноо (YYYY-MM-DD)"
 // @Param        end_date   formData  string  false  "Дуусах огноо (YYYY-MM-DD)"
-// @Param        shapefile  formData  file    false  "Шинэ хилийн .shp файл"
 // @Success      200  {object}  response.Response
 // @Failure      400  {object}  response.Response
 // @Failure      404  {object}  response.Response
@@ -450,7 +425,14 @@ func (h *LandHandler) Update(c *gin.Context) {
 
 	req := service.UpdateLandAcquisitionRequest{}
 
-	req.PlanCode = c.PostForm("plan_code")
+	// Хил солих цорын ганц зам: төлөвлөгөөний НЭГЖ ТАЛБАРЫН ДУГААР. Утга
+	// өгөгдвөл service нь тэр дугаараар төлөвлөгөөг дахин хайж, олдсон
+	// төлөвлөгөөний хилээр чөлөөлөлтийн хилийг солино. Хуучин `plan_code`
+	// талбарыг зөвхөн нийцлийн үүднээс хүлээж авна.
+	req.PlanCode = strings.TrimSpace(c.PostForm("plan_parcel_id"))
+	if req.PlanCode == "" {
+		req.PlanCode = strings.TrimSpace(c.PostForm("plan_code"))
+	}
 
 	if s := c.PostForm("start_date"); s != "" {
 		t, err := time.Parse("2006-01-02", s)
@@ -467,31 +449,6 @@ func (h *LandHandler) Update(c *gin.Context) {
 			return
 		}
 		req.EndDate = &t
-	}
-
-	if fh, err := c.FormFile("shapefile"); err == nil {
-		if fh.Size > maxShapefileSize {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-			return
-		}
-		data, err := readMultipartFile(fh, maxShapefileSize)
-		if err == errUploadTooLarge {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-			return
-		}
-		if err != nil {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileOpen)
-			return
-		}
-		req.ShapefileData = data
-	} else if isBodyTooLarge(err) {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
-		return
-	}
-
-	if req.PlanCode != "" && len(req.ShapefileData) == 0 {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequiredForPlan)
-		return
 	}
 
 	req.AcquisitionName = c.PostForm("acquisition_name")

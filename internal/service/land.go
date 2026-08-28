@@ -10,7 +10,6 @@ import (
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/filestorage"
-	"acquisition_backend/internal/pkg/shapefile"
 	"acquisition_backend/internal/repository"
 
 	"github.com/google/uuid"
@@ -292,7 +291,7 @@ func NewLandService(
 //
 // Алхам:
 //  1. middleware /plan/project-ээс төлөвлөгөө татаж appdb-ийн plan хүснэгтэд хадгална
-//  2. Shapefile zip задалж polygon WKT гаргана
+//  2. Төлөвлөгөөний нэгж талбарын ХИЛИЙГ чөлөөлөлтийн хил болгож ХУУЛНА
 func (s *landService) ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error) {
 	return s.landRepo.ListConstructionTypes(ctx)
 }
@@ -329,16 +328,15 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		return nil, err
 	}
 
-	// 2. Shapefile задлах + СТАНДАРТЫН шалгалт (проекц, геометрийн төрөл,
-	//    бүтэц — shapefileError-ыг үз)
-	acqWKT, err := shapefile.Parse(req.ShapefileData)
+	// 2. Чөлөөлөх хил = ТӨЛӨВЛӨГӨӨНИЙ хил. Гараас shapefile авахаа больсон тул
+	//    хилийн цорын ганц эх сурвалж нь дундын сервисээс ирсэн төлөвлөгөө.
+	acqWKT, err := planBoundaryWKT(plan)
 	if err != nil {
-		return nil, shapefileError(err, "чөлөөлөх хил")
+		return nil, err
 	}
 
-	// 3. Хилийн шалгалт: нэг сум/дүүрэгт багтах + төлөвлөгөөний нэгж талбарын
-	//    хилээс гарсан хэмжээ 50%-иас ихгүй байх (validateBoundary).
-	if err := s.validateBoundary(ctx, acqWKT, plan); err != nil {
+	// 3. Хилийн шалгалт: хил нь НЭГ сум/дүүрэгт багтсан байх (validateBoundary).
+	if err := s.validateBoundary(ctx, acqWKT); err != nil {
 		return nil, err
 	}
 	acqAreaM2 := s.computeAreaM2(ctx, acqWKT)
@@ -424,27 +422,25 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		boundaryChange  *domain.BoundaryChange
 	)
 
-	if len(req.ShapefileData) > 0 {
-		// Шинэ план эсвэл шинэ хилийн файл өгсөн үед геометрийг шинэчилнэ
-		targetPlanCode := acq.PlanCode
-		if req.PlanCode != "" {
-			targetPlanCode = req.PlanCode
-		}
-
-		plan, err := s.resolvePlan(ctx, targetPlanCode)
+	// Хил солих: төлөвлөгөөний дугаар өгөгдсөн үед л. Дугаараар төлөвлөгөөг
+	// ДАХИН хайж (Create-тэй ижил урсгал), олдсон төлөвлөгөөний хилийг шинэ хил
+	// болгож хуулна. Одоогийнхтой ижил дугаар өгсөн ч дахин хуулна — дундын
+	// сервис дээр хил засагдсан үед үүгээр шинэчилнэ.
+	if req.PlanCode != "" {
+		plan, err := s.resolvePlan(ctx, req.PlanCode)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		newWKT, err := shapefile.Parse(req.ShapefileData)
+		newWKT, err := planBoundaryWKT(plan)
 		if err != nil {
-			return nil, nil, shapefileError(err, "шинэ хил")
+			return nil, nil, err
 		}
 
-		// Хилийн шалгалт Create-тай ИЖИЛ: шинэ хил нь нэг сум/дүүрэгт багтаж,
-		// төлөвлөгөөний хилээс 50%-иас ихгүй гарсан байх ёстой. Үгүй бол
-		// шинэчлэлт хийгдэхгүй (шалгалтыг Update-ээр тойрч гарах боломжгүй).
-		if err := s.validateBoundary(ctx, newWKT, plan); err != nil {
+		// Хилийн шалгалт Create-тай ИЖИЛ: шинэ хил нь нэг сум/дүүрэгт багтсан
+		// байх ёстой. Үгүй бол шинэчлэлт хийгдэхгүй (шалгалтыг Update-ээр
+		// тойрч гарах боломжгүй).
+		if err := s.validateBoundary(ctx, newWKT); err != nil {
 			return nil, nil, err
 		}
 		newAreaM2 := s.computeAreaM2(ctx, newWKT)
@@ -473,9 +469,6 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		acq.GeometryWKT = newWKT
 		// Шинэ хилийн талбайг автоматаар тооцно (гараас оруулсныг үл хэрэгсэнэ).
 		acq.AreaM2 = newAreaM2
-	} else if req.PlanCode != "" {
-		// Shapefile өгөөгүй атал план солихыг хүсвэл алдаа
-		return nil, nil, domain.ErrInvalidInput
 	}
 
 	if req.StartDate != nil {
@@ -494,8 +487,8 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	acq.GeneralCategoryID = req.GeneralCategoryID
 	acq.SubCategoryID = req.SubCategoryID
 	acq.UpdatedBy = req.UpdatedBy
-	// Shapefile байхгүй үед гараас оруулсан талбайн утгыг хэрэглэнэ
-	if len(req.ShapefileData) == 0 && req.AreaM2 != nil {
+	// Хил хөндөөгүй үед гараас оруулсан талбайн утгыг хэрэглэнэ
+	if !geometryChanged && req.AreaM2 != nil {
 		acq.AreaM2 = *req.AreaM2
 	}
 
@@ -577,53 +570,35 @@ func (s *landService) computeAreaM2(ctx context.Context, geomWKT string) float64
 	return areaM2
 }
 
-// planOutsideMaxRatio — чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс гадна
-// гарч болох ХАМГИЙН ИХ хэмжээ: төлөвлөгөөний талбайн 50%. Хувиар хүлцэл
-// байдаг ЦОР ГАНЦ шалгалт нь энэ — сум/дүүргийн болон нэгж талбарын хилийн
-// шалгалт хувиар хүлцэл тавихгүй.
-const planOutsideMaxRatio = 0.5
-
-// shapefileError — shapefile-ийн шалгалтын алдааг API-ийн domain алдаа болгож
-// хөрвүүлнэ. Хэрэглэгчид ЯМАР ШАЛТГААНААР татгалзсаныг харуулах нь чухал
-// (өмнө нь бүх алдаа "хил төлөвлөгөөнөөс гарсан" гэсэн ганц мессеж болдог
-// байсан).
+// planBoundaryWKT — чөлөөлөлтийн хил болгон хуулах ТӨЛӨВЛӨГӨӨНИЙ хил.
 //
-// Нарийн тайлбар (координат, файлын байт) нь домэйн алдаанд дамжихгүй тул
-// эндээс логлоно.
-func shapefileError(err error, what string) error {
-	mapped := domain.ErrShapefileFormat
-	switch {
-	case errors.Is(err, shapefile.ErrProjection):
-		mapped = domain.ErrShapefileProjection
-	case errors.Is(err, shapefile.ErrOutsideCountry):
-		mapped = domain.ErrShapefileOutsideCountry
-	case errors.Is(err, shapefile.ErrMultipleRecords):
-		mapped = domain.ErrShapefileMultiRecord
-	case errors.Is(err, shapefile.ErrMultiPolygon):
-		mapped = domain.ErrShapefileMultiPolygon
-	case errors.Is(err, shapefile.ErrShapeType):
-		mapped = domain.ErrShapefileShapeType
+// Хил нь дундын сервисийн /plan/project-ээс (pl_project_parcel.polygon_geom)
+// ирдэг ба ХООСОН байж болно. Хоосон үед чөлөөлөлтийг хилгүйгээр бүртгэвэл
+// нэгж талбар татах, талбай тооцох, газрын зураг зурах бүхэн нурах тул
+// шалтгааныг тодорхой заасан алдаагаар зогсооно.
+func planBoundaryWKT(plan *domain.Plan) (string, error) {
+	if plan == nil {
+		return "", domain.ErrPlanBoundaryMissing
 	}
-	slog.Warn("оруулсан shapefile стандартад тохирсонгүй",
-		"what", what, "reason", err.Error())
-	return mapped
+	wkt := strings.TrimSpace(plan.BoundaryWKT)
+	if wkt == "" {
+		slog.Warn("төлөвлөгөөний хил хоосон тул чөлөөлөлтийн хил үүсгэх боломжгүй",
+			"plan_code", plan.PlanCode, "parcel_id", plan.ParcelID)
+		return "", domain.ErrPlanBoundaryMissing
+	}
+	return wkt, nil
 }
 
-// validateBoundary — чөлөөлөх хилийг бүртгэхийн ӨМНӨ шалгана:
+// validateBoundary — чөлөөлөх хилийг бүртгэхийн ӨМНӨ шалгана: хил нь ЗӨВХӨН
+// нэг сум/дүүрэгт (au2) БҮРЭН багтах ёстой. Дамнасан эсвэл сум/дүүргийн хилээс
+// гарсан бол domain.ErrAU2Crossing — хүлцэл БАЙХГҮЙ.
 //
-//  1. Хил нь ЗӨВХӨН нэг сум/дүүрэгт (au2) БҮРЭН багтах ёстой. Дамнасан
-//     эсвэл сум/дүүргийн хилээс гарсан бол domain.ErrAU2Crossing —
-//     хүлцэл БАЙХГҮЙ.
-//  2. Хил нь төлөвлөгөөний нэгж талбарын хилээс том байж болно, гэхдээ
-//     гарсан талбай нь төлөвлөгөөний талбайн 50%-иас ихгүй байх —
-//     үгүй бол domain.ErrOutsidePlanExceeds.
+// "Төлөвлөгөөний хил дотор байх" шалгалт УСТСАН: чөлөөлөх хил нь одоо
+// төлөвлөгөөний хилийн ХУУЛБАР тул өөрөөсөө гарах боломжгүй.
 //
 // Шалгалт бүтэлгүйтвэл бүртгэл ҮҮСЭХГҮЙ (дуудагч алдааг шууд буцаана).
-func (s *landService) validateBoundary(ctx context.Context, acqWKT string, plan *domain.Plan) error {
-	if err := s.validateSingleAU2(ctx, acqWKT); err != nil {
-		return err
-	}
-	return s.validateWithinPlan(ctx, acqWKT, plan)
+func (s *landService) validateBoundary(ctx context.Context, acqWKT string) error {
+	return s.validateSingleAU2(ctx, acqWKT)
 }
 
 // validateSingleAU2 — чөлөөлөх хил НЭГ сум/дүүрэгт БҮРЭН багтаж байгааг
@@ -666,46 +641,6 @@ func (s *landService) validateSingleAU2(ctx context.Context, acqWKT string) erro
 	slog.Warn("чөлөөлөх хил сум/дүүрэг дамнасан (нэг ч au2-д бүрэн багтаагүй)",
 		"au2_codes", strings.Join(touched, ","))
 	return domain.ErrAU2Crossing
-}
-
-// validateWithinPlan — чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилтэй
-// харьцуулна. Хилээс гарч болох ба гарсан талбай нь төлөвлөгөөний талбайн
-// 50%-иас их бол бүртгэхгүй.
-//
-// Төлөвлөгөөний хил (эсвэл түүний талбай) байхгүй үед шалгах боломжгүй тул
-// бүртгэлийг ЗОГСООХГҮЙ — логлож алгасна.
-func (s *landService) validateWithinPlan(ctx context.Context, acqWKT string, plan *domain.Plan) error {
-	if plan == nil || strings.TrimSpace(plan.BoundaryWKT) == "" {
-		slog.Warn("төлөвлөгөөний хил байхгүй тул багтах шалгалт алгасагдав")
-		return nil
-	}
-
-	res, err := s.landRepo.CheckContainment(ctx, acqWKT, plan.BoundaryWKT)
-	if err != nil {
-		slog.Error("төлөвлөгөөний хилээс гарсан талбай тооцоолоход алдаа",
-			"plan_code", plan.PlanCode, "error", err)
-		return domain.ErrInternalServer
-	}
-	if res == nil || res.Covered {
-		return nil
-	}
-	planAreaM2 := res.ContainerM2
-	if planAreaM2 <= 0 {
-		planAreaM2 = plan.AreaM2
-	}
-	if planAreaM2 <= 0 {
-		slog.Warn("төлөвлөгөөний талбай тодорхойгүй тул багтах шалгалт алгасагдав",
-			"plan_code", plan.PlanCode)
-		return nil
-	}
-	if res.OutsideM2 > planAreaM2*planOutsideMaxRatio {
-		slog.Warn("чөлөөлөх хил төлөвлөгөөний хилээс хэт гарсан",
-			"plan_code", plan.PlanCode,
-			"outside_m2", res.OutsideM2,
-			"plan_area_m2", planAreaM2)
-		return domain.ErrOutsidePlanExceeds
-	}
-	return nil
 }
 
 // validateParcelAcquisitionGeom — нэгж талбар дээр чөлөөлөгдөх ТАЛБАЙ/ХИЛ

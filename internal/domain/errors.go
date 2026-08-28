@@ -45,8 +45,9 @@ var (
 	// Чөлөөлөх хил нь нэг сум/дүүрэгт (au2) багтаагүй — дамнасан эсвэл
 	// сум/дүүргийн хилээс гарсан.
 	ErrAU2Crossing = errors.New("acquisition boundary crosses administrative unit (au2) borders")
-	// Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс хэт (50%-иас их) гарсан.
-	ErrOutsidePlanExceeds = errors.New("acquisition boundary outside the plan parcel exceeds 50% of the plan area")
+	// Чөлөөлөлтийн хил нь ТӨЛӨВЛӨГӨӨНИЙ хилээс хуулагддаг (гараас файл оруулах
+	// зам байхгүй) тул төлөвлөгөөнд хил ирээгүй бол үүсгэх/солих боломжгүй.
+	ErrPlanBoundaryMissing = errors.New("plan parcel has no boundary geometry")
 	// base.bs_person (хүний бүртгэл) нь ГУС-ийн эх өгөгдөл — УСТГАХ БОЛОМЖГҮЙ.
 	ErrPersonDeleteForbidden = errors.New("person records cannot be deleted")
 

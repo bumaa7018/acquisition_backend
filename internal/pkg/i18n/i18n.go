@@ -51,33 +51,30 @@ const (
 	ErrTooManyRequests   Key = "too_many_requests"
 
 	// Land / plan errors
-	ErrPlanNotFound             Key = "plan_not_found"
-	ErrAcqNotFound              Key = "acq_not_found"
-	ErrRequiredFields           Key = "required_fields"
-	ErrStartDateFormat          Key = "start_date_format"
-	ErrEndDateFormat            Key = "end_date_format"
-	ErrShapefileRequired        Key = "shapefile_required"
-	ErrShapefileOpen            Key = "shapefile_open"
-	ErrShapefileRead            Key = "shapefile_read"
-	ErrBoundaryExceeds          Key = "boundary_exceeds"
-	ErrNewBoundaryExceeds       Key = "new_boundary_exceeds"
-	ErrAU2Crossing              Key = "au2_crossing"
-	ErrOutsidePlanExceeds       Key = "outside_plan_exceeds"
-	ErrOutsideParcelBoundary    Key = "outside_parcel_boundary"
-	ErrShapefileProjection      Key = "shapefile_projection"
-	ErrShapefileOutsideCountry  Key = "shapefile_outside_country"
-	ErrShapefileMultiRecord     Key = "shapefile_multi_record"
-	ErrShapefileShapeType       Key = "shapefile_shape_type"
-	ErrShapefileMultiPolygon    Key = "shapefile_multipolygon"
-	ErrShapefileFormat          Key = "shapefile_format"
-	ErrPersonDeleteForbidden    Key = "person_delete_forbidden"
-	ErrHasReleasedParcels       Key = "has_released_parcels"
-	ErrConfirmedDecisionLinked  Key = "confirmed_decision_linked"
-	ErrReleasedParcelOutside    Key = "released_parcel_outside_boundary"
-	ErrShapefileRequiredForPlan Key = "shapefile_required_for_plan"
-	ErrDeleteNotNew             Key = "delete_not_new"
-	WarnGeomChanged             Key = "geom_changed"
-	ErrCodeRequired             Key = "code_required"
+	ErrPlanNotFound            Key = "plan_not_found"
+	ErrAcqNotFound             Key = "acq_not_found"
+	ErrRequiredFields          Key = "required_fields"
+	ErrStartDateFormat         Key = "start_date_format"
+	ErrEndDateFormat           Key = "end_date_format"
+	ErrShapefileRead           Key = "shapefile_read"
+	ErrPlanBoundaryMissing     Key = "plan_boundary_missing"
+	ErrBoundaryExceeds         Key = "boundary_exceeds"
+	ErrNewBoundaryExceeds      Key = "new_boundary_exceeds"
+	ErrAU2Crossing             Key = "au2_crossing"
+	ErrOutsideParcelBoundary   Key = "outside_parcel_boundary"
+	ErrShapefileProjection     Key = "shapefile_projection"
+	ErrShapefileOutsideCountry Key = "shapefile_outside_country"
+	ErrShapefileMultiRecord    Key = "shapefile_multi_record"
+	ErrShapefileShapeType      Key = "shapefile_shape_type"
+	ErrShapefileMultiPolygon   Key = "shapefile_multipolygon"
+	ErrShapefileFormat         Key = "shapefile_format"
+	ErrPersonDeleteForbidden   Key = "person_delete_forbidden"
+	ErrHasReleasedParcels      Key = "has_released_parcels"
+	ErrConfirmedDecisionLinked Key = "confirmed_decision_linked"
+	ErrReleasedParcelOutside   Key = "released_parcel_outside_boundary"
+	ErrDeleteNotNew            Key = "delete_not_new"
+	WarnGeomChanged            Key = "geom_changed"
+	ErrCodeRequired            Key = "code_required"
 
 	// Status errors
 	ErrStatusRequired          Key = "status_required"
@@ -145,33 +142,30 @@ var messages = map[Key][2]string{
 	ErrDBUnavailable:     {"Мэдээллийн сан давчдаж байна", "Database unavailable"},
 	ErrTooManyRequests:   {"Хэт олон хүсэлт илгээгдсэн байна", "Too many requests"},
 
-	ErrPlanNotFound:             {"Төлөвлөгөө олдсонгүй", "Plan not found"},
-	ErrAcqNotFound:              {"Чөлөөлөлт олдсонгүй", "Land acquisition not found"},
-	ErrRequiredFields:           {"plan_code, start_date, end_date заавал шаардлагатай", "plan_code, start_date, end_date are required"},
-	ErrStartDateFormat:          {"start_date формат буруу (YYYY-MM-DD)", "Invalid start_date format (YYYY-MM-DD)"},
-	ErrEndDateFormat:            {"end_date формат буруу (YYYY-MM-DD)", "Invalid end_date format (YYYY-MM-DD)"},
-	ErrShapefileRequired:        {"shapefile файл шаардлагатай", "shapefile file is required"},
-	ErrShapefileOpen:            {"shapefile нээхэд алдаа", "Failed to open shapefile"},
-	ErrShapefileRead:            {"shapefile уншихад алдаа", "Failed to read shapefile"},
-	ErrBoundaryExceeds:          {"Чөлөөлөх хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу", "Acquisition boundary exceeds plan boundary or invalid shapefile"},
-	ErrNewBoundaryExceeds:       {"Шинэ хил нь төлөвлөгөөний хилээс гарсан эсвэл shapefile формат буруу", "New boundary exceeds plan boundary or invalid shapefile"},
-	ErrAU2Crossing:              {"Сум/дүүрэг дамнах боломжгүй. Чөлөөлөх хил нь зөвхөн нэг сум/дүүргийн хил дотор байх шаардлагатай.", "Cannot span multiple districts. The acquisition boundary must lie within a single district (au2)."},
-	ErrOutsidePlanExceeds:       {"Чөлөөлөх хил төлөвлөгөөний нэгж талбарын хилээс хэт их (50%-иас дээш) гарсан байна.", "The acquisition boundary extends beyond the plan parcel boundary by more than 50% of the plan area."},
-	ErrOutsideParcelBoundary:    {"Чөлөөлөх хил/талбай нь нэгж талбарын үндсэн хил дотор байх шаардлагатай. Оруулсан хил үндсэн хилээс гарсан байна.", "The acquisition geometry must lie inside the parcel's own boundary."},
-	ErrShapefileProjection:      {"Оруулсан файлын проекц зөрүүтэй. Хил нь WGS84 (EPSG:4326) координатын системд, градусаар байх шаардлагатай.", "Invalid projection: the boundary must be in WGS84 (EPSG:4326) degrees."},
-	ErrShapefileOutsideCountry:  {"Оруулсан хилийн координат Монгол Улсын хүрээнд байхгүй. Файлын проекц эсвэл координатыг шалгана уу.", "The boundary coordinates fall outside Mongolia. Check the file's projection."},
-	ErrShapefileMultiRecord:     {"Оруулсан файлд нэгээс олон полигон байна. Нэг полигон агуулсан файл оруулна уу.", "The file contains more than one polygon. Upload a file with exactly one polygon."},
-	ErrShapefileShapeType:       {"Оруулсан файлын геометр нь полигон биш байна (Polygon төрөл шаардлагатай). Цэг (Point) эсвэл шугам (PolyLine) төрөл дэмжигдэхгүй.", "The geometry must be a polygon; point and line types are not supported."},
-	ErrShapefileMultiPolygon:    {"Оруулсан файлд салангид олон полигон (MultiPolygon) байна. Хил нь нэг полигон байх шаардлагатай (цоорхой бүхий полигон зөвшөөрөгдөнө).", "MultiPolygon is not supported: the boundary must be a single polygon (holes are allowed)."},
-	ErrShapefileFormat:          {"Оруулсан файл ESRI Shapefile (.shp) бүтцэд тохирохгүй эсвэл эвдэрсэн байна.", "The file is not a valid ESRI Shapefile (.shp)."},
-	ErrShapefileRequiredForPlan: {"Төлөвлөгөө солих бол шинэ shapefile заавал шаардлагатай", "Shapefile is required when changing plan"},
-	ErrDeleteNotNew:             {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
-	ErrPersonDeleteForbidden:    {"Хүний мэдээллийг устгах боломжгүй. Ажилтныг чөлөөлөх бол ажилтны бүртгэлийг идэвхгүй болгоно.", "Person records cannot be deleted; deactivate the employee instead."},
-	ErrHasReleasedParcels:       {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
-	ErrConfirmedDecisionLinked:  {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
-	ErrReleasedParcelOutside:    {"Шинэ хил нь \"Чөлөөлсөн\" төлөвтэй нэгж талбарыг гадна орхиж байна. Чөлөөлсөн нэгж талбарууд бүгд шинэ хилд багтсан байх шаардлагатай.", "The new boundary excludes parcels that are already released. All released parcels must fall inside the new boundary."},
-	WarnGeomChanged:             {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},
-	ErrCodeRequired:             {"code параметр шаардлагатай", "code parameter is required"},
+	ErrPlanNotFound:            {"Төлөвлөгөө олдсонгүй", "Plan not found"},
+	ErrAcqNotFound:             {"Чөлөөлөлт олдсонгүй", "Land acquisition not found"},
+	ErrRequiredFields:          {"plan_code, start_date, end_date заавал шаардлагатай", "plan_code, start_date, end_date are required"},
+	ErrStartDateFormat:         {"start_date формат буруу (YYYY-MM-DD)", "Invalid start_date format (YYYY-MM-DD)"},
+	ErrEndDateFormat:           {"end_date формат буруу (YYYY-MM-DD)", "Invalid end_date format (YYYY-MM-DD)"},
+	ErrShapefileRead:           {"shapefile уншихад алдаа", "Failed to read shapefile"},
+	ErrPlanBoundaryMissing:     {"Төлөвлөгөөний нэгж талбарын хил байхгүй байна. Чөлөөлөлтийн хил нь төлөвлөгөөний хилээс хуулагддаг тул үргэлжлүүлэх боломжгүй.", "The plan parcel has no boundary. The acquisition boundary is copied from the plan, so it cannot continue."},
+	ErrBoundaryExceeds:         {"Төлөвлөгөөний хил шалгалтад тэнцсэнгүй", "The plan boundary failed validation"},
+	ErrNewBoundaryExceeds:      {"Төлөвлөгөөний шинэ хил шалгалтад тэнцсэнгүй", "The new plan boundary failed validation"},
+	ErrAU2Crossing:             {"Сум/дүүрэг дамнах боломжгүй. Чөлөөлөх хил нь зөвхөн нэг сум/дүүргийн хил дотор байх шаардлагатай.", "Cannot span multiple districts. The acquisition boundary must lie within a single district (au2)."},
+	ErrOutsideParcelBoundary:   {"Чөлөөлөх хил/талбай нь нэгж талбарын үндсэн хил дотор байх шаардлагатай. Оруулсан хил үндсэн хилээс гарсан байна.", "The acquisition geometry must lie inside the parcel's own boundary."},
+	ErrShapefileProjection:     {"Оруулсан файлын проекц зөрүүтэй. Хил нь WGS84 (EPSG:4326) координатын системд, градусаар байх шаардлагатай.", "Invalid projection: the boundary must be in WGS84 (EPSG:4326) degrees."},
+	ErrShapefileOutsideCountry: {"Оруулсан хилийн координат Монгол Улсын хүрээнд байхгүй. Файлын проекц эсвэл координатыг шалгана уу.", "The boundary coordinates fall outside Mongolia. Check the file's projection."},
+	ErrShapefileMultiRecord:    {"Оруулсан файлд нэгээс олон полигон байна. Нэг полигон агуулсан файл оруулна уу.", "The file contains more than one polygon. Upload a file with exactly one polygon."},
+	ErrShapefileShapeType:      {"Оруулсан файлын геометр нь полигон биш байна (Polygon төрөл шаардлагатай). Цэг (Point) эсвэл шугам (PolyLine) төрөл дэмжигдэхгүй.", "The geometry must be a polygon; point and line types are not supported."},
+	ErrShapefileMultiPolygon:   {"Оруулсан файлд салангид олон полигон (MultiPolygon) байна. Хил нь нэг полигон байх шаардлагатай (цоорхой бүхий полигон зөвшөөрөгдөнө).", "MultiPolygon is not supported: the boundary must be a single polygon (holes are allowed)."},
+	ErrShapefileFormat:         {"Оруулсан файл ESRI Shapefile (.shp) бүтцэд тохирохгүй эсвэл эвдэрсэн байна.", "The file is not a valid ESRI Shapefile (.shp)."},
+	ErrDeleteNotNew:            {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
+	ErrPersonDeleteForbidden:   {"Хүний мэдээллийг устгах боломжгүй. Ажилтныг чөлөөлөх бол ажилтны бүртгэлийг идэвхгүй болгоно.", "Person records cannot be deleted; deactivate the employee instead."},
+	ErrHasReleasedParcels:      {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
+	ErrConfirmedDecisionLinked: {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
+	ErrReleasedParcelOutside:   {"Шинэ хил нь \"Чөлөөлсөн\" төлөвтэй нэгж талбарыг гадна орхиж байна. Чөлөөлсөн нэгж талбарууд бүгд шинэ хилд багтсан байх шаардлагатай.", "The new boundary excludes parcels that are already released. All released parcels must fall inside the new boundary."},
+	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},
+	ErrCodeRequired:            {"code параметр шаардлагатай", "code parameter is required"},
 
 	ErrStatusRequired:          {"to_status шаардлагатай", "to_status is required"},
 	ErrInvalidStatus:           {"Буруу статус", "Invalid status"},

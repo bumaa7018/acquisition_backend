@@ -176,12 +176,14 @@ func TestLandHandler_Create_Success(t *testing.T) {
 		return r.PlanCode == "PLAN-2024-001"
 	})).Return(acq, nil)
 
+	// Хилийн ФАЙЛГҮЙ хүсэлт — хил нь төлөвлөгөөнөөс хуулагддаг тул файл
+	// шаардахаа больсон.
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code":        "PLAN-2024-001",
+		"plan_parcel_id":   "PLAN-2024-001",
 		"start_date":       "2024-01-01",
 		"end_date":         "2024-12-31",
 		"acquisition_name": "Test Project",
-	}, "shapefile", buildTestShp())
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -204,7 +206,7 @@ func TestLandHandler_Create_MissingFields(t *testing.T) {
 	body, ct := buildMultipartForm(t, map[string]string{
 		"plan_code": "PLAN-2024-001",
 		// start_date, end_date missing
-	}, "shapefile", buildTestShp())
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -225,7 +227,7 @@ func TestLandHandler_Create_BadDateFormat(t *testing.T) {
 		"plan_code":  "PLAN-2024-001",
 		"start_date": "01-01-2024", // wrong format
 		"end_date":   "2024-12-31",
-	}, "shapefile", buildTestShp())
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -237,15 +239,23 @@ func TestLandHandler_Create_BadDateFormat(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestLandHandler_Create_NoShapefile(t *testing.T) {
+// Хилийн файл ИЛГЭЭСЭН ч БҮРЭН ҮЛ ХЭРЭГСЭНЭ — хилийн цорын ганц эх сурвалж нь
+// төлөвлөгөө. (Хуучин клиент файл илгээсээр байвал бүртгэл нурах ёсгүй.)
+func TestLandHandler_Create_IgnoresUploadedShapefile(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
+	acq := sampleAcquisition()
+	mockSvc.On("Create", mock.Anything, mock.MatchedBy(func(r service.CreateLandAcquisitionRequest) bool {
+		return r.PlanCode == "PLAN-2024-001"
+	})).Return(acq, nil)
+
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code":  "PLAN-2024-001",
-		"start_date": "2024-01-01",
-		"end_date":   "2024-12-31",
-	}, "", nil) // no file
+		"plan_parcel_id":   "PLAN-2024-001",
+		"start_date":       "2024-01-01",
+		"end_date":         "2024-12-31",
+		"acquisition_name": "Test Project",
+	}, "shapefile", buildTestShp())
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -254,7 +264,8 @@ func TestLandHandler_Create_NoShapefile(t *testing.T) {
 
 	h.Create(c)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 func TestLandHandler_Create_PlanNotFound(t *testing.T) {
@@ -268,7 +279,7 @@ func TestLandHandler_Create_PlanNotFound(t *testing.T) {
 		"start_date":       "2024-01-01",
 		"end_date":         "2024-12-31",
 		"acquisition_name": "Test Project",
-	}, "shapefile", buildTestShp())
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -291,7 +302,7 @@ func TestLandHandler_Create_GeometryOutside(t *testing.T) {
 		"start_date":       "2024-01-01",
 		"end_date":         "2024-12-31",
 		"acquisition_name": "Test Project",
-	}, "shapefile", buildTestShp())
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -509,7 +520,7 @@ func TestLandHandler_Update_DatesOnly(t *testing.T) {
 
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
-		return r.PlanCode == "" && len(r.ShapefileData) == 0
+		return r.PlanCode == ""
 	})).Return(acq, nil, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
@@ -529,18 +540,22 @@ func TestLandHandler_Update_DatesOnly(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-func TestLandHandler_Update_WithShapefile(t *testing.T) {
+// Хил солих: төлөвлөгөөний нэгж талбарын дугаараар. Файл илгээгдэхгүй —
+// handler нь дугаарыг service рүү дамжуулж, тэндээс төлөвлөгөөний хил
+// хуулагдана.
+func TestLandHandler_Update_WithPlanParcelID(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
-		return len(r.ShapefileData) > 0
+		return r.PlanCode == "PLAN-2025-002"
 	})).Return(acq, &domain.BoundaryChange{Added: 3, Removed: 2}, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"acquisition_name": "Test Project",
-	}, "shapefile", buildTestShp())
+		"plan_parcel_id":   "PLAN-2025-002",
+	}, "", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -561,13 +576,18 @@ func TestLandHandler_Update_WithShapefile(t *testing.T) {
 	assert.Equal(t, float64(2), data["removed_parcels"])
 }
 
-func TestLandHandler_Update_PlanChangedWithoutShapefile(t *testing.T) {
+// Төлөвлөгөөнд хил байхгүй бол хил солигдохгүй — 422.
+func TestLandHandler_Update_PlanBoundaryMissing(t *testing.T) {
 	mockSvc := &mocks.MockLandService{}
 	h := handler.NewLandHandler(mockSvc)
 
 	id := uuid.New()
+	mockSvc.On("Update", mock.Anything, id, mock.Anything).
+		Return(nil, nil, domain.ErrPlanBoundaryMissing)
+
 	body, ct := buildMultipartForm(t, map[string]string{
-		"plan_code": "PLAN-2025-002",
+		"acquisition_name": "Test Project",
+		"plan_parcel_id":   "PLAN-2025-002",
 	}, "", nil)
 
 	w := httptest.NewRecorder()
@@ -578,8 +598,7 @@ func TestLandHandler_Update_PlanChangedWithoutShapefile(t *testing.T) {
 
 	h.Update(c)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	mockSvc.AssertNotCalled(t, "Update")
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
 func TestLandHandler_Update_NotFound(t *testing.T) {
