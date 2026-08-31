@@ -25,14 +25,15 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
 }
 
-func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	if err := s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy); err != nil {
+func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+	if err := s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy, reason); err != nil {
 		return err
 	}
 	s.notifyParcelStatusChanged(ctx, acquisitionID, parcelID)
 	s.auditLog(ctx, "status_changed", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
 		"to_status":  statusID,
 		"created_by": createdBy,
+		"reason":     reason,
 	})
 	return nil
 }

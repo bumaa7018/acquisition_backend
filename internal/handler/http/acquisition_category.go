@@ -45,6 +45,8 @@ func (h *AcquisitionCategoryHandler) Create(c *gin.Context) {
 		Name      string `json:"name"`
 		ParentID  *int   `json:"parent_id"`
 		SortOrder int    `json:"sort_order"`
+		// Хариуцсан алба (hr_department.department_id). null = холбохгүй.
+		DepartmentID *int `json:"department_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -54,7 +56,7 @@ func (h *AcquisitionCategoryHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
 		return
 	}
-	cat, err := h.svc.CreateAcquisitionCategory(c.Request.Context(), req.Name, req.ParentID, req.SortOrder)
+	cat, err := h.svc.CreateAcquisitionCategory(c.Request.Context(), req.Name, req.ParentID, req.SortOrder, req.DepartmentID)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -71,6 +73,8 @@ func (h *AcquisitionCategoryHandler) Update(c *gin.Context) {
 	var req struct {
 		Name      string `json:"name"`
 		SortOrder int    `json:"sort_order"`
+		// Хариуцсан алба. null илгээвэл албыг САЛГАНА (хуучныг үлдээхгүй).
+		DepartmentID *int `json:"department_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -80,7 +84,7 @@ func (h *AcquisitionCategoryHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
 		return
 	}
-	cat, err := h.svc.UpdateAcquisitionCategory(c.Request.Context(), id, req.Name, req.SortOrder)
+	cat, err := h.svc.UpdateAcquisitionCategory(c.Request.Context(), id, req.Name, req.SortOrder, req.DepartmentID)
 	if err != nil {
 		response.Error(c, err)
 		return

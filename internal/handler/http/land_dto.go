@@ -8,34 +8,48 @@ import (
 )
 
 type landAcquisitionResponse struct {
-	ID                  string           `json:"id"`
-	PlanCode            string           `json:"plan_code"`
-	PlanName            string           `json:"plan_name"`
-	GeometryWKT         string           `json:"geometry_wkt"`
-	AreaM2              float64          `json:"area_m2"`
-	Status              int              `json:"status"`
-	StartDate           *string          `json:"start_date"`
-	EndDate             *string          `json:"end_date"`
-	AcquisitionName     string           `json:"acquisition_name"`
-	ImplementingOrg     string           `json:"implementing_org"`
-	Reason              string           `json:"reason"`
-	ResponsibleOrg      string           `json:"responsible_org"`
-	FundingSource       string           `json:"funding_source"`
-	GeneralCategoryID   *int             `json:"general_category_id"`
-	GeneralCategoryName string           `json:"general_category_name"`
-	SubCategoryID       *int             `json:"sub_category_id"`
-	SubCategoryName     string           `json:"sub_category_name"`
-	DecreeNumber        string           `json:"decree_number"`
-	DecreeDate          *string          `json:"decree_date"`
-	CreatedAt           string           `json:"created_at"`
-	CreatedBy           string           `json:"created_by"`
-	ParcelCount         int64            `json:"parcel_count"`
+	ID                  string  `json:"id"`
+	PlanCode            string  `json:"plan_code"`
+	PlanName            string  `json:"plan_name"`
+	GeometryWKT         string  `json:"geometry_wkt"`
+	AreaM2              float64 `json:"area_m2"`
+	Status              int     `json:"status"`
+	StartDate           *string `json:"start_date"`
+	EndDate             *string `json:"end_date"`
+	AcquisitionName     string  `json:"acquisition_name"`
+	ImplementingOrg     string  `json:"implementing_org"`
+	Reason              string  `json:"reason"`
+	ResponsibleOrg      string  `json:"responsible_org"`
+	FundingSource       string  `json:"funding_source"`
+	GeneralCategoryID   *int    `json:"general_category_id"`
+	GeneralCategoryName string  `json:"general_category_name"`
+	SubCategoryID       *int    `json:"sub_category_id"`
+	SubCategoryName     string  `json:"sub_category_name"`
+	DecreeNumber        string  `json:"decree_number"`
+	DecreeDate          *string `json:"decree_date"`
+	CreatedAt           string  `json:"created_at"`
+	CreatedBy           string  `json:"created_by"`
+	ParcelCount         int64   `json:"parcel_count"`
+	// Явц — эцсийн төлөвт шилжсэн нэгж талбарын ЭЗЛЭХ ХУВЬ (0-100) ба тоо.
+	// Жагсаалт/дашбоард хоёулаа ижил тоо харуулахын тулд backend бодно.
+	FinalParcelCount    int64            `json:"final_parcel_count"`
+	ProgressPercent     int              `json:"progress_percent"`
 	ProfessionalOrgID   *string          `json:"professional_org_id,omitempty"`
 	ProfessionalOrgName string           `json:"professional_org_name,omitempty"`
 	AUs                 []auResponse     `json:"aus"`
 	Parcels             []parcelResponse `json:"parcels"`
 	// Дэлгэрэнгүй (GetByID) дээр л бөглөгдөнө — тусдаа funding-sources GET API-г орлоно
 	FundingSources []fundingSourceResponse `json:"funding_sources,omitempty"`
+	// Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ — мөн зөвхөн GetByID дээр (plan хүснэгтээс).
+	// plan_code нь өөрөө нэгж талбарын дугаар боловч хуучин бүртгэлд өөр байж
+	// болох тул plan_parcel_id-г ТУСАД НЬ буцаана.
+	PlanParcelID     string  `json:"plan_parcel_id,omitempty"`
+	PlanTypeName     string  `json:"plan_type_name,omitempty"`
+	PlanGazner       string  `json:"plan_gazner,omitempty"`
+	PlanAreaM2       float64 `json:"plan_area_m2,omitempty"`
+	PlanStartDate    *string `json:"plan_start_date,omitempty"`
+	PlanEndDate      *string `json:"plan_end_date,omitempty"`
+	PlanApprovedDate *string `json:"plan_approved_date,omitempty"`
 }
 
 type auResponse struct {
@@ -249,6 +263,9 @@ type dashboardAcqResponse struct {
 	PlanCode        string `json:"plan_code"`
 	Status          int    `json:"status"`
 	ParcelCount     int64  `json:"parcel_count"`
+	// Явц — жагсаалтын endpoint-той ИЖИЛ тооцоо (эцсийн 3 төлөв).
+	FinalParcelCount int64 `json:"final_parcel_count"`
+	ProgressPercent  int   `json:"progress_percent"`
 }
 
 type dashboardResponse struct {
@@ -633,6 +650,15 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		CreatedAt:           acq.CreatedAt.Format(time.RFC3339),
 		CreatedBy:           acq.CreatedBy,
 		ParcelCount:         acq.ParcelCount,
+		FinalParcelCount:    acq.FinalParcelCount,
+		ProgressPercent:     acq.ProgressPercent(),
+		PlanParcelID:        acq.PlanParcelID,
+		PlanTypeName:        acq.PlanTypeName,
+		PlanGazner:          acq.PlanGazner,
+		PlanAreaM2:          acq.PlanAreaM2,
+		PlanStartDate:       acq.PlanStartDate,
+		PlanEndDate:         acq.PlanEndDate,
+		PlanApprovedDate:    acq.PlanApprovedDate,
 	}
 	if acq.StartDate != nil {
 		s := acq.StartDate.Format("2006-01-02")

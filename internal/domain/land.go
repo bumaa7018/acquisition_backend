@@ -2,6 +2,7 @@ package domain
 
 import (
 	"io"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -304,6 +305,10 @@ type AcquisitionCategory struct {
 	Name      string `json:"name"`
 	ParentID  *int   `json:"parent_id"`
 	SortOrder int    `json:"sort_order"`
+	// DepartmentID — ХАРИУЦСАН АЛБА (authdb.sdplatform.hr_department).
+	// Өөр сангийн бүртгэл тул FK байхгүй, нэрийг дэлгэц /departments-ээс
+	// тааруулна. nil = тодорхойлоогүй.
+	DepartmentID *int `json:"department_id"`
 }
 
 // ParcelStatus — нэгж талбарын төлөв (lookup)
@@ -323,6 +328,9 @@ type ParcelStatusHistory struct {
 	StatusName    string    `json:"status_name"`
 	StatusDate    time.Time `json:"status_date"`
 	CreatedBy     string    `json:"created_by"`
+	// Reason — төлөв солих ШАЛТГААН. "Нөлөөлөгдсөн гарсан"/"Татгалзсан"
+	// үед заавал, бусад төлөвт хоосон байж болно.
+	Reason string `json:"reason"`
 }
 
 // Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв (нэгж талбарын статусаас тусдаа).
@@ -455,9 +463,46 @@ type LandAcquisition struct {
 	AUs                 []LandAcquisitionAU
 	Parcels             []*Parcel
 	ParcelCount         int64
+	// FinalParcelCount — ЭЦСИЙН төлөвт (Нөлөөлөгдсөн гарсан / Татгалзсан /
+	// Чөлөөлсөн) шилжсэн нэгж талбарын тоо. Чөлөөлөлтийн ЯВЦЫГ үүгээр
+	// хэмжинэ: чөлөөлөлт "Баталгаажсан" болохын нөхцөл нь БҮХ талбар эцсийн
+	// төлөвт байх явдал (HasNonFinalParcels-тай ижил шалгуур).
+	FinalParcelCount    int64
 	AssignedUsers       []AcquisitionAssignee
 	ProfessionalOrgID   *ID
 	ProfessionalOrgName string
+	// Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ — plan хүснэгтээс (LEFT JOIN plan_code-оор).
+	// ЗӨВХӨН GetByID дээр дүүрнэ: жагсаалтад хэрэггүй бөгөөд мөр тутам join
+	// хийх нь илүү. Төлөвлөгөө нь ГУС-аас татагдан plan хүснэгтэд хадгалагдсан
+	// байдаг тул дахин ГУС руу хандах шаардлагагүй.
+	PlanParcelID     string
+	PlanTypeName     string
+	PlanGazner       string
+	PlanStartDate    *string
+	PlanEndDate      *string
+	PlanApprovedDate *string
+}
+
+// AU2Option — шүүлтүүрийн СУМ/ДҮҮРГИЙН сонголт.
+//
+// Эх сурвалж нь land_acquisition_au: чөлөөлөлт бүртгэхэд хилээр нь тодорхойлж
+// хадгалдаг. Тиймээс жагсаалтад чөлөөлөлт БАЙГАА дүүргүүд л гарна — хоосон
+// сонголт харагдахгүй.
+type AU2Option struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// ProgressPercent — чөлөөлөлтийн явц (0-100). Нэгж талбаргүй бол 0.
+func (a *LandAcquisition) ProgressPercent() int {
+	if a == nil || a.ParcelCount <= 0 {
+		return 0
+	}
+	pct := int(math.Round(float64(a.FinalParcelCount) * 100 / float64(a.ParcelCount)))
+	if pct > 100 {
+		return 100
+	}
+	return pct
 }
 
 // LandAcquisitionOption — шүүлтүүрийн dropdown-д зориулсан ХӨНГӨН бүтэц.
@@ -552,9 +597,13 @@ type LandAcquisitionBoundaryHistory struct {
 
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
 type LandAcquisitionFilter struct {
-	PlanCode          string
-	AcquisitionName   string
-	Status            int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	PlanCode        string
+	AcquisitionName string
+	Status          int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	// AU2Code — СУМ/ДҮҮРГИЙН код. Чөлөөлөлт бүртгэхэд хилээр нь тодорхойлогдож
+	// land_acquisition_au-д хадгалагддаг тул тэр хүснэгтээр шүүнэ. Нэг
+	// чөлөөлөлт хэд хэдэн багтай (au3) байж болох ч дүүрэг нь ихэвчлэн нэг.
+	AU2Code           string
 	AU3Code           string
 	StartDateFrom     *time.Time
 	StartDateTo       *time.Time
@@ -1229,8 +1278,10 @@ type AuthorizedRepresentative struct {
 
 // DashboardFilter — дашбоардын шүүлтүүрийн параметр
 type DashboardFilter struct {
-	AcquisitionID        string
-	PlanCode             string
+	AcquisitionID string
+	PlanCode      string
+	// AU2Code — сум/дүүргийн код (land_acquisition_au-аар шүүнэ)
+	AU2Code              string
 	Years                []int
 	Status               int
 	GeneralCategoryID    int

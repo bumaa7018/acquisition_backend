@@ -163,8 +163,8 @@ type PlanStoreRepository interface {
 type LandLookupRepository interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
-	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error)
-	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error)
+	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error)
+	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error)
 	DeleteAcquisitionCategory(ctx context.Context, id int) error
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 }
@@ -175,6 +175,9 @@ type LandAcquisitionWriteRepository interface {
 	// ListFilterOptions — dropdown-д зориулсан хөнгөн жагсаалт (List-ийн
 	// parcel COUNT(*) / join-гүй). Дэлгэрэнгүйг domain.LandAcquisitionOption.
 	ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error)
+	// ListAcquisitionDistricts — чөлөөлөлт бүртгэгдсэн сум/дүүргүүд
+	// (land_acquisition_au-аас давхардалгүй). Шүүлтүүрийн сонголтод.
+	ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
@@ -373,8 +376,8 @@ type LandWorkflowRepository interface {
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
-	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
-	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
+	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
+	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
 	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)

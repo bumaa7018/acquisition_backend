@@ -114,6 +114,29 @@ func (h *LandHandler) Suggest(c *gin.Context) {
 // @Security     BearerAuth
 // @Success      200  {object}  response.Response
 // @Router       /land-acquisitions/filter-options [get]
+// Districts godoc
+// @Summary      Шүүлтүүрийн сум/дүүргийн жагсаалт
+// @Description  Чөлөөлөлт бүртгэгдсэн сум/дүүргүүд (land_acquisition_au-аас
+// @Description  давхардалгүй). Дашбоард болон чөлөөлөлтийн жагсаалтын
+// @Description  "Дүүрэг" сонголтыг дүүргэнэ.
+// @Description
+// @Description  Эрх: нэвтэрсэн БҮХ хэрэглэгчид нээлттэй — FilterOptions-той
+// @Description  ижил шалтгаанаар (шүүлтүүрийн сонголт хязгаарлагдвал хэрэглэгч
+// @Description  өөрт харагдах ёстой мөрүүдээ шүүж чадахгүй болно).
+// @Tags         land-acquisitions
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  response.Response
+// @Router       /land-acquisitions/districts [get]
+func (h *LandHandler) Districts(c *gin.Context) {
+	list, err := h.svc.ListAcquisitionDistricts(c.Request.Context())
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
 func (h *LandHandler) FilterOptions(c *gin.Context) {
 	list, err := h.svc.ListFilterOptions(c.Request.Context())
 	if err != nil {
@@ -154,6 +177,7 @@ func (h *LandHandler) List(c *gin.Context) {
 		PlanCode:          c.Query("plan_code"),
 		AcquisitionName:   c.Query("acquisition_name"),
 		Status:            queryInt(c, "status", 0),
+		AU2Code:           c.Query("au2_code"),
 		AU3Code:           c.Query("au3_code"),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
@@ -996,6 +1020,31 @@ func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil)
+}
+
+// ComputeGeometryArea — WKT хилийн талбайг тооцоод буцаана.
+//
+// ЯАГААД СЕРВЕР ДЭЭР: талбайг ГУС-тай ИЖИЛ аргаар (UTM проекц, бүхэл м²)
+// бодох ёстой. Browser дээр ойролцоо тооцвол ГУС-ийн болон нэгж талбар
+// татахад бодогдсон тооноос зөрдөг байсан.
+//
+// Хил өөрөө нууц мэдээлэл биш бөгөөд дуудагч нь хилээ өөрөө явуулж байгаа тул
+// нэмэлт эрх шалгах зүйлгүй — зөвхөн нэвтэрсэн байхыг router шаардана.
+func (h *LandHandler) ComputeGeometryArea(c *gin.Context) {
+	var body struct {
+		GeomWKT string `json:"geom_wkt"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, "invalid body")
+		return
+	}
+
+	areaM2, err := h.svc.ComputeAreaM2FromWKT(c.Request.Context(), body.GeomWKT)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, gin.H{"area_m2": areaM2})
 }
 
 func (h *LandHandler) ListAcquisitionDocuments(c *gin.Context) {
@@ -2927,6 +2976,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	filter := domain.DashboardFilter{
 		AcquisitionID:     c.Query("acquisition_id"),
 		PlanCode:          c.Query("plan_code"),
+		AU2Code:           c.Query("au2_code"),
 		Status:            queryInt(c, "status", 0),
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
@@ -2971,11 +3021,13 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	acqs := make([]dashboardAcqResponse, 0, len(summary.Acquisitions))
 	for _, a := range summary.Acquisitions {
 		acqs = append(acqs, dashboardAcqResponse{
-			ID:              a.ID.String(),
-			AcquisitionName: a.AcquisitionName,
-			PlanCode:        a.PlanCode,
-			Status:          a.Status,
-			ParcelCount:     a.ParcelCount,
+			ID:               a.ID.String(),
+			AcquisitionName:  a.AcquisitionName,
+			PlanCode:         a.PlanCode,
+			Status:           a.Status,
+			ParcelCount:      a.ParcelCount,
+			FinalParcelCount: a.FinalParcelCount,
+			ProgressPercent:  a.ProgressPercent(),
 		})
 	}
 

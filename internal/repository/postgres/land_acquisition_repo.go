@@ -43,9 +43,9 @@ func (r *landAcqRepo) ListAcquisitionCategories(ctx context.Context, parentID *i
 	var rows pgx.Rows
 	var err error
 	if parentID == nil {
-		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order FROM acquisition_category WHERE parent_id IS NULL ORDER BY sort_order`)
+		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order, department_id FROM acquisition_category WHERE parent_id IS NULL ORDER BY sort_order`)
 	} else {
-		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order FROM acquisition_category WHERE parent_id = $1 ORDER BY sort_order`, *parentID)
+		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order, department_id FROM acquisition_category WHERE parent_id = $1 ORDER BY sort_order`, *parentID)
 	}
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (r *landAcqRepo) ListAcquisitionCategories(ctx context.Context, parentID *i
 	var result []*domain.AcquisitionCategory
 	for rows.Next() {
 		c := &domain.AcquisitionCategory{}
-		if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder, &c.DepartmentID); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
@@ -62,21 +62,31 @@ func (r *landAcqRepo) ListAcquisitionCategories(ctx context.Context, parentID *i
 	return result, rows.Err()
 }
 
-func (r *landAcqRepo) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
+func (r *landAcqRepo) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
 	c := &domain.AcquisitionCategory{}
 	err := r.db.QueryRow(ctx,
-		`INSERT INTO acquisition_category (name, parent_id, sort_order) VALUES ($1, $2, $3) RETURNING id, name, parent_id, sort_order`,
-		name, parentID, sortOrder,
-	).Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder)
+		`INSERT INTO acquisition_category (name, parent_id, sort_order, department_id)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, name, parent_id, sort_order, department_id`,
+		name, parentID, sortOrder, departmentID,
+	).Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder, &c.DepartmentID)
 	return c, err
 }
 
-func (r *landAcqRepo) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
+// UpdateAcquisitionCategory — нэр, эрэмбэ, хариуцсан алба.
+//
+// department_id нь NULL болгож БУЦААХ боломжтой байх ёстой (алба салгах) тул
+// COALESCE-оор "хоосон бол хуучныг үлдээх" гэж бичихгүй — ирсэн утгыг ШУУД
+// бичнэ. Дуудагч талбарыг заавал бүрэн илгээнэ.
+func (r *landAcqRepo) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
 	c := &domain.AcquisitionCategory{}
 	err := r.db.QueryRow(ctx,
-		`UPDATE acquisition_category SET name=$1, sort_order=$2 WHERE id=$3 RETURNING id, name, parent_id, sort_order`,
-		name, sortOrder, id,
-	).Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder)
+		`UPDATE acquisition_category
+		    SET name=$1, sort_order=$2, department_id=$3
+		  WHERE id=$4
+		  RETURNING id, name, parent_id, sort_order, department_id`,
+		name, sortOrder, departmentID, id,
+	).Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder, &c.DepartmentID)
 	return c, err
 }
 
@@ -161,6 +171,23 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 	if filter.StartDateTo != nil {
 		where += fmt.Sprintf(" AND start_date <= $%d", i)
 		args = append(args, filter.StartDateTo)
+		i++
+	}
+	// Сум/дүүрэг — чөлөөлөлтийн хилээр тодорхойлогдож land_acquisition_au-д
+	// хадгалагдсан кодоор шүүнэ (нэг чөлөөлөлт олон багтай байж болно).
+	if filter.AU2Code != "" {
+		where += fmt.Sprintf(` AND (
+			EXISTS (
+				SELECT 1 FROM land_acquisition_au
+				WHERE land_acquisition_id = la.id AND au2_code = $%d
+			)
+			OR EXISTS (
+				SELECT 1 FROM parcel p_au
+				WHERE p_au.acquisition_id = la.id AND p_au.deleted_at IS NULL
+				  AND p_au.au2_code = $%d
+			)
+		)`, i, i)
+		args = append(args, filter.AU2Code)
 		i++
 	}
 	if filter.AU3Code != "" {
@@ -255,6 +282,10 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       la.sub_category_id, COALESCE(sc.name,''),
 			       COALESCE(la.decree_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
+			       -- ЯВЦ: эцсийн төлөвт (3=Нөлөөлөгдсөн гарсан, 4=Татгалзсан,
+			       -- 5=Чөлөөлсөн) шилжсэн талбар. HasNonFinalParcels-тай ижил шалгуур.
+			       (SELECT COUNT(*) FROM parcel
+			         WHERE acquisition_id = la.id AND COALESCE(status,0) IN (3,4,5)),
 			       la.professional_org_id,
 			       COALESCE(po."name", '')
 		FROM land_acquisition la
@@ -285,7 +316,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 			&acq.SubCategoryID, &acq.SubCategoryName,
 			&acq.DecreeNumber,
-			&acq.ParcelCount,
+			&acq.ParcelCount, &acq.FinalParcelCount,
 			&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 		); err != nil {
 			return nil, 0, err
@@ -299,7 +330,11 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 	acq := &domain.LandAcquisition{}
 	err := r.db.QueryRow(ctx, `
 			SELECT la.id, la.plan_id, la.plan_code, COALESCE(la.plan_name,''),
-			       COALESCE(ST_AsText(la.plan_geom),''), COALESCE(la.plan_area_m2,0),
+			       COALESCE(ST_AsText(la.plan_geom),''),
+			       -- ГУС төлөвлөгөөний талбайг буцаадаггүй (0 ирдэг) тул
+			       -- хадгалагдсан хилээс нь ГУС-тай ИЖИЛ аргаар тооцоолно.
+			       COALESCE(NULLIF(la.plan_area_m2,0), NULLIF(pl.area_m2,0),
+			                public.calculate_area_utm(la.plan_geom), 0),
 			       COALESCE(ST_AsText(la.geometry),''), COALESCE(la.area_m2,0),
 			       la.status, la.start_date, la.end_date,
 			       la.created_at, COALESCE(la.created_by,''),
@@ -311,12 +346,20 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(la.decree_number,''), la.decree_date,
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       la.professional_org_id,
-			       COALESCE(po."name", '')
+			       COALESCE(po."name", ''),
+			       -- Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ: ГУС-аас татагдаад plan хүснэгтэд
+			       -- хадгалагдсан утгууд (дахин ГУС руу хандах шаардлагагүй).
+			       COALESCE(pl.parcel_id,''), COALESCE(pl.plan_type_name,''), COALESCE(pl.gazner,''),
+			       pl.start_data, pl.end_data, pl.approved_date
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
 			-- Мэргэжлийн байгууллагын нэр нь app-owned profile-оос уншигдана.
 		LEFT JOIN valuation_org_profile po ON po.id = la.professional_org_id
+			-- plan_id хоосон хуучин бүртгэлд plan_code-оор ч холбогдоно.
+		LEFT JOIN plan pl
+		       ON pl.id = la.plan_id
+		       OR (la.plan_id IS NULL AND pl.plan_code = la.plan_code)
 		WHERE la.id = $1 AND la.deleted_at IS NULL
 	`, id).Scan(
 		&acq.ID, &acq.PlanID, &acq.PlanCode, &acq.PlanName,
@@ -332,6 +375,8 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		&acq.DecreeNumber, &acq.DecreeDate,
 		&acq.ParcelCount,
 		&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
+		&acq.PlanParcelID, &acq.PlanTypeName, &acq.PlanGazner,
+		&acq.PlanStartDate, &acq.PlanEndDate, &acq.PlanApprovedDate,
 	)
 	if err != nil {
 		return nil, domain.ErrNotFound
@@ -466,7 +511,7 @@ func (r *landAcqRepo) FindAU2Coverage(ctx context.Context, geomWKT string) (*dom
 			SELECT a2.code AS code,
 			       COALESCE(a2.name, '') AS name,
 			       ST_CoveredBy(g.geom, ST_MakeValid(a2.geometry)) AS covered,
-			       COALESCE(ST_Area(ST_Intersection(ST_MakeValid(a2.geometry), g.geom)::geography), 0) AS area_m2
+			       COALESCE(public.calculate_area_utm(ST_Intersection(ST_MakeValid(a2.geometry), g.geom)), 0) AS area_m2
 			FROM au2 a2, g
 			WHERE a2.geometry IS NOT NULL
 			  AND ST_Intersects(a2.geometry, g.geom)
@@ -521,8 +566,8 @@ func (r *landAcqRepo) CheckContainment(ctx context.Context, geomWKT, containerWK
 			       ST_MakeValid(ST_GeomFromText($2, 4326)) AS container
 		)
 		SELECT ST_CoveredBy(g.geom, g.container),
-		       COALESCE(ST_Area(ST_Difference(g.geom, g.container)::geography), 0),
-		       COALESCE(ST_Area(g.container::geography), 0)
+		       COALESCE(public.calculate_area_utm(ST_Difference(g.geom, g.container)), 0),
+		       COALESCE(public.calculate_area_utm(g.container), 0)
 		FROM g
 	`, geomWKT, containerWKT).Scan(&res.Covered, &res.OutsideM2, &res.ContainerM2)
 	if err != nil {
@@ -539,7 +584,7 @@ func (r *landAcqRepo) ComputeAreaM2(ctx context.Context, geomWKT string) (float6
 	}
 	var areaM2 float64
 	if err := r.db.QueryRow(ctx,
-		`SELECT COALESCE(ST_Area(ST_GeomFromText($1, 4326)::geography), 0)`,
+		`SELECT COALESCE(public.calculate_area_utm(ST_GeomFromText($1, 4326)), 0)`,
 		geomWKT,
 	).Scan(&areaM2); err != nil {
 		return 0, err
@@ -808,7 +853,7 @@ func (r *landAcqRepo) InsertParcelCodes(
 		}
 		if created {
 			res.Created++
-			_ = r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, 0, "system")
+			_ = r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, 0, "system", "")
 		} else {
 			res.Existing++
 		}
@@ -872,7 +917,7 @@ func (r *landAcqRepo) insertParcelRow(
 				END,
 				CASE
 					WHEN overlap.geom IS NOT NULL AND NOT ST_IsEmpty(overlap.geom)
-					THEN ST_Area(overlap.geom::geography)
+					THEN public.calculate_area_utm(overlap.geom)
 				END,
 				$11, $12, $13, $14,
 				$15, $16, $17,
@@ -1008,13 +1053,13 @@ func (r *landAcqRepo) refreshParcelRow(
 				END,
 				acquisition_area_m2 = CASE
 					WHEN c.overlap_geom IS NOT NULL AND NOT ST_IsEmpty(c.overlap_geom)
-					THEN ST_Area(c.overlap_geom::geography) ELSE p.acquisition_area_m2
+					THEN public.calculate_area_utm(c.overlap_geom) ELSE p.acquisition_area_m2
 				END,
 				remaining_area_m2 = CASE
 					WHEN c.overlap_geom IS NOT NULL AND NOT ST_IsEmpty(c.overlap_geom)
 					THEN GREATEST(
-						COALESCE(NULLIF($14, 0), NULLIF(p.area_m2, 0), ST_Area(c.parcel_geom::geography))
-						- ST_Area(c.overlap_geom::geography), 0)
+						COALESCE(NULLIF($14, 0), NULLIF(p.area_m2, 0), public.calculate_area_utm(c.parcel_geom))
+						- public.calculate_area_utm(c.overlap_geom), 0)
 					ELSE p.remaining_area_m2
 				END,
 				-- Эргүүлэн эзэмших (хуучин мөр устгасан чөлөөлөлтийнх байсан)
@@ -1459,13 +1504,13 @@ func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID 
 		)
 		UPDATE parcel SET
 			acquisition_geom    = (SELECT geom FROM overlap),
-			acquisition_area_m2 = ST_Area((SELECT geom FROM overlap)::geography),
+			acquisition_area_m2 = public.calculate_area_utm((SELECT geom FROM overlap)),
 			-- Геометр нь discovery-д хадгалагдах болсон тул sync нь ЭНЭ замаар
 			-- л давхцлыг тооцно — үлдэх талбайг мөн ЭНД бодно (өмнө нь зөвхөн
 			-- ApplyParcelGeometry бичдэг байсан).
 			remaining_area_m2   = GREATEST(
-				COALESCE(NULLIF(area_m2, 0), ST_Area(geometry::geography))
-				- ST_Area((SELECT geom FROM overlap)::geography), 0),
+				COALESCE(NULLIF(area_m2, 0), public.calculate_area_utm(geometry))
+				- public.calculate_area_utm((SELECT geom FROM overlap)), 0),
 			updated_at          = NOW()
 		WHERE id = $1
 		  AND geometry IS NOT NULL
@@ -1537,19 +1582,19 @@ func (r *landAcqRepo) ApplyParcelGeometry(
 			acquisition_geom    = COALESCE(f.overlap_geom, p.acquisition_geom),
 			acquisition_area_m2 = CASE WHEN f.overlap_geom IS NULL
 			                           THEN p.acquisition_area_m2
-			                           ELSE ST_Area(f.overlap_geom::geography) END,
+			                           ELSE public.calculate_area_utm(f.overlap_geom) END,
 			remaining_area_m2   = CASE WHEN f.parcel_geom IS NULL
 			                           THEN p.remaining_area_m2
 			                           ELSE GREATEST(
-				COALESCE(NULLIF(p.area_m2, 0), ST_Area(f.parcel_geom::geography))
+				COALESCE(NULLIF(p.area_m2, 0), public.calculate_area_utm(f.parcel_geom))
 				- COALESCE(CASE WHEN f.overlap_geom IS NULL
-				                THEN 0 ELSE ST_Area(f.overlap_geom::geography) END, 0),
+				                THEN 0 ELSE public.calculate_area_utm(f.overlap_geom) END, 0),
 				0) END,
 			updated_at = NOW(),
 			updated_by = 'system'
 		FROM final f
 		WHERE p.id = $1
-		RETURNING COALESCE(ST_Area(p.geometry::geography), 0),
+		RETURNING COALESCE(public.calculate_area_utm(p.geometry), 0),
 		          COALESCE(p.acquisition_area_m2, 0),
 		          COALESCE(p.remaining_area_m2, 0),
 		          (p.acquisition_geom IS NOT NULL)
@@ -3979,6 +4024,40 @@ func (r *landAcqRepo) ListFilterOptions(ctx context.Context) ([]*domain.LandAcqu
 	return result, rows.Err()
 }
 
+// districtsAU1Code — шүүлтүүрийн дүүргийн жагсаалтад харуулах аймаг/нийслэлийн
+// код. "011" = Улаанбаатар.
+const districtsAU1Code = "011"
+
+// ListAcquisitionDistricts — шүүлтүүрийн СУМ/ДҮҮРГИЙН сонголт.
+//
+// Эх сурвалж нь au2 ЛАВЛАХ хүснэгт: аймаг/нийслэлийн код нь
+// districtsAU1Code ("011" = Улаанбаатар) бүх дүүрэг гарна. Чөлөөлөлт
+// бүртгэгдсэн эсэхээс хамаарахгүй.
+//
+// ListFilterOptions-той ижил шалтгаанаар шүүлтгүй: сонголтыг бүх нэвтэрсэн
+// хэрэглэгч харна, бодит өгөгдлийн эрх нь List()/GetDashboard() дээр шалгагдана.
+func (r *landAcqRepo) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT code, COALESCE(name, '')
+		FROM au2
+		WHERE au1_code = $1
+		ORDER BY name, code
+	`, districtsAU1Code)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.AU2Option, 0, 32)
+	for rows.Next() {
+		var o domain.AU2Option
+		if err := rows.Scan(&o.Code, &o.Name); err != nil {
+			return nil, err
+		}
+		result = append(result, o)
+	}
+	return result, rows.Err()
+}
+
 func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
@@ -4024,6 +4103,23 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	if filter.Status != 0 {
 		where += fmt.Sprintf(" AND la.status = $%d", i)
 		args = append(args, filter.Status)
+		i++
+	}
+	// Сум/дүүрэг — жагсаалттай ИЖИЛ логик: чөлөөлөлтийн хилээр тодорхойлогдсон
+	// нэгж (land_acquisition_au) ЭСВЭЛ нэгж талбаруудын au2 кодоор.
+	if filter.AU2Code != "" {
+		where += fmt.Sprintf(` AND (
+			EXISTS (
+				SELECT 1 FROM land_acquisition_au
+				WHERE land_acquisition_id = la.id AND au2_code = $%d
+			)
+			OR EXISTS (
+				SELECT 1 FROM parcel p_au
+				WHERE p_au.acquisition_id = la.id AND p_au.deleted_at IS NULL
+				  AND p_au.au2_code = $%d
+			)
+		)`, i, i)
+		args = append(args, filter.AU2Code)
 		i++
 	}
 	var yearPlaceholders []string
@@ -4152,12 +4248,21 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	go func() {
 		rows, err := r.db.Query(ctx, fmt.Sprintf(`
 			SELECT la.id, COALESCE(la.acquisition_name, ''), la.plan_code, la.status,
-			       COALESCE(la.area_m2, 0), COALESCE(la.decree_number, ''), COUNT(p.id)
+			       COALESCE(la.area_m2, 0), COALESCE(la.decree_number, ''), COUNT(p.id),
+			       -- ЯВЦ: жагсаалттай ИЖИЛ шалгуур (эцсийн 3 төлөв).
+			       COUNT(p.id) FILTER (WHERE COALESCE(p.status,0) IN (3,4,5))
 			FROM land_acquisition la
 			LEFT JOIN parcel p ON p.acquisition_id = la.id%s
 			WHERE %s
 			GROUP BY la.id, la.acquisition_name, la.plan_code, la.status, la.area_m2, la.decree_number, la.created_at
-			ORDER BY la.created_at DESC
+			-- ЭРЭМБЭ: явц БАГААС ИХ рүү — анхаарал хэрэгтэй (гүйцэтгэл султай)
+			-- чөлөөлөлтүүд дээд талд гарна. Нэгж талбаргүй бол тэг гэж үзнэ.
+			-- Ижил хувьтай үед шинэ нь дээр (created_at DESC).
+			ORDER BY
+			  CASE WHEN COUNT(p.id) = 0 THEN 0
+			       ELSE COUNT(p.id) FILTER (WHERE COALESCE(p.status,0) IN (3,4,5))::numeric
+			            / COUNT(p.id) END ASC,
+			  la.created_at DESC
 			LIMIT 1000
 		`, parcelScopeCond, where), args...)
 		if err != nil {
@@ -4176,6 +4281,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 				&a.AreaM2,
 				&a.DecreeNumber,
 				&a.ParcelCount,
+				&a.FinalParcelCount,
 			); err != nil {
 				acqCh <- acqRes{nil, err}
 				return
@@ -4680,7 +4786,7 @@ func (r *landAcqRepo) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return list, rows.Err()
 }
 
-func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
 	// "Чөлөөлсөн" болгохын өмнө үнэлгээний тайлан байгаа эсэхийг шалгана
 	var statusName string
 	_ = r.db.QueryRow(ctx, `SELECT COALESCE(name,'') FROM parcel_status WHERE id=$1`, statusID).Scan(&statusName)
@@ -4727,23 +4833,24 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID
 	if ct.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, statusID, createdBy)
+	return r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, statusID, createdBy, reason)
 }
 
-func (r *landAcqRepo) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
+func (r *landAcqRepo) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, created_by)
-		SELECT parcel_id, acquisition_id, $3, $4
+		`INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, created_by, reason)
+		SELECT parcel_id, acquisition_id, $3, $4, NULLIF($5, '')
 		FROM parcel
 		WHERE id = $1 AND acquisition_id = $2`,
-		parcelID, acquisitionID, statusID, createdBy,
+		parcelID, acquisitionID, statusID, createdBy, reason,
 	)
 	return err
 }
 
 func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT h.id, h.parcel_id, h.acquisition_id, h.status_id, ps.name, h.status_date, h.created_by
+		SELECT h.id, h.parcel_id, h.acquisition_id, h.status_id, ps.name, h.status_date, h.created_by,
+		       COALESCE(h.reason, '')
 		FROM parcel_status_history h
 		JOIN parcel_status ps ON ps.id = h.status_id
 		JOIN parcel p ON p.parcel_id = h.parcel_id
@@ -4757,7 +4864,7 @@ func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid
 	var result []*domain.ParcelStatusHistory
 	for rows.Next() {
 		h := &domain.ParcelStatusHistory{}
-		if err := rows.Scan(&h.ID, &h.ParcelID, &h.AcquisitionID, &h.StatusID, &h.StatusName, &h.StatusDate, &h.CreatedBy); err != nil {
+		if err := rows.Scan(&h.ID, &h.ParcelID, &h.AcquisitionID, &h.StatusID, &h.StatusName, &h.StatusDate, &h.CreatedBy, &h.Reason); err != nil {
 			return nil, err
 		}
 		result = append(result, h)

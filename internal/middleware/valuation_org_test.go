@@ -32,6 +32,7 @@ func TestValuationOrgRouteAllowed(t *testing.T) {
 		{"/plans/search", http.MethodGet, true},
 		// Шүүлтүүр/лавлах — токентой бол нээлттэй, БИЧИХ нь хаалттай.
 		{"/land-acquisitions/filter-options", http.MethodGet, true},
+		{"/land-acquisitions/districts", http.MethodGet, true},
 		{"/acquisition-categories", http.MethodGet, true},
 		{"/acquisition-categories", http.MethodPost, false},
 		{"/acquisition-categories/:id", http.MethodPut, false},
@@ -56,6 +57,10 @@ func TestValuationOrgRouteAllowed(t *testing.T) {
 		{"/menus", http.MethodGet, false},
 		{"/land-acquisitions", http.MethodGet, false},
 		{"/land-acquisitions/filter-options", http.MethodPost, false},
+		{"/land-acquisitions/districts", http.MethodPost, false},
+		// Геометрийн тооцоолуур — гадаад дүрд ХЭРЭГГҮЙ (товч нь !isExternal-ын
+		// дор), тиймээс allowlist-д ОРУУЛААГҮЙ.
+		{"/geometry/area", http.MethodPost, false},
 		{"/employees", http.MethodGet, false},
 		{"/valuation-orgs", http.MethodGet, false},
 		{"/report/download", http.MethodGet, false},

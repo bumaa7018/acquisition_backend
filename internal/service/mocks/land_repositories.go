@@ -154,16 +154,16 @@ func (m *MockLandAcquisitionRepository) ListAcquisitionCategories(ctx context.Co
 	return args.Get(0).([]*domain.AcquisitionCategory), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
-	args := m.Called(ctx, name, parentID, sortOrder)
+func (m *MockLandAcquisitionRepository) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, name, parentID, sortOrder, departmentID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
-	args := m.Called(ctx, id, name, sortOrder)
+func (m *MockLandAcquisitionRepository) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, id, name, sortOrder, departmentID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -730,6 +730,14 @@ func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string, s
 	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.AU2Option), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
@@ -812,12 +820,12 @@ func (m *MockLandAcquisitionRepository) GetAvailableParcelStatuses(ctx context.C
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+func (m *MockLandAcquisitionRepository) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {

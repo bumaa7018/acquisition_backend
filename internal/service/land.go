@@ -18,8 +18,8 @@ import (
 type LandLookupService interface {
 	ListConstructionTypes(ctx context.Context) ([]*domain.ConstructionType, error)
 	ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error)
-	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error)
-	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error)
+	CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error)
+	UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error)
 	DeleteAcquisitionCategory(ctx context.Context, id int) error
 	ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error)
 }
@@ -47,6 +47,10 @@ type LandAcquisitionService interface {
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
 	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
+	// ComputeAreaM2FromWKT — WKT хилийн талбайг ГУС-тай ИЖИЛ аргаар (UTM
+	// проекц, бүхэл м²) тооцоод буцаана. Frontend-ийн "Хилээс тооцоолох"
+	// товч үүнийг дуудна — browser дээр өөрөө тооцвол ГУС-аас зөрнө.
+	ComputeAreaM2FromWKT(ctx context.Context, geomWKT string) (float64, error)
 	SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error
 	ListGlobalParcels(ctx context.Context, filter domain.GlobalParcelFilter) ([]*domain.GlobalParcel, int64, error)
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
@@ -56,6 +60,8 @@ type LandAcquisitionService interface {
 	// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт (List-ийн орлуулга).
 	// Бүх нэвтэрсэн хэрэглэгчид нээлттэй — шүүлтгүй.
 	ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error)
+	// ListAcquisitionDistricts — шүүлтүүрийн сум/дүүргийн сонголт.
+	ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error
 	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error
 }
@@ -156,7 +162,7 @@ type LandWorkflowService interface {
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
-	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error
+	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
 	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)
@@ -300,12 +306,12 @@ func (s *landService) ListAcquisitionCategories(ctx context.Context, parentID *i
 	return s.landRepo.ListAcquisitionCategories(ctx, parentID)
 }
 
-func (s *landService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
-	return s.landRepo.CreateAcquisitionCategory(ctx, name, parentID, sortOrder)
+func (s *landService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	return s.landRepo.CreateAcquisitionCategory(ctx, name, parentID, sortOrder, departmentID)
 }
 
-func (s *landService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
-	return s.landRepo.UpdateAcquisitionCategory(ctx, id, name, sortOrder)
+func (s *landService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	return s.landRepo.UpdateAcquisitionCategory(ctx, id, name, sortOrder, departmentID)
 }
 
 func (s *landService) DeleteAcquisitionCategory(ctx context.Context, id int) error {
@@ -568,6 +574,19 @@ func (s *landService) computeAreaM2(ctx context.Context, geomWKT string) float64
 		return 0
 	}
 	return areaM2
+}
+
+// ComputeAreaM2FromWKT — дээрхтэй ижил тооцоо, гэхдээ алдааг НУУХГҮЙ.
+//
+// Яагаад тусад нь: computeAreaM2 нь чөлөөлөлт бүртгэх урсгалд ашиглагддаг ба
+// талбай тооцох алдаа бүртгэлийг зогсоох шалтгаан биш тул 0 буцаадаг. Харин
+// хэрэглэгч "Хилээс тооцоолох" дарахад 0 гэж харуулбал төөрөгдүүлнэ — алдааг
+// нь ил гаргах ёстой.
+func (s *landService) ComputeAreaM2FromWKT(ctx context.Context, geomWKT string) (float64, error) {
+	if strings.TrimSpace(geomWKT) == "" {
+		return 0, domain.ErrInvalidInput
+	}
+	return s.landRepo.ComputeAreaM2(ctx, geomWKT)
 }
 
 // planBoundaryWKT — чөлөөлөлтийн хил болгон хуулах ТӨЛӨВЛӨГӨӨНИЙ хил.
@@ -1903,6 +1922,10 @@ func (s *landService) Suggest(ctx context.Context, q string, status int) ([]*dom
 
 func (s *landService) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
 	return s.landRepo.ListFilterOptions(ctx)
+}
+
+func (s *landService) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error) {
+	return s.landRepo.ListAcquisitionDistricts(ctx)
 }
 
 func (s *landService) SetAssignees(ctx context.Context, acquisitionID uuid.UUID, assignees []domain.AcquisitionAssignee) error {

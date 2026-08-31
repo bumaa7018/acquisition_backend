@@ -317,6 +317,8 @@ func NewRouter(
 			// харж болно; бодит өгөгдлийн эрх нь жагсаалтын endpoint-ууд дээрээ
 			// (GET "", /report/*) шалгагдсан хэвээр.
 			land.GET("/filter-options", landH.FilterOptions)
+			// Шүүлтүүрийн сум/дүүрэг — мөн нэвтэрсэн БҮХ хэрэглэгчид нээлттэй.
+			land.GET("/districts", landH.Districts)
 			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware
 			land.GET("/:id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetByID)
@@ -663,6 +665,11 @@ func NewRouter(
 		// Глобал нөхөн төлбөрийн маршрут
 		protected.GET("/compensations", middleware.RequirePermission("land:read"), landH.ListAllCompensations)
 		protected.GET("/compensations/:id", middleware.RequirePermission("land:read"), landH.GetGlobalCompensation)
+
+		// Геометрийн туслах тооцоо — WKT хилээс талбай (ГУС-тай ИЖИЛ, UTM).
+		// Дуудагч өөрийн хилээ явуулж, түүнийхээ талбайг авч байгаа тул
+		// нэмэлт эрхийн шалгалт хэрэггүй — нэвтэрсэн байхад л хангалттай.
+		protected.POST("/geometry/area", landH.ComputeGeometryArea)
 
 		// Глобал нэгж талбарын маршрут
 		parcelAssignedOrSenior := middleware.RequireParcelAssignedOrSenior(landSvc)

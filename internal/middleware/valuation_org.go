@@ -101,6 +101,8 @@ var valuationOrgAllowlist = []valuationOrgRoute{
 	// БИЧИХ (POST/PUT/DELETE) нь эдгээр бүлэг дээр admin:* эрх шаарддаг ба энд
 	// ч зөвхөн GET зөвшөөрөгдсөн — хоёр давхарга хоёулаа хаана.
 	{path: "/land-acquisitions/filter-options", methods: []string{"GET"}},
+	// Шүүлтүүрийн сум/дүүрэг — au2 лавлахаас, чөлөөлөлтийн өгөгдөл агуулахгүй.
+	{path: "/land-acquisitions/districts", methods: []string{"GET"}},
 	{path: "/acquisition-categories", methods: []string{"GET"}},
 	{path: "/parcel-statuses", prefix: true, methods: []string{"GET"}},
 	{path: "/acquisition-progress-statuses", prefix: true, methods: []string{"GET"}},

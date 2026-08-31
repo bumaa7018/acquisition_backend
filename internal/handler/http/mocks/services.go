@@ -60,13 +60,13 @@ func (m *MockLandService) ListAcquisitionCategories(ctx context.Context, parentI
 	return args.Get(0).([]*domain.AcquisitionCategory), args.Error(1)
 }
 
-func (m *MockLandService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int) (*domain.AcquisitionCategory, error) {
-	args := m.Called(ctx, name, parentID, sortOrder)
+func (m *MockLandService) CreateAcquisitionCategory(ctx context.Context, name string, parentID *int, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, name, parentID, sortOrder, departmentID)
 	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
 }
 
-func (m *MockLandService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int) (*domain.AcquisitionCategory, error) {
-	args := m.Called(ctx, id, name, sortOrder)
+func (m *MockLandService) UpdateAcquisitionCategory(ctx context.Context, id int, name string, sortOrder int, departmentID *int) (*domain.AcquisitionCategory, error) {
+	args := m.Called(ctx, id, name, sortOrder, departmentID)
 	return args.Get(0).(*domain.AcquisitionCategory), args.Error(1)
 }
 
@@ -134,6 +134,14 @@ func (m *MockLandService) Suggest(ctx context.Context, q string, status int) ([]
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]*domain.LandAcquisition), args.Error(1)
+}
+
+func (m *MockLandService) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.AU2Option), args.Error(1)
 }
 
 func (m *MockLandService) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
@@ -207,6 +215,11 @@ func (m *MockLandService) AdvanceStatus(ctx context.Context, acquisitionID uuid.
 func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	args := m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT)
 	return args.Error(0)
+}
+
+func (m *MockLandService) ComputeAreaM2FromWKT(ctx context.Context, geomWKT string) (float64, error) {
+	args := m.Called(ctx, geomWKT)
+	return args.Get(0).(float64), args.Error(1)
 }
 
 func (m *MockLandService) GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error) {
@@ -639,8 +652,8 @@ func (m *MockLandService) GetAvailableParcelStatuses(ctx context.Context, curren
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
 }
 
-func (m *MockLandService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy string) error {
-	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy).Error(0)
+func (m *MockLandService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
 }
 
 func (m *MockLandService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {

@@ -131,6 +131,9 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 	}
 	var req struct {
 		StatusID *int `json:"status_id"`
+		// Reason — төлөв солих ШАЛТГААН. "Нөлөөлөгдсөн гарсан"/"Татгалзсан"
+		// үед ЗААВАЛ (доор шалгана), бусад төлөвт хоосон байж болно.
+		Reason string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -140,11 +143,18 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "status_id required"})
 		return
 	}
+	reason := strings.TrimSpace(req.Reason)
+	// Эцсийн СӨРӨГ хоёр төлөвт шалтгаангүй шилжихийг хориглоно — дараа нь
+	// яагаад гэдгийг тайлбарлах өгөгдөл үлдэхгүй болно.
+	if (*req.StatusID == domain.ParcelStatusAffectedOut || *req.StatusID == domain.ParcelStatusRejected) && reason == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Шалтгаан заавал бөглөнө"})
+		return
+	}
 	createdBy := "system"
 	if id := contextUserIDString(c); id != "" {
 		createdBy = id
 	}
-	if err := h.svc.UpdateParcelStatus(c.Request.Context(), parcelID, acqID, *req.StatusID, createdBy); err != nil {
+	if err := h.svc.UpdateParcelStatus(c.Request.Context(), parcelID, acqID, *req.StatusID, createdBy, reason); err != nil {
 		response.Error(c, err)
 		return
 	}
