@@ -1,7 +1,9 @@
 package email
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 
 	gomail "gopkg.in/mail.v2"
@@ -10,6 +12,15 @@ import (
 // Sender — email илгээх interface. Test-д mock хийхэд ашигладаг.
 type Sender interface {
 	SendPasswordReset(to, resetLink string) error
+	// SendWithAttachment — PDF хавсралттай мэдэгдэл (ж: урьдчилан мэдэгдэх
+	// хуудас) илгээнэ. attachment хоосон бол хавсралтгүй явна.
+	SendWithAttachment(to, subject, bodyText, attachmentName string, attachment []byte) error
+}
+
+// Attachment — илгээх файлын нэр ба агуулга.
+type Attachment struct {
+	Name string
+	Data []byte
 }
 
 // SMTPSender нь gopkg.in/mail.v2 ашиглан SMTP-р илгээнэ.
@@ -48,6 +59,36 @@ func (s *SMTPSender) SendPasswordReset(to, resetLink string) error {
 	return nil
 }
 
+// SendWithAttachment — сэдэв, текст бие, (заавал бус) хавсралттай имэйл.
+//
+// Хавсралтыг САНАХ ОЙНААС хийнэ (gomail-ийн Attach нь файлын зам хүлээдэг тул
+// SetCopyFunc-ээр урсгална) — сервер дээр түр файл үүсгэхгүй.
+func (s *SMTPSender) SendWithAttachment(to, subject, bodyText, attachmentName string, attachment []byte) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", bodyText)
+	if len(attachment) > 0 && attachmentName != "" {
+		m.Attach(attachmentName,
+			gomail.SetHeader(map[string][]string{
+				"Content-Type": {"application/pdf"},
+			}),
+			gomail.SetCopyFunc(func(w io.Writer) error {
+				_, err := w.Write(attachment)
+				return err
+			}),
+		)
+	}
+
+	d := gomail.NewDialer(s.host, s.port, s.username, s.password)
+	if err := d.DialAndSend(m); err != nil {
+		return fmt.Errorf("send email: %w", err)
+	}
+	slog.Info("email sent", "to", to, "subject", subject, "attachment", attachmentName)
+	return nil
+}
+
 // NoopSender нь email тохиргоо байхгүй үед ашиглагдана.
 // Token-г зөвхөн log-д хэвлэнэ (development орчин).
 type NoopSender struct{}
@@ -58,6 +99,20 @@ func (NoopSender) SendPasswordReset(to, _ string) error {
 	)
 	return nil
 }
+
+// SendWithAttachment — тохиргоо байхгүй үед илгээх БОЛОМЖГҮЙ гэж мэдэгдэнэ.
+//
+// ЯАГААД nil БИШ АЛДАА ВЭ: мэдэгдэх хуудас илгээхэд хэрэглэгч "илгээгдлээ"
+// гэсэн хариу авбал иргэн мэдэгдэл хүлээж авсан гэж бүртгэгдэнэ — тэр нь
+// хуулийн хугацаа тоолох баримт болдог тул чимээгүй "амжилттай" болгож
+// БОЛОХГҮЙ.
+func (NoopSender) SendWithAttachment(to, subject, _, _ string, _ []byte) error {
+	slog.Warn("EMAIL NOT CONFIGURED - message was not sent", "to", to, "subject", subject)
+	return ErrNotConfigured
+}
+
+// ErrNotConfigured — SMTP тохируулаагүй (EMAIL_HOST хоосон).
+var ErrNotConfigured = errors.New("email is not configured")
 
 func buildPlainText(link string) string {
 	return fmt.Sprintf(`Сайн байна уу,

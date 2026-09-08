@@ -238,6 +238,43 @@ type ParcelMonitoring struct {
 	CreatedAt    string    `json:"created_at"`
 }
 
+// ParcelOwnership — УБЕГ-ийн газар өмчлөлийн бүртгэлийн НЭГ мөр
+// (XYP /xyp/ownership/citizen/parcel).
+//
+// Нэг нэгж талбар дээр хамтран өмчлөгч олон байх ба өмчлөлийн ТҮҮХ (өв
+// залгамжлал, өмчлөгч өөрчлөгдөх) тусад нь мөр болж ирдэг тул нэг register_no
+// хэд хэдэн огноотой давтагдаж болно.
+type ParcelOwnership struct {
+	ID uuid.UUID `json:"id"`
+	// SourceParcelID — УБЕГ дээрх нэгж талбарын дугаар (prprty_parcel_id).
+	SourceParcelID string `json:"source_parcel_id"`
+	// RecordDate — бүртгэлийн огноо, YYYYMMDD (эх системийн хэлбэрээр).
+	RecordDate string `json:"record_date"`
+	// CertificateNo — улсын бүртгэлийн/гэрчилгээний дугаар (ubd).
+	CertificateNo string  `json:"certificate_no"`
+	LanduseName   string  `json:"landuse_name"`
+	Area          float64 `json:"area"`
+	RegisterNo    string  `json:"register_no"`
+	FirstName     string  `json:"first_name"`
+	LastName      string  `json:"last_name"`
+	// OwnershipType — өмчлөлийн хэлбэр (ж: "Өмчилсөн", "Өв залгамжлуулсан").
+	OwnershipType string `json:"ownership_type"`
+	OwnershipCode string `json:"ownership_code"`
+	// ServiceName — бүртгэлийг үүсгэсэн улсын бүртгэлийн үйлчилгээ.
+	ServiceName       string `json:"service_name"`
+	ServiceCode       string `json:"service_code"`
+	AimagCityName     string `json:"aimag_city_name"`
+	AimagCode         string `json:"aimag_code"`
+	SoumDistrictName  string `json:"soum_district_name"`
+	SoumCode          string `json:"soum_code"`
+	BagKhorooName     string `json:"bag_khoroo_name"`
+	BagCode           string `json:"bag_code"`
+	AddressStreetName string `json:"address_street_name"`
+	BairNumber        string `json:"bair_number"`
+	Toot              string `json:"toot"`
+	FullAddress       string `json:"full_address"`
+}
+
 // ParcelSyncCountResult — татаж хадгалсан бичлэгийн тоо.
 type ParcelSyncCountResult struct {
 	Found int `json:"found"`
@@ -591,8 +628,14 @@ type LandAcquisitionBoundaryHistory struct {
 	LandAcquisitionID uuid.UUID
 	OldGeometryWKT    string
 	NewGeometryWKT    string
-	ChangedBy         string
-	ChangedAt         time.Time
+	// OldAreaM2 / NewAreaM2 — хадгалсан геометрээс УНШИХ үед бодогддог талбай
+	// (public.calculate_area_utm — нэгж талбартай ижил аргачлал). Хүснэгтэд
+	// багана нэмээгүй: талбай нь геометрээс бүрэн гардаг тул хадгалах нь
+	// давхардал болно (хоёр эх сурвалж зөрөх эрсдэл).
+	OldAreaM2 float64
+	NewAreaM2 float64
+	ChangedBy string
+	ChangedAt time.Time
 }
 
 // LandAcquisitionFilter — газар чөлөөлөлтийн жагсаалт шүүх болон хуудаслах параметр
@@ -629,6 +672,21 @@ const (
 	RightTypeLease     = 2 // Эзэмших
 	RightTypeOwnership = 3 // Өмчлөх
 )
+
+// RightTypeName — эрхийн төрлийн монгол нэр. Гадаад системд код дангаараа
+// уншигдахгүй тул нэрийг ХАМТ явуулна (frontend-ийн RIGHT_TYPE_LABELS-тэй ижил).
+func RightTypeName(rightType int) string {
+	switch rightType {
+	case RightTypeUse:
+		return "Ашиглах"
+	case RightTypeLease:
+		return "Эзэмших"
+	case RightTypeOwnership:
+		return "Өмчлөх"
+	default:
+		return ""
+	}
+}
 
 type ParcelFilter struct {
 	ParcelID  string
@@ -806,6 +864,8 @@ type ParcelFull struct {
 	BasePriceFactors []ParcelBasePriceFactor
 	// Holders — БҮХ эзэмшигч (үндсэн нь эхэнд). Detail нь зөвхөн үндсэнийг агуулна.
 	Holders []ParcelHolder
+	// Ownerships — УБЕГ-ийн өмчлөлийн бүртгэл (ГУС-аас БИШ, XYP-ээс татагдана)
+	Ownerships []ParcelOwnership
 }
 
 // AcquisitionProgress — газар чөлөөлөлтийн статус өөрчлөлтийн түүх
@@ -818,6 +878,83 @@ type AcquisitionProgress struct {
 	ChangedBy     string
 	ChangedAt     time.Time
 }
+
+// AcquisitionSocioSurvey — нийгэм, эдийн засгийн судалгааны дүн.
+//
+// Чөлөөлөлтөд НЭГ бүртгэл (acquisition_id unique): дахин оруулахад мөр
+// орлогдож, солигдсон файл хадгалалтаас цэвэрлэгдэнэ. Судалгааны PDF нь
+// ЗААВАЛ байна (FileURL хоосон бүртгэл байхгүй).
+type AcquisitionSocioSurvey struct {
+	ID            uuid.UUID
+	AcquisitionID uuid.UUID
+	// AgreedCount / RejectedCount — зөвшөөрсөн / татгалзсан иргэн, хуулийн
+	// этгээдийн тоо.
+	AgreedCount   int
+	RejectedCount int
+	Note          string
+	FileURL       string
+	FileName      string
+	SizeBytes     int64
+	CreatedAt     time.Time
+	CreatedBy     string
+	UpdatedAt     time.Time
+	UpdatedBy     string
+}
+
+// ParcelNoticeEmail — урьдчилан мэдэгдэх хуудсыг имэйлээр илгээсэн НЭГ бичлэг.
+//
+// Нэгж талбар дээр илгээлт олон удаа гарч болох тул түүх хэлбэрээр
+// хуримтлагдана. Status нь "sent" эсвэл "failed" (алдаатай оролдлогыг ч
+// бүртгэнэ — илгээгдээгүйг илгээсэн гэж эндүүрэхээс сэргийлнэ).
+type ParcelNoticeEmail struct {
+	ID            uuid.UUID
+	ParcelID      uuid.UUID
+	AcquisitionID uuid.UUID
+	ToEmail       string
+	Subject       string
+	FileURL       string
+	FileName      string
+	SizeBytes     int64
+	Status        string
+	ErrorMessage  string
+	SentAt        time.Time
+	SentBy        string
+}
+
+const (
+	NoticeEmailStatusSent   = "sent"
+	NoticeEmailStatusFailed = "failed"
+)
+
+// ParcelEMongoliaNotice — мэдэгдэх хуудсыг E-Mongolia-гаар хүргүүлсэн НЭГ
+// бичлэг (төлөвлөгөөний 2.8.5).
+//
+// Хүлээн авагчийг РЕГИСТРИЙН дугаараар тодорхойлно (имэйл биш). ExternalRef нь
+// гадаад системийн лавлагааны дугаар — мок үед "MOCK-" угтвартай.
+type ParcelEMongoliaNotice struct {
+	ID            uuid.UUID
+	ParcelID      uuid.UUID
+	AcquisitionID uuid.UUID
+	RegisterNo    string
+	RecipientName string
+	Subject       string
+	FileURL       string
+	FileName      string
+	SizeBytes     int64
+	Status        string
+	ExternalRef   string
+	ErrorMessage  string
+	SentAt        time.Time
+	SentBy        string
+}
+
+const (
+	EMongoliaStatusSent = "sent"
+	// EMongoliaStatusMocked — гадаад систем ХОЛБОГДООГҮЙ (түр мок). Иргэнд
+	// хүрсэн гэж ТООЦОХГҮЙ.
+	EMongoliaStatusMocked = "mocked"
+	EMongoliaStatusFailed = "failed"
+)
 
 // Document — үндсэн баримт бичиг (URL-аар хадгалагдана)
 type Document struct {
@@ -906,8 +1043,18 @@ type GlobalParcelFilter struct {
 
 // ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр
 type ReportParcelFilter struct {
-	AcquisitionID     string
+	// ParcelID — нэгж талбарын ДУГААР (код). Гадаад API-д нэг талбарын
+	// мэдээллийг дугаараар шүүхэд хэрэглэгдэнэ; хоосон бол шүүлт хийхгүй.
+	ParcelID string
+	// PlanParcelID — ЧӨЛӨӨЛӨЛТИЙН төлөвлөгөөний нэгж талбарын дугаар
+	// (plan.parcel_id — чөлөөлөлтийг үүгээр үүсгэдэг). Тухайн төлөвлөгөөний
+	// нэгж талбараар үүссэн БҮХ чөлөөлөлтийн мөрүүд орно.
+	PlanParcelID  string
+	AcquisitionID string
+	// PlanCode — ХЭСЭГЧИЛСЭН таарал (тайлангийн хайлт). Гадаад API нь ЯГ
+	// таарлыг шаарддаг тул PlanCodeExact-ыг хэрэглэнэ.
 	PlanCode          string
+	PlanCodeExact     string
 	AcquisitionName   string
 	AU3Code           string
 	RightType         int

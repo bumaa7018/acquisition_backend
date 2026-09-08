@@ -71,12 +71,38 @@ func NewRouter(
 	acquisitionCategoryH := NewAcquisitionCategoryHandler(landSvc)
 	assetTypeConfigH := NewAssetTypeConfigHandler(landSvc)
 
+	// Гадаад API-ийн түлхүүрүүд optionalSvcs-ээр ирнэ (заагаагүй бол хоосон →
+	// гадаад гарцууд хаалттай).
+	var externalAPIKeys []middleware.ExternalAPIKey
+	for _, svc := range optionalSvcs {
+		if keys, ok := svc.([]middleware.ExternalAPIKey); ok {
+			externalAPIKeys = keys
+		}
+	}
+
 	v1 := r.Group("/api/v1")
 
 	// Нээлттэй бүртгэл (`POST /auth/register`) ЗОРИУД байхгүй: энэ нь дотоод
 	// систем тул хэрэглэгчийг зөвхөн эрх бүхий ажилтан `POST /users`
 	// (`users:create`) -ээр үүсгэнэ. Нээлттэй байх үед хэн ч идэвхтэй аккаунт
 	// нээж хүчинтэй JWT аван permission шалгадаггүй маршрутууд руу орно.
+	// ── ГАДААД системийн API (JWT-гүй, API key-тэй) ─────────────────────────
+	//
+	// Төлөвлөгөөний 2.8.4: нөхөх олговрын мэдээг бусад систем машинаар уншина.
+	// Танилт нь X-API-Key (EXTERNAL_API_KEYS). Түлхүүр тохируулаагүй бол
+	// гарцууд ХААЛТТАЙ (middleware өөрөө 503 буцаана).
+	//
+	// ЯАГААД `protected`-ээс ГАДНА: тэр бүлэг JWT + ValuationOrgScope
+	// шаарддаг ба гадаад системд хэрэглэгчийн токен байхгүй.
+	external := v1.Group("/external")
+	// Гадаад системийн хүсэлтийн урсгалыг хязгаарлана (нэг IP-ээс минутад 120).
+	external.Use(middleware.RateLimit(120, time.Minute))
+	external.Use(middleware.ExternalAPIKeyAuth(externalAPIKeys))
+	{
+		externalCompensationH := NewExternalCompensationHandler(landSvc)
+		external.GET("/compensations", externalCompensationH.ListCompensations)
+	}
+
 	auth := v1.Group("/auth")
 	auth.Use(middleware.RateLimit(30, time.Minute))
 	{
@@ -107,6 +133,7 @@ func NewRouter(
 		var valuationOrgSvc service.ValuationOrgService
 		var decisionSvcs service.DecisionServices
 		var menuSvc service.MenuService
+		var settingSvc service.SettingService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.DecisionServices:
@@ -131,6 +158,8 @@ func NewRouter(
 				personSvc = v
 			case service.EmployeeService:
 				employeeSvc = v
+			case service.SettingService:
+				settingSvc = v
 			}
 		}
 
@@ -327,6 +356,10 @@ func NewRouter(
 			land.GET("/:id/compensations", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListCompensations)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetParcelByID)
 			land.PUT("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.Update)
+			// Гараас оруулах хилийг ХАДГАЛАЛГҮЙ шалгах (WKT + талбайн зөрүү).
+			// Хил солих нь буцаах боломжгүй тул хадгалахаас өмнөх урьдчилсан
+			// харагдац — хамгаалалт нь PUT-тэй ЯГ ижил байх ёстой.
+			land.POST("/:id/boundary-preview", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.PreviewBoundary)
 			// POST/PUT-ийн адил ролийн хаалт: `land:delete`-тэй custom роль
 			// хуваарилалтгүйгээр аль ч чөлөөлөлтийг устгах боломжтой байв.
 			land.DELETE("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:delete"), assignedOrSenior, landH.Delete)
@@ -370,6 +403,8 @@ func NewRouter(
 			land.POST("/:id/parcels/:parcel_id/sync/mortgages", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMortgages)
 			land.POST("/:id/parcels/:parcel_id/sync/court-decisions", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelCourtDecisions)
 			land.POST("/:id/parcels/:parcel_id/sync/monitoring", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelMonitorings)
+			// УБЕГ-ийн газар өмчлөлийн бүртгэл — ГУС-аас БИШ, ХУР (XYP) гарцаас.
+			land.POST("/:id/parcels/:parcel_id/sync/ownership", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelOwnerships)
 			land.POST("/:id/parcels/:parcel_id/sync/valuation", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncValuation)
 			land.PATCH("/:id/parcels/:parcel_id/valuation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateParcelValuation)
 			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.SetParcelCompensation)
@@ -394,6 +429,10 @@ func NewRouter(
 			land.GET("/:id/documents", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAcquisitionDocuments)
 			land.POST("/:id/documents", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UploadAcquisitionDocument)
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
+			// Нийгэм, эдийн засгийн судалгаа — чөлөөлөлтөд НЭГ бүртгэл
+			// (дахин оруулахад орлогдоно). Судалгааны файл нь ЗӨВХӨН PDF.
+			land.GET("/:id/socio-survey", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAcquisitionSocioSurvey)
+			land.POST("/:id/socio-survey", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SaveAcquisitionSocioSurvey)
 			// Дроны ортофото (.tif) — GeoServer дээр зураг тус бүр өөрийн давхарга
 			// болж бүртгэгдэнэ. Нэг хүсэлтэд НЭГ файл; refresh нь frontend
 			// зураг байршуулсны дараа автоматаар дуудагдана.
@@ -588,6 +627,18 @@ func NewRouter(
 		}
 
 		// Баримт бичгийн төрөл
+		// Системийн тохиргоо. Суурь зургийг БҮХ хэрэглэгч уншина (газрын зураг
+		// ижил зурагтай байх ёстой), харин СОЛИХ нь admin:update эрхтэйд.
+		if settingSvc != nil {
+			settingH := NewSettingHandler(settingSvc)
+			settings := protected.Group("/settings")
+			{
+				settings.GET("/basemap", settingH.GetBasemap)
+				settings.PUT("/basemap", middleware.RequirePermission("admin:update"), settingH.SaveBasemap)
+				settings.DELETE("/basemap", middleware.RequirePermission("admin:update"), settingH.ResetBasemap)
+			}
+		}
+
 		documentTypes := protected.Group("/document-types")
 		{
 			documentTypes.GET("", documentTypeH.List)
@@ -692,6 +743,13 @@ func NewRouter(
 			parcels.GET("/:id/documents/:doc_id/file", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), parcelAssignedOrSenior, landH.GetParcelDocumentFile)
 			parcels.POST("/:id/documents", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.UploadParcelDocument)
 			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.DeleteParcelDocument)
+			// Урьдчилан мэдэгдэх хуудсыг иргэнд имэйлээр хүргүүлэх ба илгээсэн
+			// түүх. PDF-ийг frontend загвараас үүсгэж дамжуулна.
+			parcels.GET("/:id/notice-emails", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelNoticeEmails)
+			parcels.POST("/:id/notice-emails", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelNoticeEmail)
+			// E-Mongolia-гаар мэдэгдэл хүргүүлэх (2.8.5). Гадаад холболт МОК.
+			parcels.GET("/:id/emongolia-notices", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelEMongoliaNotices)
+			parcels.POST("/:id/emongolia-notices", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelEMongoliaNotice)
 		}
 
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх

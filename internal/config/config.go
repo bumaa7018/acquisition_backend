@@ -24,6 +24,8 @@ type Config struct {
 	FileServer      FileServerConfig
 	GeoServer       GeoServerConfig
 	Middleware      MiddlewareConfig
+	XYP             XYPConfig
+	ExternalAPI     ExternalAPIConfig
 	SourceFile      SourceFileConfig
 }
 
@@ -134,6 +136,48 @@ type MiddlewareConfig struct {
 	BaseURL  string `env:"MIDDLEWARE_BASE_URL"`
 	Username string `env:"MIDDLEWARE_USERNAME"`
 	Password string `env:"MIDDLEWARE_PASSWORD"`
+}
+
+// ExternalAPIConfig — ГАДААД системд зориулсан API-ийн түлхүүрүүд.
+//
+// Формат: "нэр:түлхүүр" таслалаар зааглагдсан
+// (ж: EXTERNAL_API_KEYS=teg:xxxx,shshgeg:yyyy). Нэргүй бичвэл ("xxxx") лог
+// дээр "external" гэж бичигдэнэ. Хоосон бол гадаад API БҮРЭН ХААЛТТАЙ.
+type ExternalAPIConfig struct {
+	Keys string `env:"EXTERNAL_API_KEYS"`
+}
+
+// ParsedKeys — "нэр:түлхүүр" жагсаалтыг задална.
+func (e ExternalAPIConfig) ParsedKeys() []struct{ Label, Key string } {
+	out := []struct{ Label, Key string }{}
+	for _, raw := range strings.Split(e.Keys, ",") {
+		item := strings.TrimSpace(raw)
+		if item == "" {
+			continue
+		}
+		label, key := "", item
+		// idx == 0 (":түлхүүр") ч задлагдана — эс бөгөөс хоёр тодорхойлолт нь
+		// таарахгүй болж (":abc" ≠ "abc") гадаад систем хандаж чадахгүй.
+		if idx := strings.Index(item, ":"); idx >= 0 {
+			label = strings.TrimSpace(item[:idx])
+			key = strings.TrimSpace(item[idx+1:])
+		}
+		if key == "" {
+			continue
+		}
+		out = append(out, struct{ Label, Key string }{Label: label, Key: key})
+	}
+	return out
+}
+
+// XYPConfig — ХУР (XYP) системийн гарц. Одоогоор УБЕГ-ийн газар өмчлөлийн
+// бүртгэл эндээс уншигдана.
+//
+// BaseURL нь ЯЗГУУР зам (ж: http://192.168.15.224:8050/api/geo) — гарц бүрийн
+// нэр (/xyp/ownership/...) клиент дотор залгагдана. Тохируулаагүй бол
+// өмчлөлийн мэдээлэл татах үйлдэл эрхгүй биш, ХОЛБОГДООГҮЙ гэж дүгнэгдэнэ.
+type XYPConfig struct {
+	BaseURL string `env:"XYP_BASE_URL"`
 }
 
 // ГУС-ийн файл серверийн ТОГТМОЛ тохиргоо.

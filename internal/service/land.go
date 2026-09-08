@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"path"
 	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
+	"acquisition_backend/internal/pkg/shapefile"
 	"acquisition_backend/internal/repository"
 
 	"github.com/google/uuid"
@@ -31,6 +34,9 @@ type LandAcquisitionService interface {
 	IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error)
 	IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
 	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error)
+	// PreviewBoundaryShapefile — гараас оруулах хилийн файлыг ХАДГАЛАЛГҮЙ
+	// шалгаж, талбайн зөрүүг буцаана (хадгалахаас өмнөх урьдчилсан харагдац).
+	PreviewBoundaryShapefile(ctx context.Context, id uuid.UUID, shapefileData []byte) (*BoundaryAreaCheck, error)
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	// Delete — чөлөөлөлтийг SOFT delete-ээр устгана (хязгаарлалтуудыг үз:
 	// landService.Delete).
@@ -123,6 +129,22 @@ type LandDocumentService interface {
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	UploadAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error
+	// Нийгэм, эдийн засгийн судалгаа (чөлөөлөлтөд НЭГ бүртгэл).
+	// GetAcquisitionSocioSurvey — бүртгэл байхгүй үед (nil, nil): "хоосон"
+	// нь алдаа биш, дэлгэц "оруулаагүй" гэж харуулна.
+	GetAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID) (*domain.AcquisitionSocioSurvey, error)
+	// SaveAcquisitionSocioSurvey — тоон дүн + судалгааны PDF-ийг хадгална.
+	// data хоосон бол ХАДГАЛАГДСАН файл хэвээр үлдэнэ (шинэ бүртгэлд файл
+	// ЗААВАЛ — эс бөгөөс ErrSurveyFileRequired).
+	SaveAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID, in SocioSurveyInput) (*domain.AcquisitionSocioSurvey, error)
+	// Урьдчилан мэдэгдэх хуудсыг имэйлээр хүргүүлэх ба илгээсэн түүх.
+	// PDF-ийг дуудагч (frontend) загвараас үүсгэж дамжуулна.
+	SendParcelNoticeEmail(ctx context.Context, parcelID uuid.UUID, in NoticeEmailInput) (*domain.ParcelNoticeEmail, error)
+	ListParcelNoticeEmails(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelNoticeEmail, error)
+	// E-Mongolia-гаар мэдэгдэл хүргүүлэх ба илгээсэн түүх (2.8.5).
+	// Гадаад холболт одоогоор МОК — түүхэд status="mocked" гэж бүртгэгдэнэ.
+	SendParcelEMongoliaNotice(ctx context.Context, parcelID uuid.UUID, in EMongoliaNoticeInput) (*domain.ParcelEMongoliaNotice, error)
+	ListParcelEMongoliaNotices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelEMongoliaNotice, error)
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
@@ -138,6 +160,10 @@ type LandDocumentService interface {
 	SyncParcelMortgages(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
 	SyncParcelCourtDecisions(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
 	SyncParcelMonitorings(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
+	// SyncParcelOwnerships — УБЕГ-ийн газар өмчлөлийн бүртгэл (ХУР/XYP гарц).
+	// ГУС-ийн дундын сервисээс БИШ тул app_no шаардахгүй, нэгж талбарын
+	// дугаараар шууд татагдана.
+	SyncParcelOwnerships(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error)
 	// OpenParcelDocumentFile — эх системээс татсан хавсралтын файлыг нээнэ
 	// (харах/татах). Дуудагч Content-ийг хаана.
 	OpenParcelDocumentFile(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.DocumentFile, error)
@@ -255,6 +281,17 @@ type landService struct {
 	// байдаг тул харах/татахад эндээс уншина. nil үед (.env тохируулаагүй)
 	// ErrSourceFileNotConfigured буцаана.
 	sourceFiles SourceFileClient
+	// ownershipInfo — УБЕГ-ийн өмчлөлийн бүртгэл (ХУР/XYP гарц). nil үед
+	// (XYP_BASE_URL тохируулаагүй) өмчлөлийн мэдээлэл татах нь
+	// ErrOwnershipNotConfigured буцаана.
+	ownershipInfo OwnershipInfoClient
+	// emongolia — E-Mongolia-ийн мэдэгдлийн гарц (одоогоор МОК). nil үед
+	// ErrEMongoliaNotConfigured буцаана.
+	emongolia EMongoliaClient
+	// emailSender — мэдэгдэх хуудсыг иргэнд имэйлээр хүргүүлэхэд. nil эсвэл
+	// тохируулаагүй үед ErrEmailNotConfigured буцаана (чимээгүй "илгээгдлээ"
+	// гэж хэлэхгүй — мэдэгдэл хүргэсэн эсэх нь хуулийн хугацаа тоолоход хамаарна).
+	emailSender email.Sender
 }
 
 func NewLandService(
@@ -283,6 +320,12 @@ func NewLandService(
 			s.planStore = v
 		case SourceFileClient:
 			s.sourceFiles = v
+		case OwnershipInfoClient:
+			s.ownershipInfo = v
+		case email.Sender:
+			s.emailSender = v
+		case EMongoliaClient:
+			s.emongolia = v
 		}
 		// PlanProjectClient-ийг ParcelInfoClient-тай ижил обьект хэрэгжүүлдэг тул
 		// switch-ийн салангид case болгож биш, тусад нь шалгана.
@@ -428,21 +471,52 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		boundaryChange  *domain.BoundaryChange
 	)
 
-	// Хил солих: төлөвлөгөөний дугаар өгөгдсөн үед л. Дугаараар төлөвлөгөөг
-	// ДАХИН хайж (Create-тэй ижил урсгал), олдсон төлөвлөгөөний хилийг шинэ хил
-	// болгож хуулна. Одоогийнхтой ижил дугаар өгсөн ч дахин хуулна — дундын
-	// сервис дээр хил засагдсан үед үүгээр шинэчилнэ.
-	if req.PlanCode != "" {
+	// Хил солих ХОЁР зам. Аль нь ч өгөгдөөгүй бол хил хөндөгдөхгүй; хоёуланг
+	// зэрэг өгвөл аль хил хүчинтэй нь тодорхойгүй тул татгалзана.
+	//
+	//  1. plan_parcel_id — дугаараар төлөвлөгөөг ДАХИН хайж (Create-тэй ижил
+	//     урсгал), олдсон төлөвлөгөөний хилийг шинэ хил болгож хуулна.
+	//     Одоогийнхтой ижил дугаар өгсөн ч дахин хуулна — дундын сервис дээр
+	//     хил засагдсан үед үүгээр шинэчилнэ.
+	//  2. shapefile — хээрийн хэмжилтээр засварласан хилийг ГАРААС оруулна.
+	//     Төлөвлөгөөний мэдээлэл хөндөгдөхгүй; шинэ хилийн талбай нь жишиг
+	//     хилийнхээс maxBoundaryAreaDeviation-ээс их зөрж болохгүй.
+	//
+	// Аль ч зам дараагийн шалгалтуудыг ИЖИЛ дамжина (нэг сум/дүүрэг, нэгж
+	// талбарын зөрүү, "Чөлөөлсөн" талбар гадна үлдэх эсэх) — нэг зам нөгөөгөө
+	// тойрч гарах боломжгүй.
+	if req.PlanCode != "" && len(req.ShapefileData) > 0 {
+		return nil, nil, domain.ErrBoundarySourceConflict
+	}
+
+	var newWKT string
+	var newPlan *domain.Plan
+	switch {
+	case req.PlanCode != "":
 		plan, err := s.resolvePlan(ctx, req.PlanCode)
 		if err != nil {
 			return nil, nil, err
 		}
-
-		newWKT, err := planBoundaryWKT(plan)
+		wkt, err := planBoundaryWKT(plan)
 		if err != nil {
 			return nil, nil, err
 		}
+		newPlan, newWKT = plan, wkt
 
+	case len(req.ShapefileData) > 0:
+		wkt, err := shapefile.Parse(req.ShapefileData)
+		if err != nil {
+			return nil, nil, shapefileError(err, "шинэ хил")
+		}
+		// Гараас оруулсан хил нь ЖИШИГ хилээсээ хэт зөрөөгүй байх ёстой —
+		// файл нь огт өөр газрын/масштабын хил байх эрсдэлээс хамгаална.
+		if err := s.validateBoundaryAreaDeviation(ctx, acq, wkt); err != nil {
+			return nil, nil, err
+		}
+		newWKT = wkt
+	}
+
+	if newWKT != "" {
 		// Хилийн шалгалт Create-тай ИЖИЛ: шинэ хил нь нэг сум/дүүрэгт багтсан
 		// байх ёстой. Үгүй бол шинэчлэлт хийгдэхгүй (шалгалтыг Update-ээр
 		// тойрч гарах боломжгүй).
@@ -462,16 +536,21 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 
 		geometryChanged = true
 
-		if plan.ID != uuid.Nil {
-			planIDCopy := plan.ID
-			acq.PlanID = &planIDCopy
-		} else {
-			acq.PlanID = nil
+		// Төлөвлөгөөний мэдээлэл нь ЗӨВХӨН төлөвлөгөөний дугаараар солиход
+		// шинэчлэгдэнэ. Shapefile-аар хил зассан үед төлөвлөгөө хэвээр үлдэнэ —
+		// эс тэгвээс дараагийн засварын жишиг (талбайн зөрүү) алдагдана.
+		if newPlan != nil {
+			if newPlan.ID != uuid.Nil {
+				planIDCopy := newPlan.ID
+				acq.PlanID = &planIDCopy
+			} else {
+				acq.PlanID = nil
+			}
+			acq.PlanCode = newPlan.PlanCode
+			acq.PlanName = newPlan.Name
+			acq.PlanGeomWKT = newPlan.BoundaryWKT
+			acq.PlanAreaM2 = newPlan.AreaM2
 		}
-		acq.PlanCode = plan.PlanCode
-		acq.PlanName = plan.Name
-		acq.PlanGeomWKT = plan.BoundaryWKT
-		acq.PlanAreaM2 = plan.AreaM2
 		acq.GeometryWKT = newWKT
 		// Шинэ хилийн талбайг автоматаар тооцно (гараас оруулсныг үл хэрэгсэнэ).
 		acq.AreaM2 = newAreaM2
@@ -606,6 +685,178 @@ func planBoundaryWKT(plan *domain.Plan) (string, error) {
 		return "", domain.ErrPlanBoundaryMissing
 	}
 	return wkt, nil
+}
+
+// maxBoundaryAreaDeviation — ГАРААС (shapefile) оруулсан чөлөөлөлтийн хилийн
+// талбай нь ЖИШИГ хилийн талбайгаас зөрж болох дээд хязгаар (30%).
+//
+// Гараас оруулах зам нь хээрийн хэмжилтээр төлөвлөгөөний хил ЗАСВАРЛАГДСАН
+// тохиолдолд зориулагдсан — засвар нь хилийн хэмжээг мэдэгдэхүйц өөрчлөх
+// ёсгүй. 30%-иас их зөрөх нь ихэвчлэн огт өөр талбарын, өөр масштабын эсвэл
+// зөв бус проекцтой файл оруулсны шинж тул хилийг ХҮЛЭЭЖ АВАХГҮЙ.
+//
+// Хязгаар нь ХАТУУ: зөрүү 30%-иас БАГА байх ёстой (яг 30% ч татгалзана).
+const maxBoundaryAreaDeviation = 0.30
+
+// boundaryReferenceWKT — талбайн зөрүүг ХЭНЭЭС хэмжихийг шийднэ.
+//
+// Жишиг нь ТӨЛӨВЛӨГӨӨНИЙ хил: чөлөөлөлтийн хил анх түүнээс хуулагддаг ба
+// гараас оруулсан хил нь түүний хээрийн засвар байх учиртай. Ингэснээр
+// дараалсан олон засвараар хил "аажмаар нүүх" (жишиг нь өөрөө шилжих)
+// боломжгүй болно. Төлөвлөгөөний хил хадгалагдаагүй хуучин бүртгэл дээр
+// одоогийн хил рүү шилжинэ.
+func boundaryReferenceWKT(acq *domain.LandAcquisition) string {
+	if acq == nil {
+		return ""
+	}
+	if wkt := strings.TrimSpace(acq.PlanGeomWKT); wkt != "" {
+		return wkt
+	}
+	return strings.TrimSpace(acq.GeometryWKT)
+}
+
+// BoundaryAreaCheck — гараас оруулсан хилийн талбайн зөрүүний тооцоо.
+// Хадгалахаас ӨМНӨ (урьдчилан харах) ба хадгалах үед ижил кодоор бодогдоно.
+type BoundaryAreaCheck struct {
+	// GeometryWKT — файлаас уншсан хил (WGS84).
+	GeometryWKT string
+	// AreaM2 — тэр хилийн талбай (public.calculate_area_utm — нэгж талбартай
+	// ИЖИЛ аргачлал).
+	AreaM2 float64
+	// ReferenceAreaM2 — жишиг хилийн талбай (мөн ижил аргачлалаар).
+	ReferenceAreaM2 float64
+	// DeviationRatio — |шинэ − жишиг| / жишиг (0.15 = 15%).
+	DeviationRatio float64
+	// MaxDeviationRatio — зөвшөөрөгдөх дээд зөрүү (maxBoundaryAreaDeviation).
+	MaxDeviationRatio float64
+	// Accepted — зөрүү хязгаарт багтсан эсэх.
+	Accepted bool
+}
+
+// computeBoundaryAreaCheck — шинэ хил ба жишиг хилийн талбайг ИЖИЛ аргаар
+// (public.calculate_area_utm — нэгж талбарын талбай тооцдогтой ижил) бодож
+// зөрүүг гаргана.
+//
+// Талбай нь ХОЁУЛАА нэг функцээр бодогдох ёстой: өөр өөр аргаар (геодези vs
+// UTM) бодвол зөрүүнд аргачлалын алдаа нэмэгдэнэ.
+func (s *landService) computeBoundaryAreaCheck(
+	ctx context.Context, acq *domain.LandAcquisition, newWKT string,
+) (*BoundaryAreaCheck, error) {
+	newArea, err := s.landRepo.ComputeAreaM2(ctx, newWKT)
+	if err != nil {
+		slog.Error("оруулсан хилийн талбай тооцоолоход алдаа", "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	if newArea <= 0 {
+		// Талбайгүй (цэг/шугам болж хураагдсан) хил — цаашид шалгах утгагүй.
+		slog.Warn("оруулсан хилийн талбай тэг", "acquisition_id", acq.ID)
+		return nil, domain.ErrInvalidInput
+	}
+
+	check := &BoundaryAreaCheck{
+		GeometryWKT:       newWKT,
+		AreaM2:            newArea,
+		MaxDeviationRatio: maxBoundaryAreaDeviation,
+		Accepted:          true,
+	}
+
+	refWKT := boundaryReferenceWKT(acq)
+	if refWKT == "" {
+		// Жишиг хил байхгүй (хилгүй бүртгэл) — зөрүү хэмжих зүйлгүй тул
+		// шалгалт алгасагдана.
+		slog.Warn("жишиг хил байхгүй тул талбайн зөрүүний шалгалт алгасагдав",
+			"acquisition_id", acq.ID)
+		return check, nil
+	}
+	refArea, err := s.landRepo.ComputeAreaM2(ctx, refWKT)
+	if err != nil {
+		slog.Error("жишиг хилийн талбай тооцоолоход алдаа", "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	if refArea <= 0 {
+		slog.Warn("жишиг хилийн талбай тэг тул зөрүүний шалгалт алгасагдав",
+			"acquisition_id", acq.ID)
+		return check, nil
+	}
+
+	check.ReferenceAreaM2 = refArea
+	check.DeviationRatio = math.Abs(newArea-refArea) / refArea
+	check.Accepted = check.DeviationRatio < maxBoundaryAreaDeviation
+	return check, nil
+}
+
+// validateBoundaryAreaDeviation — талбайн зөрүү хязгаарт багтаагүй бол
+// domain.ErrBoundaryAreaDeviation. Хил хадгалагдахгүй.
+func (s *landService) validateBoundaryAreaDeviation(
+	ctx context.Context, acq *domain.LandAcquisition, newWKT string,
+) error {
+	check, err := s.computeBoundaryAreaCheck(ctx, acq, newWKT)
+	if err != nil {
+		return err
+	}
+	if !check.Accepted {
+		slog.Warn("оруулсан хилийн талбай жишгээсээ хэт зөрсөн",
+			"acquisition_id", acq.ID,
+			"area_m2", check.AreaM2,
+			"reference_area_m2", check.ReferenceAreaM2,
+			"deviation", check.DeviationRatio)
+		return domain.ErrBoundaryAreaDeviation
+	}
+	return nil
+}
+
+// PreviewBoundaryShapefile — гараас оруулсан хилийн файлыг ХАДГАЛАЛГҮЙ уншиж,
+// талбайн зөрүүг буцаана.
+//
+// ЯАГААД ХЭРЭГТЭЙ: хил солих нь БУЦААХ БОЛОМЖГҮЙ (шинэ хилд ороогүй нэгж
+// талбар үнэлгээ/олговортойгоо устана). Хэрэглэгч хадгалахаас ӨМНӨ шинэ хилээ
+// газрын зураг дээр хараад, талбайн зөрүүг тоогоор мэдэх ёстой. Тооцоо нь
+// хадгалах замтай ЯГ ижил кодоор явагдана — дэлгэц дээрх тоо серверийн
+// шийдвэрээс зөрөхгүй.
+//
+// Зөрүү хязгаараас хэтэрсэн ч ЭНД алдаа буцаахгүй (Accepted=false) — хэрэглэгч
+// хэр их зөрснийг харах хэрэгтэй. Хадгалах үед Update татгалзана.
+func (s *landService) PreviewBoundaryShapefile(
+	ctx context.Context, id uuid.UUID, shapefileData []byte,
+) (*BoundaryAreaCheck, error) {
+	acq, err := s.landRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	if len(shapefileData) == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+	wkt, err := shapefile.Parse(shapefileData)
+	if err != nil {
+		return nil, shapefileError(err, "урьдчилан харах хил")
+	}
+	return s.computeBoundaryAreaCheck(ctx, acq, wkt)
+}
+
+// shapefileError — shapefile-ийн шалгалтын алдааг API-ийн domain алдаа болгож
+// хөрвүүлнэ. Хэрэглэгчид ЯМАР ШАЛТГААНААР татгалзсаныг харуулах нь чухал
+// (бүх алдааг нэг ерөнхий мессеж болговол файлаа юу нь болохгүй байгааг
+// мэдэхгүй).
+//
+// Нарийн тайлбар (координат, файлын байт) нь домэйн алдаанд дамжихгүй тул
+// эндээс логлоно.
+func shapefileError(err error, what string) error {
+	mapped := domain.ErrShapefileFormat
+	switch {
+	case errors.Is(err, shapefile.ErrProjection):
+		mapped = domain.ErrShapefileProjection
+	case errors.Is(err, shapefile.ErrOutsideCountry):
+		mapped = domain.ErrShapefileOutsideCountry
+	case errors.Is(err, shapefile.ErrMultipleRecords):
+		mapped = domain.ErrShapefileMultiRecord
+	case errors.Is(err, shapefile.ErrMultiPolygon):
+		mapped = domain.ErrShapefileMultiPolygon
+	case errors.Is(err, shapefile.ErrShapeType):
+		mapped = domain.ErrShapefileShapeType
+	}
+	slog.Warn("оруулсан shapefile стандартад тохирсонгүй",
+		"what", what, "reason", err.Error())
+	return mapped
 }
 
 // validateBoundary — чөлөөлөх хилийг бүртгэхийн ӨМНӨ шалгана: хил нь ЗӨВХӨН

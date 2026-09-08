@@ -129,6 +129,9 @@ type parcelFullResponse struct {
 	// Fees — газрын төлбөрийн бодолт бүсээр. Нийт төлбөр нь payment-ийн нийлбэр.
 	Fees             []domain.ParcelFeeItem         `json:"fees"`
 	BasePriceFactors []domain.ParcelBasePriceFactor `json:"base_price_factors"`
+	// Ownerships — УБЕГ-ийн газар өмчлөлийн бүртгэл (ХУР/XYP гарцаас татагдсан).
+	// ГУС-ийн эзэмшигчийн жагсаалт (holders)-аас ТУСДАА эх сурвалж.
+	Ownerships []domain.ParcelOwnership `json:"ownerships"`
 }
 
 type parcelHolderResponse struct {
@@ -217,8 +220,29 @@ type boundaryHistoryResponse struct {
 	LandAcquisitionID string `json:"land_acquisition_id"`
 	OldGeometryWKT    string `json:"old_geometry_wkt"`
 	NewGeometryWKT    string `json:"new_geometry_wkt"`
-	ChangedBy         string `json:"changed_by"`
-	ChangedAt         string `json:"changed_at"`
+	// Хилийн ТАЛБАЙ (м²) — хадгалсан геометрээс public.calculate_area_utm-ээр
+	// бодогдоно (нэгж талбартай ижил аргачлал). Байршил таб дээр хилийн
+	// өөрчлөлт бүрийн талбайн зөрүүг харуулахад хэрэглэгдэнэ.
+	OldAreaM2 float64 `json:"old_area_m2"`
+	NewAreaM2 float64 `json:"new_area_m2"`
+	ChangedBy string  `json:"changed_by"`
+	ChangedAt string  `json:"changed_at"`
+}
+
+// boundaryPreviewResponse — гараас оруулах хилийг ХАДГАЛАЛГҮЙ шалгасан үр дүн.
+type boundaryPreviewResponse struct {
+	// GeometryWKT — файлаас уншсан хил (WGS84) — газрын зураг дээр харуулна.
+	GeometryWKT string `json:"geometry_wkt"`
+	// AreaM2 — шинэ хилийн талбай (public.calculate_area_utm).
+	AreaM2 float64 `json:"area_m2"`
+	// ReferenceAreaM2 — жишиг (төлөвлөгөөний) хилийн талбай. 0 = жишиг байхгүй.
+	ReferenceAreaM2 float64 `json:"reference_area_m2"`
+	// DeviationPercent — |шинэ − жишиг| / жишиг × 100.
+	DeviationPercent float64 `json:"deviation_percent"`
+	// MaxDeviationPercent — зөвшөөрөгдөх дээд зөрүү (хувиар).
+	MaxDeviationPercent float64 `json:"max_deviation_percent"`
+	// Accepted — false бол хадгалах үед татгалзана.
+	Accepted bool `json:"accepted"`
 }
 
 type documentResponse struct {
@@ -252,6 +276,100 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 		UploadedAt:     d.UploadedAt.Format(time.RFC3339),
 		SourceDocID:    d.SourceDocID,
 		SourceDocCode:  d.SourceDocCode,
+	}
+}
+
+// socioSurveyResponse — нийгэм, эдийн засгийн судалгааны бүртгэл.
+// FileURL нь харьцангуй зам (/api/files/...) — frontend-ийн proxy нээнэ.
+type socioSurveyResponse struct {
+	ID            string `json:"id"`
+	AcquisitionID string `json:"acquisition_id"`
+	AgreedCount   int    `json:"agreed_count"`
+	RejectedCount int    `json:"rejected_count"`
+	Note          string `json:"note"`
+	FileURL       string `json:"file_url"`
+	FileName      string `json:"file_name"`
+	SizeBytes     int64  `json:"size_bytes"`
+	UpdatedAt     string `json:"updated_at"`
+	UpdatedBy     string `json:"updated_by"`
+}
+
+func toSocioSurveyResponse(s *domain.AcquisitionSocioSurvey) socioSurveyResponse {
+	return socioSurveyResponse{
+		ID:            s.ID.String(),
+		AcquisitionID: s.AcquisitionID.String(),
+		AgreedCount:   s.AgreedCount,
+		RejectedCount: s.RejectedCount,
+		Note:          s.Note,
+		FileURL:       s.FileURL,
+		FileName:      s.FileName,
+		SizeBytes:     s.SizeBytes,
+		UpdatedAt:     s.UpdatedAt.Format(time.RFC3339),
+		UpdatedBy:     s.UpdatedBy,
+	}
+}
+
+// noticeEmailResponse — мэдэгдэх хуудсыг имэйлээр илгээсэн НЭГ бичлэг (түүх).
+type noticeEmailResponse struct {
+	ID       string `json:"id"`
+	ParcelID string `json:"parcel_id"`
+	ToEmail  string `json:"to_email"`
+	Subject  string `json:"subject"`
+	FileURL  string `json:"file_url"`
+	FileName string `json:"file_name"`
+	// Status — "sent" эсвэл "failed" (амжилтгүй оролдлого ч түүхэд бүртгэгдэнэ).
+	Status       string `json:"status"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	SentAt       string `json:"sent_at"`
+	SentBy       string `json:"sent_by"`
+}
+
+func toNoticeEmailResponse(m domain.ParcelNoticeEmail) noticeEmailResponse {
+	return noticeEmailResponse{
+		ID:           m.ID.String(),
+		ParcelID:     m.ParcelID.String(),
+		ToEmail:      m.ToEmail,
+		Subject:      m.Subject,
+		FileURL:      m.FileURL,
+		FileName:     m.FileName,
+		Status:       m.Status,
+		ErrorMessage: m.ErrorMessage,
+		SentAt:       m.SentAt.Format(time.RFC3339),
+		SentBy:       m.SentBy,
+	}
+}
+
+// emongoliaNoticeResponse — E-Mongolia-гаар хүргүүлсэн НЭГ мэдэгдэл (түүх).
+type emongoliaNoticeResponse struct {
+	ID            string `json:"id"`
+	ParcelID      string `json:"parcel_id"`
+	RegisterNo    string `json:"register_no"`
+	RecipientName string `json:"recipient_name,omitempty"`
+	Subject       string `json:"subject"`
+	FileURL       string `json:"file_url"`
+	FileName      string `json:"file_name"`
+	// Status — "sent" | "mocked" (гадаад холболтгүй түр бүртгэл) | "failed"
+	Status       string `json:"status"`
+	ExternalRef  string `json:"external_ref,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	SentAt       string `json:"sent_at"`
+	SentBy       string `json:"sent_by"`
+}
+
+func toEMongoliaNoticeResponse(m domain.ParcelEMongoliaNotice) emongoliaNoticeResponse {
+	return emongoliaNoticeResponse{
+		ID:            m.ID.String(),
+		ParcelID:      m.ParcelID.String(),
+		RegisterNo:    m.RegisterNo,
+		RecipientName: m.RecipientName,
+		Subject:       m.Subject,
+		FileURL:       m.FileURL,
+		FileName:      m.FileName,
+		Status:        m.Status,
+		ExternalRef:   m.ExternalRef,
+		ErrorMessage:  m.ErrorMessage,
+		SentAt:        m.SentAt.Format(time.RFC3339),
+		SentBy:        m.SentBy,
 	}
 }
 
@@ -739,6 +857,7 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		Monitorings:        pf.Monitorings,
 		Fees:               pf.Fees,
 		BasePriceFactors:   pf.BasePriceFactors,
+		Ownerships:         pf.Ownerships,
 		ID:                 pf.ID.String(),
 		ParcelID:           pf.ParcelID,
 		OldParcelID:        pf.OldParcelID,

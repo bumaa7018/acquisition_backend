@@ -1119,10 +1119,15 @@ func (r *landAcqRepo) CreateBoundaryHistory(ctx context.Context, history *domain
 }
 
 func (r *landAcqRepo) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
+	// Талбайг ХАДГАЛАХГҮЙ, геометрээс нь УНШИХ үедээ бодно: талбайн цорын ганц
+	// эх сурвалж нь public.calculate_area_utm (ГУС-тай ижил UTM арга) байх
+	// ёстой — хадгалсан тоо нь функц засагдахад хоцрогдоно.
 	rows, err := r.db.Query(ctx, `
 		SELECT id, land_acquisition_id,
 		       COALESCE(ST_AsText(old_geometry), ''),
 		       COALESCE(ST_AsText(new_geometry), ''),
+		       COALESCE(public.calculate_area_utm(old_geometry), 0),
+		       COALESCE(public.calculate_area_utm(new_geometry), 0),
 		       COALESCE(changed_by, ''), changed_at
 		FROM land_acquisition_boundary_history
 		WHERE land_acquisition_id = $1
@@ -1141,6 +1146,8 @@ func (r *landAcqRepo) ListBoundaryHistory(ctx context.Context, acquisitionID uui
 			&h.LandAcquisitionID,
 			&h.OldGeometryWKT,
 			&h.NewGeometryWKT,
+			&h.OldAreaM2,
+			&h.NewAreaM2,
 			&h.ChangedBy,
 			&h.ChangedAt,
 		); err != nil {
@@ -1469,6 +1476,10 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 	}
 	if items, monErr := r.ListParcelMonitorings(ctx, id); monErr == nil {
 		pf.Monitorings = items
+	}
+	// УБЕГ-ийн өмчлөлийн бүртгэл (ГУС-аас БИШ, ХУР/XYP-ээс татагдсан).
+	if items, oErr := r.ListParcelOwnerships(ctx, id); oErr == nil {
+		pf.Ownerships = items
 	}
 	return pf, nil
 }
@@ -2659,6 +2670,24 @@ func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 	where := "la.deleted_at IS NULL" // soft delete: тайланд устгасан чөлөөлөлт орохгүй
 	i := 1
 
+	if filter.ParcelID != "" {
+		where += fmt.Sprintf(" AND p.parcel_id = $%d", i)
+		args = append(args, filter.ParcelID)
+		i++
+	}
+	// Төлөвлөгөөний нэгж талбарын дугаар — чөлөөлөлт нь plan_id-гаар
+	// төлөвлөгөөтэй холбогддог тул дэд query-гээр шүүнэ (эдгээр query-ийн
+	// FROM хэсэгт plan хүснэгт байхгүй).
+	if filter.PlanParcelID != "" {
+		where += fmt.Sprintf(" AND la.plan_id IN (SELECT pl.id FROM plan pl WHERE pl.parcel_id = $%d)", i)
+		args = append(args, filter.PlanParcelID)
+		i++
+	}
+	if filter.PlanCodeExact != "" {
+		where += fmt.Sprintf(" AND la.plan_code = $%d", i)
+		args = append(args, filter.PlanCodeExact)
+		i++
+	}
 	if filter.AcquisitionID != "" {
 		where += fmt.Sprintf(" AND la.id = $%d", i)
 		args = append(args, filter.AcquisitionID)

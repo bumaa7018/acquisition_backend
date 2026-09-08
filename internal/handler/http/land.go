@@ -415,9 +415,94 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 	response.Paginated(c, result, total, page, pageSize)
 }
 
+// readBoundaryShapefile — хүсэлтээс хилийн .shp файлыг уншина.
+//
+// Буцаах: (файлын байт, үргэлжлүүлэх эсэх). Файл огт өгөөгүй бол (nil, true) —
+// хил хөндөгдөхгүй ердийн засвар. ok=false үед хариу аль хэдийн бичигдсэн тул
+// дуудагч ШУУД буцах ёстой.
+func readBoundaryShapefile(c *gin.Context) ([]byte, bool) {
+	fh, err := c.FormFile("shapefile")
+	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return nil, false
+		}
+		return nil, true // файл өгөөгүй
+	}
+	if fh.Size > maxShapefileSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return nil, false
+	}
+	data, err := readMultipartFile(fh, maxShapefileSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return nil, false
+	}
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRead)
+		return nil, false
+	}
+	return data, true
+}
+
+// PreviewBoundary godoc
+// @Summary      Гараас оруулах хилийг ХАДГАЛАЛГҮЙ шалгах
+// @Description  .shp файлыг уншиж, хилийн WKT ба талбайн зөрүүг буцаана — хадгалахаас өмнө газрын зураг дээр харах, зөрүүг тоогоор мэдэхэд.
+// @Description  Талбай нь нэгж талбартай ИЖИЛ аргачлалаар (public.calculate_area_utm) бодогдоно. Зөрүү хязгаараас хэтэрсэн ч энд алдаа буцахгүй — accepted=false болно.
+// @Tags         land-acquisitions
+// @Accept       multipart/form-data
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id         path      string  true  "LandAcquisition UUID"
+// @Param        shapefile  formData  file    true  "Хилийн .shp файл"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Failure      422  {object}  response.Response
+// @Router       /land-acquisitions/{id}/boundary-preview [post]
+func (h *LandHandler) PreviewBoundary(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxShapefileFormSize)
+	if c.ContentType() == "multipart/form-data" {
+		if err := c.Request.ParseMultipartForm(maxShapefileFormSize); isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+	}
+
+	data, ok := readBoundaryShapefile(c)
+	if !ok {
+		return
+	}
+	if len(data) == 0 {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrShapefileRequired)
+		return
+	}
+
+	check, err := h.svc.PreviewBoundaryShapefile(c.Request.Context(), id, data)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, boundaryPreviewResponse{
+		GeometryWKT:         check.GeometryWKT,
+		AreaM2:              check.AreaM2,
+		ReferenceAreaM2:     check.ReferenceAreaM2,
+		DeviationPercent:    check.DeviationRatio * 100,
+		MaxDeviationPercent: check.MaxDeviationRatio * 100,
+		Accepted:            check.Accepted,
+	})
+}
+
 // Update godoc
 // @Summary      Газар чөлөөлөлтийн мэдээлэл засах
-// @Description  ХИЛ солих: plan_parcel_id өгвөл тэр дугаараар төлөвлөгөөг дахин хайж, олдсон ТӨЛӨВЛӨГӨӨНИЙ хилийг шинэ хил болгож тохируулна (shapefile хүлээж авахгүй).
+// @Description  ХИЛ солих ХОЁР зам (хоёуланг зэрэг өгвөл 400):
+// @Description  1) plan_parcel_id — тэр дугаараар төлөвлөгөөг дахин хайж, олдсон ТӨЛӨВЛӨГӨӨНИЙ хилийг шинэ хил болгоно.
+// @Description  2) shapefile — гараас (.shp) оруулсан хилээр солино. Талбайн зөрүү нь төлөвлөгөөний хилийн талбайгаас 30%-иас БАГА байх ёстой (үгүй бол 422). Төлөвлөгөөний мэдээлэл хөндөгдөхгүй.
 // @Description  Хил өөрчлөгдвөл шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нь устана.
 // @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах.
 // @Tags         land-acquisitions
@@ -426,6 +511,7 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 // @Security     BearerAuth
 // @Param        id         path      string  true   "LandAcquisition UUID"
 // @Param        plan_parcel_id formData string false "Төлөвлөгөөний нэгж талбарын дугаар — өгвөл хил тэр төлөвлөгөөнөөс дахин хуулагдана"
+// @Param        shapefile  formData  file    false  "Шинэ хилийн .shp файл (гараас хил засах)"
 // @Param        start_date formData  string  false  "Эхлэх огноо (YYYY-MM-DD)"
 // @Param        end_date   formData  string  false  "Дуусах огноо (YYYY-MM-DD)"
 // @Success      200  {object}  response.Response
@@ -449,13 +535,23 @@ func (h *LandHandler) Update(c *gin.Context) {
 
 	req := service.UpdateLandAcquisitionRequest{}
 
-	// Хил солих цорын ганц зам: төлөвлөгөөний НЭГЖ ТАЛБАРЫН ДУГААР. Утга
-	// өгөгдвөл service нь тэр дугаараар төлөвлөгөөг дахин хайж, олдсон
-	// төлөвлөгөөний хилээр чөлөөлөлтийн хилийг солино. Хуучин `plan_code`
-	// талбарыг зөвхөн нийцлийн үүднээс хүлээж авна.
+	// Хил солих 1-р зам: төлөвлөгөөний НЭГЖ ТАЛБАРЫН ДУГААР. Утга өгөгдвөл
+	// service нь тэр дугаараар төлөвлөгөөг дахин хайж, олдсон төлөвлөгөөний
+	// хилээр чөлөөлөлтийн хилийг солино. Хуучин `plan_code` талбарыг зөвхөн
+	// нийцлийн үүднээс хүлээж авна.
 	req.PlanCode = strings.TrimSpace(c.PostForm("plan_parcel_id"))
 	if req.PlanCode == "" {
 		req.PlanCode = strings.TrimSpace(c.PostForm("plan_code"))
+	}
+
+	// Хил солих 2-р зам: ГАРААС оруулсан .shp файл. Файлыг задлах/шалгах ажил
+	// service дээр (shapefile.Parse + талбайн зөрүү) — handler зөвхөн байтыг
+	// уншина. Хоёр замыг зэрэг өгсөн эсэхийг service шийднэ
+	// (domain.ErrBoundarySourceConflict).
+	if data, ok := readBoundaryShapefile(c); ok {
+		req.ShapefileData = data
+	} else {
+		return // алдааны хариу readBoundaryShapefile дотор бичигдсэн
 	}
 
 	if s := c.PostForm("start_date"); s != "" {
@@ -887,6 +983,8 @@ func (h *LandHandler) ListBoundaryHistory(c *gin.Context) {
 			LandAcquisitionID: item.LandAcquisitionID.String(),
 			OldGeometryWKT:    item.OldGeometryWKT,
 			NewGeometryWKT:    item.NewGeometryWKT,
+			OldAreaM2:         item.OldAreaM2,
+			NewAreaM2:         item.NewAreaM2,
 			ChangedBy:         item.ChangedBy,
 			ChangedAt:         item.ChangedAt.Format(time.RFC3339),
 		})
@@ -1119,6 +1217,312 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 		return
 	}
 	response.Created(c, toDocumentResponse(doc))
+}
+
+// GetAcquisitionSocioSurvey godoc
+//
+//	@Summary		Нийгэм, эдийн засгийн судалгааны бүртгэл
+//	@Description	Чөлөөлөлтөд бүртгэсэн судалгааны дүн (зөвшөөрсөн/татгалзсан тоо, тайлбар, PDF). Бүртгэл ороогүй бол data=null.
+//	@Tags			land-acquisitions
+//	@Produce		json
+//	@Param			id	path		string	true	"Газар чөлөөлөлтийн ID"
+//	@Success		200	{object}	response.Response
+//	@Failure		404	{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/land-acquisitions/{id}/socio-survey [get]
+func (h *LandHandler) GetAcquisitionSocioSurvey(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	survey, err := h.svc.GetAcquisitionSocioSurvey(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	// Бүртгэл ороогүй нь алдаа биш — data=null.
+	if survey == nil {
+		response.OK(c, nil)
+		return
+	}
+	response.OK(c, toSocioSurveyResponse(survey))
+}
+
+// SaveAcquisitionSocioSurvey godoc
+//
+//	@Summary		Нийгэм, эдийн засгийн судалгааны мэдээлэл оруулах
+//	@Description	Зөвшөөрсөн/татгалзсан тоо, тайлбар ба судалгааны PDF-ийг хадгална. Чөлөөлөлтөд НЭГ бүртгэл байх ба дахин оруулахад орлогдоно. Файл нь ЗӨВХӨН PDF; олон файлыг frontend нэг PDF болгож нэгтгэж илгээнэ.
+//	@Tags			land-acquisitions
+//	@Accept			multipart/form-data
+//	@Produce		json
+//	@Param			id				path		string	true	"Газар чөлөөлөлтийн ID"
+//	@Param			agreed_count	formData	int		true	"Зөвшөөрсөн тоо"
+//	@Param			rejected_count	formData	int		true	"Татгалзсан тоо"
+//	@Param			note			formData	string	false	"Тайлбар"
+//	@Param			file			formData	file	true	"Судалгааны файл (PDF)"
+//	@Success		200				{object}	response.Response
+//	@Failure		400				{object}	response.Response
+//	@Failure		404				{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/land-acquisitions/{id}/socio-survey [post]
+func (h *LandHandler) SaveAcquisitionSocioSurvey(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+
+	in := service.SocioSurveyInput{
+		Note:    c.PostForm("note"),
+		SavedBy: contextUserIDString(c),
+	}
+	if in.AgreedCount, err = nonNegativeFormInt(c, "agreed_count"); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+	if in.RejectedCount, err = nonNegativeFormInt(c, "rejected_count"); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+
+	// Файл нь ЗААВАЛ — зөвхөн ХАДГАЛАГДСАН бүртгэл дээр тоо/тайлбар засахад
+	// файлгүй илгээж болно (тэр шалгалт service дээр).
+	fh, fileErr := c.FormFile("file")
+	if fileErr != nil && isBodyTooLarge(fileErr) {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	if fileErr == nil {
+		if fh.Size > maxDocumentUploadSize {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		data, readErr := readMultipartFile(fh, maxDocumentUploadSize)
+		if readErr == errUploadTooLarge {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		if readErr != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+			return
+		}
+		contentType, ok := allowedPDFContentType(data)
+		if !ok {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+			return
+		}
+		in.FileName = fh.Filename
+		in.ContentType = contentType
+		in.FileData = data
+	}
+
+	survey, err := h.svc.SaveAcquisitionSocioSurvey(c.Request.Context(), id, in)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, toSocioSurveyResponse(survey), i18n.MsgUpdated)
+}
+
+// ListParcelNoticeEmails godoc
+//
+//	@Summary		Мэдэгдэх хуудас илгээсэн түүх
+//	@Description	Нэгж талбар дээр имэйлээр илгээсэн урьдчилан мэдэгдэх хуудсуудын түүх (шинэ нь эхэнд, огноотой).
+//	@Tags			parcels
+//	@Produce		json
+//	@Param			id	path		string	true	"Нэгж талбарын ID (UUID)"
+//	@Success		200	{object}	response.Response
+//	@Failure		404	{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/parcels/{id}/notice-emails [get]
+func (h *LandHandler) ListParcelNoticeEmails(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	list, err := h.svc.ListParcelNoticeEmails(c.Request.Context(), parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]noticeEmailResponse, 0, len(list))
+	for _, m := range list {
+		result = append(result, toNoticeEmailResponse(m))
+	}
+	response.OK(c, result)
+}
+
+// SendParcelNoticeEmail godoc
+//
+//	@Summary		Мэдэгдэх хуудсыг имэйлээр илгээх
+//	@Description	Урьдчилан мэдэгдэх хуудсын PDF-ийг хавсаргаж иргэний имэйл руу илгээнэ. Илгээлт бүр (амжилтгүй нь ч) түүхэд бүртгэгдэнэ.
+//	@Tags			parcels
+//	@Accept			multipart/form-data
+//	@Produce		json
+//	@Param			id		path		string	true	"Нэгж талбарын ID (UUID)"
+//	@Param			to		formData	string	true	"Хүлээн авагчийн имэйл"
+//	@Param			file	formData	file	true	"Мэдэгдэх хуудас (PDF)"
+//	@Success		200		{object}	response.Response
+//	@Failure		400		{object}	response.Response
+//	@Failure		502		{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/parcels/{id}/notice-emails [post]
+func (h *LandHandler) SendParcelNoticeEmail(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+
+	fh, err := c.FormFile("file")
+	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
+		return
+	}
+	if fh.Size > maxDocumentUploadSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+		return
+	}
+	// Мэдэгдэл нь ЗӨВХӨН PDF-ээр хүргэгдэнэ (загвараас үүсгэсэн файл).
+	if _, ok := allowedPDFContentType(data); !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
+	}
+
+	res, err := h.svc.SendParcelNoticeEmail(c.Request.Context(), parcelID, service.NoticeEmailInput{
+		ToEmail:  c.PostForm("to"),
+		FileName: fh.Filename,
+		FileData: data,
+		SentBy:   contextUserIDString(c),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toNoticeEmailResponse(*res))
+}
+
+// ListParcelEMongoliaNotices godoc
+//
+//	@Summary		E-Mongolia-гаар хүргүүлсэн мэдэгдлийн түүх
+//	@Tags			parcels
+//	@Produce		json
+//	@Param			id	path		string	true	"Нэгж талбарын ID (UUID)"
+//	@Success		200	{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/parcels/{id}/emongolia-notices [get]
+func (h *LandHandler) ListParcelEMongoliaNotices(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	list, err := h.svc.ListParcelEMongoliaNotices(c.Request.Context(), parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	result := make([]emongoliaNoticeResponse, 0, len(list))
+	for _, m := range list {
+		result = append(result, toEMongoliaNoticeResponse(m))
+	}
+	response.OK(c, result)
+}
+
+// SendParcelEMongoliaNotice godoc
+//
+//	@Summary		Мэдэгдэх хуудсыг E-Mongolia-гаар хүргүүлэх
+//	@Description	Мэдэгдэх хуудсын PDF-ийг иргэний регистрийн дугаараар E-Mongolia-руу илгээнэ. Гадаад холболт одоогоор МОК тул түүхэд status="mocked" гэж бүртгэгдэнэ.
+//	@Tags			parcels
+//	@Accept			multipart/form-data
+//	@Produce		json
+//	@Param			id				path		string	true	"Нэгж талбарын ID (UUID)"
+//	@Param			register_no		formData	string	true	"Хүлээн авагчийн регистрийн дугаар"
+//	@Param			recipient_name	formData	string	false	"Хүлээн авагчийн нэр"
+//	@Param			file			formData	file	true	"Мэдэгдэх хуудас (PDF)"
+//	@Success		200				{object}	response.Response
+//	@Failure		400				{object}	response.Response
+//	@Failure		502				{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/parcels/{id}/emongolia-notices [post]
+func (h *LandHandler) SendParcelEMongoliaNotice(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+
+	fh, err := c.FormFile("file")
+	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
+		return
+	}
+	if fh.Size > maxDocumentUploadSize {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+		return
+	}
+	// Мэдэгдэл нь ЗӨВХӨН PDF-ээр хүргэгдэнэ (загвараас үүсгэсэн файл).
+	if _, ok := allowedPDFContentType(data); !ok {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+		return
+	}
+
+	res, err := h.svc.SendParcelEMongoliaNotice(c.Request.Context(), parcelID, service.EMongoliaNoticeInput{
+		RegisterNo:    c.PostForm("register_no"),
+		RecipientName: c.PostForm("recipient_name"),
+		FileName:      fh.Filename,
+		FileData:      data,
+		SentBy:        contextUserIDString(c),
+	})
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, toEMongoliaNoticeResponse(*res))
+}
+
+// nonNegativeFormInt — multipart формын бүхэл тоо. Хоосон бол 0.
+func nonNegativeFormInt(c *gin.Context, field string) (int, error) {
+	raw := strings.TrimSpace(c.PostForm(field))
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		return 0, domain.ErrInvalidInput
+	}
+	return v, nil
 }
 
 func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
@@ -2676,6 +3080,36 @@ func (h *LandHandler) SyncParcelMonitorings(c *gin.Context) {
 	}
 	ctx := service.ContextWithAuthorization(c.Request.Context(), c.GetHeader("Authorization"))
 	res, err := h.svc.SyncParcelMonitorings(ctx, acqID, c.Param("parcel_id"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, res, i18n.MsgSynced)
+}
+
+// SyncParcelOwnerships godoc
+//
+//	@Summary		УБЕГ-ийн газар өмчлөлийн бүртгэл татах
+//	@Description	ХУР (XYP) гарцаас нэгж талбарын дугаараар өмчлөгчид ба өмчлөлийн түүхийг татаж хадгална. Нэгж талбарын мөрүүд БҮХЭЛДЭЭ орлуулагдана.
+//	@Tags			land-acquisitions
+//	@Produce		json
+//	@Param			id			path		string	true	"Газар чөлөөлөлтийн ID"
+//	@Param			parcel_id	path		string	true	"Нэгж талбарын дугаар (код)"
+//	@Success		200			{object}	response.Response
+//	@Failure		400			{object}	response.Response
+//	@Failure		404			{object}	response.Response
+//	@Failure		503			{object}	response.Response
+//	@Security		BearerAuth
+//	@Router			/land-acquisitions/{id}/parcels/{parcel_id}/sync/ownership [post]
+func (h *LandHandler) SyncParcelOwnerships(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	// ХУР гарц нь ГУС-ийн дундын сервис БИШ тул хэрэглэгчийн bearer token-ыг
+	// дамжуулахгүй (тэр гарц түүнийг шалгадаггүй).
+	res, err := h.svc.SyncParcelOwnerships(c.Request.Context(), acqID, c.Param("parcel_id"))
 	if err != nil {
 		response.Error(c, err)
 		return

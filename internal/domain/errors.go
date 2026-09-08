@@ -29,6 +29,30 @@ var (
 	ErrParcelOwnedNoPayment = errors.New("owned parcel has no land payment")
 	// Эх системийн файл серверийн хаяг (.env) тохируулаагүй.
 	ErrSourceFileNotConfigured = errors.New("source file server is not configured")
+	// ХУР (XYP) гарцын хаяг (.env: XYP_BASE_URL) тохируулаагүй тул УБЕГ-ийн
+	// өмчлөлийн мэдээлэл татах боломжгүй.
+	ErrOwnershipNotConfigured = errors.New("xyp ownership gateway is not configured")
+	// Нийгэм, эдийн засгийн судалгааны эх баримт (PDF) заавал хавсрагдана.
+	ErrSurveyFileRequired = errors.New("socio-economic survey file is required")
+	// Имэйл хаяг буруу форматтай.
+	ErrInvalidEmail = errors.New("invalid email address")
+	// SMTP тохируулаагүй (.env: EMAIL_HOST) тул имэйл илгээх боломжгүй.
+	ErrEmailNotConfigured = errors.New("email is not configured")
+	// SMTP сервер илгээлтийг татгалзсан (хаяг олдсонгүй, холбогдсонгүй г.м).
+	ErrEmailSendFailed = errors.New("email sending failed")
+	// E-Mongolia мэдэгдэлд хүлээн авагчийн регистрийн дугаар шаардлагатай.
+	ErrRegisterNoRequired = errors.New("recipient register number is required")
+	// E-Mongolia-ийн гарц тохируулаагүй (мок ч ажиллахгүй үед).
+	ErrEMongoliaNotConfigured = errors.New("e-mongolia gateway is not configured")
+	// E-Mongolia-ийн гарц илгээлтийг татгалзсан.
+	ErrEMongoliaSendFailed = errors.New("e-mongolia notice sending failed")
+
+	// Газрын зургийн СУУРЬ зургийн тохиргоо (app_setting: basemap)
+	ErrInvalidBasemapType    = errors.New("basemap type must be xyz, wms or image")
+	ErrInvalidBasemapURL     = errors.New("basemap url must be an http(s) address")
+	ErrInvalidBasemapTileURL = errors.New("tile url must contain {x}, {y} and {z} placeholders")
+	ErrBasemapLayerRequired  = errors.New("wms basemap requires a layer name")
+	ErrBasemapExtentRequired = errors.New("image basemap requires a valid extent")
 
 	// Захирамжийн төсөл
 	ErrDecisionConfirmed   = errors.New("confirmed decision draft cannot be modified")
@@ -45,9 +69,17 @@ var (
 	// Чөлөөлөх хил нь нэг сум/дүүрэгт (au2) багтаагүй — дамнасан эсвэл
 	// сум/дүүргийн хилээс гарсан.
 	ErrAU2Crossing = errors.New("acquisition boundary crosses administrative unit (au2) borders")
-	// Чөлөөлөлтийн хил нь ТӨЛӨВЛӨГӨӨНИЙ хилээс хуулагддаг (гараас файл оруулах
-	// зам байхгүй) тул төлөвлөгөөнд хил ирээгүй бол үүсгэх/солих боломжгүй.
+	// Чөлөөлөлтийн хил нь ҮҮСГЭХ үедээ ТӨЛӨВЛӨГӨӨНИЙ хилээс хуулагддаг тул
+	// төлөвлөгөөнд хил ирээгүй бол үүсгэх/солих боломжгүй.
 	ErrPlanBoundaryMissing = errors.New("plan parcel has no boundary geometry")
+	// Гараас (shapefile) оруулсан чөлөөлөлтийн хилийн талбай нь ЖИШИГ хилийн
+	// (төлөвлөгөөний хил, эс байвал одоогийн хил) талбайгаас хэт их зөрсөн —
+	// хээрийн хэмжилтийн засвар биш, огт өөр газрын/масштабын файл байх
+	// магадлалтай (үзнэ үү: service.maxBoundaryAreaDeviation).
+	ErrBoundaryAreaDeviation = errors.New("boundary area deviates too much from the reference boundary")
+	// Хил солих хоёр зам (төлөвлөгөөний дугаар / shapefile) нэг хүсэлтэд зэрэг
+	// ирсэн — аль хил хүчинтэй нь тодорхойгүй тул аль нэгийг нь сонгуулна.
+	ErrBoundarySourceConflict = errors.New("provide either a plan parcel id or a shapefile, not both")
 	// base.bs_person (хүний бүртгэл) нь ГУС-ийн эх өгөгдөл — УСТГАХ БОЛОМЖГҮЙ.
 	ErrPersonDeleteForbidden = errors.New("person records cannot be deleted")
 

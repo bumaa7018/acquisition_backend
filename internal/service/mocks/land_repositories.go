@@ -431,6 +431,56 @@ func (m *MockLandAcquisitionRepository) ListParcelMonitorings(ctx context.Contex
 	return args.Get(0).([]domain.ParcelMonitoring), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) GetAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID) (*domain.AcquisitionSocioSurvey, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionSocioSurvey), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpsertAcquisitionSocioSurvey(ctx context.Context, s *domain.AcquisitionSocioSurvey) (string, error) {
+	args := m.Called(ctx, s)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AddParcelNoticeEmail(ctx context.Context, e *domain.ParcelNoticeEmail) error {
+	return m.Called(ctx, e).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelNoticeEmails(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelNoticeEmail, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelNoticeEmail), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AddParcelEMongoliaNotice(ctx context.Context, e *domain.ParcelEMongoliaNotice) error {
+	return m.Called(ctx, e).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelEMongoliaNotices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelEMongoliaNotice, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelEMongoliaNotice), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ReplaceParcelOwnerships(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelOwnership) (int, error) {
+	args := m.Called(ctx, parcelID, acquisitionID, items)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelOwnerships(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelOwnership, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelOwnership), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) SetParcelPaymentRecipient(ctx context.Context, parcelID, parcelHolderID uuid.UUID) error {
 	return m.Called(ctx, parcelID, parcelHolderID).Error(0)
 }

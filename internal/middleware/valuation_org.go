@@ -113,6 +113,10 @@ var valuationOrgAllowlist = []valuationOrgRoute{
 	{path: "/asset-calc-types", prefix: true, methods: []string{"GET"}},
 	{path: "/decision-work-types", prefix: true, methods: []string{"GET"}},
 	{path: "/decision-budgets", prefix: true, methods: []string{"GET"}},
+	// Газрын зургийн СУУРЬ зургийн хаяг — үнэлгээний байгууллага ч газрын
+	// зураг хардаг тул ижил суурь зурагтай байх ёстой. ЗӨВХӨН УНШИХ:
+	// солих нь admin:update шаарддаг ба энд GET л зөвшөөрөгдсөн.
+	{path: "/settings/basemap", methods: []string{"GET"}},
 
 	// Төлөвлөгөөний хайлт/сануулга. Дээрхээс ЯЛГААТАЙ нь: маршрут дээрээ
 	// land:read / compensation:read шаарддаг тул router-т AllowValuationOrgOr-

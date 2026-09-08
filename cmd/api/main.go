@@ -31,6 +31,7 @@ import (
 
 	"acquisition_backend/internal/config"
 	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
 	"acquisition_backend/internal/pkg/geoserver"
@@ -104,6 +105,8 @@ func main() {
 	decisionDraftRepo := postgres.NewDecisionDraftRepo(mainDB)
 	decisionWorkTypeRepo := postgres.NewDecisionWorkTypeRepo(mainDB)
 	decisionBudgetRepo := postgres.NewDecisionBudgetRepo(mainDB)
+	// Системийн тохиргоо (app_setting) — одоогоор газрын зургийн суурь зураг.
+	settingRepo := postgres.NewSettingRepo(mainDB)
 
 	jwtManager := jwtpkg.NewManager(
 		cfg.JWT.AccessSecret,
@@ -177,6 +180,17 @@ func main() {
 		Password: cfg.Middleware.Password,
 	})
 
+	// УБЕГ-ийн өмчлөлийн бүртгэл — ХУР (XYP) гарц. ГУС-ийн дундын сервисээс
+	// ТУСДАА хаягтай тул өөрийн клиенттэй. Тохируулаагүй бол клиент үүсгэхгүй:
+	// өмчлөлийн мэдээлэл татах үйлдэл "холбогдоогүй" гэж буцна.
+	var ownershipInfoClient service.OwnershipInfoClient
+	if xypBaseURL := strings.TrimRight(cfg.XYP.BaseURL, "/"); xypBaseURL != "" {
+		ownershipInfoClient = service.NewHTTPOwnershipInfoClient(xypBaseURL)
+		slog.Info("XYP ownership gateway ready", "base_url", xypBaseURL)
+	} else {
+		slog.Warn("XYP тохируулаагүй — УБЕГ-ийн өмчлөлийн мэдээлэл татагдахгүй (XYP_BASE_URL)")
+	}
+
 	// ГАДНЫ эх системийн файл сервер — татсан хавсралтын ФАЙЛ тэнд байдаг.
 	// ЗӨВХӨН УНШИНА (системийн үндсэн файл сервер нь MinIO — fileStorage).
 	//
@@ -208,10 +222,32 @@ func main() {
 			"(SOURCE_FTP_HOST)")
 	}
 
-	landSvc := service.NewLandService(landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient)
+	// E-Mongolia-ийн мэдэгдлийн гарц (2.8.5). Бодит холболтын заавар гараагүй
+	// тул одоогоор МОК: илгээлт логлогдож, түүхэд status="mocked" гэж бичигдэнэ.
+	emongoliaClient := service.NewMockEMongoliaClient()
+	slog.Warn("E-Mongolia гарц МОК режимд — мэдэгдэл гадаад систем рүү илгээгдэхгүй")
+
+	landSvc := service.NewLandService(landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient, ownershipInfoClient, emailSender, emongoliaClient)
 	planSvc := service.NewPlanService(planStoreRepo, parcelInfoClient)
 	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
+	settingSvc := service.NewSettingService(settingRepo)
+
+	// ГАДААД системийн API-ийн түлхүүрүүд (.env: EXTERNAL_API_KEYS).
+	// Хоосон бол /api/v1/external/* гарцууд ХААЛТТАЙ.
+	externalAPIKeys := []middleware.ExternalAPIKey{}
+	for _, k := range cfg.ExternalAPI.ParsedKeys() {
+		externalAPIKeys = append(externalAPIKeys, middleware.ExternalAPIKey{Label: k.Label, Key: k.Key})
+	}
+	if len(externalAPIKeys) == 0 {
+		slog.Warn("EXTERNAL_API_KEYS тохируулаагүй — гадаад системийн API хаалттай")
+	} else {
+		labels := make([]string, 0, len(externalAPIKeys))
+		for _, k := range externalAPIKeys {
+			labels = append(labels, k.Label)
+		}
+		slog.Info("external API ready", "clients", strings.Join(labels, ","))
+	}
 	documentTypeSvc := service.NewDocumentTypeService(documentTypeRepo)
 	// Ажлын төрөл / Төсөв нь ижил интерфейстэй тул router-ийн type switch
 	// тэдгээрийг ялгаж чадахгүй — нэг багцаар дамжуулна.
@@ -240,7 +276,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, externalAPIKeys)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

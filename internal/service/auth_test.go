@@ -23,6 +23,10 @@ func (m *mockEmailSender) SendPasswordReset(to, link string) error {
 	return m.Called(to, link).Error(0)
 }
 
+func (m *mockEmailSender) SendWithAttachment(to, subject, bodyText, attachmentName string, attachment []byte) error {
+	return m.Called(to, subject, bodyText, attachmentName, attachment).Error(0)
+}
+
 func newJWTManager() *jwtpkg.Manager {
 	return jwtpkg.NewManager(
 		"access-secret-32-chars-padding-1234",

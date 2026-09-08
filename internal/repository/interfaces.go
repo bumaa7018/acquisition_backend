@@ -251,6 +251,10 @@ type LandAcquisitionWriteRepository interface {
 	ListParcelBasePriceFactors(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelBasePriceFactor, error)
 	UpsertParcelMonitorings(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []*domain.ParcelMonitoring) (int, error)
 	ListParcelMonitorings(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelMonitoring, error)
+	// УБЕГ-ийн өмчлөлийн бүртгэл (ХУР/XYP). Мөрд тогтвортой түлхүүр байхгүй
+	// тул нэгж талбарын мөрүүд БҮХЭЛДЭЭ орлуулагдана.
+	ReplaceParcelOwnerships(ctx context.Context, parcelID, acquisitionID uuid.UUID, items []domain.ParcelOwnership) (int, error)
+	ListParcelOwnerships(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelOwnership, error)
 	// SetParcelDetailHolder — parcel_detail.holder_id-г үндсэн эзэмшигчид холбоно.
 	SetParcelDetailHolder(ctx context.Context, parcelID, holderID uuid.UUID) error
 	Update(ctx context.Context, acq *domain.LandAcquisition) error
@@ -343,6 +347,18 @@ type LandCompensationGrantRepository interface {
 type LandDocumentRepository interface {
 	ListAcquisitionDocuments(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.Document, error)
 	AddAcquisitionDocument(ctx context.Context, acquisitionID uuid.UUID, doc *domain.Document) error
+	// Нийгэм, эдийн засгийн судалгаа — чөлөөлөлтөд НЭГ бүртгэл.
+	// Байхгүй үед GetAcquisitionSocioSurvey нь ErrNotFound буцаана.
+	GetAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID) (*domain.AcquisitionSocioSurvey, error)
+	// UpsertAcquisitionSocioSurvey — мөрийг орлуулж, СОЛИГДСОН хуучин файлын
+	// URL-ийг буцаана (дуудагч хадгалалтаас цэвэрлэнэ).
+	UpsertAcquisitionSocioSurvey(ctx context.Context, s *domain.AcquisitionSocioSurvey) (oldFileURL string, err error)
+	// Мэдэгдэх хуудсыг имэйлээр илгээсэн түүх — зөвхөн НЭМЭГДЭНЭ.
+	AddParcelNoticeEmail(ctx context.Context, m *domain.ParcelNoticeEmail) error
+	ListParcelNoticeEmails(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelNoticeEmail, error)
+	// E-Mongolia-гаар хүргүүлсэн мэдэгдлийн түүх — зөвхөн НЭМЭГДЭНЭ.
+	AddParcelEMongoliaNotice(ctx context.Context, m *domain.ParcelEMongoliaNotice) error
+	ListParcelEMongoliaNotices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelEMongoliaNotice, error)
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error
 	// AddSourceParcelDocuments — эх системээс татсан хавсралтуудаас ЗӨВХОН
@@ -479,6 +495,14 @@ type DecisionDraftRepository interface {
 	// BindFundingSourceToAcquisition — нэгж талбар холбоход сонгосон эх үүсвэрийг
 	// тухайн чөлөөлөлтийн санхүүжилт болгож хадгална.
 	BindFundingSourceToAcquisition(ctx context.Context, fundingLinkID, acquisitionID string) error
+}
+
+// SettingRepository — системийн тохиргоо (app_setting): key → JSON текст.
+// Мөр байхгүй бол Get нь domain.ErrNotFound буцаана ("тохируулаагүй").
+type SettingRepository interface {
+	Get(ctx context.Context, key string) (*domain.SettingRecord, error)
+	Upsert(ctx context.Context, key, valueJSON, updatedBy string) error
+	Delete(ctx context.Context, key string) error
 }
 
 type DocumentTypeRepository interface {

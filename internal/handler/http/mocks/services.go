@@ -116,6 +116,14 @@ func (m *MockLandService) Update(ctx context.Context, id uuid.UUID, req service.
 	return args.Get(0).(*domain.LandAcquisition), change, args.Error(2)
 }
 
+func (m *MockLandService) PreviewBoundaryShapefile(ctx context.Context, id uuid.UUID, shapefileData []byte) (*service.BoundaryAreaCheck, error) {
+	args := m.Called(ctx, id, shapefileData)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*service.BoundaryAreaCheck), args.Error(1)
+}
+
 func (m *MockLandService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
 	args := m.Called(ctx, acquisitionID)
 	if args.Get(0) == nil {
@@ -244,6 +252,54 @@ func (m *MockLandService) UploadAcquisitionDocument(ctx context.Context, acquisi
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.Document), args.Error(1)
+}
+
+func (m *MockLandService) GetAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID) (*domain.AcquisitionSocioSurvey, error) {
+	args := m.Called(ctx, acquisitionID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionSocioSurvey), args.Error(1)
+}
+
+func (m *MockLandService) SaveAcquisitionSocioSurvey(ctx context.Context, acquisitionID uuid.UUID, in service.SocioSurveyInput) (*domain.AcquisitionSocioSurvey, error) {
+	args := m.Called(ctx, acquisitionID, in)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.AcquisitionSocioSurvey), args.Error(1)
+}
+
+func (m *MockLandService) SendParcelNoticeEmail(ctx context.Context, parcelID uuid.UUID, in service.NoticeEmailInput) (*domain.ParcelNoticeEmail, error) {
+	args := m.Called(ctx, parcelID, in)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelNoticeEmail), args.Error(1)
+}
+
+func (m *MockLandService) ListParcelNoticeEmails(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelNoticeEmail, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelNoticeEmail), args.Error(1)
+}
+
+func (m *MockLandService) SendParcelEMongoliaNotice(ctx context.Context, parcelID uuid.UUID, in service.EMongoliaNoticeInput) (*domain.ParcelEMongoliaNotice, error) {
+	args := m.Called(ctx, parcelID, in)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelEMongoliaNotice), args.Error(1)
+}
+
+func (m *MockLandService) ListParcelEMongoliaNotices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelEMongoliaNotice, error) {
+	args := m.Called(ctx, parcelID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelEMongoliaNotice), args.Error(1)
 }
 
 func (m *MockLandService) DeleteAcquisitionDocument(ctx context.Context, acquisitionID, documentID uuid.UUID) error {
@@ -544,6 +600,14 @@ func (m *MockLandService) SyncParcelCourtDecisions(ctx context.Context, acquisit
 }
 
 func (m *MockLandService) SyncParcelMonitorings(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelSyncCountResult), args.Error(1)
+}
+
+func (m *MockLandService) SyncParcelOwnerships(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (*domain.ParcelSyncCountResult, error) {
 	args := m.Called(ctx, acquisitionID, parcelCode)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

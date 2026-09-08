@@ -165,6 +165,10 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrOutsideParcelBoundary
 	case domain.ErrPlanBoundaryMissing:
 		return http.StatusUnprocessableEntity, i18n.ErrPlanBoundaryMissing
+	case domain.ErrBoundaryAreaDeviation:
+		return http.StatusUnprocessableEntity, i18n.ErrBoundaryAreaDeviation
+	case domain.ErrBoundarySourceConflict:
+		return http.StatusBadRequest, i18n.ErrBoundarySourceConflict
 	case domain.ErrShapefileProjection:
 		return http.StatusUnprocessableEntity, i18n.ErrShapefileProjection
 	case domain.ErrShapefileOutsideCountry:
@@ -201,6 +205,32 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrParcelOwnedNoPayment
 	case domain.ErrSourceFileNotConfigured:
 		return http.StatusServiceUnavailable, i18n.ErrSourceFileUnavailable
+	case domain.ErrOwnershipNotConfigured:
+		return http.StatusServiceUnavailable, i18n.ErrOwnershipUnavailable
+	case domain.ErrSurveyFileRequired:
+		return http.StatusBadRequest, i18n.ErrSurveyFileRequired
+	case domain.ErrInvalidEmail:
+		return http.StatusBadRequest, i18n.ErrInvalidEmail
+	case domain.ErrEmailNotConfigured:
+		return http.StatusServiceUnavailable, i18n.ErrEmailNotConfigured
+	case domain.ErrEmailSendFailed:
+		return http.StatusBadGateway, i18n.ErrEmailSendFailed
+	case domain.ErrRegisterNoRequired:
+		return http.StatusBadRequest, i18n.ErrRegisterNoRequired
+	case domain.ErrEMongoliaNotConfigured:
+		return http.StatusServiceUnavailable, i18n.ErrEMongoliaUnavailable
+	case domain.ErrEMongoliaSendFailed:
+		return http.StatusBadGateway, i18n.ErrEMongoliaSendFailed
+	case domain.ErrInvalidBasemapType:
+		return http.StatusBadRequest, i18n.ErrBasemapType
+	case domain.ErrInvalidBasemapURL:
+		return http.StatusBadRequest, i18n.ErrBasemapURL
+	case domain.ErrInvalidBasemapTileURL:
+		return http.StatusBadRequest, i18n.ErrBasemapTileURL
+	case domain.ErrBasemapLayerRequired:
+		return http.StatusBadRequest, i18n.ErrBasemapLayer
+	case domain.ErrBasemapExtentRequired:
+		return http.StatusBadRequest, i18n.ErrBasemapExtent
 	case domain.ErrDecisionConfirmed:
 		return http.StatusConflict, i18n.ErrDecisionConfirmed
 	case domain.ErrParcelNotReleased:

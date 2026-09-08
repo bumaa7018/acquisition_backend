@@ -82,9 +82,13 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// 2-р давхарга: тухайн объектын ЭЗЭН рүү буулгаж шалгана.
 	var err error
 	switch namespace {
-	case "acquisition", "drone":
+	// socio-survey — нийгэм, эдийн засгийн судалгааны PDF. Түлхүүрийн эзэн нь
+	// ЧӨЛӨӨЛӨЛТИЙН id тул чөлөөлөлтийн ижил дүрмээр шалгагдана.
+	case "acquisition", "drone", "socio-survey":
 		err = h.authorizeAcquisition(c, ownerID)
-	case "parcel":
+	// notice / emongolia — иргэнд илгээсэн мэдэгдэх хуудсын PDF (имэйл ба
+	// E-Mongolia). Эзэн нь НЭГЖ ТАЛБАР.
+	case "parcel", "notice", "emongolia":
 		err = h.authorizeParcel(c, ownerID)
 	case "compensation-report":
 		err = h.authorizeCompensation(c, ownerID)

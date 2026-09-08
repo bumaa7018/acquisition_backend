@@ -62,6 +62,9 @@ const (
 	ErrNewBoundaryExceeds      Key = "new_boundary_exceeds"
 	ErrAU2Crossing             Key = "au2_crossing"
 	ErrOutsideParcelBoundary   Key = "outside_parcel_boundary"
+	ErrBoundaryAreaDeviation   Key = "boundary_area_deviation"
+	ErrBoundarySourceConflict  Key = "boundary_source_conflict"
+	ErrShapefileRequired       Key = "shapefile_required"
 	ErrShapefileProjection     Key = "shapefile_projection"
 	ErrShapefileOutsideCountry Key = "shapefile_outside_country"
 	ErrShapefileMultiRecord    Key = "shapefile_multi_record"
@@ -89,6 +92,21 @@ const (
 	ErrParcelAppNoMissing      Key = "parcel_app_no_missing"
 	ErrParcelOwnedNoPayment    Key = "parcel_owned_no_payment"
 	ErrSourceFileUnavailable   Key = "source_file_unavailable"
+	ErrOwnershipUnavailable    Key = "ownership_unavailable"
+	ErrSurveyFileRequired      Key = "survey_file_required"
+	ErrInvalidEmail            Key = "invalid_email"
+	ErrEmailNotConfigured      Key = "email_not_configured"
+	ErrEmailSendFailed         Key = "email_send_failed"
+	ErrExternalAPIDisabled     Key = "external_api_disabled"
+	ErrExternalFilterRequired  Key = "external_filter_required"
+	ErrRegisterNoRequired      Key = "register_no_required"
+	ErrEMongoliaUnavailable    Key = "emongolia_unavailable"
+	ErrEMongoliaSendFailed     Key = "emongolia_send_failed"
+	ErrBasemapType             Key = "basemap_type"
+	ErrBasemapURL              Key = "basemap_url"
+	ErrBasemapTileURL          Key = "basemap_tile_url"
+	ErrBasemapLayer            Key = "basemap_layer"
+	ErrBasemapExtent           Key = "basemap_extent"
 
 	// Document / file errors
 	ErrFileRequired           Key = "file_required"
@@ -153,6 +171,9 @@ var messages = map[Key][2]string{
 	ErrNewBoundaryExceeds:      {"Төлөвлөгөөний шинэ хил шалгалтад тэнцсэнгүй", "The new plan boundary failed validation"},
 	ErrAU2Crossing:             {"Сум/дүүрэг дамнах боломжгүй. Чөлөөлөх хил нь зөвхөн нэг сум/дүүргийн хил дотор байх шаардлагатай.", "Cannot span multiple districts. The acquisition boundary must lie within a single district (au2)."},
 	ErrOutsideParcelBoundary:   {"Чөлөөлөх хил/талбай нь нэгж талбарын үндсэн хил дотор байх шаардлагатай. Оруулсан хил үндсэн хилээс гарсан байна.", "The acquisition geometry must lie inside the parcel's own boundary."},
+	ErrBoundaryAreaDeviation:   {"Оруулсан хилийн талбай нь жишиг хилийн (төлөвлөгөөний хил) талбайгаас 30%-иас их зөрсөн байна. Хилийн зөрүү 30%-иас бага байх шаардлагатай — файлын хил, проекцийг шалгана уу.", "The uploaded boundary area deviates by 30% or more from the reference (plan) boundary. The deviation must stay below 30%."},
+	ErrBoundarySourceConflict:  {"Хил солих хоёр аргыг зэрэг ашиглах боломжгүй. Төлөвлөгөөний дугаараар хайх эсвэл хилийн файл оруулах аль нэгийг сонгоно уу.", "Cannot change the boundary from a plan and a shapefile at the same time. Choose one."},
+	ErrShapefileRequired:       {"Хилийн файл (.shp) оруулна уу.", "A boundary shapefile (.shp) is required."},
 	ErrShapefileProjection:     {"Оруулсан файлын проекц зөрүүтэй. Хил нь WGS84 (EPSG:4326) координатын системд, градусаар байх шаардлагатай.", "Invalid projection: the boundary must be in WGS84 (EPSG:4326) degrees."},
 	ErrShapefileOutsideCountry: {"Оруулсан хилийн координат Монгол Улсын хүрээнд байхгүй. Файлын проекц эсвэл координатыг шалгана уу.", "The boundary coordinates fall outside Mongolia. Check the file's projection."},
 	ErrShapefileMultiRecord:    {"Оруулсан файлд нэгээс олон полигон байна. Нэг полигон агуулсан файл оруулна уу.", "The file contains more than one polygon. Upload a file with exactly one polygon."},
@@ -179,6 +200,21 @@ var messages = map[Key][2]string{
 	ErrParcelAppNoMissing:      {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
 	ErrParcelOwnedNoPayment:    {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
 	ErrSourceFileUnavailable:   {"Эх системийн файл сервер тохируулагдаагүй тул хавсралтын файлыг харах боломжгүй.", "The source file server is not configured, so the attachment cannot be opened."},
+	ErrOwnershipUnavailable:    {"ХУР системийн холболт тохируулагдаагүй тул УБЕГ-ийн өмчлөлийн мэдээлэл татах боломжгүй.", "The XYP gateway is not configured, so the state ownership registry cannot be fetched."},
+	ErrSurveyFileRequired:      {"Нийгэм, эдийн засгийн судалгааны файлыг (PDF) заавал хавсаргана.", "The socio-economic survey file (PDF) is required."},
+	ErrInvalidEmail:            {"Имэйл хаяг буруу байна.", "The email address is invalid."},
+	ErrEmailNotConfigured:      {"Имэйл серверийн тохиргоо байхгүй тул мэдэгдэл илгээх боломжгүй.", "Email is not configured, so the notice cannot be sent."},
+	ErrEmailSendFailed:         {"Имэйл илгээхэд алдаа гарлаа. Хаягийг шалгаад дахин оролдоно уу.", "Sending the email failed. Check the address and try again."},
+	ErrExternalAPIDisabled:     {"Гадаад системийн API тохируулагдаагүй байна.", "The external system API is not configured."},
+	ErrExternalFilterRequired:  {"parcel_id, acquisition_id эсвэл plan_code шүүлтүүрээс дор хаяж нэгийг заана уу.", "Provide at least one filter: parcel_id, acquisition_id or plan_code."},
+	ErrRegisterNoRequired:      {"Хүлээн авагчийн регистрийн дугаарыг оруулна уу.", "The recipient register number is required."},
+	ErrEMongoliaUnavailable:    {"E-Mongolia-ийн холболт тохируулагдаагүй байна.", "The E-Mongolia gateway is not configured."},
+	ErrEMongoliaSendFailed:     {"E-Mongolia-руу мэдэгдэл илгээхэд алдаа гарлаа.", "Sending the notice to E-Mongolia failed."},
+	ErrBasemapType:             {"Суурь зургийн төрөл xyz (tile), wms эсвэл image байх ёстой.", "Basemap type must be xyz (tile), wms or image."},
+	ErrBasemapURL:              {"Суурь зургийн хаяг http:// эсвэл https://-ээр эхлэх ёстой.", "The basemap URL must start with http:// or https://."},
+	ErrBasemapTileURL:          {"Tile хаягт {x}, {y}, {z} орлуулагч байх ёстой (ж: https://.../{z}/{y}/{x}.png).", "The tile URL must contain {x}, {y} and {z} placeholders."},
+	ErrBasemapLayer:            {"WMS суурь зурагт давхаргын нэр (layers) шаардлагатай.", "A WMS basemap requires a layer name."},
+	ErrBasemapExtent:           {"Зургийн хүрээг (minLon, minLat, maxLon, maxLat) зөв оруулна уу.", "Provide a valid image extent (minLon, minLat, maxLon, maxLat)."},
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge:           {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил

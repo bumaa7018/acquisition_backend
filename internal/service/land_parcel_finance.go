@@ -267,3 +267,39 @@ func (s *landService) SyncParcelMonitorings(
 		})
 	return &domain.ParcelSyncCountResult{Found: len(items), Saved: saved}, nil
 }
+
+// SyncParcelOwnerships — УБЕГ-ийн газар өмчлөлийн бүртгэлийг нэгж талбарын
+// дугаараар ХУР (XYP) гарцаас татаж хадгална.
+//
+// Эх сурвалж нь ГУС-ийн дундын сервис БИШ тул app_no шаардахгүй. Мөрүүд нь
+// өмчлөлийн ТҮҮХ (хамтран өмчлөгчид + өмчлөгч өөрчлөгдсөн бүртгэл) байдаг тул
+// бүхэлдээ орлуулагдана.
+func (s *landService) SyncParcelOwnerships(
+	ctx context.Context, acquisitionID uuid.UUID, parcelCode string,
+) (*domain.ParcelSyncCountResult, error) {
+	if s.ownershipInfo == nil {
+		return nil, domain.ErrOwnershipNotConfigured
+	}
+	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
+		return nil, domain.ErrNotFound
+	}
+	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	if err != nil {
+		return nil, domain.ErrNotFound
+	}
+	items, err := s.ownershipInfo.ListParcelOwnerships(ctx, parcelCode)
+	if err != nil {
+		slog.Error("УБЕГ-ийн өмчлөлийн мэдээлэл татахад алдаа", "parcel_code", parcelCode, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	saved, err := s.landRepo.ReplaceParcelOwnerships(ctx, p.ID, acquisitionID, items)
+	if err != nil {
+		slog.Error("УБЕГ-ийн өмчлөлийн мэдээлэл хадгалахад алдаа", "parcel_id", p.ID, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	s.auditLog(ctx, "synced", domain.AuditResourceParcel, p.ID.String(),
+		uuidPtr(acquisitionID), uuidPtr(p.ID), map[string]any{
+			"parcel_code": parcelCode, "ownership_count": saved,
+		})
+	return &domain.ParcelSyncCountResult{Found: len(items), Saved: saved}, nil
+}
