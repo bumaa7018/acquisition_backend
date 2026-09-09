@@ -257,6 +257,18 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return SeedValuationOrgEmployees(ctx, mainDB, authDB)
 			},
 		},
+		{
+			// codelists.cl_person_type-ийн код 10..100-г дахин синк хийнэ.
+			// 000000_auth_lookups нь эрт орчинд ажиллаж дуусаад seed_history-д
+			// бүртгэгдсэн тул шинэ кодыг аваагүй authdb-нүүд үлдсэн: тэдгээрт
+			// bs_person."type"=10 (иргэн) бичихэд FK зөрчлөөр (ErrInvalidInput)
+			// хүн үүсгэх боломжгүй байв. seedPersonTypes нь код/тайлбар давхцвал
+			// огт хөндөхгүй тул дахин ажиллуулах аюулгүй.
+			name: "000032_person_types_resync",
+			run: func(ctx context.Context) error {
+				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedAuthLookups(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}
