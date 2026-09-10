@@ -22,6 +22,12 @@ type AcquisitionLockChecker interface {
 	IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error)
 }
 
+// AcquisitionStageChecker — чөлөөлөлтийн ТӨЛӨВийг уншина (нэгж талбартай
+// ажиллах шатанд байгаа эсэхийг шалгахад).
+type AcquisitionStageChecker interface {
+	AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error)
+}
+
 // ParcelLockChecker — нэгж талбарын чөлөөлөлтийн хаалтыг шалгах интерфейс
 // (routes where :id = parcel_id)
 type ParcelLockChecker interface {
@@ -216,6 +222,51 @@ func RequireAcquisitionNotLocked(svc AcquisitionLockChecker) gin.HandlerFunc {
 		}
 		if locked {
 			response.Abort(c, 423, i18n.ErrAcqLocked)
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireAcquisitionFieldStage — НЭГЖ ТАЛБАРТАЙ АЖИЛЛАХ үйлдлийг зөвхөн
+// "Хээрийн судалгаа" (болон түүнээс хойших) төлөвт зөвшөөрнө.
+//
+// ЯАГААД: "Шинэ" төлөв нь нэгж талбарын БҮРДЭЛ (татах, хилээс гарсныг хасах,
+// давхардлыг арилгах) хийгддэг шат. Тэр шатанд үнэлгээ/олговор/төлөв бичвэл
+// дараа нь бүрдэл өөрчлөгдөхөд (хил солих, давхардал арилгах) бичигдсэн
+// өгөгдөл нэгж талбартайгаа хамт устах эрсдэлтэй.
+//
+// УНШИЛТАД хамаарахгүй (GET) — "Шинэ" төлөвт ч жагсаалт/дэлгэрэнгүй харагдана.
+// Мөн нэгж талбар ТАТАХ маршрутуудад тавигдахгүй: тэр нь яг "Шинэ" төлөвийн
+// ажил (router-ийн тайлбарыг үз).
+//
+// Баталгаажсан (Verified) төлөвийг RequireAcquisitionNotLocked тусад нь
+// хаадаг тул энд "Хээрийн судалгаанаас БАГА" гэсэн нөхцөл хангалттай.
+func RequireAcquisitionFieldStage(svc AcquisitionStageChecker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		if method == "GET" || method == "HEAD" || method == "OPTIONS" {
+			c.Next()
+			return
+		}
+		idStr := c.Param("id")
+		if idStr == "" {
+			c.Next()
+			return
+		}
+		acqID, err := uuid.Parse(idStr)
+		if err != nil {
+			c.Next()
+			return
+		}
+		status, err := svc.AcquisitionStatus(c.Request.Context(), acqID)
+		if err != nil {
+			// Олдоогүй эсвэл DB алдаа — handler-д шилжүүлнэ (тэр нь 404 буцаана).
+			c.Next()
+			return
+		}
+		if status < domain.LandAcquisitionStatusField {
+			response.Abort(c, 423, i18n.ErrNotFieldStage)
 			return
 		}
 		c.Next()

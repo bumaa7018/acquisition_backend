@@ -1352,3 +1352,75 @@ func TestLandService_UpdateParcelMeta_SkipsCheckWithoutGeomOrArea(t *testing.T) 
 	landRepo.AssertNotCalled(t, "CheckContainment",
 		mock.Anything, mock.Anything, mock.Anything)
 }
+
+// ── "ХЭЭРИЙН СУДАЛГАА" руу шилжих шаардлагууд ───────────────────────────────
+//
+// Нэгж талбартай ажиллах (үнэлгээ, олговор, төлөв) энэ төлөвөөс эхэлдэг тул
+// бүрдэл нь тэр мөчид ЗӨВ байх ёстой: нэгж талбар татагдсан БА хоорондоо
+// байршлаар давхцаагүй.
+
+func TestLandService_AdvanceStatus_FieldRequiresDiscoveredParcels(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+	acqID := uuid.New()
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusNew,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("CountParcels", ctx, acqID).Return(0, nil)
+
+	_, err := svc.AdvanceStatus(ctx, acqID, domain.LandAcquisitionStatusField, "", "user-1", "", nil)
+
+	assert.Equal(t, domain.ErrParcelsNotDiscovered, err)
+	// Нэгж талбар байхгүй бол давхардлыг тооцох ч шаардлагагүй.
+	landRepo.AssertNotCalled(t, "DetectParcelOverlaps", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "CreateProgress", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertExpectations(t)
+}
+
+func TestLandService_AdvanceStatus_FieldBlockedByOverlappingParcels(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+	acqID := uuid.New()
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusNew,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("CountParcels", ctx, acqID).Return(12, nil)
+	// Давхардлыг ДАХИН тооцно — хуучин тооцоонд найдахгүй.
+	landRepo.On("DetectParcelOverlaps", ctx, acqID).Return(3, nil)
+
+	_, err := svc.AdvanceStatus(ctx, acqID, domain.LandAcquisitionStatusField, "", "user-1", "", nil)
+
+	assert.Equal(t, domain.ErrParcelsOverlap, err)
+	landRepo.AssertNotCalled(t, "CreateProgress", mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertExpectations(t)
+}
+
+func TestLandService_AdvanceStatus_FieldAllowedWhenNoOverlap(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+	acqID := uuid.New()
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusNew,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("CountParcels", ctx, acqID).Return(12, nil)
+	landRepo.On("DetectParcelOverlaps", ctx, acqID).Return(0, nil)
+	landRepo.On("CreateProgress", ctx, mock.AnythingOfType("*domain.AcquisitionProgress")).Return(nil)
+	landRepo.On("UpdateStatus", ctx, acqID, domain.LandAcquisitionStatusField).Return(nil)
+
+	acq, err := svc.AdvanceStatus(ctx, acqID, domain.LandAcquisitionStatusField, "", "user-1", "", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.LandAcquisitionStatusField, acq.Status)
+	landRepo.AssertExpectations(t)
+}

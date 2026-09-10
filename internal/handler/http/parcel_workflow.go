@@ -7,6 +7,7 @@ import (
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/middleware"
+	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
@@ -194,12 +195,60 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
 		return
 	}
+	// ХОЁР хэлбэрийг дэмжинэ:
+	//   application/json      — өмнөх шигээ (хавсралтгүй)
+	//   multipart/form-data   — action/note/valuation_type + ЗААВАЛ БИШ `file`
+	//
+	// Хавсралт нь буцаалтын шалтгааныг гэрчилдэг (залруулга шаардсан хуудас,
+	// дүнгийн зөрүүний хүснэгт) тул шилжилттэй НЭГ хүсэлтэд явна: тусад нь
+	// байвал шилжилт хийгдээд хавсралт унах эсвэл эсрэгээр болно.
 	var req struct {
 		Action        string `json:"action"`
 		Note          string `json:"note"`
 		ValuationType string `json:"valuation_type"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var attachment *service.ValuationAttachment
+	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+		if err := c.Request.ParseMultipartForm(maxDocumentUploadSize); err != nil {
+			if isBodyTooLarge(err) {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Хүсэлтийг уншиж чадсангүй"})
+			return
+		}
+		req.Action = c.PostForm("action")
+		req.Note = c.PostForm("note")
+		req.ValuationType = c.PostForm("valuation_type")
+
+		// `file` — ЗААВАЛ БИШ. Огт өгөөгүй бол хавсралтгүй шилжилт.
+		if fh, err := c.FormFile("file"); err == nil {
+			if fh.Size > maxDocumentUploadSize {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			data, err := readMultipartFile(fh, maxDocumentUploadSize)
+			if err == errUploadTooLarge {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			if err != nil {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+				return
+			}
+			contentType, ok := allowedPDFContentType(data)
+			if !ok {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+				return
+			}
+			attachment = &service.ValuationAttachment{
+				Filename:    fh.Filename,
+				ContentType: contentType,
+				Data:        data,
+			}
+		}
+	} else if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -208,6 +257,11 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	if req.Note == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Тайлбар бичих шаардлагатай"})
 		return
+	}
+	// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна — бусад үйлдэлд ирвэл хаяна
+	// (илгээх дээрх файл буцаалтын хавсралт болж харагдахаас сэргийлнэ).
+	if req.Action != "return" {
+		attachment = nil
 	}
 
 	// Ролийн зохицуулалт: зөвшөөрөх/буцаах = санхүү (эсвэл ахлах); илгээх = мэрг.
@@ -238,7 +292,14 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	if id := contextUserIDString(c); id != "" {
 		userID = id
 	}
-	sub, err := h.svc.TransitionValuationSubmission(c.Request.Context(), acqID, parcelID, req.ValuationType, req.Action, req.Note, userID)
+	sub, err := h.svc.TransitionValuationSubmission(c.Request.Context(), domain.ValuationTransition{
+		AcquisitionID: acqID,
+		ParcelID:      parcelID,
+		ValuationType: req.ValuationType,
+		Action:        req.Action,
+		Note:          req.Note,
+		UserID:        userID,
+	}, attachment)
 	if err != nil {
 		response.Error(c, err)
 		return

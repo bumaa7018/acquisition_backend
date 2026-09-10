@@ -261,6 +261,20 @@ type LandAcquisitionWriteRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status int) error
 	UpdateDecree(ctx context.Context, id uuid.UUID, number string, date *time.Time) error
 	HasNonFinalParcels(ctx context.Context, acquisitionID uuid.UUID) (bool, error)
+	// CountParcels — чөлөөлөлтөд бүртгэгдсэн нэгж талбарын тоо.
+	CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error)
+	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). nil → арилгана.
+	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
+	// DetectParcelOverlaps — чөлөөлөлтийн нэгж талбаруудын БАЙРШЛЫН давхардлыг
+	// ДАХИН тооцож parcel_overlap-д бичнэ (хуучин мөрүүд устгагдана). Буцаах нь
+	// давхардалтай нэгж талбарын ТОО (хос биш).
+	DetectParcelOverlaps(ctx context.Context, acquisitionID uuid.UUID) (int, error)
+	// ListParcelOverlaps — НЭГ нэгж талбарын давхардлууд (дэлгэрэнгүйд харуулна).
+	ListParcelOverlaps(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelOverlap, error)
+	// DeleteParcelsOutsideBoundary — чөлөөлөх ХИЛД БАГТААГҮЙ нэгж талбаруудыг
+	// устгана (зөвхөн "Шинэ" төлөвт автоматаар дуудагдана). Буцаах нь
+	// устгагдсан нэгж талбарын дугаарууд.
+	DeleteParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID) ([]string, error)
 	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
@@ -396,7 +410,9 @@ type LandWorkflowRepository interface {
 	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
-	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)
+	// TransitionValuationSubmission — submit | approve | return. Хавсралт нь
+	// ЗӨВХӨН буцаалтад хамаарах ба ЗААВАЛ БИШ (domain.ValuationTransition).
+	TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition) (*domain.ValuationSubmission, error)
 	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)

@@ -60,6 +60,8 @@ func TestLandService_DiscoverParcels_RegistersRowsWithoutFetchingDetails(t *test
 	}
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, GeometryWKT: wkt}, nil)
 	parcelInfo.On("ListParcelsByAcquisition", ctx, wkt, "", 100).Return(rows, nil)
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, rows, wkt).
 		Return(&domain.ParcelDiscoveryResult{
 			Total: 2, Created: 1, Existing: 1,
@@ -96,6 +98,8 @@ func TestLandService_DiscoverParcels_FetchesInBatchesOfHundred(t *testing.T) {
 	parcelInfo.On("ListParcelsByAcquisition", ctx, wkt, second[99].ParcelID, 100).Return(third, nil).Once()
 
 	var saved []*domain.SourceParcel
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, wkt).
 		Run(func(args mock.Arguments) {
 			saved = args.Get(2).([]*domain.SourceParcel)
@@ -125,6 +129,8 @@ func TestLandService_DiscoverParcels_StopsWhenCursorDoesNotAdvance(t *testing.T)
 	parcelInfo.On("ListParcelsByAcquisition", ctx, wkt, mock.AnythingOfType("string"), 100).Return(same, nil)
 
 	var saved []*domain.SourceParcel
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, wkt).
 		Run(func(args mock.Arguments) {
 			saved = args.Get(2).([]*domain.SourceParcel)
@@ -153,6 +159,8 @@ func TestLandService_DiscoverParcels_KeepsEarlierBatchesWhenLaterBatchFails(t *t
 		Return(nil, errors.New("dial tcp: refused")).Once()
 
 	var saved []*domain.SourceParcel
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, wkt).
 		Run(func(args mock.Arguments) {
 			saved = args.Get(2).([]*domain.SourceParcel)
@@ -218,6 +226,8 @@ func TestLandService_DiscoverParcels_PartialInsertKeepsResult(t *testing.T) {
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, GeometryWKT: wkt}, nil)
 	parcelInfo.On("ListParcelsByAcquisition", ctx, wkt, "", 100).
 		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}, {ParcelID: "010101000002"}}, nil)
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, wkt).
 		Return(&domain.ParcelDiscoveryResult{
 			Total: 2, Created: 1,
@@ -239,6 +249,8 @@ func TestLandService_DiscoverParcels_InsertErrorWithNoRows(t *testing.T) {
 	wkt := "POLYGON((1 1,2 1,2 2,1 2,1 1))"
 	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{ID: id, GeometryWKT: wkt}, nil)
 	parcelInfo.On("ListParcelsByAcquisition", ctx, wkt, "", 100).Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
+	landRepo.On("DetectParcelOverlaps", mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	landRepo.On("DeleteParcelsOutsideBoundary", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, wkt).
 		Return(&domain.ParcelDiscoveryResult{Total: 1}, errors.New("insert failed"))
 

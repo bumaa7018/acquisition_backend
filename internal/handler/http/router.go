@@ -327,6 +327,14 @@ func NewRouter(
 		// бичих эрхтэй — handler-ууд valuation_type-ийг "mika" болгож хатуу тогтооно.
 		valuationEditor := middleware.RequireAssignedOrSenior(landSvc, "mika", "МИКА")
 		notLocked := middleware.RequireAcquisitionNotLocked(landSvc)
+		// fieldStage — НЭГЖ ТАЛБАРТАЙ АЖИЛЛАХ үйлдэл зөвхөн "Хээрийн судалгаа"
+		// төлөвөөс эхэлнэ. "Шинэ" төлөв нь нэгж талбарын БҮРДЭЛ (татах,
+		// хилээс гарсныг хасах, давхардлыг арилгах) хийгддэг шат тул тэнд
+		// үнэлгээ/олговор/төлөв бичихийг хаана — эс бөгөөс бүрдэл өөрчлөгдөхөд
+		// (хил солих, давхардал арилгах) бичигдсэн өгөгдөл нэгж талбартайгаа
+		// хамт устах эрсдэлтэй. Нэгж талбар ТАТАХ маршрутууд (by-acquisition,
+		// sync) энэ хаалтад ОРОХГҮЙ — тэр нь яг "Шинэ" төлөвийн ажил.
+		fieldStage := middleware.RequireAcquisitionFieldStage(landSvc)
 		notParcelLocked := middleware.RequireParcelAcquisitionNotLocked(landSvc)
 		profOrgMember := middleware.RequireProfOrgMember(landSvc)
 		profParcelMember := middleware.RequireProfParcelMember(landSvc)
@@ -366,29 +374,29 @@ func NewRouter(
 			// Assignee routes
 			land.GET("/:id/assignees", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAssignees)
 			land.PUT("/:id/assignees", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAssignees)
-			land.POST("/:id/assets", middleware.RequireAnyPermission("land:create", "compensation:create"), valuationEditor, landH.CreateAsset)
-			land.PUT("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateAsset)
-			land.DELETE("/:id/assets/:asset_id", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.DeleteAsset)
-			land.POST("/:id/assets/:asset_id/photos", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UploadAssetPhoto)
+			land.POST("/:id/assets", middleware.RequireAnyPermission("land:create", "compensation:create"), valuationEditor, fieldStage, landH.CreateAsset)
+			land.PUT("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateAsset)
+			land.DELETE("/:id/assets/:asset_id", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.DeleteAsset)
+			land.POST("/:id/assets/:asset_id/photos", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.UploadAssetPhoto)
 			land.GET("/:id/assets/:asset_id/specs", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListAssetSpecs)
-			land.POST("/:id/assets/:asset_id/specs", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UpsertAssetSpecs)
+			land.POST("/:id/assets/:asset_id/specs", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.UpsertAssetSpecs)
 			land.GET("/:id/assets/:asset_id/calculations", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListAssetCalculations)
-			land.POST("/:id/assets/:asset_id/calculations", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UpsertAssetCalculations)
+			land.POST("/:id/assets/:asset_id/calculations", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.UpsertAssetCalculations)
 			land.GET("/:id/land-valuation", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetLandValuation)
-			land.POST("/:id/land-valuation", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UpsertLandValuation)
-			land.DELETE("/:id/land-valuation", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.DeleteLandValuation)
-			land.POST("/:id/valuation-import", middleware.RequireAnyPermission("land:create", "compensation:create"), valuationEditor, landH.ImportValuation)
-			land.POST("/:id/compensations", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.CreateCompensation)
-			land.PUT("/:id/compensations/:comp_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensation)
-			land.DELETE("/:id/compensations/:comp_id", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.DeleteCompensation)
+			land.POST("/:id/land-valuation", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.UpsertLandValuation)
+			land.DELETE("/:id/land-valuation", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.DeleteLandValuation)
+			land.POST("/:id/valuation-import", middleware.RequireAnyPermission("land:create", "compensation:create"), valuationEditor, fieldStage, landH.ImportValuation)
+			land.POST("/:id/compensations", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.CreateCompensation)
+			land.PUT("/:id/compensations/:comp_id", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateCompensation)
+			land.DELETE("/:id/compensations/:comp_id", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.DeleteCompensation)
 			land.GET("/:id/compensations/:comp_id/history", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListCompensationHistory)
 			land.POST("/:id/compensations/:comp_id/approve", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequireAnyPermission("land:update", "compensation:update"), landH.ApproveCompensation)
 			land.POST("/:id/compensations/:comp_id/reject", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү"), middleware.RequireAnyPermission("land:update", "compensation:update"), landH.RejectCompensation)
 			// Үнэлгээний тайлан — МИКА өөрийн баталгаажсан урсгалдаа мөн хавсаргана (valuationEditor)
-			land.POST("/:id/compensations/:comp_id/report", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, landH.UploadCompensationReport)
-			land.POST("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateCompensationGrant)
-			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateCompensationGrant)
-			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteCompensationGrant)
+			land.POST("/:id/compensations/:comp_id/report", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.UploadCompensationReport)
+			land.POST("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.CreateCompensationGrant)
+			land.PUT("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateCompensationGrant)
+			land.DELETE("/:id/compensations/:comp_id/grant", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.DeleteCompensationGrant)
 			// Чөлөөлөх ХИЛЭЭР нэгж талбарыг тодорхойлж бүртгэнэ (дугаар л татна).
 			// Дэлгэрэнгүйг дараа нь дугаар тус бүрээр доорх /sync-ээр татна.
 			land.POST("/:id/parcels/by-acquisition", middleware.RequirePermission("land:create"), assignedOrSenior, landH.DiscoverParcels)
@@ -406,14 +414,18 @@ func NewRouter(
 			// УБЕГ-ийн газар өмчлөлийн бүртгэл — ГУС-аас БИШ, ХУР (XYP) гарцаас.
 			land.POST("/:id/parcels/:parcel_id/sync/ownership", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SyncParcelOwnerships)
 			land.POST("/:id/parcels/:parcel_id/sync/valuation", middleware.RequirePermission("land:create"), assignedOrSenior, landH.SyncValuation)
-			land.PATCH("/:id/parcels/:parcel_id/valuation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateParcelValuation)
-			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), assignedOrSenior, landH.SetParcelCompensation)
-			land.PATCH("/:id/parcels/:parcel_id/meta", middleware.RequirePermission("land:update"), assignedOrSenior, landH.UpdateParcelMeta)
+			land.PATCH("/:id/parcels/:parcel_id/valuation", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateParcelValuation)
+			land.PUT("/:id/parcels/:parcel_id/compensation", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.SetParcelCompensation)
+			// ТӨСӨӨЛЛИЙН үнэлгээ — мэргэжилтэн/админ ГААРАС оруулна.
+			// Мэргэжлийн байгууллагад зөвхөн ХАРАГДАНА (уншилтын маршрутаар),
+			// бичих эрх энд нээгдээгүй.
+			land.PATCH("/:id/parcels/:parcel_id/estimated-value", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.SetParcelEstimatedValue)
+			land.PATCH("/:id/parcels/:parcel_id/meta", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateParcelMeta)
 			// Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв (санхүү зөвшөөрөх/буцаах).
 			// POST-ийн ролийн шалгалт handler дотор (approve/return=санхүү, submit=мэрг.байгуулга/ахлах).
 			land.GET("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, parcelWorkflowH.GetValuationSubmission)
 			land.GET("/:id/parcels/:parcel_id/valuation-status-history", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, parcelWorkflowH.ListValuationSubmissionHistory)
-			land.POST("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "senior_specialist", "Ахлах мэргэжилтэн", "mika", "МИКА"), middleware.RequireAnyPermission("land:update", "compensation:update"), parcelWorkflowH.TransitionValuationSubmission)
+			land.POST("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "senior_specialist", "Ахлах мэргэжилтэн", "mika", "МИКА"), middleware.RequireAnyPermission("land:update", "compensation:update"), fieldStage, parcelWorkflowH.TransitionValuationSubmission)
 			land.GET("/:id/progress", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListProgress)
 			land.GET("/:id/boundary-history", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListBoundaryHistory)
 			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAvailableStatuses)

@@ -195,6 +195,14 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrValuationReportRequired
 	case domain.ErrNonFinalParcels:
 		return http.StatusUnprocessableEntity, i18n.ErrNonFinalParcels
+	case domain.ErrParcelsNotDiscovered:
+		return http.StatusUnprocessableEntity, i18n.ErrParcelsNotDiscovered
+	case domain.ErrParcelsOverlap:
+		return http.StatusUnprocessableEntity, i18n.ErrParcelsOverlap
+	case domain.ErrAcquisitionNotFieldStage:
+		// 423 Locked — RequireAcquisitionNotLocked-тай ижил семантик: үйлдэл
+		// эрхгүй биш, тухайн ТӨЛӨВТ хийх боломжгүй.
+		return http.StatusLocked, i18n.ErrNotFieldStage
 	case domain.ErrAssetPhotoRequired:
 		return http.StatusUnprocessableEntity, i18n.ErrAssetPhotoRequired
 	case domain.ErrReportBeforeApproval:

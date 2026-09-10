@@ -88,7 +88,11 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 		err = h.authorizeAcquisition(c, ownerID)
 	// notice / emongolia — иргэнд илгээсэн мэдэгдэх хуудсын PDF (имэйл ба
 	// E-Mongolia). Эзэн нь НЭГЖ ТАЛБАР.
-	case "parcel", "notice", "emongolia":
+	// valuation-return — үнэлгээг БУЦААХАД хавсаргасан файл. Түлхүүр нь
+	// `valuation-return/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
+	// дүрмээр шалгагдана: буцаалтыг санхүү хийдэг ч хавсралтыг үнэлгээ
+	// бичсэн байгууллага УНШИХ шаардлагатай.
+	case "parcel", "notice", "emongolia", "valuation-return":
 		err = h.authorizeParcel(c, ownerID)
 	case "compensation-report":
 		err = h.authorizeCompensation(c, ownerID)

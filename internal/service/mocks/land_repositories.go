@@ -309,6 +309,37 @@ func (m *MockLandAcquisitionRepository) HasNonFinalParcels(ctx context.Context, 
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error {
+	args := m.Called(ctx, acquisitionID, parcelID, value, userID)
+	return args.Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
+	args := m.Called(ctx, acquisitionID)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DetectParcelOverlaps(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
+	args := m.Called(ctx, acquisitionID)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelOverlaps(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelOverlap, error) {
+	args := m.Called(ctx, parcelID)
+	if v, ok := args.Get(0).([]domain.ParcelOverlap); ok {
+		return v, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) DeleteParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, acquisitionID)
+	if v, ok := args.Get(0).([]string); ok {
+		return v, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error) {
 	args := m.Called(ctx, src)
 	return args.Get(0).(uuid.UUID), args.Error(1)
@@ -894,12 +925,12 @@ func (m *MockLandAcquisitionRepository) GetValuationSubmission(ctx context.Conte
 	return args.Get(0).(*domain.ValuationSubmission), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
-	args := m.Called(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
+func (m *MockLandAcquisitionRepository) TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition) (*domain.ValuationSubmission, error) {
+	args := m.Called(ctx, in)
+	if v, ok := args.Get(0).(*domain.ValuationSubmission); ok {
+		return v, args.Error(1)
 	}
-	return args.Get(0).(*domain.ValuationSubmission), args.Error(1)
+	return nil, args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {

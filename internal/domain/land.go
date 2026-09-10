@@ -308,6 +308,12 @@ type ParcelDiscoveryResult struct {
 	Skipped  int `json:"skipped"`
 	// Энэ чөлөөлөлтөд бүртгэлтэй болсон дугаарууд (created + existing)
 	ParcelIDs []string `json:"parcel_ids"`
+	// RemovedOutside — чөлөөлөх ХИЛД БАГТААГҮЙ тул хасагдсан нэгж талбарын тоо
+	// (зөвхөн "Шинэ" төлөвт автоматаар хасагдана).
+	RemovedOutside int `json:"removed_outside"`
+	// OverlappingParcels — БАЙРШЛААР давхардсан нэгж талбарын тоо. 0-ээс их бол
+	// "Хээрийн судалгаа" төлөв рүү шилжих боломжгүй.
+	OverlappingParcels int `json:"overlapping_parcels"`
 }
 
 // BoundaryChange — чөлөөлөх ХИЛ солигдоход нэгж талбарт гарсан өөрчлөлт.
@@ -421,8 +427,31 @@ type ValuationSubmission struct {
 	ReviewedBy    string     `json:"reviewed_by"`
 	ReviewedAt    *time.Time `json:"reviewed_at"`
 	LastNote      string     `json:"last_note"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	// ХАМГИЙН СҮҮЛИЙН үйлдлийн хавсралт (`last_note`-той ижил зарчим).
+	// Хоосон = хавсралтгүй. Хавсралт нь ЗААВАЛ БИШ.
+	AttachmentURL  string    `json:"attachment_url"`
+	AttachmentName string    `json:"attachment_name"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// ValuationTransition — үнэлгээний илгээх/зөвшөөрөх/буцаах шилжилтийн оролт.
+//
+// Бүтэц болгосон шалтгаан: шилжилт нь 8 параметртэй болсон (үүнээс 4 нь
+// текст) — дараалалаар дамжуулбал хольж эндүүрэх нь цаг хугацааны асуудал.
+type ValuationTransition struct {
+	AcquisitionID uuid.UUID
+	ParcelID      uuid.UUID
+	ValuationType string
+	// Action — submit | approve | return
+	Action string
+	// Note — ЗААВАЛ (бүх шилжилтэд шаардагдана)
+	Note   string
+	UserID string
+	// ХАВСРАЛТ — ЗААВАЛ БИШ, зөвхөн "буцаах" (return) үед хүлээн авна.
+	// Хоосон бол хавсралтгүй шилжилт (өмнөх зан төлөв).
+	AttachmentURL  string
+	AttachmentName string
 }
 
 // ValuationSubmissionHistory — төлөв шилжилт бүрийн түүх (тайлбартай)
@@ -435,8 +464,12 @@ type ValuationSubmissionHistory struct {
 	FromStatus    string    `json:"from_status"`
 	ToStatus      string    `json:"to_status"`
 	Note          string    `json:"note"`
-	CreatedBy     string    `json:"created_by"`
-	CreatedAt     time.Time `json:"created_at"`
+	// Тухайн үйлдлийн хавсралт. Түүх нь ЭХ СУРВАЛЖ: дараагийн буцаалт
+	// submission-ийн attachment-ыг дарж бичсэн ч хуучин хавсралт энд үлдэнэ.
+	AttachmentURL  string    `json:"attachment_url"`
+	AttachmentName string    `json:"attachment_name"`
+	CreatedBy      string    `json:"created_by"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // ParcelWorkflow — нэгж талбарын ажлын урсгалын шилжилт
@@ -504,10 +537,14 @@ type LandAcquisition struct {
 	// Чөлөөлсөн) шилжсэн нэгж талбарын тоо. Чөлөөлөлтийн ЯВЦЫГ үүгээр
 	// хэмжинэ: чөлөөлөлт "Баталгаажсан" болохын нөхцөл нь БҮХ талбар эцсийн
 	// төлөвт байх явдал (HasNonFinalParcels-тай ижил шалгуур).
-	FinalParcelCount    int64
-	AssignedUsers       []AcquisitionAssignee
-	ProfessionalOrgID   *ID
-	ProfessionalOrgName string
+	FinalParcelCount int64
+	// OverlappingParcelCount — БАЙРШЛААР давхардсан нэгж талбарын тоо
+	// (parcel_overlap). 0-ээс их бол чөлөөлөлт "Хээрийн судалгаа" төлөв рүү
+	// шилжихгүй — иймд жагсаалт дээр анхааруулга харуулна.
+	OverlappingParcelCount int64
+	AssignedUsers          []AcquisitionAssignee
+	ProfessionalOrgID      *ID
+	ProfessionalOrgName    string
 	// Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ — plan хүснэгтээс (LEFT JOIN plan_code-оор).
 	// ЗӨВХӨН GetByID дээр дүүрнэ: жагсаалтад хэрэггүй бөгөөд мөр тутам join
 	// хийх нь илүү. Төлөвлөгөө нь ГУС-аас татагдан plan хүснэгтэд хадгалагдсан
@@ -705,8 +742,13 @@ type ParcelFilter struct {
 	// Хөндлөнгийн үнэлгээгээр нэг л нэгж талбарт холбогдсон байгууллага
 	// чөлөөлөлтийн БУСАД (өөр байгууллагын) нэгж талбарыг харах ёсгүй.
 	ProfessionalOrgID string
-	Page              int
-	PageSize          int
+	// HasOverlap — байршлаар давхардсан эсэхээр шүүнэ.
+	//   nil   — шүүлт байхгүй (бүгд)
+	//   true  — ЗӨВХӨН давхардалтай
+	//   false — ЗӨВХӨН давхардалгүй
+	HasOverlap *bool
+	Page       int
+	PageSize   int
 }
 
 // Parcel — нэгж талбар (main DB-д хадгалагдана)
@@ -743,8 +785,45 @@ type Parcel struct {
 	CashAmount            float64
 	LandGrantAmount       float64
 	LandGrantCount        int
-	CreatedAt             time.Time
-	CreatedBy             string
+	// HolderName — ГАЗАР ӨМЧЛӨГЧ/ЭЗЭМШИГЧийн бүтэн нэр (овог + нэр).
+	//
+	// Нэг нэгж талбар дээр ОЛОН эзэмшигч байж болох тул энэ нь ҮНДСЭН хүсэлт
+	// гаргагч (parcel_holder.main_applicant); HolderCount нь нийт тоо.
+	// Жагсаалт дээр "нэр +2" гэж харуулахад хоёулаа хэрэгтэй.
+	HolderName  string
+	HolderCount int
+	// HasOverlap — тухайн нэгж талбар ӨӨР нэгж талбартай БАЙРШЛААР давхцаж
+	// байгаа эсэх (parcel_overlap). OverlapCount нь давхцаж байгаа талбарын тоо.
+	// Давхардал нь нэг газрын нөхөх олговрыг хоёр удаа бодох эрсдэл тул
+	// жагсаалт дээр тод харагдах ёстой.
+	HasOverlap   bool
+	OverlapCount int
+	// EstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). Мэргэжилтэн/админ ГААРАС
+	// оруулна; албан ёсны үнэлгээ (land_valuation, assets) хийгдэхээс өмнөх
+	// урьдчилсан тооцоо. nil = оруулаагүй (0-ээс ЯЛГААТАЙ).
+	EstimatedValue   *float64
+	EstimatedValueAt *time.Time
+	EstimatedValueBy string
+	CreatedAt        time.Time
+	CreatedBy        string
+}
+
+// ParcelOverlap — НЭГ нэгж талбарын өөр нэгж талбартай байршлын давхардал.
+//
+// Хоёр чиглэлээр хадгалагддаг тул (A→B, B→A) нэг талбарын давхардлыг
+// parcel_id-гаар шүүхэд бүрэн жагсаалт гарна.
+type ParcelOverlap struct {
+	// OtherParcelID — давхцаж байгаа нэгж талбарын UUID (дэлгэц түүн рүү холбоно)
+	OtherParcelID uuid.UUID `json:"other_parcel_uuid"`
+	// OtherParcelCode — давхцаж байгаа нэгж талбарын ДУГААР
+	OtherParcelCode string `json:"other_parcel_id"`
+	// OverlapAreaM2 — давхцах хэсгийн талбай (calculate_area_utm)
+	OverlapAreaM2 float64 `json:"overlap_area_m2"`
+	// OtherStatusID/OtherStatusName — давхцаж буй талбарын төлөв (аль нь
+	// чөлөөлөгдсөнийг шийдвэрлэхэд хэрэгтэй)
+	OtherStatusID   int       `json:"other_status_id"`
+	OtherStatusName string    `json:"other_status_name"`
+	DetectedAt      time.Time `json:"detected_at"`
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
@@ -866,6 +945,9 @@ type ParcelFull struct {
 	Holders []ParcelHolder
 	// Ownerships — УБЕГ-ийн өмчлөлийн бүртгэл (ГУС-аас БИШ, XYP-ээс татагдана)
 	Ownerships []ParcelOwnership
+	// Overlaps — БАЙРШЛААР давхцаж байгаа бусад нэгж талбарууд. Хоосон биш бол
+	// дэлгэц дээр УЛААНААР анхааруулна.
+	Overlaps []ParcelOverlap
 }
 
 // AcquisitionProgress — газар чөлөөлөлтийн статус өөрчлөлтийн түүх

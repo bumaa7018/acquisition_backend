@@ -389,6 +389,19 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 		PageSize:  pageSize,
 	}
 
+	// БАЙРШЛЫН давхардлын шүүлтүүр: "1"/"true" → зөвхөн давхардалтай,
+	// "0"/"false" → зөвхөн давхардалгүй, заагаагүй → бүгд.
+	if raw := strings.TrimSpace(c.Query("has_overlap")); raw != "" {
+		switch strings.ToLower(raw) {
+		case "1", "true":
+			v := true
+			filter.HasOverlap = &v
+		case "0", "false":
+			v := false
+			filter.HasOverlap = &v
+		}
+	}
+
 	// Үнэлгээний байгууллага: чөлөөлөлтийн үндсэн байгууллага бол бүх нэгж
 	// талбар, зөвхөн хөндлөнгийн үнэлгээчин бол ӨӨРТ холбогдсон нэгж талбар л
 	// харагдана. Гишүүнчлэлийн middleware нь чөлөөлөлтөд хандахыг зөвшөөрдөг ч
@@ -916,6 +929,51 @@ func (h *LandHandler) UpdateParcelValuation(c *gin.Context) {
 		return
 	}
 	response.OKMsg(c, nil, "Амжилттай шинэчлэгдлээ")
+}
+
+// SetParcelEstimatedValue godoc
+//
+//	@Summary		Нэгж талбарын ТӨСӨӨЛЛИЙН үнэлгээ хадгалах
+//	@Description	Мэргэжилтэн/админ гараас оруулна. value=null бол үнэлгээг арилгана.
+//	@Description	Санал болгох дүнг дэлгэц нь газрын СУУРЬ ҮНЭ (₮/га → ₮/м²) × талбайгаар тооцно.
+//	@Tags			land-acquisitions
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id			path		string	true	"LandAcquisition UUID"
+//	@Param			parcel_id	path		string	true	"Нэгж талбарын UUID"
+//	@Success		200			{object}	response.Response
+//	@Failure		400			{object}	response.Response
+//	@Router			/land-acquisitions/{id}/parcels/{parcel_id}/estimated-value [patch]
+func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+
+	// Value нь ЗААВАЛ заагдана: талбар огт өгөөгүй бол алдаа, `null` бол
+	// АРИЛГАХ хүсэлт. Ялгаж чадахгүй бол "хоосон илгээв" нь санамсаргүй
+	// устгал болно.
+	var body struct {
+		Value *float64 `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+
+	userID := contextUserIDString(c)
+	if err := h.svc.SetParcelEstimatedValue(c.Request.Context(), acqID, parcelID, body.Value, userID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OKMsg(c, gin.H{"estimated_value": body.Value}, "Амжилттай хадгаллаа")
 }
 
 // ListProgress godoc

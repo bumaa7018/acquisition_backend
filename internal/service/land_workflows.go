@@ -46,18 +46,51 @@ func (s *landService) GetValuationSubmission(ctx context.Context, acquisitionID,
 	return s.landRepo.GetValuationSubmission(ctx, acquisitionID, parcelID, valuationType)
 }
 
-func (s *landService) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
-	sub, err := s.landRepo.TransitionValuationSubmission(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
+// TransitionValuationSubmission — үнэлгээний илгээх/зөвшөөрөх/буцаах шилжилт.
+//
+// ХАВСРАЛТ (attachment) нь ЗААВАЛ БИШ ба зөвхөн БУЦААХ үед хүлээн авагдана:
+// санхүү үнэлгээг буцаахдаа залруулга шаардсан хуудас, дүнгийн зөрүүг
+// харуулсан хүснэгт зэргийг хавсаргах шаардлагатай болдог. Файл нь ЭХЛЭЭД
+// хадгалалт (MinIO) руу бичигдэж, дараа нь шилжилт хийгдэнэ; шилжилт унавал
+// орфон файл үлдэхгүйн тулд файлыг цэвэрлэнэ.
+func (s *landService) TransitionValuationSubmission(
+	ctx context.Context, in domain.ValuationTransition, attachment *ValuationAttachment,
+) (*domain.ValuationSubmission, error) {
+	// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна — бусад үйлдэлд ирсэн ч хаяна.
+	if attachment != nil && in.Action == "return" {
+		if s.files == nil {
+			return nil, domain.ErrInternalServer
+		}
+		stored, err := s.files.Save(ctx, "valuation-return", in.ParcelID.String(),
+			attachment.Filename, attachment.ContentType, attachment.Data, true)
+		if err != nil {
+			return nil, err
+		}
+		in.AttachmentURL, in.AttachmentName = stored.URL, stored.Name
+		defer func() {
+			// Шилжилт унасан бол хадгалсан файлыг цэвэрлэнэ.
+			if in.AttachmentURL != "" && !attachment.committed {
+				_ = s.files.Delete(ctx, in.AttachmentURL)
+			}
+		}()
+	}
+
+	sub, err := s.landRepo.TransitionValuationSubmission(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	s.notifyValuationTransition(ctx, acquisitionID, parcelID, valuationType, action, sub)
-	s.auditLog(ctx, "valuation_"+action, domain.AuditResourceValuation, parcelID.String(), uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
-		"valuation_type": valuationType,
-		"note":           note,
-		"user_id":        userID,
-		"status":         sub.Status,
-	})
+	if attachment != nil {
+		attachment.committed = true
+	}
+	s.notifyValuationTransition(ctx, in.AcquisitionID, in.ParcelID, in.ValuationType, in.Action, sub)
+	s.auditLog(ctx, "valuation_"+in.Action, domain.AuditResourceValuation, in.ParcelID.String(),
+		uuidPtr(in.AcquisitionID), uuidPtr(in.ParcelID), map[string]any{
+			"valuation_type":  in.ValuationType,
+			"note":            in.Note,
+			"user_id":         in.UserID,
+			"status":          sub.Status,
+			"attachment_name": sub.AttachmentName,
+		})
 	return sub, nil
 }
 
@@ -249,4 +282,16 @@ func (s *landService) ListAllCompensations(ctx context.Context, filter domain.Gl
 
 func (s *landService) GetGlobalCompensation(ctx context.Context, id uuid.UUID) (*domain.GlobalCompensation, error) {
 	return s.landRepo.GetGlobalCompensation(ctx, id)
+}
+
+// ValuationAttachment — үнэлгээг БУЦААХАД хавсаргах файл (ЗААВАЛ БИШ).
+//
+// `committed` нь дотоод тэмдэглэгээ: шилжилт амжилттай болсны дараа л true
+// болно. Үүнгүй бол шилжилт унасан тохиолдолд хадгалалтад орфон файл үлдэнэ.
+type ValuationAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+
+	committed bool
 }

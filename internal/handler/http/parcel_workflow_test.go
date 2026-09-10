@@ -3,6 +3,7 @@ package http_test
 import (
 	"bytes"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	handler "acquisition_backend/internal/handler/http"
 	"acquisition_backend/internal/handler/http/mocks"
 	"acquisition_backend/internal/middleware"
+	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -73,8 +75,11 @@ func TestTransitionValuation_FinanceCanApprove(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"finance_specialist"},
 		map[string]any{"action": "approve", "note": "баталгаажуулав", "valuation_type": "independent"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"independent", "approve", "баталгаажуулав", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "independent" && in.Action == "approve" && in.Note == "баталгаажуулав"
+		}), mock.Anything).
 		Return(sampleSubmission(acqID, domain.ValuationStatusApproved, "independent"), nil)
 
 	run(acqID, parcelID)
@@ -89,8 +94,11 @@ func TestTransitionValuation_FinanceCanReturn(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"Санхүүгийн мэргэжилтэн"},
 		map[string]any{"action": "return", "note": "засварла", "valuation_type": "asset"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"asset", "return", "засварла", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "asset" && in.Action == "return" && in.Note == "засварла"
+		}), mock.Anything).
 		Return(sampleSubmission(acqID, domain.ValuationStatusReturned, "asset"), nil)
 
 	run(acqID, parcelID)
@@ -118,8 +126,11 @@ func TestTransitionValuation_ProfCanSubmit(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "илгээв", "valuation_type": "asset"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"asset", "submit", "илгээв", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "asset" && in.Action == "submit" && in.Note == "илгээв"
+		}), mock.Anything).
 		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
 
 	run(acqID, parcelID)
@@ -147,8 +158,11 @@ func TestTransitionValuation_MikaCanSubmitOwnStream(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"mika"},
 		map[string]any{"action": "submit", "note": "илгээв", "valuation_type": "mika"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"mika", "submit", "илгээв", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "mika" && in.Action == "submit" && in.Note == "илгээв"
+		}), mock.Anything).
 		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "mika"), nil)
 
 	run(acqID, parcelID)
@@ -216,8 +230,11 @@ func TestTransitionValuation_SeniorCanSubmitAndApprove(t *testing.T) {
 		mockSvc, w, run := transitionCtx(t,
 			[]string{"senior_specialist"},
 			map[string]any{"action": action, "note": "т", "valuation_type": "asset"})
-		mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-			"asset", action, "т", mock.Anything).
+		mockSvc.On("TransitionValuationSubmission", mock.Anything,
+			mock.MatchedBy(func(in domain.ValuationTransition) bool {
+				return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+					in.ValuationType == "asset" && in.Action == action && in.Note == "т"
+			}), mock.Anything).
 			Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
 
 		run(acqID, parcelID)
@@ -233,8 +250,11 @@ func TestTransitionValuation_InvalidTransitionConflict(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"asset", "submit", "т", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "asset" && in.Action == "submit" && in.Note == "т"
+		}), mock.Anything).
 		Return(nil, domain.ErrInvalidTransition)
 
 	run(acqID, parcelID)
@@ -249,12 +269,140 @@ func TestTransitionValuation_PhotoRequired(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
-	mockSvc.On("TransitionValuationSubmission", mock.Anything, acqID, parcelID,
-		"asset", "submit", "т", mock.Anything).
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "asset" && in.Action == "submit" && in.Note == "т"
+		}), mock.Anything).
 		Return(nil, domain.ErrAssetPhotoRequired)
 
 	run(acqID, parcelID)
 
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 	mockSvc.AssertExpectations(t)
+}
+
+// ── БУЦААХАД ХАВСРАЛТ (multipart) ──────────────────────────────────────────
+//
+// Хавсралт нь ЗААВАЛ БИШ: multipart-аар файлгүй ирвэл хавсралтгүй шилжилт
+// хийгдэнэ. Файл ирвэл service-д ValuationAttachment дамжина.
+
+// multipartTransition — multipart/form-data хүсэлтээр шилжилт дуудна.
+// fileName хоосон бол файл ХАВСАРГАХГҮЙ.
+func multipartTransition(
+	t *testing.T, roles []string, fields map[string]string, fileName string, fileBody []byte,
+) (*mocks.MockLandService, *httptest.ResponseRecorder, func(acqID, parcelID uuid.UUID)) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewParcelWorkflowHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	run := func(acqID, parcelID uuid.UUID) {
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		for k, v := range fields {
+			require.NoError(t, mw.WriteField(k, v))
+		}
+		if fileName != "" {
+			part, err := mw.CreateFormFile("file", fileName)
+			require.NoError(t, err)
+			_, err = part.Write(fileBody)
+			require.NoError(t, err)
+		}
+		require.NoError(t, mw.Close())
+
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost,
+			"/land-acquisitions/"+acqID.String()+"/parcels/"+parcelID.String()+"/valuation-status",
+			&buf)
+		c.Request.Header.Set("Content-Type", mw.FormDataContentType())
+		c.Params = gin.Params{
+			{Key: "id", Value: acqID.String()},
+			{Key: "parcel_id", Value: parcelID.String()},
+		}
+		c.Set("roles", roles)
+		c.Set("userID", uuid.New())
+		h.TransitionValuationSubmission(c)
+	}
+	return mockSvc, w, run
+}
+
+// %PDF- толгой — allowedPDFContentType нь агуулгаар шалгадаг.
+var samplePDF = append([]byte("%PDF-1.7\n"), make([]byte, 64)...)
+
+func TestTransitionValuation_ReturnWithAttachment(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"finance_specialist"},
+		map[string]string{"action": "return", "note": "3-р хуудсыг залруулна", "valuation_type": "asset"},
+		"zalruulga.pdf", samplePDF)
+
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.Action == "return" && in.Note == "3-р хуудсыг залруулна"
+		}),
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
+			return a != nil && a.Filename == "zalruulga.pdf" && len(a.Data) == len(samplePDF)
+		})).
+		Return(sampleSubmission(acqID, domain.ValuationStatusReturned, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// Хавсралт нь ЗААВАЛ БИШ — multipart-аар файлгүй ирвэл nil дамжина.
+func TestTransitionValuation_ReturnWithoutAttachment(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"finance_specialist"},
+		map[string]string{"action": "return", "note": "тайлбар", "valuation_type": "asset"},
+		"", nil)
+
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "return" }),
+		(*service.ValuationAttachment)(nil)).
+		Return(sampleSubmission(acqID, domain.ValuationStatusReturned, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна: "илгээх" дээр файл ирвэл хаягдана
+// (эс бөгөөс тэр файл буцаалтын хавсралт болж харагдана).
+func TestTransitionValuation_SubmitDropsAttachment(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"senior_specialist"},
+		map[string]string{"action": "submit", "note": "илгээв", "valuation_type": "asset"},
+		"file.pdf", samplePDF)
+
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),
+		(*service.ValuationAttachment)(nil)).
+		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// PDF биш файлыг хүлээж авахгүй (allowedPDFContentType).
+func TestTransitionValuation_ReturnRejectsNonPDF(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"finance_specialist"},
+		map[string]string{"action": "return", "note": "тайлбар", "valuation_type": "asset"},
+		"virus.exe", []byte("MZ\x90\x00 not a pdf"))
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockSvc.AssertNotCalled(t, "TransitionValuationSubmission",
+		mock.Anything, mock.Anything, mock.Anything)
 }

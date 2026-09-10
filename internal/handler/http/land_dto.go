@@ -32,12 +32,16 @@ type landAcquisitionResponse struct {
 	ParcelCount         int64   `json:"parcel_count"`
 	// Явц — эцсийн төлөвт шилжсэн нэгж талбарын ЭЗЛЭХ ХУВЬ (0-100) ба тоо.
 	// Жагсаалт/дашбоард хоёулаа ижил тоо харуулахын тулд backend бодно.
-	FinalParcelCount    int64            `json:"final_parcel_count"`
-	ProgressPercent     int              `json:"progress_percent"`
-	ProfessionalOrgID   *string          `json:"professional_org_id,omitempty"`
-	ProfessionalOrgName string           `json:"professional_org_name,omitempty"`
-	AUs                 []auResponse     `json:"aus"`
-	Parcels             []parcelResponse `json:"parcels"`
+	FinalParcelCount int64 `json:"final_parcel_count"`
+	// OverlappingParcelCount — БАЙРШЛААР давхардсан нэгж талбарын тоо.
+	// 0-ээс их бол чөлөөлөлт "Хээрийн судалгаа" төлөв рүү шилжихгүй тул
+	// жагсаалт дээр улаанаар анхааруулна.
+	OverlappingParcelCount int64            `json:"overlapping_parcel_count"`
+	ProgressPercent        int              `json:"progress_percent"`
+	ProfessionalOrgID      *string          `json:"professional_org_id,omitempty"`
+	ProfessionalOrgName    string           `json:"professional_org_name,omitempty"`
+	AUs                    []auResponse     `json:"aus"`
+	Parcels                []parcelResponse `json:"parcels"`
 	// Дэлгэрэнгүй (GetByID) дээр л бөглөгдөнө — тусдаа funding-sources GET API-г орлоно
 	FundingSources []fundingSourceResponse `json:"funding_sources,omitempty"`
 	// Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ — мөн зөвхөн GetByID дээр (plan хүснэгтээс).
@@ -80,6 +84,16 @@ type parcelResponse struct {
 	StatusName         string   `json:"status_name"`
 	IndependentOrgID   *string  `json:"independent_org_id,omitempty"`
 	IndependentOrgName string   `json:"independent_org_name,omitempty"`
+	// HolderName — газар өмчлөгч/эзэмшигчийн бүтэн нэр (ҮНДСЭН хүсэлт гаргагч).
+	// HolderCount нь нийт эзэмшигчийн тоо — жагсаалт дээр "нэр +2" гэж
+	// харуулахад хэрэглэгдэнэ (нэг талбар дээр олон эзэмшигч байж болно).
+	HolderName  string `json:"holder_name,omitempty"`
+	HolderCount int    `json:"holder_count"`
+	// HasOverlap — өөр нэгж талбартай БАЙРШЛААР давхцаж байгаа эсэх.
+	// Давхардал нь нэг газрын олговрыг хоёр удаа бодох эрсдэл тул дэлгэц дээр
+	// улаанаар анхааруулна; OverlapCount нь давхцаж буй талбарын тоо.
+	HasOverlap   bool `json:"has_overlap"`
+	OverlapCount int  `json:"overlap_count"`
 	// урсгал бүрийн нөхөх олговрын илгээх төлөв: valuation_type → draft|submitted|approved|returned
 	ValuationStatuses map[string]string `json:"valuation_statuses,omitempty"`
 	CashAmount        float64           `json:"cash_amount"`
@@ -89,35 +103,40 @@ type parcelResponse struct {
 }
 
 type parcelFullResponse struct {
-	ID                    string            `json:"id"`
-	ParcelID              string            `json:"parcel_id"`
-	OldParcelID           string            `json:"old_parcel_id,omitempty"`
-	AcquisitionID         string            `json:"acquisition_id"`
-	ValidFrom             *string           `json:"valid_from"`
-	ValidTill             *string           `json:"valid_till"`
-	AU1Code               string            `json:"au1_code"`
-	AU2Code               string            `json:"au2_code"`
-	AU3Code               string            `json:"au3_code"`
-	GeometryWKT           string            `json:"geometry_wkt"`
-	AcquisitionGeomWKT    string            `json:"acquisition_geom_wkt"`
-	AcquisitionAreaM2     float64           `json:"acquisition_area_m2"`
-	RemainingAreaM2       *float64          `json:"remaining_area_m2"`
-	RightType             int               `json:"right_type"`
-	Landuse               string            `json:"landuse"`
-	LanduseName           string            `json:"landuse_name,omitempty"`
-	AreaM2                float64           `json:"area_m2"`
-	AddressKhashaa        string            `json:"address_khashaa,omitempty"`
-	AddressStreet         string            `json:"address_streetname,omitempty"`
-	PropertyNo            string            `json:"property_no,omitempty"`
-	DbChanged             bool              `json:"db_changed"`
-	ChangedParcelID       string            `json:"changed_parcel_id"`
-	StatusID              int               `json:"status_id"`
-	StatusName            string            `json:"status_name"`
-	IndependentOrgID      *string           `json:"independent_org_id,omitempty"`
-	SelectedValuationType *string           `json:"selected_valuation_type,omitempty"`
-	CreatedAt             string            `json:"created_at"`
-	CreatedBy             string            `json:"created_by"`
-	Detail                *parcelDetailInfo `json:"detail,omitempty"`
+	ID                    string   `json:"id"`
+	ParcelID              string   `json:"parcel_id"`
+	OldParcelID           string   `json:"old_parcel_id,omitempty"`
+	AcquisitionID         string   `json:"acquisition_id"`
+	ValidFrom             *string  `json:"valid_from"`
+	ValidTill             *string  `json:"valid_till"`
+	AU1Code               string   `json:"au1_code"`
+	AU2Code               string   `json:"au2_code"`
+	AU3Code               string   `json:"au3_code"`
+	GeometryWKT           string   `json:"geometry_wkt"`
+	AcquisitionGeomWKT    string   `json:"acquisition_geom_wkt"`
+	AcquisitionAreaM2     float64  `json:"acquisition_area_m2"`
+	RemainingAreaM2       *float64 `json:"remaining_area_m2"`
+	RightType             int      `json:"right_type"`
+	Landuse               string   `json:"landuse"`
+	LanduseName           string   `json:"landuse_name,omitempty"`
+	AreaM2                float64  `json:"area_m2"`
+	AddressKhashaa        string   `json:"address_khashaa,omitempty"`
+	AddressStreet         string   `json:"address_streetname,omitempty"`
+	PropertyNo            string   `json:"property_no,omitempty"`
+	DbChanged             bool     `json:"db_changed"`
+	ChangedParcelID       string   `json:"changed_parcel_id"`
+	StatusID              int      `json:"status_id"`
+	StatusName            string   `json:"status_name"`
+	IndependentOrgID      *string  `json:"independent_org_id,omitempty"`
+	SelectedValuationType *string  `json:"selected_valuation_type,omitempty"`
+	// EstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮), гараас оруулсан. null =
+	// оруулаагүй. Мэргэжлийн байгууллагад ЗӨВХӨН ХАРАГДАНА.
+	EstimatedValue   *float64          `json:"estimated_value"`
+	EstimatedValueAt *string           `json:"estimated_value_at,omitempty"`
+	EstimatedValueBy string            `json:"estimated_value_by,omitempty"`
+	CreatedAt        string            `json:"created_at"`
+	CreatedBy        string            `json:"created_by"`
+	Detail           *parcelDetailInfo `json:"detail,omitempty"`
 	// Holders — БҮХ эзэмшигч (нэг хүсэлт дээр төрөл өөр олон хүн байж болно).
 	// detail дотрох holder_* талбарууд нь зөвхөн үндсэн хүсэлт гаргагчийг заана.
 	Holders []parcelHolderResponse `json:"holders"`
@@ -132,6 +151,9 @@ type parcelFullResponse struct {
 	// Ownerships — УБЕГ-ийн газар өмчлөлийн бүртгэл (ХУР/XYP гарцаас татагдсан).
 	// ГУС-ийн эзэмшигчийн жагсаалт (holders)-аас ТУСДАА эх сурвалж.
 	Ownerships []domain.ParcelOwnership `json:"ownerships"`
+	// Overlaps — БАЙРШЛААР давхцаж байгаа бусад нэгж талбарууд. Хоосон биш бол
+	// дэлгэц УЛААНААР анхааруулна.
+	Overlaps []domain.ParcelOverlap `json:"overlaps"`
 }
 
 type parcelHolderResponse struct {
@@ -749,34 +771,35 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 
 func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 	r := landAcquisitionResponse{
-		ID:                  acq.ID.String(),
-		PlanCode:            acq.PlanCode,
-		PlanName:            acq.PlanName,
-		GeometryWKT:         acq.GeometryWKT,
-		AreaM2:              acq.AreaM2,
-		Status:              acq.Status,
-		AcquisitionName:     acq.AcquisitionName,
-		ImplementingOrg:     acq.ImplementingOrg,
-		Reason:              acq.Reason,
-		ResponsibleOrg:      acq.ResponsibleOrg,
-		FundingSource:       acq.FundingSource,
-		GeneralCategoryID:   acq.GeneralCategoryID,
-		GeneralCategoryName: acq.GeneralCategoryName,
-		SubCategoryID:       acq.SubCategoryID,
-		SubCategoryName:     acq.SubCategoryName,
-		DecreeNumber:        acq.DecreeNumber,
-		CreatedAt:           acq.CreatedAt.Format(time.RFC3339),
-		CreatedBy:           acq.CreatedBy,
-		ParcelCount:         acq.ParcelCount,
-		FinalParcelCount:    acq.FinalParcelCount,
-		ProgressPercent:     acq.ProgressPercent(),
-		PlanParcelID:        acq.PlanParcelID,
-		PlanTypeName:        acq.PlanTypeName,
-		PlanGazner:          acq.PlanGazner,
-		PlanAreaM2:          acq.PlanAreaM2,
-		PlanStartDate:       acq.PlanStartDate,
-		PlanEndDate:         acq.PlanEndDate,
-		PlanApprovedDate:    acq.PlanApprovedDate,
+		ID:                     acq.ID.String(),
+		PlanCode:               acq.PlanCode,
+		PlanName:               acq.PlanName,
+		GeometryWKT:            acq.GeometryWKT,
+		AreaM2:                 acq.AreaM2,
+		Status:                 acq.Status,
+		AcquisitionName:        acq.AcquisitionName,
+		ImplementingOrg:        acq.ImplementingOrg,
+		Reason:                 acq.Reason,
+		ResponsibleOrg:         acq.ResponsibleOrg,
+		FundingSource:          acq.FundingSource,
+		GeneralCategoryID:      acq.GeneralCategoryID,
+		GeneralCategoryName:    acq.GeneralCategoryName,
+		SubCategoryID:          acq.SubCategoryID,
+		SubCategoryName:        acq.SubCategoryName,
+		DecreeNumber:           acq.DecreeNumber,
+		CreatedAt:              acq.CreatedAt.Format(time.RFC3339),
+		CreatedBy:              acq.CreatedBy,
+		ParcelCount:            acq.ParcelCount,
+		FinalParcelCount:       acq.FinalParcelCount,
+		OverlappingParcelCount: acq.OverlappingParcelCount,
+		ProgressPercent:        acq.ProgressPercent(),
+		PlanParcelID:           acq.PlanParcelID,
+		PlanTypeName:           acq.PlanTypeName,
+		PlanGazner:             acq.PlanGazner,
+		PlanAreaM2:             acq.PlanAreaM2,
+		PlanStartDate:          acq.PlanStartDate,
+		PlanEndDate:            acq.PlanEndDate,
+		PlanApprovedDate:       acq.PlanApprovedDate,
 	}
 	if acq.StartDate != nil {
 		s := acq.StartDate.Format("2006-01-02")
@@ -837,6 +860,10 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 		StatusName:         p.StatusName,
 		GeometryWKT:        p.GeometryWKT,
 		IndependentOrgName: p.IndependentOrgName,
+		HolderName:         p.HolderName,
+		HolderCount:        p.HolderCount,
+		HasOverlap:         p.HasOverlap,
+		OverlapCount:       p.OverlapCount,
 		ValuationStatuses:  p.ValuationStatuses,
 		CashAmount:         p.CashAmount,
 		LandGrantAmount:    p.LandGrantAmount,
@@ -858,6 +885,10 @@ func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 		Fees:               pf.Fees,
 		BasePriceFactors:   pf.BasePriceFactors,
 		Ownerships:         pf.Ownerships,
+		Overlaps:           pf.Overlaps,
+		EstimatedValue:     pf.EstimatedValue,
+		EstimatedValueBy:   pf.EstimatedValueBy,
+		EstimatedValueAt:   timePtrRFC3339(pf.EstimatedValueAt),
 		ID:                 pf.ID.String(),
 		ParcelID:           pf.ParcelID,
 		OldParcelID:        pf.OldParcelID,
@@ -1121,4 +1152,13 @@ func toGlobalCompensationResponse(gc *domain.GlobalCompensation) globalCompensat
 		HolderRegisterNo:     gc.HolderRegisterNo,
 		HolderPhone:          gc.HolderPhone,
 	}
+}
+
+// timePtrRFC3339 — сонголттой хугацааг JSON-д тохирсон текст болгоно (nil → nil).
+func timePtrRFC3339(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	v := t.Format(time.RFC3339)
+	return &v
 }

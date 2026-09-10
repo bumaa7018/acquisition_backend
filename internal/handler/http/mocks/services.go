@@ -689,6 +689,16 @@ func (m *MockLandService) IsAcquisitionLocked(ctx context.Context, id uuid.UUID)
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockLandService) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error {
+	args := m.Called(ctx, acquisitionID, parcelID, value, userID)
+	return args.Error(0)
+}
+
+func (m *MockLandService) AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error) {
+	args := m.Called(ctx, id)
+	return args.Int(0), args.Error(1)
+}
+
 func (m *MockLandService) IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error) {
 	args := m.Called(ctx, parcelID)
 	return args.Bool(0), args.Error(1)
@@ -738,12 +748,12 @@ func (m *MockLandService) GetValuationSubmission(ctx context.Context, acquisitio
 	return args.Get(0).(*domain.ValuationSubmission), args.Error(1)
 }
 
-func (m *MockLandService) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
-	args := m.Called(ctx, acquisitionID, parcelID, valuationType, action, note, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
+func (m *MockLandService) TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition, attachment *service.ValuationAttachment) (*domain.ValuationSubmission, error) {
+	args := m.Called(ctx, in, attachment)
+	if v, ok := args.Get(0).(*domain.ValuationSubmission); ok {
+		return v, args.Error(1)
 	}
-	return args.Get(0).(*domain.ValuationSubmission), args.Error(1)
+	return nil, args.Error(1)
 }
 
 func (m *MockLandService) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {

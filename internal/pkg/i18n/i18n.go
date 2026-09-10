@@ -87,6 +87,9 @@ const (
 	ErrValuationReportRequired Key = "valuation_report_required"
 	ErrAcqLocked               Key = "acq_locked"
 	ErrNonFinalParcels         Key = "non_final_parcels"
+	ErrParcelsNotDiscovered    Key = "parcels_not_discovered"
+	ErrParcelsOverlap          Key = "parcels_overlap"
+	ErrNotFieldStage           Key = "acq_not_field_stage"
 	ErrAssetPhotoRequired      Key = "asset_photo_required"
 	ErrReportBeforeApproval    Key = "report_before_approval"
 	ErrParcelAppNoMissing      Key = "parcel_app_no_missing"
@@ -195,6 +198,9 @@ var messages = map[Key][2]string{
 	ErrValuationReportRequired: {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
 	ErrAcqLocked:               {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
 	ErrNonFinalParcels:         {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
+	ErrParcelsNotDiscovered:    {"Нэгж талбар татагдаагүй байна. \"Хээрийн судалгаа\" төлөвт шилжихийн тулд чөлөөлөх хилээр нэгж талбаруудыг бүрэн татсан байх шаардлагатай.", "No parcels have been discovered. Discover all parcels within the boundary before moving to field survey."},
+	ErrParcelsOverlap:          {"Нэгж талбарууд хоорондоо байршлаар давхцаж байна. Давхардлыг арилгах хүртэл \"Хээрийн судалгаа\" төлөвт шилжих боломжгүй — нэг газрын нөхөх олговор хоёр удаа бодогдох эрсдэлтэй.", "Parcels overlap each other by location. Resolve the overlaps before moving to field survey."},
+	ErrNotFieldStage:           {"Нэгж талбартай ажиллахын тулд чөлөөлөлт \"Хээрийн судалгаа\" төлөвт байх шаардлагатай.", "Working with parcels requires the acquisition to be in field survey status."},
 	ErrAssetPhotoRequired:      {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
 	ErrReportBeforeApproval:    {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
 	ErrParcelAppNoMissing:      {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},

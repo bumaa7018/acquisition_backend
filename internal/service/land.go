@@ -32,6 +32,8 @@ type LandAcquisitionService interface {
 	List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bool, error)
+	// AcquisitionStatus — одоогийн төлөв (нэгж талбартай ажиллах шатыг шалгахад).
+	AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error)
 	IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
 	Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error)
 	// PreviewBoundaryShapefile — гараас оруулах хилийн файлыг ХАДГАЛАЛГҮЙ
@@ -47,6 +49,8 @@ type LandAcquisitionService interface {
 	// шалгана (IDOR-оос сэргийлж, parcel-ийн үйлдлийг зөв acquisition-д хязгаарлана).
 	EnsureParcelInAcquisition(ctx context.Context, acquisitionID, parcelID uuid.UUID) error
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
+	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (nil → арилгана).
+	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error)
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
@@ -191,7 +195,10 @@ type LandWorkflowService interface {
 	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
-	TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error)
+	// TransitionValuationSubmission — submit | approve | return.
+	// attachment нь nil байж болно (хавсралт ЗААВАЛ БИШ) ба зөвхөн буцаалтад
+	// хамаарна.
+	TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition, attachment *ValuationAttachment) (*domain.ValuationSubmission, error)
 	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
@@ -1355,6 +1362,16 @@ func (s *landService) IsAcquisitionLocked(ctx context.Context, id uuid.UUID) (bo
 	return acq.Status == domain.LandAcquisitionStatusVerified, nil
 }
 
+// AcquisitionStatus — чөлөөлөлтийн одоогийн төлөв (middleware-ийн шатны
+// шалгалтад).
+func (s *landService) AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error) {
+	acq, err := s.landRepo.GetByID(ctx, id)
+	if err != nil {
+		return 0, domain.ErrNotFound
+	}
+	return acq.Status, nil
+}
+
 func (s *landService) IsParcelAcquisitionLocked(ctx context.Context, parcelID uuid.UUID) (bool, error) {
 	parcel, err := s.landRepo.GetParcelByID(ctx, parcelID)
 	if err != nil {
@@ -1388,7 +1405,35 @@ func (s *landService) GetParcelDetail(ctx context.Context, acquisitionID, parcel
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
+	// БАЙРШЛЫН давхардал — дэлгэц дээр УЛААНААР анхааруулна. Уншилт унавал
+	// дэлгэрэнгүйг бүхэлд нь хаяхгүй (давхардал нь нэмэлт мэдээлэл).
+	if overlaps, err := s.landRepo.ListParcelOverlaps(ctx, parcelID); err != nil {
+		slog.Warn("нэгж талбарын давхардал уншихад алдаа",
+			"parcel_id", parcelID, "error", err)
+	} else {
+		pf.Overlaps = overlaps
+	}
 	return pf, nil
+}
+
+// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (мэргэжилтэн/админ гараас).
+//
+// value=nil → үнэлгээг АРИЛГАНА. Сөрөг утга хүлээж авахгүй.
+func (s *landService) SetParcelEstimatedValue(
+	ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string,
+) error {
+	if value != nil && *value < 0 {
+		return domain.ErrInvalidInput
+	}
+	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, value, userID); err != nil {
+		return err
+	}
+	s.auditLog(ctx, "estimated_value_set", domain.AuditResourceParcel, parcelID.String(),
+		uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
+			"estimated_value": value,
+			"user_id":         userID,
+		})
+	return nil
 }
 
 func (s *landService) UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error {
@@ -1476,6 +1521,29 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 	// status=3 (Баталгаажсан) болоход НЗД-ын захирамжийн мэдээлэл заавал шаардагдана
 	if toStatus == 3 && (decreeNumber == "" || decreeDate == nil) {
 		return nil, domain.ErrDecreeRequired
+	}
+	// "ХЭЭРИЙН СУДАЛГАА" руу шилжихэд нэгж талбарын БҮРДЭЛ зөв байх ёстой:
+	// нэгж талбартай ажиллах (үнэлгээ, олговор, төлөв) энэ төлөвөөс эхэлдэг тул
+	// дараа нь бүрдлийг засах нь бичигдсэн өгөгдлийг хөндөнө.
+	if toStatus == domain.LandAcquisitionStatusField {
+		count, err := s.landRepo.CountParcels(ctx, acquisitionID)
+		if err != nil {
+			return nil, domain.ErrInternalServer
+		}
+		if count == 0 {
+			return nil, domain.ErrParcelsNotDiscovered
+		}
+		// Давхардлыг ДАХИН тооцно: хил/нэгж талбар сүүлд өөрчлөгдсөн байж
+		// болох тул хуучин тооцоонд найдахгүй.
+		overlapping, err := s.landRepo.DetectParcelOverlaps(ctx, acquisitionID)
+		if err != nil {
+			return nil, domain.ErrInternalServer
+		}
+		if overlapping > 0 {
+			slog.Warn("давхардалтай нэгж талбартай тул Хээрийн судалгаа руу шилжсэнгүй",
+				"acquisition_id", acquisitionID, "parcels", overlapping)
+			return nil, domain.ErrParcelsOverlap
+		}
 	}
 	if toStatus == domain.LandAcquisitionStatusVerified {
 		hasNonFinalParcels, err := s.landRepo.HasNonFinalParcels(ctx, acquisitionID)
@@ -1641,6 +1709,46 @@ func (s *landService) DiscoverParcels(ctx context.Context, acquisitionID uuid.UU
 		// хаяхгүй (нэг дугаарын алдаанаас болж жагсаалт хоосон үлдэхгүй).
 		if res == nil || len(res.ParcelIDs) == 0 {
 			return nil, domain.ErrInternalServer
+		}
+	}
+	if res == nil {
+		res = &domain.ParcelDiscoveryResult{}
+	}
+
+	// "ШИНЭ" төлөвт хилээс ГАРСАН нэгж талбарыг ШУУД хасна.
+	//
+	// Хил солигдоход (Update) хуучин хилийн нэгж талбарууд үлдэж болно. "Шинэ"
+	// төлөвт нэгж талбартай ажиллаж эхлээгүй тул устгах нь ямар ч үнэлгээ /
+	// олговрыг хөндөхгүй — иймд баталгаажуулалт хүлээхгүй. Бусад төлөвт
+	// автоматаар устгахгүй: тэнд өгөгдөл бичигдсэн байж болно (хил солих
+	// урсгал нь Update дээр тусад нь шалгагддаг).
+	if acq.Status == domain.LandAcquisitionStatusNew {
+		if removed, err := s.landRepo.DeleteParcelsOutsideBoundary(ctx, acquisitionID); err != nil {
+			slog.Error("хилээс гарсан нэгж талбарыг хасахад алдаа",
+				"acquisition_id", acquisitionID, "error", err)
+		} else if len(removed) > 0 {
+			res.RemovedOutside = len(removed)
+			slog.Info("хилд багтаагүй нэгж талбар хасагдлаа",
+				"acquisition_id", acquisitionID, "parcel_ids", removed)
+			s.auditLog(ctx, "parcels_pruned", domain.AuditResourceAcquisition,
+				acquisitionID.String(), uuidPtr(acquisitionID), nil, map[string]any{
+					"removed":    len(removed),
+					"parcel_ids": removed,
+					"reason":     "хилд багтаагүй (Шинэ төлөв)",
+				})
+		}
+	}
+
+	// БАЙРШЛЫН ДАВХАРДЛЫГ нэгж талбар татсан мөчид тооцно — "Хээрийн судалгаа"
+	// төлөв рүү шилжихэд шалгагддаг тул тэр мөчид ШИНЭ байх ёстой.
+	if n, err := s.landRepo.DetectParcelOverlaps(ctx, acquisitionID); err != nil {
+		slog.Error("нэгж талбарын давхардал тооцоход алдаа",
+			"acquisition_id", acquisitionID, "error", err)
+	} else {
+		res.OverlappingParcels = n
+		if n > 0 {
+			slog.Warn("байршлаар давхардсан нэгж талбар олдлоо",
+				"acquisition_id", acquisitionID, "parcels", n)
 		}
 	}
 	return res, nil

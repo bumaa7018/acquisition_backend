@@ -287,7 +287,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       (SELECT COUNT(*) FROM parcel
 			         WHERE acquisition_id = la.id AND COALESCE(status,0) IN (3,4,5)),
 			       la.professional_org_id,
-			       COALESCE(po."name", '')
+			       COALESCE(po."name", ''),
+			       -- БАЙРШЛААР давхардсан нэгж талбарын тоо. 0-ээс их бол
+			       -- чөлөөлөлт "Хээрийн судалгаа" төлөв рүү шилжихгүй тул
+			       -- жагсаалт дээр анхааруулга харуулна.
+			       (SELECT COUNT(DISTINCT po2.parcel_id)
+			          FROM parcel_overlap po2 WHERE po2.acquisition_id = la.id)
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
@@ -318,6 +323,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.DecreeNumber,
 			&acq.ParcelCount, &acq.FinalParcelCount,
 			&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
+			&acq.OverlappingParcelCount,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -1198,6 +1204,15 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 		args = append(args, filter.StatusID)
 		i++
 	}
+	// БАЙРШЛЫН давхардлаар шүүх. parcel_overlap нь хоёр чиглэлээр бичигддэг
+	// тул EXISTS нь давхардалтай ХОЁУЛАНГ нь олно.
+	if filter.HasOverlap != nil {
+		cond := "EXISTS"
+		if !*filter.HasOverlap {
+			cond = "NOT EXISTS"
+		}
+		where += " AND " + cond + " (SELECT 1 FROM parcel_overlap po WHERE po.parcel_id = p.id)"
+	}
 	// Үнэлгээний байгууллагын хүрээ. Дашбоардын parcelScopeCond-той ИЖИЛ
 	// дүрэм: үндсэн байгууллага бол чөлөөлөлтийн бүх нэгж талбар, эс бөгөөс
 	// зөвхөн өөрт хөндлөнгийн үнэлгээгээр холбогдсон нэгж талбар.
@@ -1251,7 +1266,29 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 				       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
-				       COALESCE((SELECT jsonb_object_agg(vs.valuation_type, vs.status) FROM parcel_valuation_submission vs WHERE vs.acquisition_id = p.acquisition_id AND vs.parcel_id = p.parcel_id), '{}'::jsonb)
+				       COALESCE((SELECT jsonb_object_agg(vs.valuation_type, vs.status) FROM parcel_valuation_submission vs WHERE vs.acquisition_id = p.acquisition_id AND vs.parcel_id = p.parcel_id), '{}'::jsonb),
+				       -- ГАЗАР ӨМЧЛӨГЧ/ЭЗЭМШИГЧ. Нэг нэгж талбар дээр ОЛОН
+				       -- эзэмшигч байж болох тул ҮНДСЭН хүсэлт гаргагчийг
+				       -- (main_applicant) авна; тэр тэмдэглэгээгүй бол хамгийн
+				       -- эрт бүртгэгдсэнийг. Хуулийн этгээд үед last_name хоосон
+				       -- ирдэг тул CONCAT_WS-ээр залгаж, давхар зай гаргахгүй.
+				       COALESCE((
+				         SELECT TRIM(CONCAT_WS(' ', NULLIF(rh.last_name,''), rh.name))
+				           FROM parcel_holder ph
+				           JOIN right_holder rh ON rh.id = ph.holder_id
+				          WHERE ph.parcel_id = p.id AND ph.holder_role = 'holder'
+				          ORDER BY ph.main_applicant DESC, ph.created_at
+				          LIMIT 1
+				       ), ''),
+				       COALESCE((
+				         SELECT COUNT(*) FROM parcel_holder ph
+				          WHERE ph.parcel_id = p.id AND ph.holder_role = 'holder'
+				       ), 0),
+				       -- БАЙРШЛЫН давхардал (parcel_overlap). Давхардалтай нэгж
+				       -- талбарыг жагсаалт дээр УЛААНААР анхааруулна.
+				       COALESCE((
+				         SELECT COUNT(*) FROM parcel_overlap po WHERE po.parcel_id = p.id
+				       ), 0)
 				FROM parcel p
 				LEFT JOIN parcel_status ps ON ps.id = p.status
 				LEFT JOIN valuation_org_profile io ON io.id = p.independent_org_id
@@ -1285,9 +1322,12 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.IndependentOrgID, &p.IndependentOrgName,
 			&p.CashAmount, &p.LandGrantAmount, &p.LandGrantCount,
 			&p.ValuationStatuses,
+			&p.HolderName, &p.HolderCount,
+			&p.OverlapCount,
 		); err != nil {
 			return nil, 0, err
 		}
+		p.HasOverlap = p.OverlapCount > 0
 		p.RemainingAreaM2 = &remainingAreaM2
 		result = append(result, p)
 	}
@@ -1393,6 +1433,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
 				p.independent_org_id, p.selected_valuation_type,
+				p.estimated_value, p.estimated_value_at, COALESCE(p.estimated_value_by,''),
 			COALESCE(pd.right_type,0),
 			COALESCE(pd.app_no,''), pd.app_timestamps, COALESCE(pd.app_type,''), COALESCE(pd.app_status,''),
 			COALESCE(pd.decision_no,''), pd.decision_date,
@@ -1424,6 +1465,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pf.DbChanged, &pf.ChangedParcelID,
 		&pf.StatusID, &pf.StatusName,
 		&pf.IndependentOrgID, &pf.SelectedValuationType,
+		&pf.EstimatedValue, &pf.EstimatedValueAt, &pf.EstimatedValueBy,
 		&d.RightType,
 		&d.AppNo, &d.AppTimestamps, &d.AppType, &d.AppStatus,
 		&d.DecisionNo, &d.DecisionDate,
@@ -2452,6 +2494,191 @@ func (r *landAcqRepo) HasNonFinalParcels(ctx context.Context, acquisitionID uuid
 		domain.ParcelStatusReleased,
 	).Scan(&exists)
 	return exists, err
+}
+
+// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээг хадгална (value=nil → арилгана).
+//
+// Нэгж талбар тухайн чөлөөлөлтөд харьяалагдахыг ЭНД шалгана (IDOR): дуудагч
+// зөвхөн өөрийн чөлөөлөлтийн нэгж талбарыг засах ёстой.
+func (r *landAcqRepo) SetParcelEstimatedValue(
+	ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string,
+) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE parcel SET
+			estimated_value    = $3,
+			-- Утга арилгасан бол хэн/хэзээ гэдгийг ч цэвэрлэнэ.
+			estimated_value_at = CASE WHEN $3::numeric IS NULL THEN NULL ELSE NOW() END,
+			estimated_value_by = CASE WHEN $3::numeric IS NULL THEN '' ELSE $4 END,
+			updated_at         = NOW(),
+			updated_by         = $4
+		WHERE id = $2 AND acquisition_id = $1 AND deleted_at IS NULL`,
+		acquisitionID, parcelID, value, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *landAcqRepo) CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM parcel WHERE acquisition_id = $1 AND deleted_at IS NULL`,
+		acquisitionID,
+	).Scan(&n)
+	return n, err
+}
+
+// overlapMinAreaM2 — давхардлыг ХҮЛЭЭН ЗӨВШӨӨРӨХ доод хязгаар (м²).
+//
+// Хөрш нэгж талбарууд нийтлэг хилээрээ шүргэлцдэг ба хэмжилтийн бөөрөнхийлөлт
+// (топологи бүрэн цэвэр биш) нь хэдхээн см²-ийн "давхцал" гаргадаг. Түүнийг
+// давхардал гэж бүртгэвэл БҮХ хөрш талбар давхардалтай болж, шалгалт утгаа
+// алдана. 1 м² нь хэмжилтийн шуугианаас дээгүүр, бодит давхардлаас доогуур.
+const overlapMinAreaM2 = 1.0
+
+// DetectParcelOverlaps — чөлөөлөлтийн нэгж талбаруудын БАЙРШЛЫН давхардлыг
+// дахин тооцно.
+//
+// ЯАГААД ST_Overlaps БИШ: ST_Overlaps нь бүрэн АГУУЛАГДАХ тохиолдлыг (нэг
+// талбар нөгөөгөө бүтэн дотроо агуулах) false гэж үнэлдэг. Гэтэл ГУС дээр яг
+// тэр тохиолдол хамгийн эрсдэлтэй — нэг газарт хоёр дугаар. Иймд ST_Intersects
+// + давхцах хэсгийн ТАЛБАЙгаар шалгана.
+//
+// Талбайг public.calculate_area_utm-ээр бодно (ГУС-тай ижил UTM арга) —
+// ST_Area(::geography) ХЭРЭГЛЭХГҮЙ.
+//
+// ХОЁР чиглэлээр бичнэ (a→b, b→a) тул нэг талбарын давхардлыг parcel_id-гаар
+// шүүхэд бүрэн жагсаалт гарна.
+func (r *landAcqRepo) DetectParcelOverlaps(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM parcel_overlap WHERE acquisition_id = $1`, acquisitionID,
+	); err != nil {
+		return 0, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		WITH pairs AS (
+			SELECT a.id AS a_id, b.id AS b_id,
+			       COALESCE(a.parcel_id,'') AS a_code, COALESCE(b.parcel_id,'') AS b_code,
+			       public.calculate_area_utm(
+			           ST_Intersection(ST_MakeValid(a.geometry), ST_MakeValid(b.geometry))
+			       ) AS area_m2
+			  FROM parcel a
+			  JOIN parcel b
+			    ON b.acquisition_id = a.acquisition_id
+			   AND b.id > a.id                  -- хос тус бүрийг НЭГ л удаа
+			   AND b.deleted_at IS NULL
+			   AND b.geometry IS NOT NULL
+			   AND ST_Intersects(a.geometry, b.geometry)
+			 WHERE a.acquisition_id = $1
+			   AND a.deleted_at IS NULL
+			   AND a.geometry IS NOT NULL
+		),
+		real_pairs AS (
+			SELECT * FROM pairs WHERE area_m2 IS NOT NULL AND area_m2 >= $2
+		)
+		INSERT INTO parcel_overlap (
+			parcel_id, other_parcel_id, acquisition_id, other_parcel_code,
+			overlap_area_m2, detected_at
+		)
+		SELECT a_id, b_id, $1, b_code, area_m2, NOW() FROM real_pairs
+		UNION ALL
+		SELECT b_id, a_id, $1, a_code, area_m2, NOW() FROM real_pairs
+		ON CONFLICT (parcel_id, other_parcel_id) DO UPDATE SET
+			overlap_area_m2   = EXCLUDED.overlap_area_m2,
+			other_parcel_code = EXCLUDED.other_parcel_code,
+			detected_at       = EXCLUDED.detected_at
+	`, acquisitionID, overlapMinAreaM2); err != nil {
+		return 0, err
+	}
+
+	var affected int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT parcel_id) FROM parcel_overlap WHERE acquisition_id = $1`,
+		acquisitionID,
+	).Scan(&affected); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+func (r *landAcqRepo) ListParcelOverlaps(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelOverlap, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT po.other_parcel_id, COALESCE(po.other_parcel_code,''),
+		       COALESCE(po.overlap_area_m2, 0),
+		       COALESCE(op.status, 0), COALESCE(ps.name,''),
+		       po.detected_at
+		  FROM parcel_overlap po
+		  LEFT JOIN parcel op ON op.id = po.other_parcel_id
+		  LEFT JOIN parcel_status ps ON ps.id = op.status
+		 WHERE po.parcel_id = $1
+		 ORDER BY po.overlap_area_m2 DESC`, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]domain.ParcelOverlap, 0)
+	for rows.Next() {
+		var o domain.ParcelOverlap
+		if err := rows.Scan(
+			&o.OtherParcelID, &o.OtherParcelCode, &o.OverlapAreaM2,
+			&o.OtherStatusID, &o.OtherStatusName, &o.DetectedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// DeleteParcelsOutsideBoundary — чөлөөлөх хилтэй ОГТ огтлолцохгүй нэгж
+// талбаруудыг устгана.
+//
+// Зөвхөн "Шинэ" төлөвт (нэгж талбартай ажиллаж эхлээгүй байхад) автоматаар
+// дуудагдана — тэр үед устгах нь ямар ч хэрэглэгчийн оруулсан өгөгдлийг
+// хөндөхгүй. Геометргүй мөрийг ХАДГАЛНА: тэр нь хилээс гарсан гэдгийн
+// БАТАЛГАА биш (ГУС-аас геометр ирээгүй байж болно).
+func (r *landAcqRepo) DeleteParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		DELETE FROM parcel p
+		 WHERE p.acquisition_id = $1
+		   AND p.geometry IS NOT NULL
+		   AND NOT EXISTS (
+		       SELECT 1 FROM land_acquisition la
+		        WHERE la.id = p.acquisition_id
+		          AND la.geometry IS NOT NULL
+		          AND ST_Intersects(ST_MakeValid(la.geometry), ST_MakeValid(p.geometry))
+		   )
+		RETURNING COALESCE(p.parcel_id,'')`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var removed []string
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		if code != "" {
+			removed = append(removed, code)
+		}
+	}
+	return removed, rows.Err()
 }
 
 func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
@@ -4918,7 +5145,7 @@ func scanValuationSubmission(row pgx.Row, acqID uuid.UUID, code, vType string) (
 	s := &domain.ValuationSubmission{}
 	err := row.Scan(&s.ID, &s.AcquisitionID, &s.ParcelID, &s.ValuationType, &s.Status,
 		&s.SubmittedBy, &s.SubmittedAt, &s.ReviewedBy, &s.ReviewedAt,
-		&s.LastNote, &s.CreatedAt, &s.UpdatedAt)
+		&s.LastNote, &s.AttachmentURL, &s.AttachmentName, &s.CreatedAt, &s.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		// Мөр байхгүй бол анхдагч "Ноорог" төлөвөөр буцаана
 		return &domain.ValuationSubmission{AcquisitionID: acqID, ParcelID: code, ValuationType: vType, Status: domain.ValuationStatusDraft}, nil
@@ -4944,7 +5171,9 @@ func (r *landAcqRepo) GetValuationSubmission(ctx context.Context, acquisitionID,
 	vType := normalizeValuationType(valuationType)
 	row := r.db.QueryRow(ctx, `
 		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
-		       reviewed_by, reviewed_at, last_note, created_at, updated_at
+		       reviewed_by, reviewed_at, last_note,
+		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
+		       created_at, updated_at
 		FROM parcel_valuation_submission
 		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
 	return scanValuationSubmission(row, acquisitionID, code, vType)
@@ -4952,12 +5181,22 @@ func (r *landAcqRepo) GetValuationSubmission(ctx context.Context, acquisitionID,
 
 // TransitionValuationSubmission — төлөв шилжүүлэх (submit|approve|return), түүх хадгална.
 // approve үед тухайн урсгал нэгж талбарын "үндсэн" (selected_valuation_type) болно.
-func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType, action, note, userID string) (*domain.ValuationSubmission, error) {
+func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition) (*domain.ValuationSubmission, error) {
+	acquisitionID, parcelID := in.AcquisitionID, in.ParcelID
+	action, note, userID := in.Action, in.Note, in.UserID
 	code, err := r.parcelCodeByID(ctx, acquisitionID, parcelID)
 	if err != nil {
 		return nil, err
 	}
-	vType := normalizeValuationType(valuationType)
+	vType := normalizeValuationType(in.ValuationType)
+
+	// ХАВСРАЛТ нь ЗӨВХӨН буцаалтад хамаарна. Бусад үйлдэлд ирсэн ч
+	// хадгалахгүй — эс бөгөөс "илгээх" дээрх файл буцаалтын хавсралт болж
+	// харагдана.
+	attachURL, attachName := "", ""
+	if action == "return" {
+		attachURL, attachName = in.AttachmentURL, in.AttachmentName
+	}
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -5009,20 +5248,24 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 	}
 
 	// Upsert төлөв. submit → submitted_by/at, approve/return → reviewed_by/at.
+	// attachment_url/name нь ҮЙЛДЭЛ БҮРД дарж бичигдэнэ (буцаалт биш үед хоосон
+	// болно) — `last_note`-той ижил зарчим: карт нь СҮҮЛИЙН үйлдлийг харуулна.
 	if action == "submit" {
 		_, err = tx.Exec(ctx, `
-			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at, last_note)
-			VALUES ($1,$2,$6,$3,$4,NOW(),$5)
+			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at, last_note, attachment_url, attachment_name)
+			VALUES ($1,$2,$6,$3,$4,NOW(),$5,$7,$8)
 			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
-			SET status=$3, submitted_by=$4, submitted_at=NOW(), last_note=$5, updated_at=NOW()`,
-			acquisitionID, code, to, userID, note, vType)
+			SET status=$3, submitted_by=$4, submitted_at=NOW(), last_note=$5,
+			    attachment_url=$7, attachment_name=$8, updated_at=NOW()`,
+			acquisitionID, code, to, userID, note, vType, attachURL, attachName)
 	} else {
 		_, err = tx.Exec(ctx, `
-			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, reviewed_by, reviewed_at, last_note)
-			VALUES ($1,$2,$6,$3,$4,NOW(),$5)
+			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, reviewed_by, reviewed_at, last_note, attachment_url, attachment_name)
+			VALUES ($1,$2,$6,$3,$4,NOW(),$5,$7,$8)
 			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
-			SET status=$3, reviewed_by=$4, reviewed_at=NOW(), last_note=$5, updated_at=NOW()`,
-			acquisitionID, code, to, userID, note, vType)
+			SET status=$3, reviewed_by=$4, reviewed_at=NOW(), last_note=$5,
+			    attachment_url=$7, attachment_name=$8, updated_at=NOW()`,
+			acquisitionID, code, to, userID, note, vType, attachURL, attachName)
 	}
 	if err != nil {
 		return nil, err
@@ -5095,9 +5338,9 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 
 	// Түүх
 	if _, err = tx.Exec(ctx, `
-		INSERT INTO parcel_valuation_submission_history (acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		acquisitionID, code, vType, action, from, to, note, userID); err != nil {
+		INSERT INTO parcel_valuation_submission_history (acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by, attachment_url, attachment_name)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		acquisitionID, code, vType, action, from, to, note, userID, attachURL, attachName); err != nil {
 		return nil, err
 	}
 
@@ -5107,7 +5350,9 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, acquisi
 
 	row := r.db.QueryRow(ctx, `
 		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
-		       reviewed_by, reviewed_at, last_note, created_at, updated_at
+		       reviewed_by, reviewed_at, last_note,
+		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
+		       created_at, updated_at
 		FROM parcel_valuation_submission
 		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
 	return scanValuationSubmission(row, acquisitionID, code, vType)
@@ -5120,7 +5365,9 @@ func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquis
 	}
 	vType := normalizeValuationType(valuationType)
 	rows, err := r.db.Query(ctx, `
-		SELECT id, acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note, created_by, created_at
+		SELECT id, acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note,
+		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
+		       created_by, created_at
 		FROM parcel_valuation_submission_history
 		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
 		ORDER BY created_at DESC, id DESC`, acquisitionID, code, vType)
@@ -5132,7 +5379,9 @@ func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquis
 	for rows.Next() {
 		h := &domain.ValuationSubmissionHistory{}
 		if err := rows.Scan(&h.ID, &h.AcquisitionID, &h.ParcelID, &h.ValuationType, &h.Action,
-			&h.FromStatus, &h.ToStatus, &h.Note, &h.CreatedBy, &h.CreatedAt); err != nil {
+			&h.FromStatus, &h.ToStatus, &h.Note,
+			&h.AttachmentURL, &h.AttachmentName,
+			&h.CreatedBy, &h.CreatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, h)

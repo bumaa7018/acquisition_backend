@@ -1,4 +1,4 @@
-.PHONY: run dev build test test-e2e test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down reset reset-db logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
+.PHONY: run dev build test test-e2e test-cover lint migrate-up migrate-down migrate-auth-up migrate-auth-down migrate-main-up migrate-main-down up down reset reset-db logs seed seed-admin-example seed-external-users seed-compensation-samples seed-valuation-samples seed-parcel-workflow seed-parcel-samples seed-mock seed-mock-geometry swag deploy docker-rebuild middleware-run middleware-docker-build middleware-docker-up middleware-docker-down middleware-docker-logs middleware-docker-restart fe-network fe-build fe-up fe-down fe-logs fe-restart all-up all-down
 
 # GOROOT-ыг Go өөрөө тодорхойлно. gvm (~/.zshrc) нь GOROOT=/usr/local/go гэж
 # тавьдаг ба тэр нь go.mod-ийн шаардаж татдаг toolchain-аас (GOTOOLCHAIN=auto)
@@ -139,6 +139,13 @@ seed-valuation-samples:
 
 seed-parcel-workflow:
 	CGO_ENABLED=0 go run ./cmd/seed-sql -db main scripts/seed_parcel_workflow.sql
+
+# Нэгж талбарын ЖИШЭЭ өгөгдөл: өмчлөгчийн нэр + байршлын давхардал.
+# Эзэмшигч нь ГУС-аас татагддаг, давхардал нь татах мөчид тооцогддог тул
+# аль хэдийн бүртгэгдсэн өгөгдөл дээр хоёулаа хоосон байдаг — дэлгэц дээр
+# харагдуулахын тулд үүнийг ажиллуулна. Idempotent.
+seed-parcel-samples:
+	CGO_ENABLED=0 go run ./cmd/seed-sql -db main scripts/seed_parcel_samples.sql
 
 # seed_mock_data.sql + geometry нөхөлт (дараалан ажиллана)
 seed-mock:
