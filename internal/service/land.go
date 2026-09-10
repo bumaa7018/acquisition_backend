@@ -51,12 +51,13 @@ type LandAcquisitionService interface {
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (nil → арилгана).
 	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
+	CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent float64, baseFeePerM2 *float64, userID string) (float64, error)
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error)
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
 	GetAvailableStatuses(ctx context.Context, acquisitionID uuid.UUID) ([]domain.StatusOption, error)
 	AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID, toStatus int, note, changedBy, decreeNumber string, decreeDate *time.Time) (*domain.LandAcquisition, error)
-	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	// ComputeAreaM2FromWKT — WKT хилийн талбайг ГУС-тай ИЖИЛ аргаар (UTM
 	// проекц, бүхэл м²) тооцоод буцаана. Frontend-ийн "Хилээс тооцоолох"
 	// товч үүнийг дуудна — browser дээр өөрөө тооцвол ГУС-аас зөрнө.
@@ -1422,10 +1423,10 @@ func (s *landService) GetParcelDetail(ctx context.Context, acquisitionID, parcel
 func (s *landService) SetParcelEstimatedValue(
 	ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string,
 ) error {
-	if value != nil && *value < 0 {
+	if value != nil && (*value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0)) {
 		return domain.ErrInvalidInput
 	}
-	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, value, userID); err != nil {
+	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, value, nil, nil, userID); err != nil {
 		return err
 	}
 	s.auditLog(ctx, "estimated_value_set", domain.AuditResourceParcel, parcelID.String(),
@@ -1598,7 +1599,7 @@ func (s *landService) AdvanceStatus(ctx context.Context, acquisitionID uuid.UUID
 //
 // Чөлөөлөгдөх талбай/хил өөрчилж байвал шинэ хил нь нэгж талбарын ҮНДСЭН хил
 // дотор байхыг ХАТУУ шалгана (validateParcelAcquisitionGeom).
-func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+func (s *landService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	parcel, _ := s.landRepo.GetParcelByID(ctx, parcelID)
 	if err := s.validateParcelAcquisitionGeom(ctx, parcel, acquisitionAreaM2, acquisitionGeomWKT); err != nil {
 		return err

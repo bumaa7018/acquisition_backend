@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -934,8 +935,7 @@ func (h *LandHandler) UpdateParcelValuation(c *gin.Context) {
 // SetParcelEstimatedValue godoc
 //
 //	@Summary		Нэгж талбарын ТӨСӨӨЛЛИЙН үнэлгээ хадгалах
-//	@Description	Мэргэжилтэн/админ гараас оруулна. value=null бол үнэлгээг арилгана.
-//	@Description	Санал болгох дүнг дэлгэц нь газрын СУУРЬ ҮНЭ (₮/га → ₮/м²) × талбайгаар тооцно.
+//	@Description	confidence_percent өгвөл хадгалсан суурь төлбөр, өртсөн талбайгаар сервер тооцно. value=null бол үнэлгээг арилгана.
 //	@Tags			land-acquisitions
 //	@Accept			json
 //	@Produce		json
@@ -957,11 +957,10 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 		return
 	}
 
-	// Value нь ЗААВАЛ заагдана: талбар огт өгөөгүй бол алдаа, `null` бол
-	// АРИЛГАХ хүсэлт. Ялгаж чадахгүй бол "хоосон илгээв" нь санамсаргүй
-	// устгал болно.
 	var body struct {
-		Value *float64 `json:"value"`
+		Value             json.RawMessage `json:"value"`
+		ConfidencePercent *float64        `json:"confidence_percent"`
+		BaseFeePerM2      *float64        `json:"base_fee_per_m2"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
@@ -969,11 +968,29 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 	}
 
 	userID := contextUserIDString(c)
-	if err := h.svc.SetParcelEstimatedValue(c.Request.Context(), acqID, parcelID, body.Value, userID); err != nil {
+	if body.ConfidencePercent != nil {
+		if len(body.Value) > 0 {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		value, err := h.svc.CalculateParcelEstimatedValue(c.Request.Context(), acqID, parcelID, *body.ConfidencePercent, body.BaseFeePerM2, userID)
+		if err != nil {
+			response.Error(c, err)
+			return
+		}
+		response.OKMsg(c, gin.H{"estimated_value": value, "estimated_confidence_percent": body.ConfidencePercent}, "Амжилттай хадгаллаа")
+		return
+	}
+	var value *float64
+	if body.BaseFeePerM2 != nil || len(body.Value) == 0 || json.Unmarshal(body.Value, &value) != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+	if err := h.svc.SetParcelEstimatedValue(c.Request.Context(), acqID, parcelID, value, userID); err != nil {
 		response.Error(c, err)
 		return
 	}
-	response.OKMsg(c, gin.H{"estimated_value": body.Value}, "Амжилттай хадгаллаа")
+	response.OKMsg(c, gin.H{"estimated_value": value, "estimated_confidence_percent": nil}, "Амжилттай хадгаллаа")
 }
 
 // ListProgress godoc
@@ -1161,7 +1178,7 @@ func (h *LandHandler) UpdateParcelMeta(c *gin.Context) {
 	}
 
 	var body struct {
-		DbChanged          bool     `json:"db_changed"`
+		DbChanged          string   `json:"db_changed"`
 		ChangedParcelID    string   `json:"changed_parcel_id"`
 		AcquisitionAreaM2  *float64 `json:"acquisition_area_m2"`
 		AcquisitionGeomWKT *string  `json:"acquisition_geom_wkt"`

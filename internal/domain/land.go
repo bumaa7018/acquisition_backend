@@ -774,7 +774,7 @@ type Parcel struct {
 	AddressStreet         string
 	PropertyNo            string
 	CompensationPaid      bool
-	DbChanged             bool
+	DbChanged             string
 	ChangedParcelID       string
 	StatusID              int
 	StatusName            string
@@ -801,11 +801,13 @@ type Parcel struct {
 	// EstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). Мэргэжилтэн/админ ГААРАС
 	// оруулна; албан ёсны үнэлгээ (land_valuation, assets) хийгдэхээс өмнөх
 	// урьдчилсан тооцоо. nil = оруулаагүй (0-ээс ЯЛГААТАЙ).
-	EstimatedValue   *float64
-	EstimatedValueAt *time.Time
-	EstimatedValueBy string
-	CreatedAt        time.Time
-	CreatedBy        string
+	EstimatedValue             *float64
+	EstimatedConfidencePercent *float64
+	EstimatedBaseFeePerM2      *float64
+	EstimatedValueAt           *time.Time
+	EstimatedValueBy           string
+	CreatedAt                  time.Time
+	CreatedBy                  string
 }
 
 // ParcelOverlap — НЭГ нэгж талбарын өөр нэгж талбартай байршлын давхардал.
@@ -1157,7 +1159,7 @@ type ReportParcelRow struct {
 	AcquisitionAreaM2 float64
 	RemainingAreaM2   float64
 	RightType         int
-	DbChanged         bool
+	DbChanged         string
 	ChangedParcelID   string
 	Status            int
 	StatusName        string

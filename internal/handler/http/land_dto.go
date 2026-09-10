@@ -78,7 +78,7 @@ type parcelResponse struct {
 	AcquisitionAreaM2  float64  `json:"acquisition_area_m2"`
 	RemainingAreaM2    *float64 `json:"remaining_area_m2"`
 	CompensationPaid   bool     `json:"compensation_paid"`
-	DbChanged          bool     `json:"db_changed"`
+	DbChanged          string   `json:"db_changed"`
 	ChangedParcelID    string   `json:"changed_parcel_id"`
 	StatusID           int      `json:"status_id"`
 	StatusName         string   `json:"status_name"`
@@ -123,7 +123,7 @@ type parcelFullResponse struct {
 	AddressKhashaa        string   `json:"address_khashaa,omitempty"`
 	AddressStreet         string   `json:"address_streetname,omitempty"`
 	PropertyNo            string   `json:"property_no,omitempty"`
-	DbChanged             bool     `json:"db_changed"`
+	DbChanged             string   `json:"db_changed"`
 	ChangedParcelID       string   `json:"changed_parcel_id"`
 	StatusID              int      `json:"status_id"`
 	StatusName            string   `json:"status_name"`
@@ -131,12 +131,14 @@ type parcelFullResponse struct {
 	SelectedValuationType *string  `json:"selected_valuation_type,omitempty"`
 	// EstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮), гараас оруулсан. null =
 	// оруулаагүй. Мэргэжлийн байгууллагад ЗӨВХӨН ХАРАГДАНА.
-	EstimatedValue   *float64          `json:"estimated_value"`
-	EstimatedValueAt *string           `json:"estimated_value_at,omitempty"`
-	EstimatedValueBy string            `json:"estimated_value_by,omitempty"`
-	CreatedAt        string            `json:"created_at"`
-	CreatedBy        string            `json:"created_by"`
-	Detail           *parcelDetailInfo `json:"detail,omitempty"`
+	EstimatedValue             *float64          `json:"estimated_value"`
+	EstimatedConfidencePercent *float64          `json:"estimated_confidence_percent"`
+	EstimatedBaseFeePerM2      *float64          `json:"estimated_base_fee_per_m2"`
+	EstimatedValueAt           *string           `json:"estimated_value_at,omitempty"`
+	EstimatedValueBy           string            `json:"estimated_value_by,omitempty"`
+	CreatedAt                  string            `json:"created_at"`
+	CreatedBy                  string            `json:"created_by"`
+	Detail                     *parcelDetailInfo `json:"detail,omitempty"`
 	// Holders — БҮХ эзэмшигч (нэг хүсэлт дээр төрөл өөр олон хүн байж болно).
 	// detail дотрох holder_* талбарууд нь зөвхөн үндсэн хүсэлт гаргагчийг заана.
 	Holders []parcelHolderResponse `json:"holders"`
@@ -878,41 +880,43 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 
 func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	r := parcelFullResponse{
-		Mortgages:          pf.Mortgages,
-		CourtDecisions:     pf.CourtDecisions,
-		Invoices:           pf.Invoices,
-		Monitorings:        pf.Monitorings,
-		Fees:               pf.Fees,
-		BasePriceFactors:   pf.BasePriceFactors,
-		Ownerships:         pf.Ownerships,
-		Overlaps:           pf.Overlaps,
-		EstimatedValue:     pf.EstimatedValue,
-		EstimatedValueBy:   pf.EstimatedValueBy,
-		EstimatedValueAt:   timePtrRFC3339(pf.EstimatedValueAt),
-		ID:                 pf.ID.String(),
-		ParcelID:           pf.ParcelID,
-		OldParcelID:        pf.OldParcelID,
-		AcquisitionID:      pf.AcquisitionID.String(),
-		AU1Code:            pf.AU1Code,
-		AU2Code:            pf.AU2Code,
-		AU3Code:            pf.AU3Code,
-		GeometryWKT:        pf.GeometryWKT,
-		AcquisitionGeomWKT: pf.AcquisitionGeomWKT,
-		AcquisitionAreaM2:  pf.AcquisitionAreaM2,
-		RemainingAreaM2:    pf.RemainingAreaM2,
-		RightType:          pf.RightType,
-		Landuse:            pf.Landuse,
-		LanduseName:        pf.LanduseName,
-		AreaM2:             pf.AreaM2,
-		AddressKhashaa:     pf.AddressKhashaa,
-		AddressStreet:      pf.AddressStreet,
-		PropertyNo:         pf.PropertyNo,
-		DbChanged:          pf.DbChanged,
-		ChangedParcelID:    pf.ChangedParcelID,
-		StatusID:           pf.StatusID,
-		StatusName:         pf.StatusName,
-		CreatedAt:          pf.CreatedAt.Format(time.RFC3339),
-		CreatedBy:          pf.CreatedBy,
+		Mortgages:                  pf.Mortgages,
+		CourtDecisions:             pf.CourtDecisions,
+		Invoices:                   pf.Invoices,
+		Monitorings:                pf.Monitorings,
+		Fees:                       pf.Fees,
+		BasePriceFactors:           pf.BasePriceFactors,
+		Ownerships:                 pf.Ownerships,
+		Overlaps:                   pf.Overlaps,
+		EstimatedValue:             pf.EstimatedValue,
+		EstimatedConfidencePercent: pf.EstimatedConfidencePercent,
+		EstimatedBaseFeePerM2:      pf.EstimatedBaseFeePerM2,
+		EstimatedValueBy:           pf.EstimatedValueBy,
+		EstimatedValueAt:           timePtrRFC3339(pf.EstimatedValueAt),
+		ID:                         pf.ID.String(),
+		ParcelID:                   pf.ParcelID,
+		OldParcelID:                pf.OldParcelID,
+		AcquisitionID:              pf.AcquisitionID.String(),
+		AU1Code:                    pf.AU1Code,
+		AU2Code:                    pf.AU2Code,
+		AU3Code:                    pf.AU3Code,
+		GeometryWKT:                pf.GeometryWKT,
+		AcquisitionGeomWKT:         pf.AcquisitionGeomWKT,
+		AcquisitionAreaM2:          pf.AcquisitionAreaM2,
+		RemainingAreaM2:            pf.RemainingAreaM2,
+		RightType:                  pf.RightType,
+		Landuse:                    pf.Landuse,
+		LanduseName:                pf.LanduseName,
+		AreaM2:                     pf.AreaM2,
+		AddressKhashaa:             pf.AddressKhashaa,
+		AddressStreet:              pf.AddressStreet,
+		PropertyNo:                 pf.PropertyNo,
+		DbChanged:                  pf.DbChanged,
+		ChangedParcelID:            pf.ChangedParcelID,
+		StatusID:                   pf.StatusID,
+		StatusName:                 pf.StatusName,
+		CreatedAt:                  pf.CreatedAt.Format(time.RFC3339),
+		CreatedBy:                  pf.CreatedBy,
 	}
 	if pf.IndependentOrgID != nil {
 		s := strconv.FormatInt(int64(*pf.IndependentOrgID), 10)
@@ -999,7 +1003,7 @@ type reportParcelRowResponse struct {
 	AcquisitionAreaM2   float64 `json:"acquisition_area_m2"`
 	RemainingAreaM2     float64 `json:"remaining_area_m2"`
 	RightType           int     `json:"right_type"`
-	DbChanged           bool    `json:"db_changed"`
+	DbChanged           string  `json:"db_changed"`
 	ChangedParcelID     string  `json:"changed_parcel_id"`
 	Status              int     `json:"status"`
 	StatusName          string  `json:"status_name"`

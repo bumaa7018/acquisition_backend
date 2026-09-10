@@ -309,8 +309,8 @@ func (m *MockLandAcquisitionRepository) HasNonFinalParcels(ctx context.Context, 
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error {
-	args := m.Called(ctx, acquisitionID, parcelID, value, userID)
+func (m *MockLandAcquisitionRepository) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string) error {
+	args := m.Called(ctx, acquisitionID, parcelID, value, confidencePercent, baseFeePerM2, userID)
 	return args.Error(0)
 }
 
@@ -569,7 +569,7 @@ func (m *MockLandAcquisitionRepository) UpdateDecree(ctx context.Context, id uui
 	return m.Called(ctx, id, number, date).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+func (m *MockLandAcquisitionRepository) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	return m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT).Error(0)
 }
 

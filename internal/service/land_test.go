@@ -1262,7 +1262,7 @@ func parcelMetaSvc(parcelID uuid.UUID) (service.LandService, *mocks.MockLandAcqu
 		AreaM2:      1_000_000,
 	}, nil)
 	landRepo.On("UpdateParcelMeta", ctx, parcelID,
-		mock.AnythingOfType("bool"), mock.AnythingOfType("string"),
+		mock.AnythingOfType("string"), mock.AnythingOfType("string"),
 		mock.Anything, mock.Anything).Return(nil).Maybe()
 	return svc, landRepo
 }
@@ -1279,10 +1279,10 @@ func TestLandService_UpdateParcelMeta_AcceptsGeomInsideParcel(t *testing.T) {
 	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
 		Return(&domain.GeomContainment{Covered: true, ContainerM2: 1_000_000}, nil)
 
-	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", f64Ptr(150_000), strPtr(newWKT))
+	err := svc.UpdateParcelMeta(ctx, parcelID, "", "", f64Ptr(150_000), strPtr(newWKT))
 
 	require.NoError(t, err)
-	landRepo.AssertCalled(t, "UpdateParcelMeta", ctx, parcelID, false, "",
+	landRepo.AssertCalled(t, "UpdateParcelMeta", ctx, parcelID, "", "",
 		mock.Anything, mock.Anything)
 }
 
@@ -1295,7 +1295,7 @@ func TestLandService_UpdateParcelMeta_RejectsGeomOutsideParcel(t *testing.T) {
 	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
 		Return(&domain.GeomContainment{OutsideM2: 50_000, ContainerM2: 1_000_000}, nil)
 
-	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT))
+	err := svc.UpdateParcelMeta(ctx, parcelID, "", "", nil, strPtr(newWKT))
 
 	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
 	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
@@ -1311,7 +1311,7 @@ func TestLandService_UpdateParcelMeta_RejectsTinyOverrun(t *testing.T) {
 	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
 		Return(&domain.GeomContainment{OutsideM2: 3, ContainerM2: 1_000_000}, nil)
 
-	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT))
+	err := svc.UpdateParcelMeta(ctx, parcelID, "", "", nil, strPtr(newWKT))
 
 	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
 	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
@@ -1328,7 +1328,7 @@ func TestLandService_UpdateParcelMeta_AcceptsCoincidentBoundary(t *testing.T) {
 	landRepo.On("CheckContainment", ctx, newWKT, mock.AnythingOfType("string")).
 		Return(&domain.GeomContainment{Covered: true, ContainerM2: 1_000_000}, nil)
 
-	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, false, "", nil, strPtr(newWKT)))
+	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, "", "", nil, strPtr(newWKT)))
 }
 
 // Чөлөөлөгдөх талбай нь нэгж талбарын талбайгаас их байвал хадгалагдахгүй.
@@ -1336,7 +1336,7 @@ func TestLandService_UpdateParcelMeta_RejectsAreaOverParcelArea(t *testing.T) {
 	parcelID := uuid.New()
 	svc, landRepo := parcelMetaSvc(parcelID)
 
-	err := svc.UpdateParcelMeta(ctx, parcelID, false, "", f64Ptr(1_500_000), nil)
+	err := svc.UpdateParcelMeta(ctx, parcelID, "", "", f64Ptr(1_500_000), nil)
 
 	assert.Equal(t, domain.ErrOutsideParcelBoundary, err)
 	landRepo.AssertNotCalled(t, "UpdateParcelMeta",
@@ -1348,7 +1348,7 @@ func TestLandService_UpdateParcelMeta_SkipsCheckWithoutGeomOrArea(t *testing.T) 
 	parcelID := uuid.New()
 	svc, landRepo := parcelMetaSvc(parcelID)
 
-	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, true, "010101000002", nil, nil))
+	require.NoError(t, svc.UpdateParcelMeta(ctx, parcelID, "Дугаар өөрчлөгдсөн", "010101000002", nil, nil))
 	landRepo.AssertNotCalled(t, "CheckContainment",
 		mock.Anything, mock.Anything, mock.Anything)
 }

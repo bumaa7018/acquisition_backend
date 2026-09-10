@@ -1258,7 +1258,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.compensation_paid,false),
 				       p.created_at, COALESCE(p.created_by,''),
 				       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
-				       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
+				       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
 				       -- Хараат бус үнэлгээний байгууллагын нэрийг profile-оос авна.
@@ -1347,7 +1347,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 			       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 			       p.created_at, COALESCE(p.created_by,''),
 			       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
-			       COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
+			       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 			       COALESCE(p.status,0), COALESCE(ps.name,''),
 			       p.independent_org_id
 		FROM parcel p
@@ -1389,7 +1389,7 @@ func (r *landAcqRepo) GetParcelByCode(ctx context.Context, parcelCode string) (*
 		       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       created_at, COALESCE(created_by,''),
 		       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0)),
-		       COALESCE(db_changed,false), COALESCE(changed_parcel_id,'')
+		       COALESCE(db_changed,''), COALESCE(changed_parcel_id,'')
 		FROM parcel
 		WHERE parcel_id = $1 AND deleted_at IS NULL
 	`, parcelCode).Scan(
@@ -1430,10 +1430,10 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.address_khashaa,''), COALESCE(p.address_streetname,''), COALESCE(p.property_no,''),
 				p.created_at, COALESCE(p.created_by,''),
 				COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
-				COALESCE(p.db_changed,false), COALESCE(p.changed_parcel_id,''),
+				COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
 				p.independent_org_id, p.selected_valuation_type,
-				p.estimated_value, p.estimated_value_at, COALESCE(p.estimated_value_by,''),
+				p.estimated_value, p.estimated_value_at, COALESCE(p.estimated_value_by,''), p.estimated_confidence_percent, p.estimated_base_fee_per_m2,
 			COALESCE(pd.right_type,0),
 			COALESCE(pd.app_no,''), pd.app_timestamps, COALESCE(pd.app_type,''), COALESCE(pd.app_status,''),
 			COALESCE(pd.decision_no,''), pd.decision_date,
@@ -1465,7 +1465,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pf.DbChanged, &pf.ChangedParcelID,
 		&pf.StatusID, &pf.StatusName,
 		&pf.IndependentOrgID, &pf.SelectedValuationType,
-		&pf.EstimatedValue, &pf.EstimatedValueAt, &pf.EstimatedValueBy,
+		&pf.EstimatedValue, &pf.EstimatedValueAt, &pf.EstimatedValueBy, &pf.EstimatedConfidencePercent, &pf.EstimatedBaseFeePerM2,
 		&d.RightType,
 		&d.AppNo, &d.AppTimestamps, &d.AppType, &d.AppStatus,
 		&d.DecisionNo, &d.DecisionDate,
@@ -2501,18 +2501,20 @@ func (r *landAcqRepo) HasNonFinalParcels(ctx context.Context, acquisitionID uuid
 // Нэгж талбар тухайн чөлөөлөлтөд харьяалагдахыг ЭНД шалгана (IDOR): дуудагч
 // зөвхөн өөрийн чөлөөлөлтийн нэгж талбарыг засах ёстой.
 func (r *landAcqRepo) SetParcelEstimatedValue(
-	ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string,
+	ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string,
 ) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE parcel SET
 			estimated_value    = $3,
+			estimated_confidence_percent = $5,
+			estimated_base_fee_per_m2 = $6,
 			-- Утга арилгасан бол хэн/хэзээ гэдгийг ч цэвэрлэнэ.
 			estimated_value_at = CASE WHEN $3::numeric IS NULL THEN NULL ELSE NOW() END,
 			estimated_value_by = CASE WHEN $3::numeric IS NULL THEN '' ELSE $4 END,
 			updated_at         = NOW(),
 			updated_by         = $4
 		WHERE id = $2 AND acquisition_id = $1 AND deleted_at IS NULL`,
-		acquisitionID, parcelID, value, userID)
+		acquisitionID, parcelID, value, userID, confidencePercent, baseFeePerM2)
 	if err != nil {
 		return err
 	}
@@ -2681,7 +2683,7 @@ func (r *landAcqRepo) DeleteParcelsOutsideBoundary(ctx context.Context, acquisit
 	return removed, rows.Err()
 }
 
-func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+func (r *landAcqRepo) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE parcel SET
 			db_changed = $2,
@@ -3108,7 +3110,7 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			COALESCE(p.acquisition_area_m2, 0),
 			COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2, 0), 0),
 			COALESCE(p.right_type, 0),
-			COALESCE(p.db_changed, false),
+			COALESCE(p.db_changed, ''),
 			COALESCE(p.changed_parcel_id, ''),
 			COALESCE(p.status, 0),
 			COALESCE(ps.name, ''),

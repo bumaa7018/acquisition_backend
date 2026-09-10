@@ -264,7 +264,7 @@ type LandAcquisitionWriteRepository interface {
 	// CountParcels — чөлөөлөлтөд бүртгэгдсэн нэгж талбарын тоо.
 	CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error)
 	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). nil → арилгана.
-	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
+	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string) error
 	// DetectParcelOverlaps — чөлөөлөлтийн нэгж талбаруудын БАЙРШЛЫН давхардлыг
 	// ДАХИН тооцож parcel_overlap-д бичнэ (хуучин мөрүүд устгагдана). Буцаах нь
 	// давхардалтай нэгж талбарын ТОО (хос биш).
@@ -275,7 +275,7 @@ type LandAcquisitionWriteRepository interface {
 	// устгана (зөвхөн "Шинэ" төлөвт автоматаар дуудагдана). Буцаах нь
 	// устгагдсан нэгж талбарын дугаарууд.
 	DeleteParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID) ([]string, error)
-	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
+	UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error
 	DeleteAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	DeleteParcelsAndAUs(ctx context.Context, acquisitionID uuid.UUID) error
 	// CheckAcquisitionDeletable — устгахыг зогсоох шалтгаануудыг (Чөлөөлсөн

@@ -220,7 +220,7 @@ func (m *MockLandService) AdvanceStatus(ctx context.Context, acquisitionID uuid.
 	return args.Get(0).(*domain.LandAcquisition), args.Error(1)
 }
 
-func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged bool, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
+func (m *MockLandService) UpdateParcelMeta(ctx context.Context, parcelID uuid.UUID, dbChanged string, changedParcelID string, acquisitionAreaM2 *float64, acquisitionGeomWKT *string) error {
 	args := m.Called(ctx, parcelID, dbChanged, changedParcelID, acquisitionAreaM2, acquisitionGeomWKT)
 	return args.Error(0)
 }
@@ -692,6 +692,11 @@ func (m *MockLandService) IsAcquisitionLocked(ctx context.Context, id uuid.UUID)
 func (m *MockLandService) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error {
 	args := m.Called(ctx, acquisitionID, parcelID, value, userID)
 	return args.Error(0)
+}
+
+func (m *MockLandService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent float64, baseFeePerM2 *float64, userID string) (float64, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, confidencePercent, baseFeePerM2, userID)
+	return args.Get(0).(float64), args.Error(1)
 }
 
 func (m *MockLandService) AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error) {

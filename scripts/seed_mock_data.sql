@@ -193,7 +193,7 @@ BEGIN
       area_tot, acq_area, rem_area,
       (i % 3) + 1,
       (i % 7 = 0),
-      (i % 5 = 0),
+      CASE WHEN i % 5 = 0 THEN 'Нэгж талбарын дугаар өөрчлөгдсөн' ELSE '' END,
       CASE WHEN i % 5 = 0
         THEN dcode
           || '-' || lpad(khoroo::TEXT, 2, '0')
