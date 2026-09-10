@@ -51,7 +51,9 @@ type LandAcquisitionService interface {
 	UpdateParcelValuation(ctx context.Context, parcelID uuid.UUID, zone string, basePricePerHa, auctionCoeff, auctionPrice *float64) error
 	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (nil → арилгана).
 	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
-	CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent float64, baseFeePerM2 *float64, userID string) (float64, error)
+	// CalculateParcelEstimatedValue — confidencePercent nil бол итгэлцүүргүй
+	// (өмчлөх эрхийн газар; эрхийн төрлөөр шийдэгдэнэ).
+	CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, userID string) (float64, error)
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error)
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
@@ -1340,6 +1342,14 @@ func (s *landService) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 	}
 	parcels, total, err := s.landRepo.GetParcels(ctx, acquisitionID, filter)
 	if err != nil {
+		// ЖИНХЭНЭ шалтгааныг ЗААВАЛ логлоно: ErrInternalServer нь хүсэлтийн
+		// лог дээр зөвхөн "internal server error" болж гардаг тул 500-ын
+		// шалтгааныг олохын тулд өгөгдлийн сан дээр гараар хайх шаардлагатай
+		// болдог байв (жишээ: NULL талбайг float64 руу scan хийж унах нь
+		// ЗӨВХӨН тухайн мөр орсон хуудсанд таардаг).
+		slog.Error("нэгж талбарын жагсаалт уншиж чадсангүй",
+			"error", err, "acquisition_id", acquisitionID,
+			"page", filter.Page, "page_size", filter.PageSize, "status_id", filter.StatusID)
 		return nil, 0, domain.ErrInternalServer
 	}
 	return parcels, total, nil

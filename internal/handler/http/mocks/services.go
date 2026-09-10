@@ -694,7 +694,7 @@ func (m *MockLandService) SetParcelEstimatedValue(ctx context.Context, acquisiti
 	return args.Error(0)
 }
 
-func (m *MockLandService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent float64, baseFeePerM2 *float64, userID string) (float64, error) {
+func (m *MockLandService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, userID string) (float64, error) {
 	args := m.Called(ctx, acquisitionID, parcelID, confidencePercent, baseFeePerM2, userID)
 	return args.Get(0).(float64), args.Error(1)
 }

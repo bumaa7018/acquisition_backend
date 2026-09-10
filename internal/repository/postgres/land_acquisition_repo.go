@@ -1257,7 +1257,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 				       COALESCE(p.compensation_paid,false),
 				       p.created_at, COALESCE(p.created_by,''),
-				       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
+				       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0), 0),
 				       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 				       COALESCE(p.status,0), COALESCE(ps.name,''),
 				       p.independent_org_id,
@@ -1346,7 +1346,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 			       COALESCE(p.acquisition_area_m2,0),
 			       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 			       p.created_at, COALESCE(p.created_by,''),
-			       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
+			       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0), 0),
 			       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 			       COALESCE(p.status,0), COALESCE(ps.name,''),
 			       p.independent_org_id
@@ -1388,7 +1388,7 @@ func (r *landAcqRepo) GetParcelByCode(ctx context.Context, parcelCode string) (*
 		       COALESCE(acquisition_area_m2,0),
 		       COALESCE(right_type,0), COALESCE(landuse,''), COALESCE(area_m2,0),
 		       created_at, COALESCE(created_by,''),
-		       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0)),
+		       COALESCE(remaining_area_m2, area_m2 - COALESCE(acquisition_area_m2,0), 0),
 		       COALESCE(db_changed,''), COALESCE(changed_parcel_id,'')
 		FROM parcel
 		WHERE parcel_id = $1 AND deleted_at IS NULL
@@ -1429,7 +1429,7 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.landuse_name,''), COALESCE(p.area_m2,0),
 				COALESCE(p.address_khashaa,''), COALESCE(p.address_streetname,''), COALESCE(p.property_no,''),
 				p.created_at, COALESCE(p.created_by,''),
-				COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0)),
+				COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0), 0),
 				COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
 				p.independent_org_id, p.selected_valuation_type,

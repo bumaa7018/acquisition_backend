@@ -935,7 +935,7 @@ func (h *LandHandler) UpdateParcelValuation(c *gin.Context) {
 // SetParcelEstimatedValue godoc
 //
 //	@Summary		Нэгж талбарын ТӨСӨӨЛЛИЙН үнэлгээ хадгалах
-//	@Description	confidence_percent өгвөл хадгалсан суурь төлбөр, өртсөн талбайгаар сервер тооцно. value=null бол үнэлгээг арилгана.
+//	@Description	value өгөөгүй бол хадгалсан суурь төлбөр, өртсөн талбайгаар сервер тооцно (confidence_percent — итгэлцүүр; ӨМЧЛӨХ эрхийн газарт хэрэглэгдэхгүй). value=null бол үнэлгээг арилгана.
 //	@Tags			land-acquisitions
 //	@Accept			json
 //	@Produce		json
@@ -968,12 +968,12 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 	}
 
 	userID := contextUserIDString(c)
-	if body.ConfidencePercent != nil {
-		if len(body.Value) > 0 {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
-			return
-		}
-		value, err := h.svc.CalculateParcelEstimatedValue(c.Request.Context(), acqID, parcelID, *body.ConfidencePercent, body.BaseFeePerM2, userID)
+	// `value` талбар ОГТ ирээгүй бол ТООЦООЛОХ салаа. Итгэлцүүр өгөөгүй байж
+	// болно: ӨМЧЛӨХ эрхийн газарт итгэлцүүр хэрэглэдэггүй (service нь эрхийн
+	// төрлөөр шийднэ). Арилгах/шууд бичих нь `{"value": ...}`-аар ирдэг тул
+	// хоёр салаа хоорондоо хутгалдахгүй.
+	if len(body.Value) == 0 {
+		value, err := h.svc.CalculateParcelEstimatedValue(c.Request.Context(), acqID, parcelID, body.ConfidencePercent, body.BaseFeePerM2, userID)
 		if err != nil {
 			response.Error(c, err)
 			return
@@ -982,7 +982,7 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 		return
 	}
 	var value *float64
-	if body.BaseFeePerM2 != nil || len(body.Value) == 0 || json.Unmarshal(body.Value, &value) != nil {
+	if body.ConfidencePercent != nil || body.BaseFeePerM2 != nil || json.Unmarshal(body.Value, &value) != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
 		return
 	}

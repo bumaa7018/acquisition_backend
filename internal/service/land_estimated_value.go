@@ -12,16 +12,25 @@ import (
 // CalculateParcelEstimatedValue uses saved fee rates and one percentage for all
 // zones. Affected area is distributed proportionally to the recorded fee areas;
 // this is an estimate, since fee-zone intersection geometries are not stored.
-func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent float64, baseFeePerM2 *float64, userID string) (float64, error) {
-	if !finitePositive(confidencePercent) {
-		return 0, domain.ErrInvalidInput
-	}
+//
+// ӨМЧЛӨХ эрхийн газарт (right_type=3) итгэлцүүр ХЭРЭГЛЭХГҮЙ: суурь үнэ нь
+// газрын зах зээлийн жишиг үнэ бөгөөс өртсөн талбайгаар шууд үржигдэнэ.
+// Дуудлага худалдааны анхны үнийн итгэлцүүр нь ЭЗЭМШИХ/АШИГЛАХ эрхийн газрын
+// суурь төлбөрийг зах зээлийн үнэ болгож хувиргах зорилготой — өмчлөлд тэр
+// хувиргалт утгагүй. Client итгэлцүүр илгээсэн ч ЭНД алгасана (эрхийн төрлөөр
+// шийднэ, client-ийн хүсэлтээр биш).
+func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent *float64, baseFeePerM2 *float64, userID string) (float64, error) {
 	p, err := s.landRepo.GetParcelDetailByID(ctx, parcelID)
 	if err != nil {
 		return 0, err
 	}
 	if p.AcquisitionID != acquisitionID {
 		return 0, domain.ErrNotFound
+	}
+	if p.RightType == domain.RightTypeOwnership {
+		confidencePercent = nil
+	} else if confidencePercent == nil || !finitePositive(*confidencePercent) {
+		return 0, domain.ErrInvalidInput
 	}
 	fees, err := s.landRepo.ListParcelFeeItems(ctx, parcelID)
 	if err != nil {
@@ -43,7 +52,7 @@ func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisi
 	if err != nil {
 		return 0, err
 	}
-	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, &value, &confidencePercent, baseFeePerM2, userID); err != nil {
+	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, &value, confidencePercent, baseFeePerM2, userID); err != nil {
 		return 0, err
 	}
 	s.auditLog(ctx, "estimated_value_set", domain.AuditResourceParcel, parcelID.String(),
@@ -57,8 +66,13 @@ func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisi
 
 func finitePositive(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
 
-func calculateEstimatedValue(fees []domain.ParcelFeeItem, affectedArea, confidencePercent float64) (float64, error) {
-	if !finitePositive(affectedArea) || !finitePositive(confidencePercent) || len(fees) == 0 {
+// confidencePercent == nil бол ИТГЭЛЦҮҮРГҮЙ (өмчлөх эрхийн газар): суурь үнэ
+// нь зах зээлийн жишиг үнэ тул хувиргалтгүйгээр талбайгаар үржигдэнэ.
+func calculateEstimatedValue(fees []domain.ParcelFeeItem, affectedArea float64, confidencePercent *float64) (float64, error) {
+	if !finitePositive(affectedArea) || len(fees) == 0 {
+		return 0, domain.ErrInvalidInput
+	}
+	if confidencePercent != nil && !finitePositive(*confidencePercent) {
 		return 0, domain.ErrInvalidInput
 	}
 	totalArea, weightedPrice := 0.0, 0.0
@@ -72,7 +86,11 @@ func calculateEstimatedValue(fees []domain.ParcelFeeItem, affectedArea, confiden
 		if !finitePositive(area) || !finitePositive(fee.BaseFeePerM2) {
 			return 0, domain.ErrInvalidInput
 		}
-		price := math.Round(fee.BaseFeePerM2 * 100 / confidencePercent)
+		perM2 := fee.BaseFeePerM2
+		if confidencePercent != nil {
+			perM2 = perM2 * 100 / *confidencePercent
+		}
+		price := math.Round(perM2)
 		totalArea += area
 		weightedPrice += price * area
 	}
