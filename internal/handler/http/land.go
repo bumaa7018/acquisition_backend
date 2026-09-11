@@ -272,6 +272,8 @@ func (h *LandHandler) Create(c *gin.Context) {
 	reason := c.PostForm("reason")
 	responsibleOrg := c.PostForm("responsible_org")
 	fundingSource := c.PostForm("funding_source")
+	nithDecreeNumber := strings.TrimSpace(c.PostForm("nith_decree_number"))
+	groupListNumber := strings.TrimSpace(c.PostForm("group_list_number"))
 
 	if planCode == "" || startStr == "" || projectName == "" {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
@@ -323,6 +325,8 @@ func (h *LandHandler) Create(c *gin.Context) {
 		FundingSource:     fundingSource,
 		GeneralCategoryID: generalCategoryID,
 		SubCategoryID:     subCategoryID,
+		NithDecreeNumber:  nithDecreeNumber,
+		GroupListNumber:   groupListNumber,
 	})
 	if err != nil {
 		switch err {
@@ -594,6 +598,8 @@ func (h *LandHandler) Update(c *gin.Context) {
 	req.Reason = c.PostForm("reason")
 	req.ResponsibleOrg = c.PostForm("responsible_org")
 	req.FundingSource = c.PostForm("funding_source")
+	req.NithDecreeNumber = strings.TrimSpace(c.PostForm("nith_decree_number"))
+	req.GroupListNumber = strings.TrimSpace(c.PostForm("group_list_number"))
 	req.ClearEndDate = c.PostForm("clear_end_date") == "true"
 	if s := c.PostForm("general_category_id"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {

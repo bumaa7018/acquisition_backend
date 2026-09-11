@@ -583,13 +583,18 @@ type LandAcquisition struct {
 	SubCategoryName     string
 	DecreeNumber        string
 	DecreeDate          *time.Time
-	CreatedAt           time.Time
-	CreatedBy           string
-	UpdatedAt           time.Time
-	UpdatedBy           string
-	AUs                 []LandAcquisitionAU
-	Parcels             []*Parcel
-	ParcelCount         int64
+	// НИТХ-ын тогтоолын дугаар ба тогтоолын хавсралтын бүлэг жагсаалтын
+	// дугаар — DecreeNumber (НЗД-ын ЗАХИРАМЖ) -аас ӨӨР баримт, зэрэгцэн
+	// хадгалагдана. "" = бүртгээгүй.
+	NithDecreeNumber string
+	GroupListNumber  string
+	CreatedAt        time.Time
+	CreatedBy        string
+	UpdatedAt        time.Time
+	UpdatedBy        string
+	AUs              []LandAcquisitionAU
+	Parcels          []*Parcel
+	ParcelCount      int64
 	// FinalParcelCount — ЭЦСИЙН төлөвт (Нөлөөлөгдсөн гарсан / Татгалзсан /
 	// Чөлөөлсөн) шилжсэн нэгж талбарын тоо. Чөлөөлөлтийн ЯВЦЫГ үүгээр
 	// хэмжинэ: чөлөөлөлт "Баталгаажсан" болохын нөхцөл нь БҮХ талбар эцсийн

@@ -18,6 +18,10 @@ type CreateLandAcquisitionRequest struct {
 	FundingSource     string
 	GeneralCategoryID *int
 	SubCategoryID     *int
+	// НИТХ тогтоолын дугаар ба тогтоолын хавсралтын бүлэг жагсаалтын дугаар —
+	// хоосон бол бүртгээгүй (дараа нь засварлах үед нэмж болно).
+	NithDecreeNumber string
+	GroupListNumber  string
 }
 
 type UpdateLandAcquisitionRequest struct {
@@ -45,4 +49,9 @@ type UpdateLandAcquisitionRequest struct {
 	FundingSource     string
 	GeneralCategoryID *int
 	SubCategoryID     *int
+	// НИТХ тогтоолын дугаар ба бүлэг жагсаалтын дугаар. Бусад текст талбартай
+	// (AcquisitionName, Reason гэх мэт) ижил байдлаар ОРЛУУЛНА — хоосон
+	// илгээвэл утга нь хоосорно.
+	NithDecreeNumber string
+	GroupListNumber  string
 }

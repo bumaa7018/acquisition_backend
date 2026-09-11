@@ -430,6 +430,8 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		FundingSource:     req.FundingSource,
 		GeneralCategoryID: req.GeneralCategoryID,
 		SubCategoryID:     req.SubCategoryID,
+		NithDecreeNumber:  req.NithDecreeNumber,
+		GroupListNumber:   req.GroupListNumber,
 		CreatedAt:         now,
 		CreatedBy:         req.CreatedBy,
 		UpdatedAt:         now,
@@ -585,6 +587,8 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 	acq.FundingSource = req.FundingSource
 	acq.GeneralCategoryID = req.GeneralCategoryID
 	acq.SubCategoryID = req.SubCategoryID
+	acq.NithDecreeNumber = req.NithDecreeNumber
+	acq.GroupListNumber = req.GroupListNumber
 	acq.UpdatedBy = req.UpdatedBy
 	// Хил хөндөөгүй үед гараас оруулсан талбайн утгыг хэрэглэнэ
 	if !geometryChanged && req.AreaM2 != nil {

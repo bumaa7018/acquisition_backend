@@ -27,9 +27,13 @@ type landAcquisitionResponse struct {
 	SubCategoryName     string  `json:"sub_category_name"`
 	DecreeNumber        string  `json:"decree_number"`
 	DecreeDate          *string `json:"decree_date"`
-	CreatedAt           string  `json:"created_at"`
-	CreatedBy           string  `json:"created_by"`
-	ParcelCount         int64   `json:"parcel_count"`
+	// НИТХ тогтоолын дугаар ба тогтоолын хавсралтын бүлэг жагсаалтын дугаар
+	// (НЗД-ын захирамжаас ӨӨР баримт). "" = бүртгээгүй.
+	NithDecreeNumber string `json:"nith_decree_number"`
+	GroupListNumber  string `json:"group_list_number"`
+	CreatedAt        string `json:"created_at"`
+	CreatedBy        string `json:"created_by"`
+	ParcelCount      int64  `json:"parcel_count"`
 	// Явц — эцсийн төлөвт шилжсэн нэгж талбарын ЭЗЛЭХ ХУВЬ (0-100) ба тоо.
 	// Жагсаалт/дашбоард хоёулаа ижил тоо харуулахын тулд backend бодно.
 	FinalParcelCount int64 `json:"final_parcel_count"`
@@ -789,6 +793,8 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		SubCategoryID:          acq.SubCategoryID,
 		SubCategoryName:        acq.SubCategoryName,
 		DecreeNumber:           acq.DecreeNumber,
+		NithDecreeNumber:       acq.NithDecreeNumber,
+		GroupListNumber:        acq.GroupListNumber,
 		CreatedAt:              acq.CreatedAt.Format(time.RFC3339),
 		CreatedBy:              acq.CreatedBy,
 		ParcelCount:            acq.ParcelCount,

@@ -121,7 +121,8 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 			status, start_date, end_date,
 			created_at, created_by, updated_at, updated_by,
 			acquisition_name, implementing_org, reason, responsible_org, funding_source,
-			general_category_id, sub_category_id
+			general_category_id, sub_category_id,
+			nith_decree_number, group_list_number
 			) VALUES (
 				$1, $2, $3, $4,
 				ST_GeomFromText(NULLIF($5, ''), 4326)::geometry(Polygon, 4326), $6,
@@ -129,7 +130,8 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 				$9, $10, $11,
 				$12, $13, $14, $15,
 				$16, $17, $18, $19, $20,
-				$21, $22
+				$21, $22,
+				$23, $24
 			)
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode, acq.PlanName,
@@ -139,6 +141,7 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.CreatedAt, acq.CreatedBy, acq.UpdatedAt, acq.UpdatedBy,
 		acq.AcquisitionName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 		acq.GeneralCategoryID, acq.SubCategoryID,
+		acq.NithDecreeNumber, acq.GroupListNumber,
 	)
 	return err
 }
@@ -281,6 +284,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       la.general_category_id, COALESCE(gc.name,''),
 			       la.sub_category_id, COALESCE(sc.name,''),
 			       COALESCE(la.decree_number,''),
+			       COALESCE(la.nith_decree_number,''), COALESCE(la.group_list_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       -- ЯВЦ: эцсийн төлөвт (3=Нөлөөлөгдсөн гарсан, 4=Татгалзсан,
 			       -- 5=Чөлөөлсөн) шилжсэн талбар. HasNonFinalParcels-тай ижил шалгуур.
@@ -321,6 +325,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 			&acq.SubCategoryID, &acq.SubCategoryName,
 			&acq.DecreeNumber,
+			&acq.NithDecreeNumber, &acq.GroupListNumber,
 			&acq.ParcelCount, &acq.FinalParcelCount,
 			&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 			&acq.OverlappingParcelCount,
@@ -350,6 +355,7 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       la.general_category_id, COALESCE(gc.name,''),
 			       la.sub_category_id, COALESCE(sc.name,''),
 			       COALESCE(la.decree_number,''), la.decree_date,
+			       COALESCE(la.nith_decree_number,''), COALESCE(la.group_list_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
 			       la.professional_org_id,
 			       COALESCE(po."name", ''),
@@ -379,6 +385,7 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		&acq.GeneralCategoryID, &acq.GeneralCategoryName,
 		&acq.SubCategoryID, &acq.SubCategoryName,
 		&acq.DecreeNumber, &acq.DecreeDate,
+		&acq.NithDecreeNumber, &acq.GroupListNumber,
 		&acq.ParcelCount,
 		&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 		&acq.PlanParcelID, &acq.PlanTypeName, &acq.PlanGazner,
@@ -2251,8 +2258,10 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 				funding_source       = $14,
 				general_category_id  = $15,
 				sub_category_id      = $16,
+				nith_decree_number   = $17,
+				group_list_number    = $18,
 				updated_at           = NOW(),
-				updated_by           = $17
+				updated_by           = $19
 		WHERE id = $1
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode,
@@ -2261,6 +2270,7 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.StartDate, acq.EndDate,
 		acq.AcquisitionName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 		acq.GeneralCategoryID, acq.SubCategoryID,
+		acq.NithDecreeNumber, acq.GroupListNumber,
 		acq.UpdatedBy,
 	)
 	return err
