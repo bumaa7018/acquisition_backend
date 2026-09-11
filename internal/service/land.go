@@ -52,8 +52,10 @@ type LandAcquisitionService interface {
 	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (nil → арилгана).
 	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value *float64, userID string) error
 	// CalculateParcelEstimatedValue — confidencePercent nil бол итгэлцүүргүй
-	// (өмчлөх эрхийн газар; эрхийн төрлөөр шийдэгдэнэ).
-	CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, userID string) (float64, error)
+	// (өмчлөх эрхийн газар; эрхийн төрлөөр шийдэгдэнэ). attachment ЗААВАЛ БИШ.
+	CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, attachment *EstimatedValueAttachment, userID string) (float64, error)
+	// ListParcelEstimatedValueHistory — төсөөллийн үнэлгээний өөрчлөлтийн түүх.
+	ListParcelEstimatedValueHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID) ([]*domain.ParcelEstimatedValueHistory, error)
 	SyncParcel(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) error
 	DiscoverParcels(ctx context.Context, acquisitionID uuid.UUID) (*domain.ParcelDiscoveryResult, error)
 	GetProgress(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.AcquisitionProgress, error)
@@ -195,7 +197,9 @@ type LandWorkflowService interface {
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
-	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
+	// UpdateParcelStatus — төлөв солих. attachment нь "Татгалзсан" үед ЗААВАЛ
+	// (эрхийн төрлөөр биш ТӨЛӨВӨӨР шийдэгдэнэ), бусад төлөвт заавал биш.
+	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
 	// TransitionValuationSubmission — submit | approve | return.
@@ -1436,7 +1440,15 @@ func (s *landService) SetParcelEstimatedValue(
 	if value != nil && (*value < 0 || math.IsNaN(*value) || math.IsInf(*value, 0)) {
 		return domain.ErrInvalidInput
 	}
-	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, value, nil, nil, userID); err != nil {
+	// Арилгалт/шууд бичилт нь ч ӨӨРЧЛӨЛТ — түүхэнд бичигдэнэ (value=nil бол
+	// "арилгасан" гэж уншигдана). Хавсралт байхгүй: файл нь тооцооллын
+	// гэрчилгээ тул тооцоолох урсгалд л хамаарна.
+	if err := s.landRepo.SetParcelEstimatedValue(ctx, domain.ParcelEstimatedValueChange{
+		AcquisitionID: acquisitionID,
+		ParcelID:      parcelID,
+		Value:         value,
+		UserID:        userID,
+	}); err != nil {
 		return err
 	}
 	s.auditLog(ctx, "estimated_value_set", domain.AuditResourceParcel, parcelID.String(),

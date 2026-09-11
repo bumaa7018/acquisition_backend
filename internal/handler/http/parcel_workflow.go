@@ -136,7 +136,63 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		// үед ЗААВАЛ (доор шалгана), бусад төлөвт хоосон байж болно.
 		Reason string `json:"reason"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// ХОЁР хэлбэрийг дэмжинэ:
+	//   application/json    — өмнөх шигээ (хавсралтгүй)
+	//   multipart/form-data — status_id/reason + `file`
+	//
+	// "Татгалзсан" төлөвт хавсралт ЗААВАЛ (шаардлагыг service шалгана) тул
+	// тэр шилжилт ҮРГЭЛЖ multipart-аар ирнэ.
+	var attachment *service.ParcelStatusAttachment
+	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+		if err := c.Request.ParseMultipartForm(maxDocumentUploadSize); err != nil {
+			if isBodyTooLarge(err) {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Хүсэлтийг уншиж чадсангүй"})
+			return
+		}
+		if raw := strings.TrimSpace(c.PostForm("status_id")); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "status_id required"})
+				return
+			}
+			req.StatusID = &n
+		}
+		req.Reason = c.PostForm("reason")
+
+		if fh, err := c.FormFile("file"); err == nil {
+			if fh.Size > maxDocumentUploadSize {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			data, err := readMultipartFile(fh, maxDocumentUploadSize)
+			if err == errUploadTooLarge {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			if err != nil {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+				return
+			}
+			// Хавсралт нь нэгж талбарын БАРИМТ болж бүртгэгдэх тул баримтын
+			// ерөнхий дүрэмтэй ижил: PDF (агуулгаар шалгана).
+			contentType, ok := allowedPDFContentType(data)
+			if !ok {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+				return
+			}
+			attachment = &service.ParcelStatusAttachment{
+				Filename: fh.Filename,
+				// file_name — хэрэглэгчийн засварласан ХАРАГДАХ нэр (заавал биш).
+				DisplayName: strings.TrimSpace(c.PostForm("file_name")),
+				ContentType: contentType,
+				Data:        data,
+			}
+		}
+	} else if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -155,7 +211,14 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 	if id := contextUserIDString(c); id != "" {
 		createdBy = id
 	}
-	if err := h.svc.UpdateParcelStatus(c.Request.Context(), parcelID, acqID, *req.StatusID, createdBy, reason); err != nil {
+	err = h.svc.UpdateParcelStatus(c.Request.Context(), domain.ParcelStatusChange{
+		ParcelID:      parcelID,
+		AcquisitionID: acqID,
+		StatusID:      *req.StatusID,
+		CreatedBy:     createdBy,
+		Reason:        reason,
+	}, attachment)
+	if err != nil {
 		response.Error(c, err)
 		return
 	}

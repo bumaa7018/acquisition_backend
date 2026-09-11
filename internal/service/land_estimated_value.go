@@ -19,7 +19,12 @@ import (
 // суурь төлбөрийг зах зээлийн үнэ болгож хувиргах зорилготой — өмчлөлд тэр
 // хувиргалт утгагүй. Client итгэлцүүр илгээсэн ч ЭНД алгасана (эрхийн төрлөөр
 // шийднэ, client-ийн хүсэлтээр биш).
-func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent *float64, baseFeePerM2 *float64, userID string) (float64, error) {
+//
+// ХАВСРАЛТ (attachment) нь ЗААВАЛ БИШ: тооцооллыг гэрчлэх баримт (зах зээлийн
+// жишиг үнийн лавлагаа, судалгаа) хавсаргаж болно. Файл ЭХЛЭЭД хадгалалт
+// (MinIO) руу бичигдэж, дараа нь үнэлгээ хадгалагдана; хадгалалт унавал
+// орфон файл үлдэхгүйн тулд цэвэрлэгдэнэ (valuation-return-тай ижил зарчим).
+func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent *float64, baseFeePerM2 *float64, attachment *EstimatedValueAttachment, userID string) (float64, error) {
 	p, err := s.landRepo.GetParcelDetailByID(ctx, parcelID)
 	if err != nil {
 		return 0, err
@@ -52,16 +57,66 @@ func (s *landService) CalculateParcelEstimatedValue(ctx context.Context, acquisi
 	if err != nil {
 		return 0, err
 	}
-	if err := s.landRepo.SetParcelEstimatedValue(ctx, acquisitionID, parcelID, &value, confidencePercent, baseFeePerM2, userID); err != nil {
+
+	change := domain.ParcelEstimatedValueChange{
+		AcquisitionID:     acquisitionID,
+		ParcelID:          parcelID,
+		Value:             &value,
+		ConfidencePercent: confidencePercent,
+		BaseFeePerM2:      baseFeePerM2,
+		AreaM2:            p.AcquisitionAreaM2,
+		UserID:            userID,
+	}
+	if attachment != nil {
+		if s.files == nil {
+			return 0, domain.ErrInternalServer
+		}
+		stored, err := s.files.Save(ctx, "estimated-value", parcelID.String(),
+			attachment.Filename, attachment.ContentType, attachment.Data, true)
+		if err != nil {
+			return 0, err
+		}
+		change.AttachmentURL, change.AttachmentName = stored.URL, stored.Name
+		defer func() {
+			// Хадгалалт унасан бол тавьсан файлыг цэвэрлэнэ.
+			if !attachment.committed {
+				_ = s.files.Delete(ctx, stored.URL)
+			}
+		}()
+	}
+	if err := s.landRepo.SetParcelEstimatedValue(ctx, change); err != nil {
 		return 0, err
+	}
+	if attachment != nil {
+		attachment.committed = true
 	}
 	s.auditLog(ctx, "estimated_value_set", domain.AuditResourceParcel, parcelID.String(),
 		uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
 			"estimated_value": value, "confidence_percent": confidencePercent,
+			"attachment_name":        change.AttachmentName,
 			"manual_base_fee_per_m2": baseFeePerM2,
 			"area_m2":                p.AcquisitionAreaM2, "user_id": userID,
 		})
 	return value, nil
+}
+
+// EstimatedValueAttachment — төсөөллийн үнэлгээг гэрчлэх хавсралт (ЗААВАЛ БИШ).
+//
+// `committed` нь дотоод тэмдэглэгээ: үнэлгээ амжилттай хадгалагдсаны дараа л
+// true болно. Үүнгүй бол хадгалалт унасан үед MinIO-д орфон файл үлдэнэ.
+type EstimatedValueAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
+
+	committed bool
+}
+
+// ListParcelEstimatedValueHistory — төсөөллийн үнэлгээний өөрчлөлтийн түүх.
+func (s *landService) ListParcelEstimatedValueHistory(
+	ctx context.Context, acquisitionID, parcelID uuid.UUID,
+) ([]*domain.ParcelEstimatedValueHistory, error) {
+	return s.landRepo.ListParcelEstimatedValueHistory(ctx, acquisitionID, parcelID)
 }
 
 func finitePositive(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }

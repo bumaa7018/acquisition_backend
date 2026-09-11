@@ -1,6 +1,8 @@
 package http_test
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"acquisition_backend/internal/domain"
 	handler "acquisition_backend/internal/handler/http"
 	"acquisition_backend/internal/handler/http/mocks"
+	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -47,7 +50,7 @@ func TestEstimatedValueRequest(t *testing.T) {
 			acqID, parcelID := uuid.New(), uuid.New()
 			switch {
 			case tt.calculate:
-				svc.On("CalculateParcelEstimatedValue", mock.Anything, acqID, parcelID, tt.wantPercent, tt.wantBaseFee, mock.Anything).
+				svc.On("CalculateParcelEstimatedValue", mock.Anything, acqID, parcelID, tt.wantPercent, tt.wantBaseFee, (*service.EstimatedValueAttachment)(nil), mock.Anything).
 					Return(125000.0, tt.svcErr)
 			case tt.name == "clear":
 				svc.On("SetParcelEstimatedValue", mock.Anything, acqID, parcelID, (*float64)(nil), mock.Anything).Return(nil)
@@ -70,4 +73,74 @@ func TestEstimatedValueRequest(t *testing.T) {
 			svc.AssertExpectations(t)
 		})
 	}
+}
+
+// ХАВСРАЛТТАЙ хүсэлт: multipart-аар итгэлцүүр + файл ирэхэд файл нь service
+// хүртэл дамжина. PDF биш агуулга (жишээ: текст) ХАЯГДАНА — өргөтгөлөөр биш
+// АГУУЛГААР шалгагддаг тул ".pdf" гэж нэрлээд гүйцэтгэх файл тавих боломжгүй.
+func TestEstimatedValueMultipartAttachment(t *testing.T) {
+	pdf := append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte("a"), 600)...)
+	for _, tt := range []struct {
+		name     string
+		data     []byte
+		filename string
+		status   int
+		attached bool
+	}{
+		{name: "pdf attachment reaches the service", data: pdf, filename: "lavlagaa.pdf", status: http.StatusOK, attached: true},
+		{name: "non-pdf content is rejected", data: []byte("plain text, not a pdf"), filename: "lavlagaa.pdf", status: http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			w := multipart.NewWriter(&buf)
+			_ = w.WriteField("confidence_percent", "2")
+			fw, err := w.CreateFormFile("file", tt.filename)
+			require.NoError(t, err)
+			_, err = fw.Write(tt.data)
+			require.NoError(t, err)
+			require.NoError(t, w.Close())
+
+			svc := &mocks.MockLandService{}
+			acqID, parcelID := uuid.New(), uuid.New()
+			if tt.attached {
+				percent := 2.0
+				svc.On("CalculateParcelEstimatedValue", mock.Anything, acqID, parcelID, &percent, (*float64)(nil),
+					mock.MatchedBy(func(a *service.EstimatedValueAttachment) bool {
+						return a != nil && a.Filename == tt.filename && a.ContentType == "application/pdf" && len(a.Data) == len(tt.data)
+					}), mock.Anything).Return(125000.0, nil)
+			}
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Params = gin.Params{{Key: "id", Value: acqID.String()}, {Key: "parcel_id", Value: parcelID.String()}}
+			c.Request = httptest.NewRequest(http.MethodPatch, "/estimated-value", &buf)
+			c.Request.Header.Set("Content-Type", w.FormDataContentType())
+			handler.NewLandHandler(svc).SetParcelEstimatedValue(c)
+			require.Equal(t, tt.status, rec.Code, rec.Body.String())
+			svc.AssertExpectations(t)
+		})
+	}
+}
+
+// Түүх — УНШИХ гарц. Нэгж талбар/чөлөөлөлтийн UUID буруу бол 400.
+func TestListEstimatedValueHistory(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	svc := &mocks.MockLandService{}
+	value := 300000.0
+	svc.On("ListParcelEstimatedValueHistory", mock.Anything, acqID, parcelID).
+		Return([]*domain.ParcelEstimatedValueHistory{{Value: &value, AttachmentName: "lavlagaa.pdf"}}, nil)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "id", Value: acqID.String()}, {Key: "parcel_id", Value: parcelID.String()}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/estimated-value/history", nil)
+	handler.NewLandHandler(svc).ListParcelEstimatedValueHistory(c)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "lavlagaa.pdf")
+	svc.AssertExpectations(t)
+
+	bad := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(bad)
+	c2.Params = gin.Params{{Key: "id", Value: "bad"}, {Key: "parcel_id", Value: parcelID.String()}}
+	c2.Request = httptest.NewRequest(http.MethodGet, "/estimated-value/history", nil)
+	handler.NewLandHandler(&mocks.MockLandService{}).ListParcelEstimatedValueHistory(c2)
+	require.Equal(t, http.StatusBadRequest, bad.Code)
 }

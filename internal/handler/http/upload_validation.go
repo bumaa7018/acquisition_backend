@@ -56,6 +56,22 @@ func allowedPDFContentType(data []byte) (string, bool) {
 	return contentType, contentType == "application/pdf"
 }
 
+// allowedEstimatedValueContentType — ТӨСӨӨЛЛИЙН үнэлгээний хавсралт.
+//
+// PDF-ээс гадна ЗУРАГ (JPEG/PNG) зөвшөөрнө: жишиг үнийн лавлагаа, зах зээлийн
+// судалгааг ихэвчлэн сканнердсан/зурагдсан хэлбэрээр хавсаргадаг ба тэр
+// файлыг PDF болгохыг шаардах нь ажлыг л хүндрүүлнэ. Гүйцэтгэх файл
+// (exe/zip г.м.) хэзээ ч зөвшөөрөгдөхгүй — DetectContentType-ийн шалгалт нь
+// өргөтгөл биш АГУУЛГААР шийднэ.
+func allowedEstimatedValueContentType(data []byte) (string, bool) {
+	contentType := detectContentType(data)
+	switch contentType {
+	case "application/pdf", "image/jpeg", "image/png":
+		return contentType, true
+	}
+	return contentType, false
+}
+
 const (
 	docxContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	// docxAllowedDocumentType — Гэрээг хэвлэхэд Хурлын тэмдэглэлийг Word

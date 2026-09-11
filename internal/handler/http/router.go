@@ -420,6 +420,9 @@ func NewRouter(
 			// Мэргэжлийн байгууллагад зөвхөн ХАРАГДАНА (уншилтын маршрутаар),
 			// бичих эрх энд нээгдээгүй.
 			land.PATCH("/:id/parcels/:parcel_id/estimated-value", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.SetParcelEstimatedValue)
+			// Түүх нь УНШИХ эрхээр (land:read) — санхүү/захирамжийн ажилтан ч
+			// үнэлгээ хэрхэн бүрдсэнийг хянах шаардлагатай, засах эрх шаардахгүй.
+			land.GET("/:id/parcels/:parcel_id/estimated-value/history", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListParcelEstimatedValueHistory)
 			land.PATCH("/:id/parcels/:parcel_id/meta", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateParcelMeta)
 			// Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв (санхүү зөвшөөрөх/буцаах).
 			// POST-ийн ролийн шалгалт handler дотор (approve/return=санхүү, submit=мэрг.байгуулга/ахлах).
@@ -492,7 +495,8 @@ func NewRouter(
 					profLandItem.PATCH("/parcels/:parcel_id/independent-org", profParcelMemberByParam, landH.SetParcelIndependentOrg)
 					// Нэгж талбарын статус
 					profLandItem.GET("/parcels/:parcel_id/available-statuses", profParcelMemberByParam, parcelWorkflowH.GetAvailableStatuses)
-					profLandItem.PATCH("/parcels/:parcel_id/status", profParcelMemberByParam, parcelWorkflowH.UpdateParcelStatus)
+					// "Шинэ" төлөвт явц солихгүй (үндсэн маршруттай ижил хаалт).
+					profLandItem.PATCH("/parcels/:parcel_id/status", profParcelMemberByParam, fieldStage, parcelWorkflowH.UpdateParcelStatus)
 					profLandItem.GET("/parcels/:parcel_id/status-history", profParcelMemberByParam, parcelWorkflowH.ListParcelStatusHistory)
 					// Нөхөх олговрын үнэлгээний илгээх төлөв (мэрг. байгууллага илгээнэ)
 					profLandItem.GET("/parcels/:parcel_id/valuation-status", profParcelMemberByParam, parcelWorkflowH.GetValuationSubmission)
@@ -767,8 +771,13 @@ func NewRouter(
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/available-statuses",
 			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.GetAvailableStatuses)
+		// fieldStage: чөлөөлөлт "Шинэ" төлөвт байхад нэгж талбарын ЯВЦ СОЛИХГҮЙ.
+		// Тэр шат нь нэгж талбарын БҮРДЭЛ (татах, хилээс гарсныг хасах,
+		// давхардал арилгах) хийгддэг — бүрдэл өөрчлөгдөхөд бичигдсэн явц нь
+		// нэгж талбартайгаа хамт устах эрсдэлтэй. Үнэлгээ/олговортой ижил
+		// хаалт (estimated-value маршрутыг үз).
 		protected.PATCH("/land-acquisitions/:id/parcels/:parcel_id/status",
-			middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, parcelWorkflowH.UpdateParcelStatus)
+			middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, fieldStage, parcelWorkflowH.UpdateParcelStatus)
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/status-history",
 			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.ListParcelStatusHistory)
 	}

@@ -694,9 +694,17 @@ func (m *MockLandService) SetParcelEstimatedValue(ctx context.Context, acquisiti
 	return args.Error(0)
 }
 
-func (m *MockLandService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, userID string) (float64, error) {
-	args := m.Called(ctx, acquisitionID, parcelID, confidencePercent, baseFeePerM2, userID)
+func (m *MockLandService) CalculateParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, confidencePercent, baseFeePerM2 *float64, attachment *service.EstimatedValueAttachment, userID string) (float64, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, confidencePercent, baseFeePerM2, attachment, userID)
 	return args.Get(0).(float64), args.Error(1)
+}
+
+func (m *MockLandService) ListParcelEstimatedValueHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID) ([]*domain.ParcelEstimatedValueHistory, error) {
+	args := m.Called(ctx, acquisitionID, parcelID)
+	if v := args.Get(0); v != nil {
+		return v.([]*domain.ParcelEstimatedValueHistory), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *MockLandService) AcquisitionStatus(ctx context.Context, id uuid.UUID) (int, error) {
@@ -731,8 +739,8 @@ func (m *MockLandService) GetAvailableParcelStatuses(ctx context.Context, curren
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
 }
 
-func (m *MockLandService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
-	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
+func (m *MockLandService) UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange, attachment *service.ParcelStatusAttachment) error {
+	return m.Called(ctx, ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason, attachment).Error(0)
 }
 
 func (m *MockLandService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {

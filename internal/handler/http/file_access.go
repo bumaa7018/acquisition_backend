@@ -92,7 +92,10 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// `valuation-return/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
 	// дүрмээр шалгагдана: буцаалтыг санхүү хийдэг ч хавсралтыг үнэлгээ
 	// бичсэн байгууллага УНШИХ шаардлагатай.
-	case "parcel", "notice", "emongolia", "valuation-return":
+	// estimated-value — ТӨСӨӨЛЛИЙН үнэлгээг гэрчлэх хавсралт. Түлхүүр нь
+	// `estimated-value/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
+	// дүрмээр шалгагдана.
+	case "parcel", "notice", "emongolia", "valuation-return", "estimated-value":
 		err = h.authorizeParcel(c, ownerID)
 	case "compensation-report":
 		err = h.authorizeCompensation(c, ownerID)

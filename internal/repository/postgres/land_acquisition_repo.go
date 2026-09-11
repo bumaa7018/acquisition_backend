@@ -2496,14 +2496,22 @@ func (r *landAcqRepo) HasNonFinalParcels(ctx context.Context, acquisitionID uuid
 	return exists, err
 }
 
-// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээг хадгална (value=nil → арилгана).
+// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээг хадгална (Value=nil → арилгана).
 //
 // Нэгж талбар тухайн чөлөөлөлтөд харьяалагдахыг ЭНД шалгана (IDOR): дуудагч
 // зөвхөн өөрийн чөлөөлөлтийн нэгж талбарыг засах ёстой.
-func (r *landAcqRepo) SetParcelEstimatedValue(
-	ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string,
-) error {
-	tag, err := r.db.Exec(ctx, `
+//
+// ӨӨРЧЛӨЛТ БҮР `parcel_estimated_value_history`-д мөн бичигдэнэ. Хоёр бичилт
+// НЭГ tranзакцад явна: түүх бичигдээгүй байхад parcel шинэчлэгдвэл (эсвэл
+// эсрэгээр) бүртгэл зөрж, дараа нь хянах боломжгүй болно.
+func (r *landAcqRepo) SetParcelEstimatedValue(ctx context.Context, ch domain.ParcelEstimatedValueChange) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE parcel SET
 			estimated_value    = $3,
 			estimated_confidence_percent = $5,
@@ -2514,14 +2522,55 @@ func (r *landAcqRepo) SetParcelEstimatedValue(
 			updated_at         = NOW(),
 			updated_by         = $4
 		WHERE id = $2 AND acquisition_id = $1 AND deleted_at IS NULL`,
-		acquisitionID, parcelID, value, userID, confidencePercent, baseFeePerM2)
+		ch.AcquisitionID, ch.ParcelID, ch.Value, ch.UserID, ch.ConfidencePercent, ch.BaseFeePerM2)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO parcel_estimated_value_history (
+			parcel_id, acquisition_id, value, confidence_percent, base_fee_per_m2,
+			area_m2, attachment_url, attachment_name, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		ch.ParcelID, ch.AcquisitionID, ch.Value, ch.ConfidencePercent, ch.BaseFeePerM2,
+		ch.AreaM2, ch.AttachmentURL, ch.AttachmentName, ch.UserID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// ListParcelEstimatedValueHistory — өөрчлөлтийн түүх (шинэ → хуучин).
+func (r *landAcqRepo) ListParcelEstimatedValueHistory(
+	ctx context.Context, acquisitionID, parcelID uuid.UUID,
+) ([]*domain.ParcelEstimatedValueHistory, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, acquisition_id, parcel_id, value, confidence_percent, base_fee_per_m2,
+		       COALESCE(area_m2,0), COALESCE(attachment_url,''), COALESCE(attachment_name,''),
+		       COALESCE(created_by,''), created_at
+		FROM parcel_estimated_value_history
+		WHERE parcel_id = $1 AND acquisition_id = $2
+		ORDER BY created_at DESC, id DESC`,
+		parcelID, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	list := make([]*domain.ParcelEstimatedValueHistory, 0)
+	for rows.Next() {
+		h := &domain.ParcelEstimatedValueHistory{}
+		if err := rows.Scan(
+			&h.ID, &h.AcquisitionID, &h.ParcelID, &h.Value, &h.ConfidencePercent, &h.BaseFeePerM2,
+			&h.AreaM2, &h.AttachmentURL, &h.AttachmentName, &h.CreatedBy, &h.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		list = append(list, h)
+	}
+	return list, rows.Err()
 }
 
 func (r *landAcqRepo) CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
@@ -5044,7 +5093,8 @@ func (r *landAcqRepo) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return list, rows.Err()
 }
 
-func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error {
+	parcelID, acquisitionID, statusID := ch.ParcelID, ch.AcquisitionID, ch.StatusID
 	// "Чөлөөлсөн" болгохын өмнө үнэлгээний тайлан байгаа эсэхийг шалгана
 	var statusName string
 	_ = r.db.QueryRow(ctx, `SELECT COALESCE(name,'') FROM parcel_status WHERE id=$1`, statusID).Scan(&statusName)
@@ -5091,16 +5141,29 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID
 	if ct.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return r.InsertParcelStatusHistory(ctx, parcelID, acquisitionID, statusID, createdBy, reason)
+	return r.insertStatusHistory(ctx, ch)
 }
 
+// InsertParcelStatusHistory — ХАВСРАЛТГҮЙ бүртгэл (ГУС-аас татах, системийн
+// шилжилт г.м.). Хавсралттай шилжилт нь UpdateParcelStatus-аар явна.
 func (r *landAcqRepo) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
+	return r.insertStatusHistory(ctx, domain.ParcelStatusChange{
+		ParcelID: parcelID, AcquisitionID: acquisitionID, StatusID: statusID,
+		CreatedBy: createdBy, Reason: reason,
+	})
+}
+
+func (r *landAcqRepo) insertStatusHistory(ctx context.Context, ch domain.ParcelStatusChange) error {
 	_, err := r.db.Exec(ctx,
-		`INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, created_by, reason)
-		SELECT parcel_id, acquisition_id, $3, $4, NULLIF($5, '')
+		`INSERT INTO parcel_status_history (
+			parcel_id, acquisition_id, status_id, created_by, reason,
+			attachment_url, attachment_name
+		)
+		SELECT parcel_id, acquisition_id, $3, $4, NULLIF($5, ''), $6, $7
 		FROM parcel
 		WHERE id = $1 AND acquisition_id = $2`,
-		parcelID, acquisitionID, statusID, createdBy, reason,
+		ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason,
+		ch.AttachmentURL, ch.AttachmentName,
 	)
 	return err
 }
@@ -5108,7 +5171,7 @@ func (r *landAcqRepo) InsertParcelStatusHistory(ctx context.Context, parcelID uu
 func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT h.id, h.parcel_id, h.acquisition_id, h.status_id, ps.name, h.status_date, h.created_by,
-		       COALESCE(h.reason, '')
+		       COALESCE(h.reason, ''), COALESCE(h.attachment_url, ''), COALESCE(h.attachment_name, '')
 		FROM parcel_status_history h
 		JOIN parcel_status ps ON ps.id = h.status_id
 		JOIN parcel p ON p.parcel_id = h.parcel_id
@@ -5122,7 +5185,8 @@ func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid
 	var result []*domain.ParcelStatusHistory
 	for rows.Next() {
 		h := &domain.ParcelStatusHistory{}
-		if err := rows.Scan(&h.ID, &h.ParcelID, &h.AcquisitionID, &h.StatusID, &h.StatusName, &h.StatusDate, &h.CreatedBy, &h.Reason); err != nil {
+		if err := rows.Scan(&h.ID, &h.ParcelID, &h.AcquisitionID, &h.StatusID, &h.StatusName, &h.StatusDate, &h.CreatedBy, &h.Reason,
+			&h.AttachmentURL, &h.AttachmentName); err != nil {
 			return nil, err
 		}
 		result = append(result, h)

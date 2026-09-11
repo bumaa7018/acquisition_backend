@@ -25,17 +25,72 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
 }
 
-func (s *landService) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
-	if err := s.landRepo.UpdateParcelStatus(ctx, parcelID, acquisitionID, statusID, createdBy, reason); err != nil {
+// UpdateParcelStatus — нэгж талбарын төлөв солих.
+//
+// ХАВСРАЛТ: "Татгалзсан" (4) төлөвт шилжихэд ЗААВАЛ. Тэр нь нэгж талбарыг
+// чөлөөлөлтөөс гаргадаг эцсийн шийдвэр бөгөөс дараа нь маргаан гарахад
+// бичвэр шалтгаан хангалтгүй — гэрчлэх баримт (өргөдөл, шүүхийн шийдвэр,
+// комиссын тэмдэглэл) шаардагдана. Шаардлагыг ЭНД (service) шалгана: handler
+// дээр л шалгавал өөр дуудагч (prof маршрут) тойрч гарна.
+//
+// Файл нь НЭГЖ ТАЛБАРЫН БАРИМТ болж бүртгэгдэнэ (parcel_document) — ингэснээр
+// "Хавсралт" хэсэгт бусад баримтын хамт харагдана; түүхэн дээр зөвхөн
+// холбоос үлдэнэ. Төлөв солих алхам унавал баримт нь орфон болж үлдэхгүйн
+// тулд цэвэрлэгдэнэ.
+func (s *landService) UpdateParcelStatus(
+	ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment,
+) error {
+	if ch.StatusID == domain.ParcelStatusRejected && attachment == nil {
+		return domain.ErrStatusAttachmentRequired
+	}
+	if attachment != nil {
+		if s.files == nil {
+			return domain.ErrInternalServer
+		}
+		// ХАРАГДАХ нэр нь хэрэглэгчийн засварласан нэр; хоосон бол файлын нэр.
+		// Физик файл нь ҮРГЭЛЖ анхны нэрээрээ (өргөтгөлтэй) хадгалагдана —
+		// өргөтгөлгүй нэр тавьбал браузер файлыг зөв нээхээ болино.
+		doc, err := s.UploadParcelDocument(ctx, ch.ParcelID,
+			attachment.Filename, attachment.DisplayName, attachment.ContentType, attachment.Data, ch.CreatedBy, 0)
+		if err != nil {
+			return err
+		}
+		ch.AttachmentURL, ch.AttachmentName = doc.FileURL, doc.Name
+		defer func() {
+			if !attachment.committed {
+				_ = s.DeleteParcelDocument(ctx, ch.ParcelID, doc.ID)
+			}
+		}()
+	}
+	if err := s.landRepo.UpdateParcelStatus(ctx, ch); err != nil {
 		return err
 	}
-	s.notifyParcelStatusChanged(ctx, acquisitionID, parcelID)
-	s.auditLog(ctx, "status_changed", domain.AuditResourceParcel, parcelID.String(), uuidPtr(acquisitionID), uuidPtr(parcelID), map[string]any{
-		"to_status":  statusID,
-		"created_by": createdBy,
-		"reason":     reason,
+	if attachment != nil {
+		attachment.committed = true
+	}
+	s.notifyParcelStatusChanged(ctx, ch.AcquisitionID, ch.ParcelID)
+	s.auditLog(ctx, "status_changed", domain.AuditResourceParcel, ch.ParcelID.String(), uuidPtr(ch.AcquisitionID), uuidPtr(ch.ParcelID), map[string]any{
+		"to_status":       ch.StatusID,
+		"created_by":      ch.CreatedBy,
+		"reason":          ch.Reason,
+		"attachment_name": ch.AttachmentName,
 	})
 	return nil
+}
+
+// ParcelStatusAttachment — төлөв солиход хавсаргах файл ("Татгалзсан" үед ЗААВАЛ).
+//
+// `committed` нь дотоод тэмдэглэгээ: төлөв амжилттай солигдсоны дараа л true
+// болно. Үүнгүй бол шилжилт унасан үед бүртгэгдсэн баримт үлдэнэ.
+type ParcelStatusAttachment struct {
+	Filename string
+	// DisplayName — жагсаалт/түүхэнд ХАРАГДАХ нэр (хэрэглэгч гараас засна).
+	// Хоосон бол файлын нэр хэрэглэгдэнэ (documentDisplayName).
+	DisplayName string
+	ContentType string
+	Data        []byte
+
+	committed bool
 }
 
 func (s *landService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {

@@ -309,9 +309,20 @@ func (m *MockLandAcquisitionRepository) HasNonFinalParcels(ctx context.Context, 
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string) error {
-	args := m.Called(ctx, acquisitionID, parcelID, value, confidencePercent, baseFeePerM2, userID)
+// SetParcelEstimatedValue — тестийн хүлээлт нь ӨМНӨХ ХЭЛБЭРЭЭР (аргумент
+// тусдаа) бичигддэг: change бүтцээр шалгавал `mock.Anything`-гүйгээр
+// уншихад бэрх болно. Иймд бүтцийг талбар болгон тарааж дамжуулна.
+func (m *MockLandAcquisitionRepository) SetParcelEstimatedValue(ctx context.Context, ch domain.ParcelEstimatedValueChange) error {
+	args := m.Called(ctx, ch.AcquisitionID, ch.ParcelID, ch.Value, ch.ConfidencePercent, ch.BaseFeePerM2, ch.UserID)
 	return args.Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ListParcelEstimatedValueHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID) ([]*domain.ParcelEstimatedValueHistory, error) {
+	args := m.Called(ctx, acquisitionID, parcelID)
+	if v := args.Get(0); v != nil {
+		return v.([]*domain.ParcelEstimatedValueHistory), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error) {
@@ -901,8 +912,8 @@ func (m *MockLandAcquisitionRepository) GetAvailableParcelStatuses(ctx context.C
 	return args.Get(0).([]*domain.ParcelStatus), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
-	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
+func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error {
+	return m.Called(ctx, ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason).Error(0)
 }
 
 func (m *MockLandAcquisitionRepository) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {

@@ -67,7 +67,7 @@ func TestCalculateParcelEstimatedValueSavesAmountAndPercentage(t *testing.T) {
 	repo.On("ListParcelFeeItems", mock.Anything, parcelID).Return([]domain.ParcelFeeItem{{BaseFeePerM2: 10, Area: 1000, ConfidencePercent: 1}}, nil)
 	value, percent := 100000.0, 2.0
 	repo.On("SetParcelEstimatedValue", mock.Anything, acqID, parcelID, &value, &percent, (*float64)(nil), "user").Return(nil)
-	got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, &percent, nil, "user")
+	got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, &percent, nil, nil, "user")
 	require.NoError(t, err)
 	require.Equal(t, value, got)
 	repo.AssertExpectations(t)
@@ -87,7 +87,7 @@ func TestCalculateParcelEstimatedValueOwnershipIgnoresConfidence(t *testing.T) {
 	// хэрэглэсэн бол 15 000 000₮ болох байсан).
 	rate, value := 1500.0, 300000.0
 	repo.On("SetParcelEstimatedValue", mock.Anything, acqID, parcelID, &value, (*float64)(nil), &rate, "user").Return(nil)
-	got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, ptr(2), &rate, "user")
+	got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, ptr(2), &rate, nil, "user")
 	require.NoError(t, err)
 	require.Equal(t, value, got)
 	repo.AssertExpectations(t)
@@ -103,7 +103,7 @@ func TestCalculateParcelEstimatedValueRequiresConfidenceForNonOwnership(t *testi
 		repo.On("GetParcelDetailByID", mock.Anything, parcelID).Return(&domain.ParcelFull{
 			Parcel: domain.Parcel{AcquisitionID: acqID, AcquisitionAreaM2: 200, RightType: rightType},
 		}, nil)
-		_, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, nil, ptr(10), "user")
+		_, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, nil, ptr(10), nil, "user")
 		require.ErrorIs(t, err, domain.ErrInvalidInput)
 		repo.AssertNotCalled(t, "SetParcelEstimatedValue", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	}
@@ -114,7 +114,7 @@ func TestCalculateParcelEstimatedValueRejectsOtherAcquisition(t *testing.T) {
 	svc := NewLandService(repo, nil, nil, nil)
 	parcelID := uuid.New()
 	repo.On("GetParcelDetailByID", mock.Anything, parcelID).Return(&domain.ParcelFull{Parcel: domain.Parcel{AcquisitionID: uuid.New()}}, nil)
-	_, err := svc.CalculateParcelEstimatedValue(context.Background(), uuid.New(), parcelID, ptr(2), nil, "user")
+	_, err := svc.CalculateParcelEstimatedValue(context.Background(), uuid.New(), parcelID, ptr(2), nil, nil, "user")
 	require.ErrorIs(t, err, domain.ErrNotFound)
 	repo.AssertNotCalled(t, "ListParcelFeeItems", mock.Anything, mock.Anything)
 	repo.AssertNotCalled(t, "SetParcelEstimatedValue", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -146,7 +146,7 @@ func TestCalculateParcelEstimatedValueManualFee(t *testing.T) {
 			if !tt.invalid {
 				repo.On("SetParcelEstimatedValue", mock.Anything, acqID, parcelID, &value, &percent, &tt.rate, "user").Return(nil)
 			}
-			got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, &percent, &tt.rate, "user")
+			got, err := svc.CalculateParcelEstimatedValue(context.Background(), acqID, parcelID, &percent, &tt.rate, nil, "user")
 			if tt.invalid {
 				require.ErrorIs(t, err, domain.ErrInvalidInput)
 			} else {

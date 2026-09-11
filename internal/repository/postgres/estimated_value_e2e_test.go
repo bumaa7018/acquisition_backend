@@ -21,7 +21,7 @@ func TestE2E_EstimatedValueConfidenceRoundTrip(t *testing.T) {
 	fees := []domain.ParcelFeeItem{{Area: 500, BaseFeePerM2: 10, ConfidencePercent: 1}}
 	_, err = f.repo.ReplaceParcelFeeItems(ctx, parcelID, f.acqID, fees)
 	require.NoError(t, err)
-	value, err := f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(2), nil, "e2e")
+	value, err := f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(2), nil, nil, "e2e")
 	require.NoError(t, err)
 	require.Equal(t, 100000.0, value)
 	p, err := f.repo.GetParcelDetailByID(ctx, parcelID)
@@ -53,7 +53,7 @@ func TestE2E_EstimatedValueManualBaseFee(t *testing.T) {
 	_, err := f.pool.Exec(ctx, "UPDATE parcel SET acquisition_area_m2 = 200 WHERE id = $1", parcelID)
 	require.NoError(t, err)
 	baseFee := 10.0
-	value, err := f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(2), &baseFee, "e2e")
+	value, err := f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(2), &baseFee, nil, "e2e")
 	require.NoError(t, err)
 	require.Equal(t, 100000.0, value)
 	p, err := f.repo.GetParcelDetailByID(ctx, parcelID)
@@ -65,7 +65,7 @@ func TestE2E_EstimatedValueManualBaseFee(t *testing.T) {
 	fees, err := f.repo.ListParcelFeeItems(ctx, parcelID)
 	require.NoError(t, err)
 	require.Empty(t, fees)
-	value, err = f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(4), nil, "e2e")
+	value, err = f.svc.CalculateParcelEstimatedValue(ctx, f.acqID, parcelID, floatPtr(4), nil, nil, "e2e")
 	require.NoError(t, err)
 	require.Equal(t, 50000.0, value)
 	require.NoError(t, f.svc.SetParcelEstimatedValue(ctx, f.acqID, parcelID, nil, "e2e"))

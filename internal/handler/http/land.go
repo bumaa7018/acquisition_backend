@@ -962,7 +962,63 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 		ConfidencePercent *float64        `json:"confidence_percent"`
 		BaseFeePerM2      *float64        `json:"base_fee_per_m2"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	// ХОЁР хэлбэрийг дэмжинэ:
+	//   application/json    — өмнөх шигээ (хавсралтгүй)
+	//   multipart/form-data — confidence_percent/base_fee_per_m2 + ЗААВАЛ БИШ `file`
+	//
+	// Хавсралт нь тооцооллыг гэрчилдэг (жишиг үнийн лавлагаа) тул үнэлгээтэй
+	// НЭГ хүсэлтэд явна: тусад нь байвал үнэлгээ хадгалагдаад файл унах
+	// (эсвэл эсрэгээр) болно.
+	var attachment *service.EstimatedValueAttachment
+	if strings.HasPrefix(c.ContentType(), "multipart/form-data") {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+		if err := c.Request.ParseMultipartForm(maxDocumentUploadSize); err != nil {
+			if isBodyTooLarge(err) {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		// Хоосон талбар = "огт өгөөгүй" (JSON дээрх nil-тэй ижил).
+		if v, ok := formFloat(c, "confidence_percent"); ok {
+			body.ConfidencePercent = &v
+		} else if c.PostForm("confidence_percent") != "" {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		if v, ok := formFloat(c, "base_fee_per_m2"); ok {
+			body.BaseFeePerM2 = &v
+		} else if c.PostForm("base_fee_per_m2") != "" {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		if fh, err := c.FormFile("file"); err == nil {
+			if fh.Size > maxDocumentUploadSize {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			data, err := readMultipartFile(fh, maxDocumentUploadSize)
+			if err == errUploadTooLarge {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+				return
+			}
+			if err != nil {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
+				return
+			}
+			contentType, ok := allowedEstimatedValueContentType(data)
+			if !ok {
+				response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
+				return
+			}
+			attachment = &service.EstimatedValueAttachment{
+				Filename:    fh.Filename,
+				ContentType: contentType,
+				Data:        data,
+			}
+		}
+	} else if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
 		return
 	}
@@ -973,7 +1029,7 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 	// төрлөөр шийднэ). Арилгах/шууд бичих нь `{"value": ...}`-аар ирдэг тул
 	// хоёр салаа хоорондоо хутгалдахгүй.
 	if len(body.Value) == 0 {
-		value, err := h.svc.CalculateParcelEstimatedValue(c.Request.Context(), acqID, parcelID, body.ConfidencePercent, body.BaseFeePerM2, userID)
+		value, err := h.svc.CalculateParcelEstimatedValue(c.Request.Context(), acqID, parcelID, body.ConfidencePercent, body.BaseFeePerM2, attachment, userID)
 		if err != nil {
 			response.Error(c, err)
 			return
@@ -982,7 +1038,8 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 		return
 	}
 	var value *float64
-	if body.ConfidencePercent != nil || body.BaseFeePerM2 != nil || json.Unmarshal(body.Value, &value) != nil {
+	// Арилгах/шууд бичихэд хавсралт утгагүй (файл нь тооцооллын гэрчилгээ).
+	if attachment != nil || body.ConfidencePercent != nil || body.BaseFeePerM2 != nil || json.Unmarshal(body.Value, &value) != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
 		return
 	}
@@ -991,6 +1048,51 @@ func (h *LandHandler) SetParcelEstimatedValue(c *gin.Context) {
 		return
 	}
 	response.OKMsg(c, gin.H{"estimated_value": value, "estimated_confidence_percent": nil}, "Амжилттай хадгаллаа")
+}
+
+// formFloat — multipart талбарыг тоо болгож уншина. ok=false бол талбар
+// хоосон/байхгүй (эсвэл тоо биш) — дуудагч тэр хоёрыг ялган шалгана.
+func formFloat(c *gin.Context, name string) (float64, bool) {
+	raw := strings.TrimSpace(c.PostForm(name))
+	if raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// ListParcelEstimatedValueHistory godoc
+//
+//	@Summary		Нэгж талбарын ТӨСӨӨЛЛИЙН үнэлгээний өөрчлөлтийн түүх
+//	@Description	Өөрчлөлт бүр (тооцоолол ба арилгалт) хавсралттайгаа, шинэ мөрөөс хуучин руу
+//	@Tags			land-acquisitions
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id			path		string	true	"LandAcquisition UUID"
+//	@Param			parcel_id	path		string	true	"Нэгж талбарын UUID"
+//	@Success		200			{object}	response.Response
+//	@Failure		400			{object}	response.Response
+//	@Router			/land-acquisitions/{id}/parcels/{parcel_id}/estimated-value/history [get]
+func (h *LandHandler) ListParcelEstimatedValueHistory(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidAcqUUID)
+		return
+	}
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidParcelUUID)
+		return
+	}
+	list, err := h.svc.ListParcelEstimatedValueHistory(c.Request.Context(), acqID, parcelID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
 }
 
 // ListProgress godoc

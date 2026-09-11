@@ -263,8 +263,11 @@ type LandAcquisitionWriteRepository interface {
 	HasNonFinalParcels(ctx context.Context, acquisitionID uuid.UUID) (bool, error)
 	// CountParcels — чөлөөлөлтөд бүртгэгдсэн нэгж талбарын тоо.
 	CountParcels(ctx context.Context, acquisitionID uuid.UUID) (int, error)
-	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). nil → арилгана.
-	SetParcelEstimatedValue(ctx context.Context, acquisitionID, parcelID uuid.UUID, value, confidencePercent, baseFeePerM2 *float64, userID string) error
+	// SetParcelEstimatedValue — ТӨСӨӨЛЛИЙН үнэлгээ (₮). Value nil → арилгана.
+	// Өөрчлөлт бүр parcel_estimated_value_history-д мөн бичигдэнэ (нэг tx).
+	SetParcelEstimatedValue(ctx context.Context, ch domain.ParcelEstimatedValueChange) error
+	// ListParcelEstimatedValueHistory — өөрчлөлтийн түүх (шинэ → хуучин).
+	ListParcelEstimatedValueHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID) ([]*domain.ParcelEstimatedValueHistory, error)
 	// DetectParcelOverlaps — чөлөөлөлтийн нэгж талбаруудын БАЙРШЛЫН давхардлыг
 	// ДАХИН тооцож parcel_overlap-д бичнэ (хуучин мөрүүд устгагдана). Буцаах нь
 	// давхардалтай нэгж талбарын ТОО (хос биш).
@@ -406,7 +409,8 @@ type LandWorkflowRepository interface {
 	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
-	UpdateParcelStatus(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
+	// UpdateParcelStatus — төлөв солих (түүхийн мөр хавсралттайгаа бичигдэнэ).
+	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error
 	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)

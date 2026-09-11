@@ -374,6 +374,25 @@ type ParcelStatusHistory struct {
 	// Reason — төлөв солих ШАЛТГААН. "Нөлөөлөгдсөн гарсан"/"Татгалзсан"
 	// үед заавал, бусад төлөвт хоосон байж болно.
 	Reason string `json:"reason"`
+	// Тухайн шилжилтийн ХАВСРАЛТ. "Татгалзсан" үед ЗААВАЛ. Файл нь нэгж
+	// талбарын баримт болж мөн бүртгэгддэг тул "Хавсралт" хэсэгт ч харагдана.
+	AttachmentURL  string `json:"attachment_url"`
+	AttachmentName string `json:"attachment_name"`
+}
+
+// ParcelStatusChange — нэгж талбарын төлөв солих НЭГ үйлдэл.
+//
+// Хавсралт нэмэгдсэнээр аргументын тоо олширсон тул НЭГ бүтцээр дамжина
+// (дуудагч бүр ижил талбар бөглөнө, дараалал андуурагдахгүй).
+type ParcelStatusChange struct {
+	ParcelID      uuid.UUID
+	AcquisitionID uuid.UUID
+	StatusID      int
+	CreatedBy     string
+	Reason        string
+	// MinIO-д хадгалагдсаны дараах харьцангуй зам ба харагдах нэр.
+	AttachmentURL  string
+	AttachmentName string
 }
 
 // Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв (нэгж талбарын статусаас тусдаа).
@@ -470,6 +489,44 @@ type ValuationSubmissionHistory struct {
 	AttachmentName string    `json:"attachment_name"`
 	CreatedBy      string    `json:"created_by"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ParcelEstimatedValueChange — ТӨСӨӨЛЛИЙН үнэлгээний НЭГ өөрчлөлт.
+//
+// `parcel` дээрх талбарууд нь зөвхөн ОДООГИЙН байдал тул өөрчлөлт бүр
+// `parcel_estimated_value_history`-д мөн бичигдэнэ (эс бөгөөс хэн, хэзээ,
+// ямар итгэлцүүрээр тооцсон нь дарагдана). Иймд хадгалах үйлдэл нь энэ НЭГ
+// бүтцээр дамжина — хоёр газарт өөр өөр аргумент бичихээс сэргийлнэ.
+type ParcelEstimatedValueChange struct {
+	AcquisitionID uuid.UUID
+	ParcelID      uuid.UUID
+	// Value nil = үнэлгээг АРИЛГАХ.
+	Value *float64
+	// ConfidencePercent nil = итгэлцүүр хэрэглээгүй (өмчлөх эрхийн газар).
+	ConfidencePercent *float64
+	BaseFeePerM2      *float64
+	// AreaM2 — тооцоололд хэрэглэсэн нөлөөлөлд өртсөн талбай.
+	AreaM2 float64
+	// Хавсралт (ЗААВАЛ БИШ) — MinIO-д хадгалагдсаны дараах харьцангуй зам.
+	AttachmentURL  string
+	AttachmentName string
+	UserID         string
+}
+
+// ParcelEstimatedValueHistory — төсөөллийн үнэлгээний өөрчлөлтийн бүртгэл.
+type ParcelEstimatedValueHistory struct {
+	ID            uuid.UUID `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	ParcelID      uuid.UUID `json:"parcel_id"`
+	// Value nil = тэр үйлдлээр үнэлгээ АРИЛГАГДСАН.
+	Value             *float64  `json:"value"`
+	ConfidencePercent *float64  `json:"confidence_percent"`
+	BaseFeePerM2      *float64  `json:"base_fee_per_m2"`
+	AreaM2            float64   `json:"area_m2"`
+	AttachmentURL     string    `json:"attachment_url"`
+	AttachmentName    string    `json:"attachment_name"`
+	CreatedBy         string    `json:"created_by"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 // ParcelWorkflow — нэгж талбарын ажлын урсгалын шилжилт
