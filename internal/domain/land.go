@@ -787,8 +787,13 @@ type LandAcquisitionFilter struct {
 	ProfessionalOrgID string
 	// Санхүүгийн жагсаалт: хянах эсвэл баталгаажсан үнэлгээг цуцлах боломжтой чөлөөлөлтүүд.
 	HasReviewableValuation bool
-	Page                   int
-	PageSize               int
+	// SortBy / SortDir — хүснэгтийн баганаар эрэмбэлэх. SortBy нь repository
+	// дахь ЗӨВШӨӨРӨГДСӨН баганын түлхүүр (танигдаагүй бол үндсэн эрэмбэ),
+	// SortDir нь "asc" | "desc".
+	SortBy   string
+	SortDir  string
+	Page     int
+	PageSize int
 }
 
 // ParcelFilter — нэгж талбарын жагсаалт шүүх болон хуудаслах параметр
@@ -835,8 +840,11 @@ type ParcelFilter struct {
 	//   true  — ЗӨВХӨН давхардалтай
 	//   false — ЗӨВХӨН давхардалгүй
 	HasOverlap *bool
-	Page       int
-	PageSize   int
+	// SortBy / SortDir — хүснэгтийн баганаар эрэмбэлэх (LandAcquisitionFilter-тэй ижил).
+	SortBy   string
+	SortDir  string
+	Page     int
+	PageSize int
 }
 
 // Parcel — нэгж талбар (main DB-д хадгалагдана)
@@ -1209,8 +1217,11 @@ type GlobalParcelFilter struct {
 	StatusID        int
 	UnlinkedOnly    bool
 	Years           []int
-	Page            int
-	PageSize        int
+	// SortBy / SortDir — хүснэгтийн баганаар эрэмбэлэх (LandAcquisitionFilter-тэй ижил).
+	SortBy   string
+	SortDir  string
+	Page     int
+	PageSize int
 }
 
 // ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр

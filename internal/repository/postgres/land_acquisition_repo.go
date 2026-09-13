@@ -301,9 +301,12 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		LEFT JOIN acquisition_category sc ON sc.id = la.sub_category_id
 		LEFT JOIN valuation_org_profile po ON po.id = la.professional_org_id
 		WHERE %s
-		ORDER BY la.created_at DESC
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, where, i, i+1), append(args, pageSize, offset)...)
+	`, where,
+		orderClause(acquisitionSortColumns, filter.SortBy, filter.SortDir,
+			"la.created_at DESC", "la.id"),
+		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1299,9 +1302,12 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				LEFT JOIN parcel_status ps ON ps.id = p.status
 				LEFT JOIN valuation_org_profile io ON io.id = p.independent_org_id
 				WHERE %s
-			ORDER BY p.parcel_id
+			ORDER BY %s
 			LIMIT $%d OFFSET $%d
-		`, where, i, i+1),
+		`, where,
+			orderClause(parcelSortColumns, filter.SortBy, filter.SortDir,
+				"p.parcel_id", "p.id"),
+			i, i+1),
 		append(args, pageSize, offset)...,
 	)
 	if err != nil {
@@ -2917,9 +2923,12 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		JOIN land_acquisition la ON la.id = p.acquisition_id
 		LEFT JOIN parcel_status ps ON ps.id = p.status
 		WHERE %s
-		ORDER BY p.created_at DESC
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, where, i, i+1), append(args, pageSize, offset)...)
+	`, where,
+		orderClause(globalParcelSortColumns, filter.SortBy, filter.SortDir,
+			"p.created_at DESC", "p.id"),
+		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}

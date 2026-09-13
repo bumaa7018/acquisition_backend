@@ -183,6 +183,8 @@ func (h *LandHandler) List(c *gin.Context) {
 		GeneralCategoryID: queryInt(c, "general_category_id", 0),
 		SubCategoryID:     queryInt(c, "sub_category_id", 0),
 		AssignedUserID:    c.Query("assigned_user_id"),
+		SortBy:            c.Query("sort"),
+		SortDir:           c.Query("order"),
 		Page:              page,
 		PageSize:          pageSize,
 	}
@@ -390,6 +392,8 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 		RightType: queryInt(c, "right_type", 0),
 		Landuse:   c.Query("landuse"),
 		StatusID:  statusID,
+		SortBy:    c.Query("sort"),
+		SortDir:   c.Query("order"),
 		Page:      page,
 		PageSize:  pageSize,
 	}
@@ -1745,6 +1749,8 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 // @Param        status            query  int     false  "Чөлөөлөлтийн статус"
 // @Param        status_id         query  int     false  "Нэгж талбарын төлөв"
 // @Param        unlinked_only     query  bool    false  "Идэвхтэй захирамжид холбогдоогүй нэгж талбар"
+// @Param        sort              query  string  false  "Эрэмбэлэх багана (parcel_id, acquisition_name, area_m2, compensation…)"
+// @Param        order             query  string  false  "Эрэмбийн чиглэл: asc | desc"
 // @Success      200  {object}  response.PaginatedResponse
 // @Router       /parcels [get]
 func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
@@ -1768,6 +1774,8 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		StatusID:        queryInt(c, "status_id", 0),
 		UnlinkedOnly:    strings.EqualFold(c.Query("unlinked_only"), "true") || c.Query("unlinked_only") == "1",
 		Years:           years,
+		SortBy:          c.Query("sort"),
+		SortDir:         c.Query("order"),
 		Page:            page,
 		PageSize:        pageSize,
 	}
@@ -4029,6 +4037,8 @@ func (h *LandHandler) ListMyAcquisitions(c *gin.Context) {
 		Status:            domain.LandAcquisitionStatusField,
 		AU3Code:           c.Query("au3_code"),
 		ProfessionalOrgID: orgIDStr,
+		SortBy:            c.Query("sort"),
+		SortDir:           c.Query("order"),
 		Page:              page,
 		PageSize:          pageSize,
 	}
