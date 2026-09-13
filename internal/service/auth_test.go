@@ -39,6 +39,54 @@ func newAuthSvc(userRepo *mocks.MockUserRepository, pwdRepo *mocks.MockPasswordR
 	return service.NewAuthService(userRepo, pwdRepo, newJWTManager(), es, "http://localhost:3000/reset?token=")
 }
 
+type loginSourceStub struct {
+	source         string
+	activeUser     *domain.User
+	activeErr      error
+	getActiveCalls int
+	roles          []string
+	permissions    []string
+	valuationOrgID *domain.ID
+}
+
+func (s *loginSourceStub) Source() string { return s.source }
+
+func (s *loginSourceStub) GetActiveByLogin(context.Context, string) (*domain.User, error) {
+	s.getActiveCalls++
+	return s.activeUser, s.activeErr
+}
+
+func (s *loginSourceStub) GetByID(context.Context, domain.ID) (*domain.User, error) {
+	if s.activeUser == nil {
+		return nil, domain.ErrNotFound
+	}
+	return s.activeUser, nil
+}
+
+func (s *loginSourceStub) GetRoles(context.Context, domain.ID) ([]string, error) {
+	return s.roles, nil
+}
+
+func (s *loginSourceStub) GetPermissions(context.Context, domain.ID) ([]string, error) {
+	return s.permissions, nil
+}
+
+func (s *loginSourceStub) OrgIDForUser(context.Context, domain.ID) (*domain.ID, error) {
+	return nil, nil
+}
+
+func (s *loginSourceStub) ValuationOrgIDForUser(context.Context, domain.ID) (*domain.ID, error) {
+	return s.valuationOrgID, nil
+}
+
+func (s *loginSourceStub) UpdatePassword(context.Context, domain.ID, string) error {
+	return nil
+}
+
+func (s *loginSourceStub) InvalidateSessions(context.Context, domain.ID) error {
+	return nil
+}
+
 // ── Login ────────────────────────────────────────────────────
 
 func TestAuthService_Login_Success(t *testing.T) {
@@ -94,6 +142,68 @@ func TestAuthService_Login_UserNotFound(t *testing.T) {
 	})
 
 	assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
+}
+
+func TestAuthService_Login_DoesNotFallBackToProfessionalOrgSource(t *testing.T) {
+	userRepo := &mocks.MockUserRepository{}
+	pwdRepo := &mocks.MockPasswordResetRepository{}
+	es := &mockEmailSender{}
+	profRepo := &loginSourceStub{
+		source: domain.UserSourceValuationOrg,
+		activeUser: &domain.User{
+			ID:       domain.ID(12),
+			Username: "same-name",
+			Password: "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782",
+			IsActive: true,
+		},
+	}
+
+	userRepo.On("GetActiveByLogin", context.Background(), "same-name").Return(nil, domain.ErrNotFound)
+
+	svc := service.NewAuthService(userRepo, pwdRepo, newJWTManager(), es, "http://localhost:3000/reset?token=", profRepo)
+	_, err := svc.Login(context.Background(), service.LoginRequest{
+		Username: "same-name", Password: "secret",
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidCredentials)
+	assert.Equal(t, 0, profRepo.getActiveCalls, "дотоод login appdb repo руу fallback хийж болохгүй")
+}
+
+func TestAuthService_LoginProfessionalOrg_UsesOnlyProfessionalOrgSource(t *testing.T) {
+	userRepo := &mocks.MockUserRepository{}
+	pwdRepo := &mocks.MockPasswordResetRepository{}
+	es := &mockEmailSender{}
+	manager := newJWTManager()
+	orgID := domain.ID(44)
+	profRepo := &loginSourceStub{
+		source: domain.UserSourceValuationOrg,
+		activeUser: &domain.User{
+			ID:        domain.ID(12),
+			Username:  "same-name",
+			Password:  "$2a$10$P/29K73vxNfgjtfK6/aASuSCtdYJzUSYKH5wCI9IUyQukG3aXJ782",
+			FirstName: "Prof",
+			LastName:  "User",
+			IsActive:  true,
+		},
+		valuationOrgID: &orgID,
+	}
+
+	svc := service.NewAuthService(userRepo, pwdRepo, manager, es, "http://localhost:3000/reset?token=", profRepo)
+	tokens, err := svc.LoginProfessionalOrg(context.Background(), service.LoginRequest{
+		Username: "same-name", Password: "secret",
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, tokens.AccessToken)
+	claims, err := manager.ParseAccessToken(tokens.AccessToken)
+	require.NoError(t, err)
+	assert.Equal(t, domain.UserSourceValuationOrg, claims.UserSource())
+	assert.True(t, claims.ValuationOrg)
+	require.NotNil(t, claims.OrgID)
+	assert.Equal(t, orgID, *claims.OrgID)
+	assert.Empty(t, claims.Roles)
+	assert.Equal(t, 1, profRepo.getActiveCalls)
+	userRepo.AssertNotCalled(t, "GetActiveByLogin", mock.Anything, mock.Anything)
 }
 
 // ── ForgotPassword ───────────────────────────────────────────

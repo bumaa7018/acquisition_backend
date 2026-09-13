@@ -41,6 +41,25 @@ func (r Role) Level() string {
 	return r.Name
 }
 
+// RoleLevelProfessionalOrg — мэргэжлийн байгууллагын түвшин
+// (compensation_professional_org).
+const RoleLevelProfessionalOrg = "professional_org"
+
+// IsAPIGrantable — энэ ролийг API-гаар хэрэглэгчид ОЛГОЖ БОЛОХ эсэх.
+//
+// МЭРГЭЖЛИЙН БАЙГУУЛЛАГЫН роль нь ОЛГОГДОХГҮЙ. Тэр роль нь мэргэжлийн
+// байгууллагын бүртгэлд л хамаарах ба тэр бүртгэл нь хэрэглэгчийн бүтцээс
+// ТУСДАА (appdb-ийн valuation_org_profile / valuation_org_employee, токены
+// `valuation_org` тэмдэг). Иймд authdb-ийн ямар ч хэрэглэгч — админ ч гэсэн —
+// үүнийг дамжуулан нөхөх олговрын эрх авах ёсгүй.
+//
+// Өмнө нь callerCanGrantRole нь "дуудагч тухайн эрхүүдийг эзэмшсэн эсэх"-ийг л
+// шалгадаг байсан тул compensation:* эзэмшдэг админ энэ ролийг хэнд ч олгож
+// чаддаг байв.
+func (r Role) IsAPIGrantable() bool {
+	return r.Level() != RoleLevelProfessionalOrg
+}
+
 // Permission — sdplatform.sd_permission. Энэ схемд эрх нь ЗӨВХӨН үйлдэл;
 // нөөц нь холбогдсон ролиос ирнэ.
 type Permission struct {

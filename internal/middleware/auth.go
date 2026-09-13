@@ -21,6 +21,11 @@ const (
 	// (jwt.Claims.ValuationOrg). Эдгээр хэрэглэгчийн хандалт РОЛЬ/ЭРХЭЭР БИШ,
 	// зөвхөн үүгээр шийдэгдэнэ.
 	CtxValuationOrg = "isValuationOrg"
+	// CtxUserSource — хэрэглэгчийн бүртгэл аль санд байгаа (domain.UserSource*).
+	//
+	// CtxUserID нь хоёр санд МӨРГӨЛДӨХ int32 тул хэрэглэгчид ХАРЬЯАЛАГДАХ
+	// өгөгдлийг (мэдэгдэл г.м.) хайхад ЗӨВХӨН энэ хоёрыг ХОСООР нь хэрэглэнэ.
+	CtxUserSource = "userSource"
 )
 
 func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
@@ -55,11 +60,13 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		c.Set(CtxRoles, claims.Roles)
 		c.Set(CtxPermissions, claims.Permissions)
 		c.Set(CtxValuationOrg, claims.ValuationOrg)
+		c.Set(CtxUserSource, claims.UserSource())
 
 		// Actor-ийг request context-д хийж service давхаргад дамжуулна
 		// (мэдэгдэл илгээхэд хэн үйлдэл хийснийг тэндээс уншина).
 		c.Request = c.Request.WithContext(actorctx.With(c.Request.Context(), actorctx.Actor{
 			ID:        claims.UserID,
+			Source:    claims.UserSource(),
 			Name:      userName,
 			Position:  claims.Position,
 			Roles:     claims.Roles,
@@ -72,6 +79,10 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 
 func RequirePermission(permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if hasAnyRole(c, "admin", "Админ") {
+			c.Next()
+			return
+		}
 		permsAny, exists := c.Get(CtxPermissions)
 		if !exists {
 			response.Error(c, ErrForbidden)
@@ -97,6 +108,10 @@ func RequirePermission(permission string) gin.HandlerFunc {
 // compensation:* эрхээр ижил маршрутыг ашиглахад хэрэглэнэ.
 func RequireAnyPermission(permissions ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if hasAnyRole(c, "admin", "Админ") {
+			c.Next()
+			return
+		}
 		for _, p := range permissions {
 			if hasPermission(c, p) {
 				c.Next()

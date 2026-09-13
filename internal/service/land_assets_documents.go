@@ -43,6 +43,10 @@ func (s *landService) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID
 	return s.landRepo.GetAssetAcquisition(ctx, assetID)
 }
 
+func (s *landService) GetCompensationAcquisition(ctx context.Context, compID uuid.UUID) (uuid.UUID, error) {
+	return s.landRepo.GetCompensationAcquisition(ctx, compID)
+}
+
 // DeleteAsset — allowedStreams хоосон бол хязгаарлалтгүй; эс бөгөөс зөвхөн
 // дуудагчийн үнэлгээний урсгалын (asset/independent/mika) мөр устана.
 func (s *landService) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error {
@@ -534,7 +538,9 @@ func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UU
 		}
 		storedFilename = buildDocumentFileName(parcel.ParcelID, dt, filename, docs)
 	}
-	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), storedFilename, contentType, data, dt == nil)
+	// Archived reports retain their object URL after the live document is removed.
+	unique := dt == nil || dt.Type == "valuation_report"
+	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), storedFilename, contentType, data, unique)
 	if err != nil {
 		return nil, err
 	}

@@ -109,7 +109,20 @@ func (s *roleService) RemoveMenuPermissions(ctx context.Context, roleID, menuID 
 	return s.roleRepo.RemoveMenuPermissions(ctx, roleID, menuID)
 }
 
+// AssignToUser — роль олгоно.
+//
+// Мэргэжлийн байгууллагын ролийг ЭНД БҮРЭН ХААНА (domain.Role.IsAPIGrantable).
+// Шалгалт handler-т биш service-д байх нь чухал: роль олгодог зам хоёр байдаг
+// (хэрэглэгч үүсгэх, POST /users/:id/roles) ба цаашид нэмэгдэж болзошгүй тул
+// бүгдийн дайрдаг ганц цэг дээр хаана.
 func (s *roleService) AssignToUser(ctx context.Context, userID, roleID domain.ID) error {
+	role, err := s.roleRepo.GetByID(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if !role.IsAPIGrantable() {
+		return domain.ErrForbidden
+	}
 	return s.roleRepo.AssignToUser(ctx, userID, roleID)
 }
 

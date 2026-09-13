@@ -17,13 +17,14 @@ var (
 	ErrApproved                = errors.New("approved record cannot be modified")
 	ErrValuationReportRequired = errors.New("valuation report required before releasing parcel")
 	// ErrStatusAttachmentRequired — "Татгалзсан" төлөвт шилжихэд хавсралт заавал.
-	ErrStatusAttachmentRequired = errors.New("attachment required to reject parcel")
-	ErrAcquisitionLocked        = errors.New("acquisition is locked")
-	ErrInvalidTransition        = errors.New("invalid status transition")
-	ErrValuationNotApproved     = errors.New("compensation valuation is not approved yet")
-	ErrNonFinalParcels          = errors.New("all parcels must be in final status before confirming acquisition")
-	ErrAssetPhotoRequired       = errors.New("real estate assets must have photos before submitting valuation")
-	ErrReportBeforeApproval     = errors.New("valuation must be approved before attaching the report")
+	ErrStatusAttachmentRequired          = errors.New("attachment required to reject parcel")
+	ErrValuationCancelAttachmentRequired = errors.New("attachment required to cancel valuation")
+	ErrAcquisitionLocked                 = errors.New("acquisition is locked")
+	ErrInvalidTransition                 = errors.New("invalid status transition")
+	ErrValuationNotApproved              = errors.New("compensation valuation is not approved yet")
+	ErrNonFinalParcels                   = errors.New("all parcels must be in final status before confirming acquisition")
+	ErrAssetPhotoRequired                = errors.New("real estate assets must have photos before submitting valuation")
+	ErrReportBeforeApproval              = errors.New("valuation must be approved before attaching the report")
 	// Хавсралт нь хүсэлтийн дугаараар (app_no) татагддаг тул нэгж талбарын
 	// дэлгэрэнгүй эхлээд татагдсан байх ёстой.
 	ErrParcelAppNoMissing = errors.New("parcel has no application number yet, sync the parcel first")

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"io"
 	"math"
 	"time"
@@ -462,13 +463,13 @@ type ValuationTransition struct {
 	AcquisitionID uuid.UUID
 	ParcelID      uuid.UUID
 	ValuationType string
-	// Action — submit | approve | return
+	// Action — submit | approve | return | cancel
 	Action string
 	// Note — ЗААВАЛ (бүх шилжилтэд шаардагдана)
 	Note   string
 	UserID string
-	// ХАВСРАЛТ — ЗААВАЛ БИШ, зөвхөн "буцаах" (return) үед хүлээн авна.
-	// Хоосон бол хавсралтгүй шилжилт (өмнөх зан төлөв).
+	// ХАВСРАЛТ — "буцаах" (return) үед сонголттой, "цуцлах" (cancel) үед
+	// заавал хүлээн авна. Хоосон бол return хавсралтгүй явж болно.
 	AttachmentURL  string
 	AttachmentName string
 }
@@ -489,6 +490,32 @@ type ValuationSubmissionHistory struct {
 	AttachmentName string    `json:"attachment_name"`
 	CreatedBy      string    `json:"created_by"`
 	CreatedAt      time.Time `json:"created_at"`
+}
+
+// ValuationSnapshot — баталгаажсан үнэлгээг хүчингүй болгоход хадгалсан дэлгэрэнгүй.
+type ValuationSnapshot struct {
+	ID            uuid.UUID       `json:"id"`
+	AcquisitionID uuid.UUID       `json:"acquisition_id"`
+	ParcelID      string          `json:"parcel_id"`
+	ValuationType string          `json:"valuation_type"`
+	SubmissionID  *uuid.UUID      `json:"submission_id,omitempty"`
+	Note          string          `json:"note"`
+	CancelledBy   string          `json:"cancelled_by"`
+	CancelledAt   time.Time       `json:"cancelled_at"`
+	SubmittedBy   string          `json:"submitted_by"`
+	SubmittedAt   *time.Time      `json:"submitted_at"`
+	ReviewedBy    string          `json:"reviewed_by"`
+	ReviewedAt    *time.Time      `json:"reviewed_at"`
+	LandValuation json.RawMessage `json:"land_valuation"`
+	Assets        json.RawMessage `json:"assets"`
+	Compensations json.RawMessage `json:"compensations"`
+	TotalAmount   float64         `json:"total_amount"`
+	// ReportURL/ReportName — цуцлах үед хүчинтэй байсан ҮНЭЛГЭЭНИЙ ТАЙЛАН.
+	// Цуцлалтын дараа тайлан нь нэгж талбарын хавсралтаас хасагддаг
+	// (шинэ үнэлгээний тайлантай андуурагдахгүйн тулд) тул зөвхөн эндээс
+	// татагдана. Файл нь хадгалалтад ХЭВЭЭР үлдэнэ.
+	ReportURL  string `json:"report_url"`
+	ReportName string `json:"report_name"`
 }
 
 // ParcelEstimatedValueChange — ТӨСӨӨЛЛИЙН үнэлгээний НЭГ өөрчлөлт.
@@ -758,11 +785,10 @@ type LandAcquisitionFilter struct {
 	// эсвэл нэгж талбарын хараат бус үнэлгээчнээр). Байгууллагын аль ч
 	// ажилтан ижил жагсаалт харна.
 	ProfessionalOrgID string
-	// true = зөвхөн "Илгээсэн" (submitted) төлөвтэй нөхөх олговрын үнэлгээтэй
-	// нэгж талбар бүхий чөлөөлөлтүүд (санхүүгийн мэргэжилтний жагсаалт)
-	HasSubmittedValuation bool
-	Page                  int
-	PageSize              int
+	// Санхүүгийн жагсаалт: хянах эсвэл баталгаажсан үнэлгээг цуцлах боломжтой чөлөөлөлтүүд.
+	HasReviewableValuation bool
+	Page                   int
+	PageSize               int
 }
 
 // ParcelFilter — нэгж талбарын жагсаалт шүүх болон хуудаслах параметр

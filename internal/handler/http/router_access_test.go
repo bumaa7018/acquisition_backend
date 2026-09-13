@@ -115,6 +115,49 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 	landSvc.AssertExpectations(t)
 }
 
+func TestRouter_ProfLandAcquisitions_DeniesLegacyProfessionalOrgRoleOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
+	orgID := domain.ID(9001)
+	tokenPair, err := jwtManager.GenerateTokenPair(jwtpkg.UserInfo{
+		ID:          domain.ID(599),
+		OrgID:       &orgID,
+		Username:    "legacy_professional_role",
+		Roles:       []string{"professional_org"},
+		Permissions: []string{"compensation:read", "compensation:update"},
+		// Хуучин role дангаараа /prof-д хангалтгүй. Шинэ бүтэц зөвхөн
+		// appdb.valuation_org_employee-ээс үүссэн valuation_org claim-ийг
+		// итгэнэ.
+		ValuationOrg: false,
+	})
+	require.NoError(t, err)
+
+	landSvc := &mocks.MockLandService{}
+	router := handler.NewRouter(
+		nil,
+		jwtManager,
+		nil,
+		nil,
+		nil,
+		nil,
+		landSvc,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/prof/land-acquisitions?page=1&page_size=20", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenPair.AccessToken)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	landSvc.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
+}
+
 func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

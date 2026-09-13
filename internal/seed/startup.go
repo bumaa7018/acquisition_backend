@@ -206,12 +206,16 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
-			// Гадаад хэрэглэгчид ч authdb-д амьдарна: sdplatform схем appdb-д
-			// ҮҮСЭХГҮЙ (хоёр сан дээр давхардуулахгүй).
-			name: "000025_external_valuation_users",
+			// 000025_external_valuation_users УСТСАН: үнэлгээний байгууллагын
+			// ажилтанд sdplatform.sd_user мөр үүсгэдэг байсан. Тэдний нэвтрэх
+			// эрх appdb-д шилжсэн (000024 миграц) — 000031-ийг үз.
+			//
+			// mika / finance_specialist ролиудын ЭРХ нь энэ алхмаар синк
+			// болдог байсан тул түүнийг шууд дуудна (хэрэглэгч үүсгэхгүй).
+			name: "000025_compensation_access_resync",
 			run: func(ctx context.Context) error {
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedExternalValuationOrgUsers(ctx)
+					SeedCompensationAccess(ctx)
 			},
 		},
 		{
@@ -249,12 +253,11 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
-			// 000025-д үүссэн гадаад хэрэглэгчдийг үнэлгээний байгууллагын
-			// бүртгэлд холбоно — эс бөгөөс токенд org_id гарахгүй тул /prof
-			// маршрутууд 403 буцаана.
+			// Үнэлгээний байгууллага + нэвтрэх эрхтэй ажилтан, БҮГД appdb-д.
+			// Зөвхөн valuation_org_employee хоосон үед ажиллана.
 			name: "000031_valuation_org_employees",
 			run: func(ctx context.Context) error {
-				return SeedValuationOrgEmployees(ctx, mainDB, authDB)
+				return SeedValuationOrgEmployees(ctx, mainDB)
 			},
 		},
 		{

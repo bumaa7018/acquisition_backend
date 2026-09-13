@@ -25,6 +25,14 @@ func (m *MockAuthService) Login(ctx context.Context, req service.LoginRequest) (
 	return args.Get(0).(*jwtpkg.TokenPair), args.Error(1)
 }
 
+func (m *MockAuthService) LoginProfessionalOrg(ctx context.Context, req service.LoginRequest) (*jwtpkg.TokenPair, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*jwtpkg.TokenPair), args.Error(1)
+}
+
 func (m *MockAuthService) RefreshToken(ctx context.Context, refreshToken string) (*jwtpkg.TokenPair, error) {
 	args := m.Called(ctx, refreshToken)
 	if args.Get(0) == nil {
@@ -373,6 +381,12 @@ func (m *MockLandService) UpdateAsset(ctx context.Context, b *domain.Asset) (*do
 
 func (m *MockLandService) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {
 	args := m.Called(ctx, assetID)
+	id, _ := args.Get(0).(uuid.UUID)
+	return id, args.Error(1)
+}
+
+func (m *MockLandService) GetCompensationAcquisition(ctx context.Context, compID uuid.UUID) (uuid.UUID, error) {
+	args := m.Called(ctx, compID)
 	id, _ := args.Get(0).(uuid.UUID)
 	return id, args.Error(1)
 }
@@ -777,6 +791,14 @@ func (m *MockLandService) ListValuationSubmissionHistory(ctx context.Context, ac
 	return args.Get(0).([]*domain.ValuationSubmissionHistory), args.Error(1)
 }
 
+func (m *MockLandService) ListValuationSnapshots(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSnapshot, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, valuationType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ValuationSnapshot), args.Error(1)
+}
+
 func (m *MockLandService) ApproveCompensation(ctx context.Context, acquisitionID, id uuid.UUID, note, reviewedBy string) error {
 	return m.Called(ctx, acquisitionID, id, note, reviewedBy).Error(0)
 }
@@ -898,6 +920,12 @@ func (m *MockUserService) GetByID(ctx context.Context, id domain.ID) (*domain.Us
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.User), args.Error(1)
+}
+
+// GetBySource — тестүүд эх сурвалж заагаагүй бол GetByID-тай ижил ажиллана
+// (дийлэнх тест дотоод authdb хэрэглэгчээр явдаг).
+func (m *MockUserService) GetBySource(ctx context.Context, source string, id domain.ID) (*domain.User, error) {
+	return m.GetByID(ctx, id)
 }
 
 func (m *MockUserService) List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error) {

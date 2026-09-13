@@ -88,6 +88,10 @@ type LandAssetService interface {
 	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error
 	// GetAssetAcquisition — файлын түлхүүрийн эрх шалгахад (asset-photo/<asset_id>).
 	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)
+	// GetCompensationAcquisition — файлын түлхүүрийн эрх шалгахад
+	// (compensation-report/<comp_id>). Цуцлагдсан үнэлгээний устсан мөрийг
+	// архивын snapshot-оос олдог тул GetGlobalCompensation-оос ЯЛГААТАЙ.
+	GetCompensationAcquisition(ctx context.Context, compID uuid.UUID) (uuid.UUID, error)
 	UploadAssetPhoto(ctx context.Context, acqID, assetID uuid.UUID, filename, contentType string, data []byte) (photoURL, photoName string, err error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
@@ -207,6 +211,7 @@ type LandWorkflowService interface {
 	// хамаарна.
 	TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition, attachment *ValuationAttachment) (*domain.ValuationSubmission, error)
 	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
+	ListValuationSnapshots(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSnapshot, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error

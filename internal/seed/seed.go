@@ -216,14 +216,13 @@ var hrSeedDepartment = struct {
 }
 
 // SeedHRDepartments — "Алба, хэлтэс" лавлахад ГУС-ийн хэлтсийг (код 10311)
-// бүртгэж, хэлтэсгүй ажилтныг түүнд холбоно.
+// байхгүй бол нэмнэ. Идемпотент: хэлтсийг КОДООР шалгана.
 //
-// Ажилтны БАЙГУУЛЛАГА нь хэлтсээр дамждаг (hr_employee-д байгууллагын багана
-// байхгүй) тул энэ алхам нь ажилтныг байгууллагатай холбох цорын ганц зам.
-//
-// Идемпотент: хэлтсийг КОДООР шалгаж, байхгүй үед л нэмнэ; ажилтны холбоосыг
-// department_id IS NULL шалгуураар л хийнэ — гараар зассан өгөгдлийг дарж
-// бичихгүй.
+// АЖИЛТНЫГ ХЭЛТЭСТ ХОЛБОХГҮЙ. Урьд нь энэ алхам department_id нь NULL байгаа
+// БҮХ идэвхтэй ажилтныг энэ хэлтэс рүү бөөнөөр UPDATE хийдэг байсан. authdb нь
+// ажиллаж байгаа ГУС-ийн сан тул тэнд хэлтэс нь зориуд NULL байгаа ажилтан
+// байж болно — тэднийг seeder дураараа хуваарилах ёсгүй. Ажилтан ↔ хэлтсийн
+// холбоосыг ЗӨВХӨН гараар (API/дэлгэцээс) тохируулна.
 func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -257,45 +256,10 @@ func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
 		return err
 	}
 
-	rows, err := tx.Query(ctx, `
-		SELECT e.employee_id, COALESCE(pos.name, '')
-		FROM sdplatform.hr_employee e
-		JOIN sdplatform.hr_position pos ON pos.position_id = e.position_id
-		WHERE COALESCE(e.is_active, 1) <> 0 AND e.department_id IS NULL`)
-	if err != nil {
-		return err
-	}
-	type pending struct {
-		id       domain.ID
-		position string
-	}
-	var employees []pending
-	for rows.Next() {
-		var e pending
-		if err := rows.Scan(&e.id, &e.position); err != nil {
-			rows.Close()
-			return err
-		}
-		employees = append(employees, e)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, e := range employees {
-		if _, err := tx.Exec(ctx,
-			`UPDATE sdplatform.hr_employee SET department_id = $1, updated_at = NOW()
-			 WHERE employee_id = $2 AND department_id IS NULL`, deptID, e.id); err != nil {
-			return err
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	slog.Info("hr departments seeded",
-		"code", hrSeedDepartment.code, "employees_linked", len(employees))
+	slog.Info("hr departments seeded", "code", hrSeedDepartment.code, "department_id", deptID)
 	return nil
 }
 
@@ -412,45 +376,6 @@ func (s *Seeder) hideGeneratedInternalResourceRoles(ctx context.Context) error {
 	}
 	if stale > 0 {
 		slog.Warn("хуучин үүсмэл роль system 10-д хэвээр байна (seeder устгахгүй)", "roles", stale)
-	}
-	return nil
-}
-
-// SeedExternalValuationOrgUsers — үнэлгээний байгууллагын туршилтын
-// хэрэглэгчид (РОЛЬГҮЙ нэвтрэх эрх).
-//
-// Хандалт нь 000031 seed-ийн үүсгэх valuation_org_employee холбоосоор
-// тогтоогдоно — sdplatform-ийн роль/эрх ЭНД ОНООГДОХГҮЙ.
-//
-// mika / finance_specialist ролиудын эрх (SeedCompensationAccess) нь ҮРГЭЛЖ
-// синк болно; ХЭРЭГЛЭГЧ нь ЗӨВХӨН sd_user хоосон үед л үүснэ (Seed-тэй ижил
-// дүрэм).
-func (s *Seeder) SeedExternalValuationOrgUsers(ctx context.Context) error {
-	if err := s.SeedCompensationAccess(ctx); err != nil {
-		return err
-	}
-	empty, err := s.usersEmpty(ctx)
-	if err != nil {
-		return err
-	}
-	if !empty {
-		slog.Info("гадаад хэрэглэгчийн seed алгасагдав: sd_user хоосон биш")
-		return nil
-	}
-	users := []struct {
-		username string
-		email    string
-		first    string
-		last     string
-	}{
-		{"valuation_org_1", "valuation.org1@example.mn", "Үнэлгээний", "Байгууллага 1"},
-		{"valuation_org_2", "valuation.org2@example.mn", "Үнэлгээний", "Байгууллага 2"},
-		{"valuation_org_3", "valuation.org3@example.mn", "Үнэлгээний", "Байгууллага 3"},
-	}
-	for _, u := range users {
-		if err := s.seedLoginOnlyUser(ctx, u.username, u.email, "Testpass123!", u.first, u.last, domain.ValuationOrgDefaultPosition); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -678,110 +603,45 @@ func seededMultiPartActions() []string {
 	return out
 }
 
-// SeedPermissionDedupe — ensureAction-ы алдаанаас үүссэн давхардсан
-// sd_permission мөрүүдийг нэгтгэнэ.
+// SeedPermissionDedupe — давхардсан sd_permission мөрүүдийг ЗӨВХӨН МЭДЭЭЛНЭ.
 //
-// Шинэ сан дээр "structure:create" 5 удаа (seed алхам болгонд нэг) үүсч, түүнээс
-// улбаалан sd_form_permission болон sd_role_permission ч олшрдог байв. Ажиллах
-// үеийн эрхийн шалгалт DISTINCT ашигладаг тул хандалт буруу болдоггүй, гэхдээ
-// ролийн эрхийн UI-д нэг эрх олон удаа харагдана.
+// Урьд нь энэ алхам давхардлыг нэгтгээд илүү мөрүүдийг УСТГАДАГ байсан
+// (sd_permission, sd_role_permission, sd_form_permission дээр DELETE). authdb нь
+// ажиллаж байгаа ГУС-ийн сан тул seeder тэндээс мөр устгах, эсвэл эрхийн
+// лавлагааг өөр мөр рүү шилжүүлэх ЭРХГҮЙ: нэг ч мөр өөр системийнх байвал тэр
+// системийн эрх чимээгүй алдагдана. Иймд одоо зөвхөн анхааруулга бичнэ —
+// цэвэрлэгээг шаардлагатай бол ГУС-ийн зүгээс гараар хийнэ.
 //
-// Дараалал ЧУХАЛ: эхлээд лавлагаануудыг үлдээх мөр рүү чиглүүлж, дараа нь илүү
-// мөрүүдийг устгана (sd_role_permission нь sd_permission руу ON DELETE CASCADE
-// FK-тай тул эсрэгээр хийвэл олгосон эрх устана).
+// Давхардал үүсэх ҮНДСЭН шалтгаан нь ensureAction дотор аль хэдийн зассан тул
+// шинэ мөр нэмэгдэхээ больсон (тэнд яг нэрээр нь атомаар хайж/нэмдэг болсон).
 func (s *Seeder) SeedPermissionDedupe(ctx context.Context) error {
 	actions := seededMultiPartActions()
 	if len(actions) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin(ctx)
+	rows, err := s.db.Query(ctx, `
+		SELECT name, COUNT(*)
+		FROM sdplatform.sd_permission
+		WHERE name = ANY($1::text[])
+		GROUP BY name
+		HAVING COUNT(*) > 1
+		ORDER BY name`, actions)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rows.Close()
 
-	// dup — устгах мөр бүр → үлдээх мөр (нэр тус бүрийн хамгийн бага id).
-	const dupCTE = `
-		WITH keep AS (
-			SELECT name, MIN(permission_id) AS keep_id
-			FROM sdplatform.sd_permission
-			WHERE name = ANY($1::text[])
-			GROUP BY name
-			HAVING COUNT(*) > 1
-		),
-		dup AS (
-			SELECT p.permission_id AS dup_id, k.keep_id
-			FROM sdplatform.sd_permission p
-			JOIN keep k ON k.name = p.name
-			WHERE p.permission_id <> k.keep_id
-			  -- sdplatform схемийг бусад систем хуваалцдаг: ӨӨР системийн
-			  -- ролид холбогдсон мөрийг давхардал гэж үзэн УСТГАХГҮЙ.
-			  AND NOT EXISTS (
-				SELECT 1
-				FROM sdplatform.sd_role_permission rp
-				JOIN sdplatform.sd_system_role sr
-				  ON sr.role_id = rp.role_id AND sr.system_id <> 10
-				WHERE rp.permission_id = p.permission_id
-			  )
-		)`
-
-	if _, err := tx.Exec(ctx, dupCTE+`
-		UPDATE sdplatform.sd_role_permission rp
-		SET permission_id = dup.keep_id, updated_at = NOW()
-		FROM dup
-		WHERE rp.permission_id = dup.dup_id`, actions); err != nil {
-		return err
+	for rows.Next() {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
+			return err
+		}
+		slog.Warn("sd_permission давхардсан мөртэй байна (seeder устгахгүй)",
+			"name", name, "rows", count)
 	}
-	if _, err := tx.Exec(ctx, dupCTE+`
-		UPDATE sdplatform.sd_form_permission fp
-		SET permission_id = dup.keep_id, updated_at = NOW()
-		FROM dup
-		WHERE fp.permission_id = dup.dup_id`, actions); err != nil {
-		return err
-	}
-
-	// Лавлагаа чиглүүлсний дараа ижил мөрүүд үлдэнэ — эхнийхийг нь үлдээнэ.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM sdplatform.sd_role_permission rp
-		WHERE rp.role_permission_id > (
-			SELECT MIN(other.role_permission_id)
-			FROM sdplatform.sd_role_permission other
-			WHERE other.role_id IS NOT DISTINCT FROM rp.role_id
-			  AND other.permission_id IS NOT DISTINCT FROM rp.permission_id
-			  AND other.menu_id IS NOT DISTINCT FROM rp.menu_id
-		)
-		  AND rp.permission_id IN (
-			SELECT permission_id FROM sdplatform.sd_permission WHERE name = ANY($1::text[])
-		  )`, actions); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM sdplatform.sd_form_permission fp
-		WHERE fp.form_permission_id > (
-			SELECT MIN(other.form_permission_id)
-			FROM sdplatform.sd_form_permission other
-			WHERE other.form_code IS NOT DISTINCT FROM fp.form_code
-			  AND other.permission_id IS NOT DISTINCT FROM fp.permission_id
-		)
-		  AND fp.permission_id IN (
-			SELECT permission_id FROM sdplatform.sd_permission WHERE name = ANY($1::text[])
-		  )`, actions); err != nil {
-		return err
-	}
-
-	tag, err := tx.Exec(ctx, dupCTE+`
-		DELETE FROM sdplatform.sd_permission p
-		USING dup
-		WHERE p.permission_id = dup.dup_id`, actions)
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	slog.Info("duplicate permissions merged", "actions", actions, "removed", tag.RowsAffected())
-	return nil
+	return rows.Err()
 }
 
 // SeedAdminAllPermissions — admin роль-д defaultPermissions-ийн БҮХ эрхийг
@@ -1057,39 +917,5 @@ func (s *Seeder) seedRoleUser(ctx context.Context, level, username, email, passw
 		return err
 	}
 	slog.Info("external user created", "email", email, "level", level)
-	return nil
-}
-
-// seedLoginOnlyUser — РОЛЬГҮЙ нэвтрэх эрх (sd_user мөр).
-//
-// Үнэлгээний байгууллагын ажилтанд хэрэглэнэ: тэдний хандалт нь appdb-ийн
-// valuation_org_employee (000031 seed нь холбоно) дээр тогтдог тул sdplatform-д
-// роль оноох ЯМАР Ч шаардлага байхгүй. Роль оноовол эрхийн эх сурвалж хоёр
-// болж, дотоод маршрут руу санамсаргүй эрх нэмэх эрсдэл гарна.
-func (s *Seeder) seedLoginOnlyUser(ctx context.Context, username, email, password, firstName, lastName, position string) error {
-	if _, err := s.userRepo.GetByEmail(ctx, email); err == nil {
-		// Бүртгэл байна — роль оноох зүйл байхгүй тул хөндөхгүй.
-		return nil
-	}
-	hashed, err := hash.Password(password)
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	user := &domain.User{
-		Username:  username,
-		Email:     email,
-		Password:  hashed,
-		FirstName: firstName,
-		LastName:  lastName,
-		Position:  position,
-		IsActive:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return err
-	}
-	slog.Info("login-only user created (role-гүй)", "email", email)
 	return nil
 }

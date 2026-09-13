@@ -103,20 +103,24 @@ func (s *landService) GetValuationSubmission(ctx context.Context, acquisitionID,
 
 // TransitionValuationSubmission — үнэлгээний илгээх/зөвшөөрөх/буцаах шилжилт.
 //
-// ХАВСРАЛТ (attachment) нь ЗААВАЛ БИШ ба зөвхөн БУЦААХ үед хүлээн авагдана:
-// санхүү үнэлгээг буцаахдаа залруулга шаардсан хуудас, дүнгийн зөрүүг
-// харуулсан хүснэгт зэргийг хавсаргах шаардлагатай болдог. Файл нь ЭХЛЭЭД
-// хадгалалт (MinIO) руу бичигдэж, дараа нь шилжилт хийгдэнэ; шилжилт унавал
-// орфон файл үлдэхгүйн тулд файлыг цэвэрлэнэ.
+// ХАВСРАЛТ (attachment) нь БУЦААХ үед сонголттой, ЦУЦЛАХ үед заавал.
+// Файл нь ЭХЛЭЭД хадгалалт (MinIO) руу бичигдэж, дараа нь шилжилт хийгдэнэ;
+// шилжилт унавал орфон файл үлдэхгүйн тулд файлыг цэвэрлэнэ.
 func (s *landService) TransitionValuationSubmission(
 	ctx context.Context, in domain.ValuationTransition, attachment *ValuationAttachment,
 ) (*domain.ValuationSubmission, error) {
-	// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна — бусад үйлдэлд ирсэн ч хаяна.
-	if attachment != nil && in.Action == "return" {
+	if in.Action == "cancel" && attachment == nil {
+		return nil, domain.ErrValuationCancelAttachmentRequired
+	}
+	if attachment != nil && (in.Action == "return" || in.Action == "cancel") {
 		if s.files == nil {
 			return nil, domain.ErrInternalServer
 		}
-		stored, err := s.files.Save(ctx, "valuation-return", in.ParcelID.String(),
+		bucket := "valuation-return"
+		if in.Action == "cancel" {
+			bucket = "valuation-cancel"
+		}
+		stored, err := s.files.Save(ctx, bucket, in.ParcelID.String(),
 			attachment.Filename, attachment.ContentType, attachment.Data, true)
 		if err != nil {
 			return nil, err
@@ -151,6 +155,10 @@ func (s *landService) TransitionValuationSubmission(
 
 func (s *landService) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {
 	return s.landRepo.ListValuationSubmissionHistory(ctx, acquisitionID, parcelID, valuationType)
+}
+
+func (s *landService) ListValuationSnapshots(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSnapshot, error) {
+	return s.landRepo.ListValuationSnapshots(ctx, acquisitionID, parcelID, valuationType)
 }
 
 func (s *landService) ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error) {

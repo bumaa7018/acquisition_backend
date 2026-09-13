@@ -44,29 +44,98 @@ func (s *landService) notifyAsync(reqCtx context.Context, fn func(ctx context.Co
 	}()
 }
 
-func actorPtr(a actorctx.Actor) *domain.ID {
-	if a.ID == 0 {
+// actorPtrFor — actor нь ЗӨВХӨН ӨӨРИЙН эх сурвалжийн хүлээн авагчдаас
+// хасагдана (notificationService нь ActorID-тай тэнцүү хүлээн авагчийг
+// алгасдаг). ID нь authdb ба appdb хоёрт мөргөлддөг тул өөр эх сурвалж руу
+// дамжуулбал ижил дугаартай ӨӨР хүн мэдэгдлээ авахгүй үлдэнэ.
+func actorPtrFor(a actorctx.Actor, source string) *domain.ID {
+	if a.ID == 0 || a.SourceOrAuth() != source {
 		return nil
 	}
 	id := a.ID
 	return &id
 }
 
-// acquisitionRecipients — чөлөөлөлттэй холбоотой хэрэглэгчид:
+// notifyTargets — мэдэгдэл хүргэх хаягууд. Дотоод ажилтан (sdplatform.sd_user)
+// ба үнэлгээний байгууллага гэсэн ХОЁР эх сурвалж нь тус тусдаа serial
+// дугаартай бөгөөд мөргөлддөг тул ЗААВАЛ тусад нь цуглуулж, тусад нь
+// илгээгдэнэ. БАЙГУУЛЛАГЫН id нь хэрэглэгчийн id БИШ — ажилтнууд руу
+// (OrgUserIDs) задарч байж хүнд хүрнэ.
+type notifyTargets struct {
+	users []domain.ID // sdplatform.sd_user (domain.UserSourceAuth)
+	orgs  []domain.ID // valuation_org.id (domain.UserSourceValuationOrg руу задарна)
+}
+
+func (t *notifyTargets) addUsers(ids ...domain.ID) {
+	for _, id := range ids {
+		if id != 0 {
+			t.users = append(t.users, id)
+		}
+	}
+}
+
+func (t *notifyTargets) addOrgs(ids ...*domain.ID) {
+	for _, id := range ids {
+		if id != nil && *id != 0 {
+			t.orgs = append(t.orgs, *id)
+		}
+	}
+}
+
+func (t *notifyTargets) merge(other notifyTargets) {
+	t.addUsers(other.users...)
+	t.orgs = append(t.orgs, other.orgs...)
+}
+
+// dispatch — цуглуулсан хаягууд руу мэдэгдлийг эх сурвалж тус бүрээр илгээнэ.
+func (s *landService) dispatch(ctx context.Context, actor actorctx.Actor, t notifyTargets, n domain.Notification) {
+	n.ActorName = actor.Name
+	if len(t.users) > 0 {
+		toUsers := n
+		toUsers.ActorID = actorPtrFor(actor, domain.UserSourceAuth)
+		s.notifier.Notify(ctx, t.users, toUsers)
+	}
+	if len(t.orgs) == 0 {
+		return
+	}
+	var employees []domain.ID
+	seen := make(map[domain.ID]struct{}, len(t.orgs))
+	for _, orgID := range t.orgs {
+		if _, dup := seen[orgID]; dup {
+			continue
+		}
+		seen[orgID] = struct{}{}
+		ids, err := s.landRepo.OrgUserIDs(ctx, orgID)
+		if err != nil {
+			slog.Error("notification org employee lookup failed", "org", orgID, "error", err)
+			continue
+		}
+		employees = append(employees, ids...)
+	}
+	if len(employees) == 0 {
+		// Нэвтрэх эрхтэй ажилтангүй байгууллага — мэдэгдэх хүн байхгүй.
+		return
+	}
+	toOrg := n
+	toOrg.ActorID = actorPtrFor(actor, domain.UserSourceValuationOrg)
+	s.notifier.NotifyTo(ctx, domain.UserSourceValuationOrg, employees, toOrg)
+}
+
+// acquisitionRecipients — чөлөөлөлттэй холбоотой хаягууд:
 // хуваарилагдсан ажилтнууд + (сонголтоор) оноогдсон мэргэжлийн байгууллага.
-func (s *landService) acquisitionRecipients(ctx context.Context, acqID uuid.UUID, includeProfOrg bool) []domain.ID {
-	var out []domain.ID
+func (s *landService) acquisitionRecipients(ctx context.Context, acqID uuid.UUID, includeProfOrg bool) notifyTargets {
+	var t notifyTargets
 	if assignees, err := s.landRepo.GetAssignees(ctx, acqID); err == nil {
 		for _, a := range assignees {
-			out = append(out, a.UserID)
+			t.addUsers(a.UserID)
 		}
 	}
 	if includeProfOrg {
-		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil && acq.ProfessionalOrgID != nil {
-			out = append(out, *acq.ProfessionalOrgID)
+		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil {
+			t.addOrgs(acq.ProfessionalOrgID)
 		}
 	}
-	return out
+	return t
 }
 
 // usersByRole — тухайн ролтой бүх идэвхтэй хэрэглэгч (auth DB).
@@ -95,9 +164,7 @@ func (s *landService) notifyAcquisitionStatusChanged(reqCtx context.Context, acq
 		acqID := acq.ID
 		fromLabel := domain.AcquisitionStatusLabels[acq.Status]
 		toLabel := domain.AcquisitionStatusLabels[toStatus]
-		s.notifier.Notify(ctx, s.acquisitionRecipients(ctx, acqID, true), domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, s.acquisitionRecipients(ctx, acqID, true), domain.Notification{
 			Type:          domain.NotifAcquisitionStatus,
 			Title:         "Газар чөлөөлөлтийн статус өөрчлөгдлөө",
 			Body:          fmt.Sprintf("«%s»: %s → %s", acq.AcquisitionName, fromLabel, toLabel),
@@ -120,9 +187,7 @@ func (s *landService) notifyParcelStatusChanged(reqCtx context.Context, acqID, p
 		}
 
 		// 1) Хуваарилагдсан ажилтнуудад — статус шилжилтийн мэдэгдэл.
-		s.notifier.Notify(ctx, s.acquisitionRecipients(ctx, acqID, false), domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, s.acquisitionRecipients(ctx, acqID, false), domain.Notification{
 			Type:          domain.NotifParcelStatus,
 			Title:         "Нэгж талбарын статус өөрчлөгдлөө",
 			Body:          fmt.Sprintf("Талбар %s: шинэ статус «%s»", parcel.ParcelID, parcel.StatusName),
@@ -137,19 +202,15 @@ func (s *landService) notifyParcelStatusChanged(reqCtx context.Context, acqID, p
 		if parcel.StatusID != domain.ParcelStatusEvaluating {
 			return
 		}
-		var orgs []domain.ID
-		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil && acq.ProfessionalOrgID != nil {
-			orgs = append(orgs, *acq.ProfessionalOrgID)
+		var orgs notifyTargets
+		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil {
+			orgs.addOrgs(acq.ProfessionalOrgID)
 		}
-		if parcel.IndependentOrgID != nil {
-			orgs = append(orgs, *parcel.IndependentOrgID)
-		}
-		if len(orgs) == 0 {
+		orgs.addOrgs(parcel.IndependentOrgID)
+		if len(orgs.orgs) == 0 {
 			return
 		}
-		s.notifier.Notify(ctx, orgs, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, orgs, domain.Notification{
 			Type:          domain.NotifValuationRequested,
 			Title:         "Үнэлгээ хийх талбар ирлээ",
 			Body:          fmt.Sprintf("Талбар %s «Үнэлгээ хийх» төлөвт орлоо — үнэлгээгээ оруулна уу", parcel.ParcelID),
@@ -176,7 +237,7 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 		}
 
 		var (
-			recipients []domain.ID
+			recipients notifyTargets
 			nType      string
 			title      string
 			body       string
@@ -186,7 +247,8 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 			nType = domain.NotifValuationSubmitted
 			title = "Үнэлгээ баталгаажуулалт хүлээж байна"
 			body = fmt.Sprintf("Талбар %s: %s илгээгдлээ", parcelCode, typeLabel)
-			recipients = append(s.usersByRole(ctx, "finance_specialist"), s.acquisitionRecipients(ctx, acqID, false)...)
+			recipients.addUsers(s.usersByRole(ctx, "finance_specialist")...)
+			recipients.merge(s.acquisitionRecipients(ctx, acqID, false))
 		case "approve":
 			nType = domain.NotifValuationApproved
 			title = "Үнэлгээ батлагдлаа"
@@ -200,9 +262,7 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 		default:
 			return
 		}
-		s.notifier.Notify(ctx, recipients, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, recipients, domain.Notification{
 			Type:          nType,
 			Title:         title,
 			Body:          body,
@@ -216,14 +276,16 @@ func (s *landService) notifyValuationTransition(reqCtx context.Context, acqID, p
 
 // valuationParticipants — үнэлгээний урсгалд оролцогчид: илгээсэн этгээд,
 // оноогдсон байгууллагууд, хуваарилагдсан ажилтнууд.
-func (s *landService) valuationParticipants(ctx context.Context, acqID, parcelPK uuid.UUID, sub *domain.ValuationSubmission) []domain.ID {
+func (s *landService) valuationParticipants(ctx context.Context, acqID, parcelPK uuid.UUID, sub *domain.ValuationSubmission) notifyTargets {
 	recipients := s.acquisitionRecipients(ctx, acqID, true)
-	if parcel, err := s.landRepo.GetParcelByID(ctx, parcelPK); err == nil && parcel.IndependentOrgID != nil {
-		recipients = append(recipients, *parcel.IndependentOrgID)
+	if parcel, err := s.landRepo.GetParcelByID(ctx, parcelPK); err == nil {
+		recipients.addOrgs(parcel.IndependentOrgID)
 	}
+	// SubmittedBy нь хүний НЭР бичигддэг (дугаар биш) тохиолдол бий — тоо
+	// болж хөрвөвөл дотоод ажилтны ID гэж үзнэ.
 	if sub != nil && sub.SubmittedBy != "" {
 		if submitter, err := parseUserID(sub.SubmittedBy); err == nil {
-			recipients = append(recipients, submitter)
+			recipients.addUsers(submitter)
 		}
 	}
 	return recipients
@@ -234,10 +296,10 @@ func (s *landService) notifyCompensationCreated(reqCtx context.Context, comp *do
 	s.notifyAsync(reqCtx, func(ctx context.Context, actor actorctx.Actor) {
 		acqID := comp.AcquisitionID
 		compID := comp.ID
-		recipients := append(s.usersByRole(ctx, "finance_specialist"), s.acquisitionRecipients(ctx, acqID, false)...)
-		s.notifier.Notify(ctx, recipients, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		var recipients notifyTargets
+		recipients.addUsers(s.usersByRole(ctx, "finance_specialist")...)
+		recipients.merge(s.acquisitionRecipients(ctx, acqID, false))
+		s.dispatch(ctx, actor, recipients, domain.Notification{
 			Type:          domain.NotifCompensationCreated,
 			Title:         "Шинэ нөхөх олговор баталгаажуулалт хүлээж байна",
 			Body:          fmt.Sprintf("Талбар %s: %.0f₮ дүнтэй олговор бүртгэгдлээ", comp.ParcelID, comp.Amount),
@@ -256,7 +318,7 @@ func (s *landService) notifyCompensationReviewed(reqCtx context.Context, acqID, 
 		if comp, err := s.landRepo.GetCompensation(ctx, compID); err == nil {
 			parcelCode = comp.ParcelID
 			if creator, err := parseUserID(comp.CreatedBy); err == nil {
-				recipients = append(recipients, creator)
+				recipients.addUsers(creator)
 			}
 		}
 		title := "Нөхөх олговор батлагдлаа"
@@ -268,9 +330,7 @@ func (s *landService) notifyCompensationReviewed(reqCtx context.Context, acqID, 
 				body += " — " + note
 			}
 		}
-		s.notifier.Notify(ctx, recipients, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, recipients, domain.Notification{
 			Type:          domain.NotifCompensationReview,
 			Title:         title,
 			Body:          body,
@@ -288,22 +348,20 @@ func (s *landService) notifyAssigneesSet(reqCtx context.Context, acqID uuid.UUID
 		for _, a := range previous {
 			prevSet[a.UserID] = struct{}{}
 		}
-		var added []domain.ID
+		var added notifyTargets
 		for _, a := range current {
 			if _, existed := prevSet[a.UserID]; !existed {
-				added = append(added, a.UserID)
+				added.addUsers(a.UserID)
 			}
 		}
-		if len(added) == 0 {
+		if len(added.users) == 0 {
 			return
 		}
 		acqName := ""
 		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil {
 			acqName = acq.AcquisitionName
 		}
-		s.notifier.Notify(ctx, added, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, added, domain.Notification{
 			Type:          domain.NotifAssigneeAdded,
 			Title:         "Танд газар чөлөөлөлт хуваарилагдлаа",
 			Body:          fmt.Sprintf("«%s» чөлөөлөлтөд хариуцагчаар томилогдлоо", acqName),
@@ -321,13 +379,9 @@ func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID,
 	if assignedOrgID == nil {
 		return
 	}
-	orgID := *assignedOrgID
 	s.notifyAsync(reqCtx, func(ctx context.Context, actor actorctx.Actor) {
-		recipients, err := s.landRepo.OrgUserIDs(ctx, orgID)
-		if err != nil || len(recipients) == 0 {
-			// Нэвтрэх эрхтэй ажилтангүй байгууллага — мэдэгдэх хүн байхгүй.
-			return
-		}
+		var recipients notifyTargets
+		recipients.addOrgs(assignedOrgID)
 		acqName := ""
 		if acq, err := s.landRepo.GetByID(ctx, acqID); err == nil {
 			acqName = acq.AcquisitionName
@@ -341,9 +395,7 @@ func (s *landService) notifyOrgAssigned(reqCtx context.Context, acqID uuid.UUID,
 			resourceType = domain.NotifResourceParcel
 			resourceID = parcelPK.String()
 		}
-		s.notifier.Notify(ctx, recipients, domain.Notification{
-			ActorID:       actorPtr(actor),
-			ActorName:     actor.Name,
+		s.dispatch(ctx, actor, recipients, domain.Notification{
 			Type:          domain.NotifOrgAssigned,
 			Title:         title,
 			Body:          body,

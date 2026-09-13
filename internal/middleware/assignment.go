@@ -129,6 +129,16 @@ func GetCallerID(c *gin.Context) (domain.ID, bool) {
 	return id, ok
 }
 
+// GetCallerSource — дуудагчийн бүртгэл аль санд байгаа (domain.UserSource*).
+// Тэмдэггүй (хуучин) токен бол "auth".
+func GetCallerSource(c *gin.Context) string {
+	raw, _ := c.Get(CtxUserSource)
+	if s, ok := raw.(string); ok && s != "" {
+		return s
+	}
+	return domain.UserSourceAuth
+}
+
 // GetCallerOrgID — контекстоос хэрэглэгчийн ХАРЬЯА байгууллагын ID авна.
 // Ажилтны бүртгэлгүй (иймд байгууллагад харьяалагдаагүй) хэрэглэгчид ok=false.
 func GetCallerOrgID(c *gin.Context) (domain.ID, bool) {

@@ -122,8 +122,9 @@ reset-db:
 logs:
 	$(FULL_COMPOSE) logs -f
 
+# Migration + startup seeder-ийг ажиллуулаад гарна (HTTP сервер асахгүй).
 seed:
-	go run $(CMD) -seed-only 2>/dev/null || go run $(CMD) &
+	CGO_ENABLED=0 go run $(CMD) -seed-only
 
 seed-admin-example:
 	CGO_ENABLED=0 go run ./cmd/seed-sql -db auth scripts/seed_admin_example_admin_role.sql

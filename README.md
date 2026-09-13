@@ -100,8 +100,56 @@ make migrate-down
 make up             # docker compose build/up + dangling cleanup
 make down
 make logs
+make seed           # migration + startup seeder ажиллуулаад гарах (сервер асаахгүй)
+make reset-db       # appdb-г цоо шинэ болгох (доорхыг УНШ)
 make deploy         # git pull + docker build/up + dangling cleanup
 ```
+
+## Өгөгдлийн сан цэвэрлэх
+
+### `make reset-db` — аппын санг шинэчлэх (АЮУЛГҮЙ)
+
+`scripts/reset_databases.sh`: api-г зогсоож → **`appdb`-г `DROP` + `CREATE`** →
+api-г асааж migration + startup seeder ажиллуулна → лавлах өгөгдлийг шалгана.
+
+**`authdb` (sdplatform) хөндөгдөхгүй** — байхгүй бол л үүсгэнэ. Тэр холболт жинхэнэ
+sdplatform сан руу залгагддаг тул хүснэгт/өгөгдлийг нь устгах хориотой.
+
+Дараа нь appdb-д ЮУ БАЙХ вэ:
+
+| Ордог | Орохгүй |
+|---|---|
+| Бүх хүснэгтийн бүтэц (baseline + миграцууд) | `parcel`, `land_acquisition`, `compensation`, `document`, `plan`, `asset*` — **0 мөр** |
+| `parcel_status` 6, `document_type` 30, `acquisition_category` 12 | Demo/жишээ бизнес дата (seeder үүсгэдэггүй) |
+| `construction_type` 7, `asset_spec_type` 8, `asset_calc_type` 10 | |
+| `decision_work_type` 5, `decision_budget` 5 | |
+| `valuation_org_profile` 1-3 (authdb-д харгалзах хэрэглэгч байвал) | |
+
+**Хэрэглэгч дахин үүсэхгүй.** `admin`/`employee`/`finance`/`prof_org` зэрэг нь
+`sdplatform.sd_user` хүснэгт **бүрэн хоосон** үед л seed хийгддэг. authdb устдаггүй
+тул хуучин нэвтрэх мэдээлэл хэвээрээ ажиллана. Роль, эрх, цэс нь дутуу бол нөхөгдөнө.
+
+**Мөн цэвэрлэгддэггүй:** MinIO дахь файлууд (баримт, зураг, ортофото) — тэднийг заасан
+appdb мөр устсан тул өнчин файл болно; локал `uploads/`, GeoServer давхарга, Grafana лог.
+
+**GeoServer-ийн view-ууд дахин үүснэ.** `v_parcel_public`, `v_parcel_s0..s5`,
+`v_acquisition_*`, `v_plan_acquisition`, `v_parcel_acquisition` нь
+`migrations/main/000027_geoserver_views`-д тодорхойлогдсон тул миграц ажиллахад
+автоматаар сэргэнэ — `government-geoserver` репог дахин ажиллуулах шаардлагагүй.
+Скрипт төгсгөлдөө тэдгээрийг байгаа эсэхийг шалгаж, дутвал алдаа өгнө.
+
+```bash
+make reset-db                 # бүрэн
+SKIP_BUILD=1 make reset-db    # api image дахин build хийхгүй (хурдан)
+```
+
+### `make reset` — БҮГДИЙГ устгана (АНХААР)
+
+`docker compose down -v` тул `postgres_data` **ба** `minio_data` volume устна:
+appdb, **authdb (sdplatform)**, кластерын бүх сан болон байршуулсан бүх файл арчигдана.
+
+> Жинхэнэ sdplatform өгөгдлийн санд холбогдсон үед энэ командыг **ОГТ хэрэглэхгүй**.
+> Аппын санг л шинэчлэх бол `make reset-db`.
 
 ## Auto Deploy
 

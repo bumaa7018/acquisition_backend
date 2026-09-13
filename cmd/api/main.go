@@ -21,6 +21,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -48,6 +49,12 @@ import (
 )
 
 func main() {
+	// -seed-only — миграц + startup seeder-ийг ажиллуулаад HTTP сервер
+	// АСААХГҮЙГЭЭР гарна (`make seed`). Сан бэлдэх ажлыг серверийн
+	// амьдралын мөчлөгөөс салгаж, скриптээс дуудахад тохиромжтой.
+	seedOnly := flag.Bool("seed-only", false, "migration + seed ажиллуулаад гарах (HTTP сервер асаахгүй)")
+	flag.Parse()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	cfg, err := config.Load()
@@ -129,12 +136,18 @@ func main() {
 	// Үнэлгээний байгууллагын identity/profile нь mainDB-ийн app-owned
 	// valuation_org_profile хүснэгтэд байна. sdplatform-ийн ердийн HR лавлах
 	// энэ бүртгэлийн эх сурвалж биш.
-	// Байгууллага/ажилтан mainDB-д, нэвтрэх эрх (sd_user) authDB-д тул хоёулаа.
-	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB, authDB)
-	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo)
+	// Байгууллага, ажилтан БОЛОН тэдний нэвтрэх эрх БҮГД mainDB-д — эдгээр
+	// хэрэглэгч sdplatform-д бүртгэгддэггүй (000024 миграцыг үз).
+	valuationOrgRepo := postgres.NewValuationOrgRepo(mainDB)
+	// Хоёр дахь нэвтрэлтийн эх сурвалж: appdb дээрх үнэлгээний байгууллагын
+	// ажилтан. Токенд `src` тэмдэг бичигдэж, ID мөргөлдөхөөс хамгаална.
+	valuationOrgLoginRepo := postgres.NewValuationOrgLoginRepo(mainDB)
+	authSvc := service.NewAuthService(userRepo, pwdResetRepo, jwtManager, emailSender, cfg.Email.ResetURL, revokedTokenRepo, valuationOrgLoginRepo)
 	// Нууц үг сэргээх зэргээр хүчингүй болсон токеныг хүсэлт бүрт шалгана.
 	jwtManager.SetSessionValidator(userRepo)
-	userSvc := service.NewUserService(userRepo, hrRepo)
+	// valuationOrgLoginRepo — `/users/me` нь appdb дээрх хэрэглэгчийг ч
+	// шийдэх ёстой (эс бөгөөс 404 эсвэл өөр хүний бүртгэл буцна).
+	userSvc := service.NewUserService(userRepo, hrRepo, valuationOrgLoginRepo)
 	roleSvc := service.NewRoleService(roleRepo)
 	menuSvc := service.NewMenuService(menuRepo, roleRepo)
 	permSvc := service.NewPermissionService(permRepo)
@@ -274,6 +287,11 @@ func main() {
 	}); err != nil {
 		slog.Error("startup seed failed", "error", err)
 		os.Exit(1)
+	}
+
+	if *seedOnly {
+		slog.Info("seed-only горим: migration + seed дууслаа, сервер асаахгүй")
+		return
 	}
 
 	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, externalAPIKeys)

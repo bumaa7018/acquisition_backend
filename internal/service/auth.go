@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -22,7 +23,10 @@ import (
 // тул аккаунтыг зөвхөн эрх бүхий ажилтан UserService.Create (`users:create`)
 // -ээр үүсгэнэ.
 type AuthService interface {
+	// Login — дотоод хэрэглэгч (authdb). LoginProfessionalOrg-оос ТУСДАА.
 	Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error)
+	// LoginProfessionalOrg — мэргэжлийн байгууллагын ажилтан (appdb).
+	LoginProfessionalOrg(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error)
 	Logout(ctx context.Context, accessToken, refreshToken string) error
 	ForgotPassword(ctx context.Context, emailAddr string) error
@@ -35,7 +39,14 @@ type LoginRequest struct {
 }
 
 type authService struct {
-	userRepo            repository.UserRepository
+	userRepo repository.UserRepository
+	// loginSources — нэвтрэлт шалгах эх сурвалжууд, ДАРААЛАЛТАЙ.
+	//
+	// [0] нь ҮРГЭЛЖ authdb (sd_user). Дараа нь appdb дээрх бүртгэлүүд
+	// (үнэлгээний байгууллагын ажилтан). Хоёр сангийн user_id мөргөлддөг тул
+	// олдсон эх сурвалжийн тэмдэг токенд бичигдэж, дараагийн бүх лавлагаа
+	// ТЭР тэмдгээр чиглүүлэгдэнэ (sourceFor-ыг үз).
+	loginSources        []repository.LoginUserRepository
 	pwdResetRepo        repository.PasswordResetRepository
 	tokenRevocationRepo repository.TokenRevocationRepository
 	jwtManager          *jwt.Manager
@@ -53,15 +64,20 @@ func NewAuthService(
 	optionalRepos ...any,
 ) AuthService {
 	var revocationRepo repository.TokenRevocationRepository
+	// authdb ҮРГЭЛЖ эхэнд — өмнөх зан төлөв хэвээр үлдэнэ.
+	sources := []repository.LoginUserRepository{userRepo}
 	for _, repo := range optionalRepos {
 		switch v := repo.(type) {
 		case repository.TokenRevocationRepository:
 			revocationRepo = v
 			jwtManager.SetRevocationChecker(revocationRepo)
+		case repository.LoginUserRepository:
+			sources = append(sources, v)
 		}
 	}
 	return &authService{
 		userRepo:            userRepo,
+		loginSources:        sources,
 		pwdResetRepo:        pwdResetRepo,
 		tokenRevocationRepo: revocationRepo,
 		jwtManager:          jwtManager,
@@ -112,9 +128,12 @@ var externalOrgRoles = map[string]bool{
 }
 
 // orgContextFor — токены org_id БОЛОН `valuation_org` тэмдэг.
-func (s *authService) orgContextFor(ctx context.Context, roles []string, userID domain.ID) (*domain.ID, bool) {
+//
+// Лавлагаа нь хэрэглэгчийг ОЛСОН эх сурвалжаар явна: хоёр сангийн user_id
+// мөргөлддөг тул өөр репогоор асуувал өөр хүний байгууллага гарч ирнэ.
+func (s *authService) orgContextFor(ctx context.Context, src repository.LoginUserRepository, roles []string, userID domain.ID) (*domain.ID, bool) {
 	// 1. Үнэлгээний байгууллагын ажилтан — роль үл хамаарна.
-	orgID, err := s.userRepo.ValuationOrgIDForUser(ctx, userID)
+	orgID, err := src.ValuationOrgIDForUser(ctx, userID)
 	if err != nil {
 		slog.Warn("valuation org lookup for token failed", "user_id", userID, "error", err)
 	} else if orgID != nil {
@@ -132,7 +151,7 @@ func (s *authService) orgContextFor(ctx context.Context, roles []string, userID 
 	if !external {
 		return nil, false
 	}
-	orgID, err = s.userRepo.OrgIDForUser(ctx, userID)
+	orgID, err = src.OrgIDForUser(ctx, userID)
 	if err != nil {
 		slog.Warn("org lookup for token failed", "user_id", userID, "error", err)
 		return nil, false
@@ -140,15 +159,37 @@ func (s *authService) orgContextFor(ctx context.Context, roles []string, userID 
 	return orgID, false
 }
 
+// Login — ДОТООД нэвтрэлт: хэрэглэгчийг ЗӨВХӨН authdb (sdplatform.sd_user)
+// -аас шалгана. Мэргэжлийн байгууллага энд нэвтрэхгүй.
 func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
+	return s.loginFrom(ctx, req, domain.UserSourceAuth)
+}
+
+// LoginProfessionalOrg — МЭРГЭЖЛИЙН БАЙГУУЛЛАГЫН нэвтрэлт: ЗӨВХӨН appdb-ийн
+// valuation_org_employee-ээс шалгана.
+//
+// Хоёр урсгалыг САЛГАСАН шалтгаан: бүртгэл нь өөр санд, өөр бүтэцтэй бөгөөд
+// user_id нь хоёр санд МӨРГӨЛДДӨГ. Нэг эндпойнтоос "эхлээд тэндээс, олдохгүй
+// бол наанаас" гэж хайвал нэг сангийн хэрэглэгчийн нэр нөгөөгийнхийг
+// халхалж, аль бүртгэлээр нэвтэрснийг таамаглах боломжтой болно.
+func (s *authService) LoginProfessionalOrg(ctx context.Context, req LoginRequest) (*jwt.TokenPair, error) {
+	return s.loginFrom(ctx, req, domain.UserSourceValuationOrg)
+}
+
+func (s *authService) loginFrom(ctx context.Context, req LoginRequest, source string) (*jwt.TokenPair, error) {
 	// Brute-force хамгаалалт: цонхонд хэт олон амжилтгүй оролдлого хийсэн бол
 	// нууц үг зөв эсэхийг ч шалгалгүй 429 буцаана (username-ээр, IP-ээс хамааралгүй).
 	if s.loginLimiter.blocked(req.Username) {
 		return nil, domain.ErrTooManyRequests
 	}
-	user, sourceRepo, err := s.findLoginUser(ctx, req.Username)
+	sourceRepo := s.sourceFor(source)
+	if sourceRepo == nil {
+		// Тухайн эх сурвалж холбогдоогүй (жишээ нь appdb репо өгөгдөөгүй).
+		return nil, domain.ErrInvalidCredentials
+	}
+	user, err := sourceRepo.GetActiveByLogin(ctx, req.Username)
 	if err != nil {
-		if err == domain.ErrNotFound {
+		if errors.Is(err, domain.ErrNotFound) {
 			s.loginLimiter.recordFailure(req.Username)
 			return nil, domain.ErrInvalidCredentials
 		}
@@ -172,11 +213,12 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 	if err != nil {
 		return nil, err
 	}
-	orgID, isValuationOrg := s.orgContextFor(ctx, roles, user.ID)
+	orgID, isValuationOrg := s.orgContextFor(ctx, sourceRepo, roles, user.ID)
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:           user.ID,
 		OrgID:        orgID,
 		ValuationOrg: isValuationOrg,
+		Source:       sourceRepo.Source(),
 		Username:     user.Username,
 		Email:        user.Email,
 		FullName:     strings.TrimSpace(user.FirstName + " " + user.LastName),
@@ -200,24 +242,33 @@ func (s *authService) Login(ctx context.Context, req LoginRequest) (*jwt.TokenPa
 // `login` нь имэйл байх ШААРДЛАГАГҮЙ — "user0101010" гэх мэт энгийн нэр ч
 // хүчинтэй. Хайлт нь ЗӨВХӨН ИДЭВХТЭЙ хэрэглэгчийг олдог тул идэвхгүй бүртгэл
 // "олдсонгүй" болж, гаднаас бүртгэл байгаа эсэхийг таамаглах боломжгүй болно.
-func (s *authService) findLoginUser(ctx context.Context, login string) (*domain.User, repository.UserRepository, error) {
-	// Хэрэглэгч ЗӨВХӨН authdb-д байна (sdplatform схем appdb-д үүсэхгүй) тул
-	// эх сурвалж нэг — өөр сан рүү fallback хийхгүй. Ингэснээр хоёр сангийн
-	// serial4 ID мөргөлдөж өөр хүний бүртгэл рүү унах эрсдэл байхгүй.
-	user, err := s.userRepo.GetActiveByLogin(ctx, login)
-	if err != nil {
-		return nil, nil, err
+// sourceFor — эх сурвалжийн тэмдэгт (токены `src`, эсвэл нэвтрэх урсгалын
+// төрөл) харгалзах репо.
+//
+// Танигдаагүй тэмдэг бол ОГТ fallback хийхгүй: буруу санд хайвал өөр хүний
+// бүртгэл рүү унах эрсдэлтэй.
+func (s *authService) sourceFor(name string) repository.LoginUserRepository {
+	if name == "" {
+		name = domain.UserSourceAuth
 	}
-	return user, s.userRepo, nil
+	for _, src := range s.loginSources {
+		if src.Source() == name {
+			return src
+		}
+	}
+	return nil
 }
 
-func (s *authService) getUserForToken(ctx context.Context, userID domain.ID) (*domain.User, repository.UserRepository, error) {
-	// Токен дахь ID нь ЗӨВХӨН authdb-ийн хэрэглэгчийг заана.
-	user, err := s.userRepo.GetByID(ctx, userID)
+func (s *authService) getUserForToken(ctx context.Context, source string, userID domain.ID) (*domain.User, repository.LoginUserRepository, error) {
+	src := s.sourceFor(source)
+	if src == nil {
+		return nil, nil, domain.ErrInvalidToken
+	}
+	user, err := src.GetByID(ctx, userID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return user, s.userRepo, nil
+	return user, src, nil
 }
 
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*jwt.TokenPair, error) {
@@ -225,7 +276,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
-	user, sourceRepo, err := s.getUserForToken(ctx, claims.UserID)
+	user, sourceRepo, err := s.getUserForToken(ctx, claims.UserSource(), claims.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,11 +292,12 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 	if err != nil {
 		return nil, err
 	}
-	orgID, isValuationOrg := s.orgContextFor(ctx, roles, user.ID)
+	orgID, isValuationOrg := s.orgContextFor(ctx, sourceRepo, roles, user.ID)
 	tokens, err := s.jwtManager.GenerateTokenPair(jwt.UserInfo{
 		ID:           user.ID,
 		OrgID:        orgID,
 		ValuationOrg: isValuationOrg,
+		Source:       sourceRepo.Source(),
 		Username:     user.Username,
 		Email:        user.Email,
 		FullName:     strings.TrimSpace(user.FirstName + " " + user.LastName),

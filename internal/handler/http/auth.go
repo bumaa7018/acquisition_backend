@@ -1,11 +1,13 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"acquisition_backend/internal/pkg/i18n"
+	jwtpkg "acquisition_backend/internal/pkg/jwt"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
@@ -45,7 +47,9 @@ type resetPasswordRequest struct {
 }
 
 // Login godoc
-// @Summary      Login
+// @Summary      Login (дотоод хэрэглэгч)
+// @Description  ЗӨВХӨН authdb (sdplatform.sd_user)-ээс шалгана. Мэргэжлийн
+// @Description  байгууллага /auth/prof/login-ээр нэвтэрнэ.
 // @Tags         Auth
 // @Accept       json
 // @Produce      json
@@ -55,6 +59,28 @@ type resetPasswordRequest struct {
 // @Failure      401  {object}  response.Response
 // @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
+	h.login(c, h.authSvc.Login)
+}
+
+// LoginProfessionalOrg godoc
+// @Summary      Login (мэргэжлийн байгууллага)
+// @Description  ЗӨВХӨН appdb-ийн valuation_org_employee-ээс шалгана. Дотоод
+// @Description  хэрэглэгч энд нэвтрэхгүй.
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        body body loginBody true "Login credentials"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      401  {object}  response.Response
+// @Router       /auth/prof/login [post]
+func (h *AuthHandler) LoginProfessionalOrg(c *gin.Context) {
+	h.login(c, h.authSvc.LoginProfessionalOrg)
+}
+
+// login — хоёр нэвтрэх урсгалын нийтлэг хэсэг. Ялгаа нь ЗӨВХӨН аль сангаас
+// хэрэглэгч хайхад л байгаа тул үлдсэнийг давхардуулахгүй.
+func (h *AuthHandler) login(c *gin.Context, do func(context.Context, service.LoginRequest) (*jwtpkg.TokenPair, error)) {
 	var req loginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.AbortValidation(c, err)
@@ -64,7 +90,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		response.AbortValidation(c, err)
 		return
 	}
-	tokens, err := h.authSvc.Login(c.Request.Context(), service.LoginRequest{
+	tokens, err := do(c.Request.Context(), service.LoginRequest{
 		Username: req.Username,
 		Password: req.Password,
 	})

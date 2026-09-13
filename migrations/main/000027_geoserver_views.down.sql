@@ -1,0 +1,11 @@
+DROP VIEW IF EXISTS public.v_parcel_public;
+DROP VIEW IF EXISTS public.v_parcel_s5;
+DROP VIEW IF EXISTS public.v_parcel_s4;
+DROP VIEW IF EXISTS public.v_parcel_s3;
+DROP VIEW IF EXISTS public.v_parcel_s2;
+DROP VIEW IF EXISTS public.v_parcel_s1;
+DROP VIEW IF EXISTS public.v_parcel_s0;
+DROP VIEW IF EXISTS public.v_parcel_acquisition;
+DROP VIEW IF EXISTS public.v_plan_acquisition;
+DROP VIEW IF EXISTS public.v_acquisition_plan;
+DROP VIEW IF EXISTS public.v_acquisition_boundary;

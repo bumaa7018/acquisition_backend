@@ -96,6 +96,12 @@ verify_database() {
     -c "SELECT current_database(), version, dirty FROM schema_migrations;"
 }
 
+# verify_main_reference_data — appdb-д ЗӨВХӨН аппын лавлахууд байна.
+#
+# sdplatform / codelists схемүүд appdb-д ҮҮСДЭГГҮЙ (migrations/main-д CREATE SCHEMA
+# байхгүй; internal/seed/seed.go-ийн Seeder коммент мөн үүнийг хэлнэ) — тэдгээрийг
+# энд шалгавал цоо шинэ санд "relation does not exist" гээд ON_ERROR_STOP-оор
+# скрипт унана. Тэр шалгалтууд verify_auth_reference_data дотор authdb дээр байгаа.
 verify_main_reference_data() {
   local pg_container="$1"
 
@@ -109,10 +115,7 @@ WITH checks(name, rows, min_rows) AS (
     ('asset_spec_type',            (SELECT COUNT(*) FROM asset_spec_type), 1),
     ('asset_calc_type',            (SELECT COUNT(*) FROM asset_calc_type), 1),
     ('decision_work_type',         (SELECT COUNT(*) FROM decision_work_type), 1),
-    ('decision_budget',            (SELECT COUNT(*) FROM decision_budget), 1),
-    ('sdplatform.sd_system',       (SELECT COUNT(*) FROM sdplatform.sd_system WHERE system_id = 10), 1),
-    ('sdplatform.sd_role',         (SELECT COUNT(*) FROM sdplatform.sd_role), 1),
-    ('sdplatform.sd_permission',   (SELECT COUNT(*) FROM sdplatform.sd_permission), 1)
+    ('decision_budget',            (SELECT COUNT(*) FROM decision_budget), 1)
 ),
 missing AS (
   SELECT string_agg(name || '=' || rows || ' < ' || min_rows, ', ') AS message
@@ -135,10 +138,7 @@ BEGIN
       ('asset_spec_type',            (SELECT COUNT(*) FROM asset_spec_type), 1),
       ('asset_calc_type',            (SELECT COUNT(*) FROM asset_calc_type), 1),
       ('decision_work_type',         (SELECT COUNT(*) FROM decision_work_type), 1),
-      ('decision_budget',            (SELECT COUNT(*) FROM decision_budget), 1),
-      ('sdplatform.sd_system',       (SELECT COUNT(*) FROM sdplatform.sd_system WHERE system_id = 10), 1),
-      ('sdplatform.sd_role',         (SELECT COUNT(*) FROM sdplatform.sd_role), 1),
-      ('sdplatform.sd_permission',   (SELECT COUNT(*) FROM sdplatform.sd_permission), 1)
+      ('decision_budget',            (SELECT COUNT(*) FROM decision_budget), 1)
   )
   SELECT string_agg(name || '=' || rows || ' < ' || min_rows, ', ')
     INTO missing
@@ -147,6 +147,54 @@ BEGIN
 
   IF missing IS NOT NULL THEN
     RAISE EXCEPTION 'required main reference data missing: %', missing;
+  END IF;
+END $$;
+SQL
+}
+
+# verify_geoserver_views — GeoServer-ийн давхаргууд унших view-ууд байгаа эсэх.
+#
+# View-уудыг migrations/main/000027_geoserver_views үүсгэнэ. Тэд байхгүй бол
+# газрын зураг ЧИМЭЭГҮЙ хоосон болдог (GeoServer нь өөрийн каталогид давхаргаа
+# хэвээр барьдаг тул алдаа нь зөвхөн WMS хүсэлт бүрийн лог дотор л гарна).
+# Иймд reset хийх мөчид ШУУД барина.
+verify_geoserver_views() {
+  local pg_container="$1"
+
+  echo "GeoServer view-ууд шалгаж байна..."
+  docker exec -i "$pg_container" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$DB_NAME" <<'SQL'
+WITH expected(name) AS (
+  VALUES
+    ('v_acquisition_boundary'), ('v_acquisition_plan'), ('v_plan_acquisition'),
+    ('v_parcel_acquisition'),
+    ('v_parcel_s0'), ('v_parcel_s1'), ('v_parcel_s2'),
+    ('v_parcel_s3'), ('v_parcel_s4'), ('v_parcel_s5'),
+    ('v_parcel_public')
+)
+SELECT e.name,
+       (to_regclass('public.' || e.name) IS NOT NULL) AS exists
+FROM expected e
+ORDER BY e.name;
+
+DO $$
+DECLARE
+  missing text;
+BEGIN
+  WITH expected(name) AS (
+    VALUES
+      ('v_acquisition_boundary'), ('v_acquisition_plan'), ('v_plan_acquisition'),
+      ('v_parcel_acquisition'),
+      ('v_parcel_s0'), ('v_parcel_s1'), ('v_parcel_s2'),
+      ('v_parcel_s3'), ('v_parcel_s4'), ('v_parcel_s5'),
+      ('v_parcel_public')
+  )
+  SELECT string_agg(name, ', ')
+    INTO missing
+  FROM expected
+  WHERE to_regclass('public.' || name) IS NULL;
+
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'geoserver views missing: %', missing;
   END IF;
 END $$;
 SQL
@@ -233,6 +281,7 @@ compose_full up -d api --wait
 
 verify_database "$DB_NAME" "$PG_CONTAINER"
 verify_main_reference_data "$PG_CONTAINER"
+verify_geoserver_views "$PG_CONTAINER"
 if [[ "$AUTH_DB_NAME" != "$DB_NAME" ]]; then
   verify_auth_reference_data "$PG_CONTAINER"
 fi

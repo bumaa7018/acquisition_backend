@@ -155,6 +155,8 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrValuationReportRequired
 	case domain.ErrStatusAttachmentRequired:
 		return http.StatusUnprocessableEntity, i18n.ErrStatusAttachmentRequired
+	case domain.ErrValuationCancelAttachmentRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrValuationCancelAttachmentRequired
 	case domain.ErrInvalidToken:
 		return http.StatusUnauthorized, i18n.ErrInvalidToken
 	case domain.ErrExpiredToken:

@@ -21,6 +21,12 @@ func (s stageChecker) AcquisitionStatus(context.Context, uuid.UUID) (int, error)
 	return s.status, nil
 }
 
+type lockChecker struct{ locked bool }
+
+func (l lockChecker) IsAcquisitionLocked(context.Context, uuid.UUID) (bool, error) {
+	return l.locked, nil
+}
+
 // "Шинэ" төлөвт нэгж талбартай ажиллах БИЧИХ үйлдлийг (явц солих, үнэлгээ)
 // хаана: тэр шат нь нэгж талбарын бүрдэл хийгддэг ба бүрдэл өөрчлөгдөхөд
 // бичигдсэн өгөгдөл нэгж талбартайгаа хамт устах эрсдэлтэй.
@@ -54,6 +60,43 @@ func TestRequireAcquisitionFieldStage(t *testing.T) {
 				// 423 Locked — "энэ шатанд боломжгүй" гэдгийг frontend ялгаж таних.
 				require.Equal(t, http.StatusLocked, w.Code, w.Body.String())
 			}
+		})
+	}
+}
+
+func TestRequireAcquisitionNotLockedBlocksValuationStatusWhenAcquisitionConfirmed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	acqID := uuid.New()
+	parcelID := uuid.New()
+
+	for _, tt := range []struct {
+		name string
+		path string
+	}{
+		{
+			name: "ердийн бичих хүсэлт locked үед хаагдана",
+			path: "/land-acquisitions/" + acqID.String() + "/parcels/" + parcelID.String() + "/status",
+		},
+		{
+			name: "valuation-status post мөн locked үед хаагдана",
+			path: "/land-acquisitions/" + acqID.String() + "/parcels/" + parcelID.String() + "/valuation-status",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			_, engine := gin.CreateTestContext(w)
+			called := false
+			engine.POST("/land-acquisitions/:id/parcels/:parcel_id/status",
+				middleware.RequireAcquisitionNotLocked(lockChecker{locked: true}),
+				func(c *gin.Context) { called = true; c.Status(http.StatusOK) })
+			engine.POST("/land-acquisitions/:id/parcels/:parcel_id/valuation-status",
+				middleware.RequireAcquisitionNotLocked(lockChecker{locked: true}),
+				func(c *gin.Context) { called = true; c.Status(http.StatusOK) })
+
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, tt.path, nil))
+
+			require.False(t, called, "handler дуудагдахгүй")
+			require.Equal(t, http.StatusLocked, w.Code, w.Body.String())
 		})
 	}
 }

@@ -207,10 +207,7 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Шалтгаан заавал бөглөнө"})
 		return
 	}
-	createdBy := "system"
-	if id := contextUserIDString(c); id != "" {
-		createdBy = id
-	}
+	createdBy := contextUserDisplayName(c)
 	err = h.svc.UpdateParcelStatus(c.Request.Context(), domain.ParcelStatusChange{
 		ParcelID:      parcelID,
 		AcquisitionID: acqID,
@@ -246,7 +243,7 @@ func (h *ParcelWorkflowHandler) GetValuationSubmission(c *gin.Context) {
 	response.OK(c, sub)
 }
 
-// TransitionValuationSubmission — submit | approve | return. Бүх шилжилтэд тайлбар шаардлагатай.
+// TransitionValuationSubmission — submit | approve | return | cancel. Бүх шилжилтэд тайлбар шаардлагатай.
 func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -321,22 +318,34 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Тайлбар бичих шаардлагатай"})
 		return
 	}
-	// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна — бусад үйлдэлд ирвэл хаяна
-	// (илгээх дээрх файл буцаалтын хавсралт болж харагдахаас сэргийлнэ).
-	if req.Action != "return" {
-		attachment = nil
-	}
-
-	// Ролийн зохицуулалт: зөвшөөрөх/буцаах = санхүү (эсвэл ахлах); илгээх = мэрг.
-	// байгууллага (эсвэл ахлах), МИКА бол ЗӨВХӨН өөрийн "mika" урсгалыг илгээнэ.
+	// Ролийн зохицуулалт: зөвшөөрөх/буцаах = санхүү (эсвэл ахлах); цуцлах =
+	// санхүү, ахлах эсвэл тухайн чөлөөлөлт дээр ажиллаж буй дотоод ажилтан;
+	// илгээх = мэрг. байгууллага (эсвэл ахлах), МИКА бол ЗӨВХӨН өөрийн "mika"
+	// урсгалыг илгээнэ.
 	isFinance := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү")
-	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	isSenior := ctxHasRole(c, "admin", "Админ", "senior_specialist", "Ахлах мэргэжилтэн")
 	// Үнэлгээний байгууллага — роль БИШ, токены `valuation_org` тэмдгээр.
 	isProf := middleware.IsValuationOrgCaller(c)
 	isMika := ctxHasRole(c, "mika", "МИКА")
 	switch req.Action {
 	case "approve", "return":
 		if !isFinance && !isSenior {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+	case "cancel":
+		isAssigned := false
+		if !isFinance && !isSenior && !isProf && !isMika && !ctxHasRole(c, "professional_org", "Мэргэжлийн байгууллага", "Мэргэжлийн байгуулл...") {
+			if callerID, ok := middleware.GetCallerID(c); ok {
+				assigned, err := h.svc.IsAssigned(c.Request.Context(), acqID, callerID)
+				if err != nil {
+					response.Error(c, err)
+					return
+				}
+				isAssigned = assigned
+			}
+		}
+		if !isFinance && !isSenior && !isAssigned {
 			response.Error(c, domain.ErrForbidden)
 			return
 		}
@@ -350,11 +359,18 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action"})
 		return
 	}
-
-	userID := "system"
-	if id := contextUserIDString(c); id != "" {
-		userID = id
+	// Хавсралт нь буцаалт болон цуцлалтад хамаарна — бусад үйлдэлд ирвэл
+	// хаяна (илгээх дээрх файл буцаалт/цуцлалтын хавсралт болж харагдахаас
+	// сэргийлнэ). Цуцлалтад эрх шалгасны дараа заавал PDF хавсралт шаардана.
+	if req.Action != "return" && req.Action != "cancel" {
+		attachment = nil
 	}
+	if req.Action == "cancel" && attachment == nil {
+		response.Error(c, domain.ErrValuationCancelAttachmentRequired)
+		return
+	}
+
+	userID := contextUserDisplayName(c)
 	sub, err := h.svc.TransitionValuationSubmission(c.Request.Context(), domain.ValuationTransition{
 		AcquisitionID: acqID,
 		ParcelID:      parcelID,
@@ -368,6 +384,28 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 		return
 	}
 	response.OK(c, sub)
+}
+
+func (h *ParcelWorkflowHandler) ListValuationSnapshots(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquisition_id"})
+		return
+	}
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	list, err := h.svc.ListValuationSnapshots(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if list == nil {
+		list = []*domain.ValuationSnapshot{}
+	}
+	response.OK(c, list)
 }
 
 func (h *ParcelWorkflowHandler) ListValuationSubmissionHistory(c *gin.Context) {

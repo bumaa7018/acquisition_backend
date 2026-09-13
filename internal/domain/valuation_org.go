@@ -8,7 +8,7 @@ import "time"
 //
 //	valuation_org_profile  → байгууллага (id, name, регистр, лиценз ...)
 //	valuation_org_employee → ажилтан (org_id → profile.id)
-//	valuation_org_employee.user_id → sdplatform.sd_user (нэвтрэх эрх, заавал бус)
+//	valuation_org_employee.username/password → appdb дээрх нэвтрэх эрх
 //
 // Ажилтныг appdb-д хадгалах нь зориудын шийдэл: sdplatform-ийн HR бүтэц
 // (hr_employee → hr_department → sd_organization) нь байгууллагыг
@@ -18,9 +18,9 @@ import "time"
 // хэзээ ч таарахгүй байв. Ажилтан appdb-д байхад org_id = profile.id болж
 // шууд тулгагдана.
 //
-// sdplatform-д ЗӨВХӨН нэвтрэлтийн мөр (sd_user) нэмэгдэнэ — схемийн бүтэц
-// хөндөгдөхгүй, роль ОНООГДОХГҮЙ (хандалт нь токены `valuation_org` тэмдэг ба
-// аппын allowlist-ээр шийдэгддэг).
+// sdplatform-д ЮУ Ч нэмэхгүй: нэвтрэх эрх нь appdb-ийн ажилтны мөр дээр
+// хадгалагдаж, хандалт нь токены `valuation_org` тэмдэг ба аппын allowlist-ээр
+// шийдэгддэг.
 
 // ValuationOrgDefaultPosition — албан тушаал заагаагүй ажилтны анхдагч тушаал.
 const ValuationOrgDefaultPosition = "Үнэлгээчин"
@@ -105,10 +105,10 @@ type ValuationOrgEmployee struct {
 	Email        string `json:"email"`
 	PositionName string `json:"position_name"`
 
-	// Нэвтрэх эрх — ЗААВАЛ БИШ. Username өгвөл sd_user үүсгэж (эсвэл одоо
-	// байгааг холбож) ажилтныг түүнтэй холбоно; хоосон бол ажилтан зөвхөн
-	// бүртгэлд байх ба системд нэвтрэхгүй. Password нь ЗӨВХӨН шинэ хэрэглэгч
-	// үүсгэх эсвэл нууц үг солиход хэрэглэгдэнэ.
+	// Нэвтрэх эрх — ЗААВАЛ БИШ. Username өгвөл ажилтны appdb мөр дээр
+	// username/password хадгална; хоосон бол ажилтан зөвхөн бүртгэлд байх ба
+	// системд нэвтрэхгүй. Password нь шинэ эрх үүсгэх эсвэл нууц үг солиход
+	// хэрэглэгдэнэ.
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
 }

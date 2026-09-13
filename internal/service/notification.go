@@ -12,17 +12,24 @@ import (
 	"github.com/google/uuid"
 )
 
+// source нь ЗААВАЛ (domain.UserSource*): recipientID нь authdb ба appdb хоёрт
+// мөргөлддөг тул эх сурвалжгүйгээр өөр хэрэглэгчийн мэдэгдэл уншигдана.
 type NotificationService interface {
-	List(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
-	UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error)
-	MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error
-	MarkAllRead(ctx context.Context, recipientID domain.ID) error
+	List(ctx context.Context, source string, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, source string, recipientID domain.ID) (int64, error)
+	MarkRead(ctx context.Context, source string, recipientID domain.ID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, source string, recipientID domain.ID) error
 	// Subscribe — SSE стрийм суваг. Хязгаар хэтэрвэл nil суваг буцаана.
-	Subscribe(userID domain.ID) (<-chan *domain.Notification, func())
+	Subscribe(source string, userID domain.ID) (<-chan *domain.Notification, func())
 	// Notify — мэдэгдлийг олон хүлээн авагчид үүсгэж, DB-д хадгалаад
 	// идэвхтэй SSE холболтууд руу шууд түгээнэ. Actor өөрөө хүлээн авагчдаас
 	// хасагдана, давхардсан хүлээн авагч нэг л мэдэгдэл авна.
+	//
+	// Хүлээн авагчид нь ДОТООД ажилтнууд (domain.UserSourceAuth) — одоогийн
+	// бүх дуудагч ийм. Үнэлгээний байгууллагын ажилтанд мэдэгдэл хүргэх бол
+	// NotifyTo-г эх сурвалжтай нь дуудна.
 	Notify(ctx context.Context, recipients []domain.ID, n domain.Notification)
+	NotifyTo(ctx context.Context, source string, recipients []domain.ID, n domain.Notification)
 }
 
 type notificationService struct {
@@ -34,27 +41,36 @@ func NewNotificationService(repo repository.NotificationRepository, hub *notify.
 	return &notificationService{repo: repo, hub: hub}
 }
 
-func (s *notificationService) List(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
-	return s.repo.ListByRecipient(ctx, recipientID, onlyUnread, page, pageSize)
+func (s *notificationService) List(ctx context.Context, source string, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error) {
+	return s.repo.ListByRecipient(ctx, source, recipientID, onlyUnread, page, pageSize)
 }
 
-func (s *notificationService) UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error) {
-	return s.repo.UnreadCount(ctx, recipientID)
+func (s *notificationService) UnreadCount(ctx context.Context, source string, recipientID domain.ID) (int64, error) {
+	return s.repo.UnreadCount(ctx, source, recipientID)
 }
 
-func (s *notificationService) MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error {
-	return s.repo.MarkRead(ctx, recipientID, id)
+func (s *notificationService) MarkRead(ctx context.Context, source string, recipientID domain.ID, id uuid.UUID) error {
+	return s.repo.MarkRead(ctx, source, recipientID, id)
 }
 
-func (s *notificationService) MarkAllRead(ctx context.Context, recipientID domain.ID) error {
-	return s.repo.MarkAllRead(ctx, recipientID)
+func (s *notificationService) MarkAllRead(ctx context.Context, source string, recipientID domain.ID) error {
+	return s.repo.MarkAllRead(ctx, source, recipientID)
 }
 
-func (s *notificationService) Subscribe(userID domain.ID) (<-chan *domain.Notification, func()) {
-	return s.hub.Subscribe(userID)
+func (s *notificationService) Subscribe(source string, userID domain.ID) (<-chan *domain.Notification, func()) {
+	return s.hub.Subscribe(source, userID)
 }
 
+// Notify — дотоод ажилтнууд руу (domain.UserSourceAuth).
 func (s *notificationService) Notify(ctx context.Context, recipients []domain.ID, n domain.Notification) {
+	s.NotifyTo(ctx, domain.UserSourceAuth, recipients, n)
+}
+
+func (s *notificationService) NotifyTo(ctx context.Context, source string, recipients []domain.ID, n domain.Notification) {
+	if source == "" {
+		source = domain.UserSourceAuth
+	}
+	n.RecipientSource = source
 	// Хүлээн авагчдыг цэвэрлэх: давхардал ба actor-ийг хасна.
 	seen := make(map[domain.ID]struct{}, len(recipients))
 	var rows []*domain.Notification

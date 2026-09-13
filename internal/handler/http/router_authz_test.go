@@ -220,3 +220,50 @@ func TestRouter_FileAuthorize_RequiresReadPermission(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	landSvc.AssertNotCalled(t, "IsAssigned", mock.Anything, mock.Anything, mock.Anything)
 }
+
+// Цуцлалтын PDF (valuation-cancel/<нэгж талбар>/…) нь файлын зөвшөөрөгдсөн
+// namespace-ийн жагсаалтад ороогүй тул шалгалт "танихгүй төрөл" гэж 403
+// буцаадаг байв — хавсралт нь өөрөө нээгддэггүй болно.
+func TestRouter_FileAuthorize_AllowsValuationCancelAttachment(t *testing.T) {
+	parcelID := uuid.New()
+
+	landSvc := &mocks.MockLandService{}
+	landSvc.On("IsAssignedToParcel", mock.Anything, parcelID, domain.ID(86)).Return(true, nil)
+
+	router, jwtManager := authzRouter(t, landSvc)
+	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
+		ID:          domain.ID(86),
+		Username:    "employee",
+		Roles:       []string{"employee"},
+		Permissions: []string{"land:read"},
+	})
+
+	w := authzDo(router, http.MethodGet,
+		"/api/v1/files/authorize?key=valuation-cancel%2F"+parcelID.String()+"%2Fcancel.pdf", token)
+	assert.Equal(t, http.StatusOK, w.Code)
+	landSvc.AssertExpectations(t)
+}
+
+// Үнэлгээ цуцлагдахад олговрын мөр УСТДАГ. Түүхэн snapshot дахь үнэлгээний
+// тайлан руу хандахад эзнийг нь архиваас олох ёстой — эс бөгөөс архивын
+// тайлан бүр 403 болно.
+func TestRouter_FileAuthorize_AllowsArchivedCompensationReport(t *testing.T) {
+	compID, acqID := uuid.New(), uuid.New()
+
+	landSvc := &mocks.MockLandService{}
+	landSvc.On("GetCompensationAcquisition", mock.Anything, compID).Return(acqID, nil)
+	landSvc.On("IsAssigned", mock.Anything, acqID, domain.ID(87)).Return(true, nil)
+
+	router, jwtManager := authzRouter(t, landSvc)
+	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
+		ID:          domain.ID(87),
+		Username:    "employee",
+		Roles:       []string{"employee"},
+		Permissions: []string{"land:read"},
+	})
+
+	w := authzDo(router, http.MethodGet,
+		"/api/v1/files/authorize?key=compensation-report%2F"+compID.String()+"%2Freport.pdf", token)
+	assert.Equal(t, http.StatusOK, w.Code)
+	landSvc.AssertExpectations(t)
+}

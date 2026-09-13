@@ -80,37 +80,38 @@ const (
 	ErrCodeRequired            Key = "code_required"
 
 	// Status errors
-	ErrStatusRequired           Key = "status_required"
-	ErrInvalidStatus            Key = "invalid_status"
-	ErrNotAssigned              Key = "not_assigned"
-	ErrApproved                 Key = "approved_locked"
-	ErrValuationReportRequired  Key = "valuation_report_required"
-	ErrStatusAttachmentRequired Key = "status_attachment_required"
-	ErrAcqLocked                Key = "acq_locked"
-	ErrNonFinalParcels          Key = "non_final_parcels"
-	ErrParcelsNotDiscovered     Key = "parcels_not_discovered"
-	ErrParcelsOverlap           Key = "parcels_overlap"
-	ErrNotFieldStage            Key = "acq_not_field_stage"
-	ErrAssetPhotoRequired       Key = "asset_photo_required"
-	ErrReportBeforeApproval     Key = "report_before_approval"
-	ErrParcelAppNoMissing       Key = "parcel_app_no_missing"
-	ErrParcelOwnedNoPayment     Key = "parcel_owned_no_payment"
-	ErrSourceFileUnavailable    Key = "source_file_unavailable"
-	ErrOwnershipUnavailable     Key = "ownership_unavailable"
-	ErrSurveyFileRequired       Key = "survey_file_required"
-	ErrInvalidEmail             Key = "invalid_email"
-	ErrEmailNotConfigured       Key = "email_not_configured"
-	ErrEmailSendFailed          Key = "email_send_failed"
-	ErrExternalAPIDisabled      Key = "external_api_disabled"
-	ErrExternalFilterRequired   Key = "external_filter_required"
-	ErrRegisterNoRequired       Key = "register_no_required"
-	ErrEMongoliaUnavailable     Key = "emongolia_unavailable"
-	ErrEMongoliaSendFailed      Key = "emongolia_send_failed"
-	ErrBasemapType              Key = "basemap_type"
-	ErrBasemapURL               Key = "basemap_url"
-	ErrBasemapTileURL           Key = "basemap_tile_url"
-	ErrBasemapLayer             Key = "basemap_layer"
-	ErrBasemapExtent            Key = "basemap_extent"
+	ErrStatusRequired                    Key = "status_required"
+	ErrInvalidStatus                     Key = "invalid_status"
+	ErrNotAssigned                       Key = "not_assigned"
+	ErrApproved                          Key = "approved_locked"
+	ErrValuationReportRequired           Key = "valuation_report_required"
+	ErrStatusAttachmentRequired          Key = "status_attachment_required"
+	ErrValuationCancelAttachmentRequired Key = "valuation_cancel_attachment_required"
+	ErrAcqLocked                         Key = "acq_locked"
+	ErrNonFinalParcels                   Key = "non_final_parcels"
+	ErrParcelsNotDiscovered              Key = "parcels_not_discovered"
+	ErrParcelsOverlap                    Key = "parcels_overlap"
+	ErrNotFieldStage                     Key = "acq_not_field_stage"
+	ErrAssetPhotoRequired                Key = "asset_photo_required"
+	ErrReportBeforeApproval              Key = "report_before_approval"
+	ErrParcelAppNoMissing                Key = "parcel_app_no_missing"
+	ErrParcelOwnedNoPayment              Key = "parcel_owned_no_payment"
+	ErrSourceFileUnavailable             Key = "source_file_unavailable"
+	ErrOwnershipUnavailable              Key = "ownership_unavailable"
+	ErrSurveyFileRequired                Key = "survey_file_required"
+	ErrInvalidEmail                      Key = "invalid_email"
+	ErrEmailNotConfigured                Key = "email_not_configured"
+	ErrEmailSendFailed                   Key = "email_send_failed"
+	ErrExternalAPIDisabled               Key = "external_api_disabled"
+	ErrExternalFilterRequired            Key = "external_filter_required"
+	ErrRegisterNoRequired                Key = "register_no_required"
+	ErrEMongoliaUnavailable              Key = "emongolia_unavailable"
+	ErrEMongoliaSendFailed               Key = "emongolia_send_failed"
+	ErrBasemapType                       Key = "basemap_type"
+	ErrBasemapURL                        Key = "basemap_url"
+	ErrBasemapTileURL                    Key = "basemap_tile_url"
+	ErrBasemapLayer                      Key = "basemap_layer"
+	ErrBasemapExtent                     Key = "basemap_extent"
 
 	// Document / file errors
 	ErrFileRequired           Key = "file_required"
@@ -192,37 +193,38 @@ var messages = map[Key][2]string{
 	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},
 	ErrCodeRequired:            {"code параметр шаардлагатай", "code parameter is required"},
 
-	ErrStatusRequired:           {"to_status шаардлагатай", "to_status is required"},
-	ErrInvalidStatus:            {"Буруу статус", "Invalid status"},
-	ErrNotAssigned:              {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
-	ErrApproved:                 {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
-	ErrValuationReportRequired:  {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
-	ErrStatusAttachmentRequired: {"Татгалзсан төлөвт шилжихэд шалтгаанаас гадна хавсралт заавал оруулна.", "An attachment is required to reject the parcel."},
-	ErrAcqLocked:                {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
-	ErrNonFinalParcels:          {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
-	ErrParcelsNotDiscovered:     {"Нэгж талбар татагдаагүй байна. \"Хээрийн судалгаа\" төлөвт шилжихийн тулд чөлөөлөх хилээр нэгж талбаруудыг бүрэн татсан байх шаардлагатай.", "No parcels have been discovered. Discover all parcels within the boundary before moving to field survey."},
-	ErrParcelsOverlap:           {"Нэгж талбарууд хоорондоо байршлаар давхцаж байна. Давхардлыг арилгах хүртэл \"Хээрийн судалгаа\" төлөвт шилжих боломжгүй — нэг газрын нөхөх олговор хоёр удаа бодогдох эрсдэлтэй.", "Parcels overlap each other by location. Resolve the overlaps before moving to field survey."},
-	ErrNotFieldStage:            {"Нэгж талбартай ажиллахын тулд чөлөөлөлт \"Хээрийн судалгаа\" төлөвт байх шаардлагатай.", "Working with parcels requires the acquisition to be in field survey status."},
-	ErrAssetPhotoRequired:       {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
-	ErrReportBeforeApproval:     {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
-	ErrParcelAppNoMissing:       {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
-	ErrParcelOwnedNoPayment:     {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
-	ErrSourceFileUnavailable:    {"Эх системийн файл сервер тохируулагдаагүй тул хавсралтын файлыг харах боломжгүй.", "The source file server is not configured, so the attachment cannot be opened."},
-	ErrOwnershipUnavailable:     {"ХУР системийн холболт тохируулагдаагүй тул УБЕГ-ийн өмчлөлийн мэдээлэл татах боломжгүй.", "The XYP gateway is not configured, so the state ownership registry cannot be fetched."},
-	ErrSurveyFileRequired:       {"Нийгэм, эдийн засгийн судалгааны файлыг (PDF) заавал хавсаргана.", "The socio-economic survey file (PDF) is required."},
-	ErrInvalidEmail:             {"Имэйл хаяг буруу байна.", "The email address is invalid."},
-	ErrEmailNotConfigured:       {"Имэйл серверийн тохиргоо байхгүй тул мэдэгдэл илгээх боломжгүй.", "Email is not configured, so the notice cannot be sent."},
-	ErrEmailSendFailed:          {"Имэйл илгээхэд алдаа гарлаа. Хаягийг шалгаад дахин оролдоно уу.", "Sending the email failed. Check the address and try again."},
-	ErrExternalAPIDisabled:      {"Гадаад системийн API тохируулагдаагүй байна.", "The external system API is not configured."},
-	ErrExternalFilterRequired:   {"parcel_id, acquisition_id эсвэл plan_code шүүлтүүрээс дор хаяж нэгийг заана уу.", "Provide at least one filter: parcel_id, acquisition_id or plan_code."},
-	ErrRegisterNoRequired:       {"Хүлээн авагчийн регистрийн дугаарыг оруулна уу.", "The recipient register number is required."},
-	ErrEMongoliaUnavailable:     {"E-Mongolia-ийн холболт тохируулагдаагүй байна.", "The E-Mongolia gateway is not configured."},
-	ErrEMongoliaSendFailed:      {"E-Mongolia-руу мэдэгдэл илгээхэд алдаа гарлаа.", "Sending the notice to E-Mongolia failed."},
-	ErrBasemapType:              {"Суурь зургийн төрөл xyz (tile), wms эсвэл image байх ёстой.", "Basemap type must be xyz (tile), wms or image."},
-	ErrBasemapURL:               {"Суурь зургийн хаяг http:// эсвэл https://-ээр эхлэх ёстой.", "The basemap URL must start with http:// or https://."},
-	ErrBasemapTileURL:           {"Tile хаягт {x}, {y}, {z} орлуулагч байх ёстой (ж: https://.../{z}/{y}/{x}.png).", "The tile URL must contain {x}, {y} and {z} placeholders."},
-	ErrBasemapLayer:             {"WMS суурь зурагт давхаргын нэр (layers) шаардлагатай.", "A WMS basemap requires a layer name."},
-	ErrBasemapExtent:            {"Зургийн хүрээг (minLon, minLat, maxLon, maxLat) зөв оруулна уу.", "Provide a valid image extent (minLon, minLat, maxLon, maxLat)."},
+	ErrStatusRequired:                    {"to_status шаардлагатай", "to_status is required"},
+	ErrInvalidStatus:                     {"Буруу статус", "Invalid status"},
+	ErrNotAssigned:                       {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
+	ErrApproved:                          {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
+	ErrValuationReportRequired:           {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
+	ErrStatusAttachmentRequired:          {"Татгалзсан төлөвт шилжихэд шалтгаанаас гадна хавсралт заавал оруулна.", "An attachment is required to reject the parcel."},
+	ErrValuationCancelAttachmentRequired: {"Үнэлгээ цуцлахад тайлбар болон PDF хавсралт заавал оруулна.", "A PDF attachment is required to cancel the valuation."},
+	ErrAcqLocked:                         {"Баталгаажсан чөлөөлөлтийн мэдээллийг өөрчлөх боломжгүй", "Confirmed acquisition cannot be modified"},
+	ErrNonFinalParcels:                   {"Бүх нэгж талбар Чөлөөлсөн, Нөлөөллөөс гарсан, Татгалзсан төлөвийн аль нэг болсон байх шаардлагатай.", "All parcels must be Released, Affected out, or Rejected before confirming the acquisition."},
+	ErrParcelsNotDiscovered:              {"Нэгж талбар татагдаагүй байна. \"Хээрийн судалгаа\" төлөвт шилжихийн тулд чөлөөлөх хилээр нэгж талбаруудыг бүрэн татсан байх шаардлагатай.", "No parcels have been discovered. Discover all parcels within the boundary before moving to field survey."},
+	ErrParcelsOverlap:                    {"Нэгж талбарууд хоорондоо байршлаар давхцаж байна. Давхардлыг арилгах хүртэл \"Хээрийн судалгаа\" төлөвт шилжих боломжгүй — нэг газрын нөхөх олговор хоёр удаа бодогдох эрсдэлтэй.", "Parcels overlap each other by location. Resolve the overlaps before moving to field survey."},
+	ErrNotFieldStage:                     {"Нэгж талбартай ажиллахын тулд чөлөөлөлт \"Хээрийн судалгаа\" төлөвт байх шаардлагатай.", "Working with parcels requires the acquisition to be in field survey status."},
+	ErrAssetPhotoRequired:                {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
+	ErrReportBeforeApproval:              {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
+	ErrParcelAppNoMissing:                {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
+	ErrParcelOwnedNoPayment:              {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
+	ErrSourceFileUnavailable:             {"Эх системийн файл сервер тохируулагдаагүй тул хавсралтын файлыг харах боломжгүй.", "The source file server is not configured, so the attachment cannot be opened."},
+	ErrOwnershipUnavailable:              {"ХУР системийн холболт тохируулагдаагүй тул УБЕГ-ийн өмчлөлийн мэдээлэл татах боломжгүй.", "The XYP gateway is not configured, so the state ownership registry cannot be fetched."},
+	ErrSurveyFileRequired:                {"Нийгэм, эдийн засгийн судалгааны файлыг (PDF) заавал хавсаргана.", "The socio-economic survey file (PDF) is required."},
+	ErrInvalidEmail:                      {"Имэйл хаяг буруу байна.", "The email address is invalid."},
+	ErrEmailNotConfigured:                {"Имэйл серверийн тохиргоо байхгүй тул мэдэгдэл илгээх боломжгүй.", "Email is not configured, so the notice cannot be sent."},
+	ErrEmailSendFailed:                   {"Имэйл илгээхэд алдаа гарлаа. Хаягийг шалгаад дахин оролдоно уу.", "Sending the email failed. Check the address and try again."},
+	ErrExternalAPIDisabled:               {"Гадаад системийн API тохируулагдаагүй байна.", "The external system API is not configured."},
+	ErrExternalFilterRequired:            {"parcel_id, acquisition_id эсвэл plan_code шүүлтүүрээс дор хаяж нэгийг заана уу.", "Provide at least one filter: parcel_id, acquisition_id or plan_code."},
+	ErrRegisterNoRequired:                {"Хүлээн авагчийн регистрийн дугаарыг оруулна уу.", "The recipient register number is required."},
+	ErrEMongoliaUnavailable:              {"E-Mongolia-ийн холболт тохируулагдаагүй байна.", "The E-Mongolia gateway is not configured."},
+	ErrEMongoliaSendFailed:               {"E-Mongolia-руу мэдэгдэл илгээхэд алдаа гарлаа.", "Sending the notice to E-Mongolia failed."},
+	ErrBasemapType:                       {"Суурь зургийн төрөл xyz (tile), wms эсвэл image байх ёстой.", "Basemap type must be xyz (tile), wms or image."},
+	ErrBasemapURL:                        {"Суурь зургийн хаяг http:// эсвэл https://-ээр эхлэх ёстой.", "The basemap URL must start with http:// or https://."},
+	ErrBasemapTileURL:                    {"Tile хаягт {x}, {y}, {z} орлуулагч байх ёстой (ж: https://.../{z}/{y}/{x}.png).", "The tile URL must contain {x}, {y} and {z} placeholders."},
+	ErrBasemapLayer:                      {"WMS суурь зурагт давхаргын нэр (layers) шаардлагатай.", "A WMS basemap requires a layer name."},
+	ErrBasemapExtent:                     {"Зургийн хүрээг (minLon, minLat, maxLon, maxLat) зөв оруулна уу.", "Provide a valid image extent (minLon, minLat, maxLon, maxLat)."},
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge:           {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил

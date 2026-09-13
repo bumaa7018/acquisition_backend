@@ -14,7 +14,7 @@ func TestHubPublishReachesSubscriber(t *testing.T) {
 	h := NewHub()
 	userID := domain.ID(42)
 
-	ch, unsub := h.Subscribe(userID)
+	ch, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 	require.NotNil(t, ch)
 	defer unsub()
 
@@ -27,7 +27,7 @@ func TestHubPublishReachesSubscriber(t *testing.T) {
 
 func TestHubPublishSkipsOtherUsers(t *testing.T) {
 	h := NewHub()
-	ch, unsub := h.Subscribe(domain.ID(101))
+	ch, unsub := h.Subscribe(domain.UserSourceAuth, domain.ID(101))
 	require.NotNil(t, ch)
 	defer unsub()
 
@@ -38,7 +38,7 @@ func TestHubPublishSkipsOtherUsers(t *testing.T) {
 func TestHubUnsubscribeClosesChannel(t *testing.T) {
 	h := NewHub()
 	userID := domain.ID(42)
-	ch, unsub := h.Subscribe(userID)
+	ch, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 	require.NotNil(t, ch)
 
 	unsub()
@@ -57,11 +57,11 @@ func TestHubPerUserConnectionLimit(t *testing.T) {
 
 	var cleanups []func()
 	for i := 0; i < maxSubsPerUser; i++ {
-		ch, unsub := h.Subscribe(userID)
+		ch, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 		require.NotNil(t, ch, "connection %d within limit must succeed", i+1)
 		cleanups = append(cleanups, unsub)
 	}
-	over, unsub := h.Subscribe(userID)
+	over, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 	assert.Nil(t, over, "connection over the limit must be rejected")
 	unsub()
 
@@ -69,7 +69,7 @@ func TestHubPerUserConnectionLimit(t *testing.T) {
 		c()
 	}
 	// Хязгаар суллагдсаны дараа дахин холбогдож болно.
-	ch, unsub := h.Subscribe(userID)
+	ch, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 	assert.NotNil(t, ch)
 	unsub()
 }
@@ -77,7 +77,7 @@ func TestHubPerUserConnectionLimit(t *testing.T) {
 func TestHubFullBufferDoesNotBlock(t *testing.T) {
 	h := NewHub()
 	userID := domain.ID(42)
-	ch, unsub := h.Subscribe(userID)
+	ch, unsub := h.Subscribe(domain.UserSourceAuth, userID)
 	require.NotNil(t, ch)
 	defer unsub()
 

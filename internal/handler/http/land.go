@@ -208,9 +208,9 @@ func (h *LandHandler) List(c *gin.Context) {
 	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
 		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
 		filter.Status = domain.LandAcquisitionStatusField
-		// Санхүүд нэмээд: хянуулахаар ИЛГЭЭСЭН үнэлгээтэй нэгж талбартай чөлөөлөлт л
+		// Санхүү илгээсэн үнэлгээг хянана, баталгаажсан үнэлгээг цуцалж болно.
 		if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") {
-			filter.HasSubmittedValuation = true
+			filter.HasReviewableValuation = true
 		}
 	}
 
@@ -1235,7 +1235,7 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 		return
 	}
 
-	changedBy := contextUserIDString(c)
+	changedBy := contextUserDisplayName(c)
 
 	var decreeDate *time.Time
 	if body.DecreeDate != nil && *body.DecreeDate != "" {

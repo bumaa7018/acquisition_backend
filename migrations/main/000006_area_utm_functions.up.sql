@@ -16,7 +16,15 @@
 --   * `round(...)` нь аравтын орон ЗААГААГҮЙ — бүхэл м² болж бөөрөнхийлнө;
 --   * 180-р уртраг дээрх тусгай тохиолдол (base + 60).
 
-CREATE OR REPLACE FUNCTION public.find_utm_srid(p geometry)
+-- ТӨРЛИЙГ ЗААВАЛ `public.geometry` гэж бүтнээр бичнэ (зүгээр `geometry` БИШ).
+--
+-- Миграцууд НЭГ холболт дээр дараалан ажилладаг ба postgis extension нь яг тэр
+-- холболтын дотор, 000001 baseline-д шинээр үүсдэг. Тэр session-ий search_path
+-- дагуух төрлийн хайлт нь extension үүсэхээс өмнөх төлөвөөр кэшлэгдсэн байдаг
+-- тул схемгүй `geometry` нь "type geometry does not exist" гэж унана (цоо шинэ
+-- санд `make reset-db` хийхэд ЯГ энэ алдаа гарч, сан dirty болж байсан).
+-- Схемээр бүтэн заасан нэр search_path-аас хамаарахгүй тул найдвартай.
+CREATE OR REPLACE FUNCTION public.find_utm_srid(p public.geometry)
 RETURNS integer
 LANGUAGE plpgsql
 STABLE
@@ -47,7 +55,7 @@ BEGIN
 END;
 $function$;
 
-CREATE OR REPLACE FUNCTION public.calculate_area_utm(geometry)
+CREATE OR REPLACE FUNCTION public.calculate_area_utm(public.geometry)
 RETURNS double precision
 LANGUAGE plpgsql
 STABLE
@@ -75,7 +83,7 @@ BEGIN
 END;
 $function$;
 
-COMMENT ON FUNCTION public.find_utm_srid(geometry) IS
+COMMENT ON FUNCTION public.find_utm_srid(public.geometry) IS
     'ГУС-ийн base.find_utm_srid-ийн хуулбар — 4326 цэгээс UTM SRID (326xx/327xx).';
-COMMENT ON FUNCTION public.calculate_area_utm(geometry) IS
+COMMENT ON FUNCTION public.calculate_area_utm(public.geometry) IS
     'ГУС-ийн base.calculate_area_utm-ийн хуулбар — UTM проекц дээрх талбай, бүхэл м². Талбайн тооцоог ГУС-тай нэг мөр байлгана.';

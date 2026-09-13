@@ -19,10 +19,11 @@
 -- Хүснэгтүүд: codelists/base/sdplatform схемүүдэд шаардлагатай хүснэгтүүд.
 -- FK хамаарлын дарааллаар бичигдсэн.
 
--- ── extensions_schemas_functions ──────────────────────────────────────────────
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS postgis;
-
+-- ── schemas_functions ─────────────────────────────────────────────────────────
+--
+-- EXTENSION ЭНД БАЙХГҮЙ. authdb нь ажиллаж байгаа сан (sdplatform) тул түүн дээр
+-- шинэ extension суулгахгүй — байгаагаар нь шууд ашиглана. Доорх хүснэгтүүдийн
+-- аль нь ч uuid-ossp / postgis-ийн төрөл, функц хэрэглэдэггүй тул шаардлагагүй.
 CREATE SCHEMA IF NOT EXISTS sdplatform;
 CREATE SCHEMA IF NOT EXISTS base;
 CREATE SCHEMA IF NOT EXISTS codelists;

@@ -19,7 +19,7 @@ SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
+-- pg_dump-ийн `SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -1109,6 +1109,29 @@ CREATE TABLE IF NOT EXISTS public.parcel_valuation_submission_history (
 );
 
 --
+-- Name: parcel_valuation_snapshot; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE IF NOT EXISTS public.parcel_valuation_snapshot (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    acquisition_id uuid NOT NULL,
+    parcel_id character varying(12) NOT NULL,
+    valuation_type text DEFAULT 'asset'::text NOT NULL,
+    submission_id uuid,
+    note text DEFAULT ''::text NOT NULL,
+    cancelled_by text DEFAULT ''::text NOT NULL,
+    cancelled_at timestamp with time zone DEFAULT now() NOT NULL,
+    submitted_by text DEFAULT ''::text NOT NULL,
+    submitted_at timestamp with time zone,
+    reviewed_by text DEFAULT ''::text NOT NULL,
+    reviewed_at timestamp with time zone,
+    land_valuation jsonb DEFAULT '{}'::jsonb NOT NULL,
+    assets jsonb DEFAULT '[]'::jsonb NOT NULL,
+    compensations jsonb DEFAULT '[]'::jsonb NOT NULL,
+    total_amount numeric(20,2) DEFAULT 0 NOT NULL
+);
+
+--
 -- Name: parcel_valuation_submission_history_id_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
@@ -1296,8 +1319,9 @@ ALTER SEQUENCE public.valuation_org_profile_id_seq
 --
 -- Name: valuation_org_employee; Type: TABLE; Schema: public; Owner: -
 --
--- Үнэлгээний байгууллагын ажилтан. user_id нь sdplatform.sd_user.user_id —
--- ӨӨР САН тул гадаад түлхүүр байхгүй. Дэлгэрэнгүйг 000004 миграцад үз.
+-- Үнэлгээний байгууллагын ажилтан. Нэвтрэх эрх нь appdb дээрх
+-- username/password баганад хадгалагдана. user_id нь зөвхөн хуучин
+-- sdplatform.sd_user холбоос.
 --
 
 CREATE SEQUENCE IF NOT EXISTS public.valuation_org_employee_id_seq
@@ -1318,6 +1342,8 @@ CREATE TABLE IF NOT EXISTS public.valuation_org_employee (
     position_name character varying(250) DEFAULT ''::character varying NOT NULL,
     phone character varying(50) DEFAULT ''::character varying NOT NULL,
     email character varying(250) DEFAULT ''::character varying NOT NULL,
+    username character varying(50),
+    "password" character varying(150),
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
@@ -1859,6 +1885,13 @@ ALTER TABLE ONLY public.parcel_valuation_submission_history
 
 ALTER TABLE ONLY public.parcel_valuation_submission
     ADD CONSTRAINT parcel_valuation_submission_pkey PRIMARY KEY (id);
+
+--
+-- Name: parcel_valuation_snapshot parcel_valuation_snapshot_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_valuation_snapshot
+    ADD CONSTRAINT parcel_valuation_snapshot_pkey PRIMARY KEY (id);
 
 --
 -- Name: parcel_workflow parcel_workflow_from_status_id_to_status_id_key; Type: CONSTRAINT; Schema: public; Owner: -
@@ -2574,6 +2607,8 @@ CREATE INDEX IF NOT EXISTS idx_pvs_acq_parcel ON public.parcel_valuation_submiss
 
 CREATE INDEX IF NOT EXISTS idx_pvsh_acq_parcel ON public.parcel_valuation_submission_history USING btree (acquisition_id, parcel_id, created_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_pvsnap_acq_parcel ON public.parcel_valuation_snapshot USING btree (acquisition_id, parcel_id, valuation_type, cancelled_at DESC);
+
 --
 -- Name: idx_revoked_tokens_expires_at; Type: INDEX; Schema: public; Owner: -
 --
@@ -2607,6 +2642,15 @@ CREATE INDEX IF NOT EXISTS idx_valuation_org_employee_org ON public.valuation_or
 --
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_valuation_org_employee_user ON public.valuation_org_employee USING btree (user_id) WHERE (user_id IS NOT NULL AND is_active);
+
+--
+-- Name: uq_valuation_org_employee_username; Type: INDEX; Schema: public; Owner: -
+--
+-- Нэвтрэх нэр ИДЭВХТЭЙ ажилтнуудын дунд давхардахгүй. Идэвхгүй мөр нэрийг
+-- эзэлдэггүй тул ажилтныг хасаад дахин бүртгэхэд саад болохгүй.
+--
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_valuation_org_employee_username ON public.valuation_org_employee USING btree (lower((username)::text)) WHERE (username IS NOT NULL AND is_active);
 
 --
 -- Name: uq_valuation_org_employee_register; Type: INDEX; Schema: public; Owner: -

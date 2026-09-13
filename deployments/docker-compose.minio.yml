@@ -26,7 +26,14 @@ x-logging: &default-logging
 
 services:
   minio:
-    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    # ЯАГААД quay.io, Docker Hub БИШ:
+    # Docker Hub дээрх `minio/minio` нь нэвтрэлт шаарддаг болсон — нэвтрээгүй
+    # (эсвэл өөр бүртгэлтэй) машин дээр `make up` нь
+    #   "pull access denied for minio/minio ... may require 'docker login'"
+    # гэж унадаг ба тэр алдаа compose-ийн БҮХ pull-ыг цуцалдаг тул loki /
+    # promtail / grafana мөн хамт "Error" болж, шалтгаан нь далдарна.
+    # quay.io нь MinIO-гийн албан ёсны нөгөө бүртгэл — ЯГ ИЖИЛ tag, нэвтрэхгүй.
+    image: quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
     command: server /data --console-address ":9001"
     environment:
       TZ: Asia/Ulaanbaatar

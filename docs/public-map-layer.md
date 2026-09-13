@@ -118,6 +118,9 @@ WFS: https://<host>/api/public/geoserver/land/ows
 cd government-geoserver && make config
 ```
 
-- View: `v_parcel_public` (Makefile-ийн [1/4] алхам)
+- View: `v_parcel_public` — **эх нь** `migrations/main/000027_geoserver_views.up.sql`
+  (`make reset-db` бүрд автоматаар дахин үүснэ). `government-geoserver`-ийн
+  Makefile-ийн [1/4] алхам мөн ЯГ ижил тодорхойлолтоор DROP+CREATE хийдэг тул
+  аль нэгийг нь өөрчилвөл НӨГӨӨГ нь мөн засна.
 - Style: `styles/parcel_public.sld` → `land:parcel_public`
 - Давхарга: `land:v_parcel_public`

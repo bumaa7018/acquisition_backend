@@ -36,13 +36,27 @@ type Claims struct {
 	// ҮНЭН үед OrgID нь ҮРГЭЛЖ valuation_org_profile.id байна — өөрөөр хэлбэл
 	// land_acquisition.professional_org_id / parcel.independent_org_id-тай
 	// шууд тулгагдана.
-	ValuationOrg bool     `json:"valuation_org,omitempty"`
-	FirstName    string   `json:"first_name"`
-	LastName     string   `json:"last_name"`
-	Position     string   `json:"position"`
-	Roles        []string `json:"roles"`
-	Permissions  []string `json:"permissions"`
+	ValuationOrg bool `json:"valuation_org,omitempty"`
+	// Source — хэрэглэгчийн бүртгэл АЛЬ САНД байгаа (domain.UserSource*).
+	//
+	// UserID нь хоёр санд мөргөлддөг int32 тул хэрэглэгч хайх бүрд ЭНЭ
+	// талбарыг хамт хэрэглэнэ. Хоосон бол "auth" гэж үзнэ — өмнө олгогдсон,
+	// энэ талбаргүй токенууд хүчинтэй хэвээр үлдэнэ.
+	Source      string   `json:"src,omitempty"`
+	FirstName   string   `json:"first_name"`
+	LastName    string   `json:"last_name"`
+	Position    string   `json:"position"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
 	jwt.RegisteredClaims
+}
+
+// UserSource — тэмдэггүй (хуучин) токеныг "auth" гэж үзнэ.
+func (c *Claims) UserSource() string {
+	if c == nil || c.Source == "" {
+		return domain.UserSourceAuth
+	}
+	return c.Source
 }
 
 type TokenPair struct {
@@ -65,8 +79,11 @@ type RevocationChecker interface {
 
 // SessionValidator — тухайн хэрэглэгчийн токен эх цэгийг шалгаж, нууц үг
 // сэргээх / албадан гаргах үед олгогдсон бүх хуучин токеныг хүчингүй болгоно.
+// source нь ЗААВАЛ — user_token_epoch нь (user_source, user_id)-ээр түлхүүрлэгддэг
+// ба хоёр сангийн user_id мөргөлддөг тул эх сурвалжгүйгээр өөр хэрэглэгчийн эх
+// цэгийг шалгах эрсдэлтэй.
 type SessionValidator interface {
-	IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error)
+	IsSessionValid(ctx context.Context, source string, userID domain.ID, issuedAt time.Time) (bool, error)
 }
 
 func NewManager(accessSecret, refreshSecret string, accessTTL, refreshTTL time.Duration) *Manager {
@@ -91,14 +108,16 @@ type UserInfo struct {
 	OrgID *domain.ID
 	// ValuationOrg — үнэлгээний байгууллагын ажилтан (Claims.ValuationOrg-ийг үз).
 	ValuationOrg bool
-	Username     string
-	Email        string
-	FullName     string
-	FirstName    string
-	LastName     string
-	Position     string
-	Roles        []string
-	Permissions  []string
+	// Source — хэрэглэгчийн эх сурвалж (domain.UserSource*). Хоосон бол "auth".
+	Source      string
+	Username    string
+	Email       string
+	FullName    string
+	FirstName   string
+	LastName    string
+	Position    string
+	Roles       []string
+	Permissions []string
 }
 
 func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
@@ -106,7 +125,9 @@ func (m *Manager) GenerateTokenPair(u UserInfo) (*TokenPair, error) {
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := m.generateToken(UserInfo{ID: u.ID}, m.refreshSecret, m.refreshTTL)
+	// Refresh токенд эх сурвалжийг ЗААВАЛ хамт бичнэ — эс бөгөөс сунгах үед
+	// хэрэглэгчийг аль сангаас хайхыг мэдэхгүй болно.
+	refresh, err := m.generateToken(UserInfo{ID: u.ID, Source: u.Source}, m.refreshSecret, m.refreshTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +139,7 @@ func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (s
 		UserID:       u.ID,
 		OrgID:        u.OrgID,
 		ValuationOrg: u.ValuationOrg,
+		Source:       u.Source,
 		Username:     u.Username,
 		Email:        u.Email,
 		FullName:     u.FullName,
@@ -197,7 +219,7 @@ func (m *Manager) validateToken(ctx context.Context, tokenStr, secret string) (*
 	}
 	// Хэрэглэгчийн токен эх цэгийг шалгана (нууц үг сэргээх зэргээр хүчингүй болсон эсэх).
 	if m.sessionValidator != nil && claims.IssuedAt != nil {
-		valid, err := m.sessionValidator.IsSessionValid(ctx, claims.UserID, claims.IssuedAt.Time)
+		valid, err := m.sessionValidator.IsSessionValid(ctx, claims.UserSource(), claims.UserID, claims.IssuedAt.Time)
 		if err != nil {
 			return nil, err
 		}

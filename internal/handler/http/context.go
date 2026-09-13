@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"strings"
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/middleware"
@@ -32,4 +33,14 @@ func contextUserIDString(c *gin.Context) string {
 	default:
 		return fmt.Sprint(v)
 	}
+}
+
+func contextUserDisplayName(c *gin.Context) string {
+	if name := strings.TrimSpace(middleware.GetCallerName(c)); name != "" {
+		return name
+	}
+	if id := contextUserIDString(c); id != "" {
+		return "Нэр бүртгэгдээгүй"
+	}
+	return "system"
 }

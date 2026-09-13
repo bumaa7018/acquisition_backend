@@ -11,6 +11,9 @@ import (
 
 type UserService interface {
 	GetByID(ctx context.Context, id domain.ID) (*domain.User, error)
+	// GetBySource — хэрэглэгчийг ЭХ СУРВАЛЖТАЙ нь хайна (domain.UserSource*).
+	// Хоёр сангийн user_id мөргөлддөг тул ӨӨРИЙН профайл татахад заавал энэ.
+	GetBySource(ctx context.Context, source string, id domain.ID) (*domain.User, error)
 	List(ctx context.Context, filter domain.UserFilter) ([]*domain.User, int64, error)
 	Create(ctx context.Context, req CreateUserRequest) (*domain.User, error)
 	Update(ctx context.Context, id domain.ID, req UpdateUserRequest) (*domain.User, error)
@@ -50,14 +53,54 @@ type UpdateUserRequest struct {
 type userService struct {
 	userRepo     repository.UserRepository
 	employeeRepo repository.EmployeeRepository
+	// loginSources — ӨӨРИЙН профайлыг (GetBySource) шийдэх эх сурвалжууд.
+	// [0] нь ҮРГЭЛЖ authdb. AuthService-ийнхтэй ижил загвар.
+	loginSources []repository.LoginUserRepository
 }
 
-func NewUserService(userRepo repository.UserRepository, employeeRepos ...repository.EmployeeRepository) UserService {
-	var employeeRepo repository.EmployeeRepository
-	if len(employeeRepos) > 0 {
-		employeeRepo = employeeRepos[0]
+// NewUserService — userRepo-гоос гадна нэмэлт репог хүлээж авна:
+//
+//	repository.EmployeeRepository   — HR ажилтны бүртгэл
+//	repository.LoginUserRepository  — НЭМЭЛТ нэвтрэлтийн эх сурвалж (appdb)
+func NewUserService(userRepo repository.UserRepository, extras ...any) UserService {
+	s := &userService{
+		userRepo:     userRepo,
+		loginSources: []repository.LoginUserRepository{userRepo},
 	}
-	return &userService{userRepo: userRepo, employeeRepo: employeeRepo}
+	for _, extra := range extras {
+		switch v := extra.(type) {
+		case repository.EmployeeRepository:
+			if s.employeeRepo == nil {
+				s.employeeRepo = v
+			}
+		case repository.LoginUserRepository:
+			s.loginSources = append(s.loginSources, v)
+		}
+	}
+	return s
+}
+
+// GetBySource — ӨӨРИЙН профайл (`/users/me`).
+//
+// source-гүйгээр ЗӨВХӨН authdb-аас хайвал appdb дээрх хэрэглэгч (үнэлгээний
+// байгууллагын ажилтан) олдохгүй 404 өгнө, эсвэл БҮР АЮУЛТАЙ нь — ижил
+// дугаартай ӨӨР хүний (жишээ нь admin) бүртгэл буцна: хоёр сангийн user_id
+// мөргөлддөг. Иймд токены `src` тэмдгээр чиглүүлнэ.
+func (s *userService) GetBySource(ctx context.Context, source string, id domain.ID) (*domain.User, error) {
+	if source == "" {
+		source = domain.UserSourceAuth
+	}
+	if source == domain.UserSourceAuth {
+		return s.GetByID(ctx, id)
+	}
+	for _, src := range s.loginSources {
+		if src.Source() != source {
+			continue
+		}
+		return src.GetByID(ctx, id)
+	}
+	// Танигдаагүй эх сурвалж — authdb руу fallback ХИЙХГҮЙ (өөр хүн рүү унана).
+	return nil, domain.ErrNotFound
 }
 
 func (s *userService) GetByID(ctx context.Context, id domain.ID) (*domain.User, error) {

@@ -28,15 +28,19 @@ const (
 )
 
 type Notification struct {
-	ID           uuid.UUID `json:"id"`
-	RecipientID  ID        `json:"recipient_id"`
-	ActorID      *ID       `json:"actor_id,omitempty"`
-	ActorName    string    `json:"actor_name"`
-	Type         string    `json:"type"`
-	Title        string    `json:"title"`
-	Body         string    `json:"body"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   string    `json:"resource_id"`
+	ID          uuid.UUID `json:"id"`
+	RecipientID ID        `json:"recipient_id"`
+	// RecipientSource — хүлээн авагчийн эх сурвалж (UserSource*). RecipientID нь
+	// хоёр санд мөргөлддөг тул зөвхөн үүнтэй ХОСООРОО нэг хүнийг заана.
+	// Хоосон бол UserSourceAuth.
+	RecipientSource string `json:"recipient_source,omitempty"`
+	ActorID         *ID    `json:"actor_id,omitempty"`
+	ActorName       string `json:"actor_name"`
+	Type            string `json:"type"`
+	Title           string `json:"title"`
+	Body            string `json:"body"`
+	ResourceType    string `json:"resource_type"`
+	ResourceID      string `json:"resource_id"`
 	// AcquisitionID/ParcelID — дэлгэрэнгүй хуудасны замд шаардлагатай нэмэлт холбоос
 	// (жишээ нь parcel хуудас /parcel/{id}?acq={acquisition_id} гэж нээгдэнэ).
 	AcquisitionID *uuid.UUID `json:"acquisition_id,omitempty"`

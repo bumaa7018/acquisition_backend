@@ -132,7 +132,11 @@ func (m *MockUserRepository) InvalidateSessions(ctx context.Context, userID doma
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error) {
-	args := m.Called(ctx, userID, issuedAt)
+func (m *MockUserRepository) IsSessionValid(ctx context.Context, source string, userID domain.ID, issuedAt time.Time) (bool, error) {
+	args := m.Called(ctx, source, userID, issuedAt)
 	return args.Bool(0), args.Error(1)
 }
+
+// Source — нэвтрэлтийн эх сурвалж. Тестүүд дотоод (authdb) хэрэглэгчээр
+// ажилладаг тул анхдагчаар "auth".
+func (m *MockUserRepository) Source() string { return domain.UserSourceAuth }

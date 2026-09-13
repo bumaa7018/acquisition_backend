@@ -52,7 +52,8 @@ func transitionCtxAs(t *testing.T, roles []string, valuationOrg bool, body map[s
 		}
 		c.Set("roles", roles)
 		c.Set(middleware.CtxValuationOrg, valuationOrg)
-		c.Set("userID", uuid.New())
+		c.Set(middleware.CtxUserID, domain.ID(77))
+		c.Set(middleware.CtxUserName, "Тест Ажилтан")
 		h.TransitionValuationSubmission(c)
 	}
 	return mockSvc, w, run
@@ -107,6 +108,43 @@ func TestTransitionValuation_FinanceCanReturn(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+// Санхүү баталгаажсан үнэлгээг хүчингүй болгож, дахин үнэлгээ хийх төлөвт буцааж болно.
+func TestTransitionValuation_FinanceCanCancelApproved(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"finance_specialist"},
+		map[string]string{"action": "cancel", "note": "шинээр үнэлгээ хийлгэнэ", "valuation_type": "asset"},
+		"cancel-report.pdf", samplePDF)
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.ValuationType == "asset" && in.Action == "cancel" &&
+				in.Note == "шинээр үнэлгээ хийлгэнэ" && in.UserID == "Тест Ажилтан"
+		}),
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
+			return a != nil && a.Filename == "cancel-report.pdf"
+		})).
+		Return(sampleSubmission(acqID, domain.ValuationStatusDraft, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// Эрхтэй хэрэглэгч ч цуцлахдаа PDF хавсралт заавал явуулна.
+func TestTransitionValuation_CancelRequiresAttachment(t *testing.T) {
+	mockSvc, w, run := transitionCtx(t,
+		[]string{"finance_specialist"},
+		map[string]any{"action": "cancel", "note": "шинээр үнэлгээ хийлгэнэ", "valuation_type": "asset"})
+
+	run(uuid.New(), uuid.New())
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	mockSvc.AssertNotCalled(t, "TransitionValuationSubmission",
+		mock.Anything, mock.Anything, mock.Anything)
+}
+
 // Санхүү submit хийж болохгүй (илгээх нь мэрг. байгууллага/ахлах/МИКА-гийн үйлдэл).
 func TestTransitionValuation_FinanceCannotSubmit(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
@@ -137,6 +175,19 @@ func TestTransitionValuation_ProfCanSubmit(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSvc.AssertExpectations(t)
+}
+
+// Мэргэжлийн байгууллага өөрийн илгээсэн/баталгаажсан үнэлгээг өөрөө хүчингүй болгохгүй.
+func TestTransitionValuation_ProfCannotCancelApproved(t *testing.T) {
+	mockSvc, w, run := transitionCtxAs(t,
+		nil, true,
+		map[string]any{"action": "cancel", "note": "цуцлах", "valuation_type": "asset"})
+
+	run(uuid.New(), uuid.New())
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockSvc.AssertNotCalled(t, "TransitionValuationSubmission",
+		mock.Anything, mock.Anything)
 }
 
 // Мэргэжлийн байгууллага approve хийж болохгүй.
@@ -223,7 +274,7 @@ func TestTransitionValuation_InvalidAction(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Ахлах мэргэжилтэн бүх үйлдлийг хийж чадна (submit + approve).
+// Ахлах мэргэжилтэн submit/approve/return хийж чадна.
 func TestTransitionValuation_SeniorCanSubmitAndApprove(t *testing.T) {
 	for _, action := range []string{"submit", "approve", "return"} {
 		acqID, parcelID := uuid.New(), uuid.New()
@@ -242,6 +293,49 @@ func TestTransitionValuation_SeniorCanSubmitAndApprove(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code, "action=%s", action)
 		mockSvc.AssertExpectations(t)
 	}
+}
+
+// Ахлах мэргэжилтэн баталгаажсан үнэлгээг цуцалж чадна.
+func TestTransitionValuation_SeniorCanCancelApproved(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"senior_specialist"},
+		map[string]string{"action": "cancel", "note": "дахин үнэлгээ", "valuation_type": "asset"},
+		"cancel.pdf", samplePDF)
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.Action == "cancel" && in.UserID == "Тест Ажилтан"
+		}),
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool { return a != nil && a.Filename == "cancel.pdf" })).
+		Return(sampleSubmission(acqID, domain.ValuationStatusDraft, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// Тухайн чөлөөлөлт дээр ажиллаж буй дотоод ажилтан баталгаажсан үнэлгээг цуцалж чадна.
+func TestTransitionValuation_AssignedEmployeeCanCancelApproved(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	mockSvc, w, run := multipartTransition(t,
+		nil,
+		map[string]string{"action": "cancel", "note": "дахин үнэлгээ", "valuation_type": "asset"},
+		"cancel.pdf", samplePDF)
+	mockSvc.On("IsAssigned", mock.Anything, acqID, domain.ID(77)).Return(true, nil)
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool {
+			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
+				in.Action == "cancel" && in.UserID == "Тест Ажилтан"
+		}),
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool { return a != nil && a.Filename == "cancel.pdf" })).
+		Return(sampleSubmission(acqID, domain.ValuationStatusDraft, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 // Repo-гийн ErrInvalidTransition (ж: rejected урсгалыг дахин илгээх) — 409.
@@ -282,10 +376,10 @@ func TestTransitionValuation_PhotoRequired(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-// ── БУЦААХАД ХАВСРАЛТ (multipart) ──────────────────────────────────────────
+// ── БУЦААХ/ЦУЦЛАХ ХАВСРАЛТ (multipart) ─────────────────────────────────────
 //
-// Хавсралт нь ЗААВАЛ БИШ: multipart-аар файлгүй ирвэл хавсралтгүй шилжилт
-// хийгдэнэ. Файл ирвэл service-д ValuationAttachment дамжина.
+// Буцаах хавсралт нь ЗААВАЛ БИШ, цуцлах хавсралт нь ЗААВАЛ. Файл ирвэл
+// service-д ValuationAttachment дамжина.
 
 // multipartTransition — multipart/form-data хүсэлтээр шилжилт дуудна.
 // fileName хоосон бол файл ХАВСАРГАХГҮЙ.
@@ -322,7 +416,8 @@ func multipartTransition(
 			{Key: "parcel_id", Value: parcelID.String()},
 		}
 		c.Set("roles", roles)
-		c.Set("userID", uuid.New())
+		c.Set(middleware.CtxUserID, domain.ID(77))
+		c.Set(middleware.CtxUserName, "Тест Ажилтан")
 		h.TransitionValuationSubmission(c)
 	}
 	return mockSvc, w, run
@@ -372,8 +467,8 @@ func TestTransitionValuation_ReturnWithoutAttachment(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-// Хавсралт нь ЗӨВХӨН буцаалтад хамаарна: "илгээх" дээр файл ирвэл хаягдана
-// (эс бөгөөс тэр файл буцаалтын хавсралт болж харагдана).
+// Хавсралт нь ЗӨВХӨН буцаалт/цуцлалтад хамаарна: "илгээх" дээр файл ирвэл
+// хаягдана (эс бөгөөс тэр файл буцаалт/цуцлалтын хавсралт болж харагдана).
 func TestTransitionValuation_SubmitDropsAttachment(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	mockSvc, w, run := multipartTransition(t,

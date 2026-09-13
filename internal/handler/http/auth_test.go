@@ -69,6 +69,33 @@ func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestAuthHandler_LoginProfessionalOrg_UsesProfessionalOrgService(t *testing.T) {
+	mockSvc := &mocks.MockAuthService{}
+	h := handler.NewAuthHandler(mockSvc)
+
+	tokens := &jwtpkg.TokenPair{AccessToken: "prof-access", RefreshToken: "prof-refresh"}
+	mockSvc.On("LoginProfessionalOrg", mock.Anything, service.LoginRequest{
+		Username: "valuation_org_1",
+		Password: "Password123!",
+	}).Return(tokens, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"username":"valuation_org_1","password":"Password123!"}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/auth/prof/login", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.LoginProfessionalOrg(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	data := resp["data"].(map[string]any)
+	assert.Equal(t, "prof-access", data["access_token"])
+	mockSvc.AssertExpectations(t)
+	mockSvc.AssertNotCalled(t, "Login", mock.Anything, mock.Anything)
+}
+
 func TestAuthHandler_RefreshToken_Success(t *testing.T) {
 	mockSvc := &mocks.MockAuthService{}
 	h := handler.NewAuthHandler(mockSvc)

@@ -107,6 +107,10 @@ func NewRouter(
 	auth.Use(middleware.RateLimit(30, time.Minute))
 	{
 		auth.POST("/login", authH.Login)
+		// Мэргэжлийн байгууллагын нэвтрэлт ТУСДАА эндпойнт: бүртгэл нь өөр
+		// санд (appdb.valuation_org_employee) бөгөөд хоёр сангийн user_id
+		// мөргөлддөг тул урсгалыг холихгүй.
+		auth.POST("/prof/login", authH.LoginProfessionalOrg)
 		auth.POST("/refresh", authH.RefreshToken)
 		auth.POST("/logout", authH.Logout)
 		auth.POST("/forgot-password", authH.ForgotPassword)
@@ -428,7 +432,8 @@ func NewRouter(
 			// POST-ийн ролийн шалгалт handler дотор (approve/return=санхүү, submit=мэрг.байгуулга/ахлах).
 			land.GET("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, parcelWorkflowH.GetValuationSubmission)
 			land.GET("/:id/parcels/:parcel_id/valuation-status-history", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, parcelWorkflowH.ListValuationSubmissionHistory)
-			land.POST("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "senior_specialist", "Ахлах мэргэжилтэн", "mika", "МИКА"), middleware.RequireAnyPermission("land:update", "compensation:update"), fieldStage, parcelWorkflowH.TransitionValuationSubmission)
+			land.GET("/:id/parcels/:parcel_id/valuation-snapshots", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, parcelWorkflowH.ListValuationSnapshots)
+			land.POST("/:id/parcels/:parcel_id/valuation-status", middleware.RequireAnyPermission("land:update", "compensation:update"), middleware.RequireAssignedOrSenior(landSvc, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА"), fieldStage, parcelWorkflowH.TransitionValuationSubmission)
 			land.GET("/:id/progress", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListProgress)
 			land.GET("/:id/boundary-history", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListBoundaryHistory)
 			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAvailableStatuses)
@@ -446,7 +451,7 @@ func NewRouter(
 			land.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAcquisitionDocument)
 			// Нийгэм, эдийн засгийн судалгаа — чөлөөлөлтөд НЭГ бүртгэл
 			// (дахин оруулахад орлогдоно). Судалгааны файл нь ЗӨВХӨН PDF.
-			land.GET("/:id/socio-survey", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAcquisitionSocioSurvey)
+			land.GET("/:id/socio-survey", middleware.DenyAnyRole("finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА"), middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAcquisitionSocioSurvey)
 			land.POST("/:id/socio-survey", middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, landH.SaveAcquisitionSocioSurvey)
 			// Дроны ортофото (.tif) — GeoServer дээр зураг тус бүр өөрийн давхарга
 			// болж бүртгэгдэнэ. Нэг хүсэлтэд НЭГ файл; refresh нь frontend
@@ -502,6 +507,7 @@ func NewRouter(
 					profLandItem.GET("/parcels/:parcel_id/valuation-status", profParcelMemberByParam, parcelWorkflowH.GetValuationSubmission)
 					profLandItem.POST("/parcels/:parcel_id/valuation-status", profParcelMemberByParam, parcelWorkflowH.TransitionValuationSubmission)
 					profLandItem.GET("/parcels/:parcel_id/valuation-status-history", profParcelMemberByParam, parcelWorkflowH.ListValuationSubmissionHistory)
+					profLandItem.GET("/parcels/:parcel_id/valuation-snapshots", profParcelMemberByParam, parcelWorkflowH.ListValuationSnapshots)
 					// Эрх эзэмшигч төлөөлөгч
 					profLandItem.GET("/parcels/:parcel_id/representatives", profParcelMemberByParam, landH.ListAuthorizedRepresentatives)
 					profLandItem.POST("/parcels/:parcel_id/representatives", profParcelMemberByParam, landH.CreateAuthorizedRepresentative)
@@ -534,6 +540,7 @@ func NewRouter(
 					profLandItem.GET("/documents", landH.ListAcquisitionDocuments)
 					profLandItem.POST("/documents", landH.UploadAcquisitionDocument)
 					profLandItem.DELETE("/documents/:doc_id", landH.DeleteAcquisitionDocument)
+					profLandItem.GET("/socio-survey", landH.GetAcquisitionSocioSurvey)
 				}
 			}
 
@@ -761,11 +768,11 @@ func NewRouter(
 			parcels.DELETE("/:id/documents/:doc_id", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.DeleteParcelDocument)
 			// Урьдчилан мэдэгдэх хуудсыг иргэнд имэйлээр хүргүүлэх ба илгээсэн
 			// түүх. PDF-ийг frontend загвараас үүсгэж дамжуулна.
-			parcels.GET("/:id/notice-emails", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelNoticeEmails)
-			parcels.POST("/:id/notice-emails", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelNoticeEmail)
+			parcels.GET("/:id/notice-emails", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelNoticeEmails)
+			parcels.POST("/:id/notice-emails", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelNoticeEmail)
 			// E-Mongolia-гаар мэдэгдэл хүргүүлэх (2.8.5). Гадаад холболт МОК.
-			parcels.GET("/:id/emongolia-notices", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelEMongoliaNotices)
-			parcels.POST("/:id/emongolia-notices", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelEMongoliaNotice)
+			parcels.GET("/:id/emongolia-notices", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelEMongoliaNotices)
+			parcels.POST("/:id/emongolia-notices", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelEMongoliaNotice)
 		}
 
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх

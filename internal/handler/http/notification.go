@@ -43,7 +43,7 @@ func (h *NotificationHandler) List(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 
-	items, total, err := h.svc.List(c.Request.Context(), uid, onlyUnread, page, pageSize)
+	items, total, err := h.svc.List(c.Request.Context(), middleware.GetCallerSource(c), uid, onlyUnread, page, pageSize)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -63,7 +63,7 @@ func (h *NotificationHandler) UnreadCount(c *gin.Context) {
 		response.Error(c, middleware.ErrMissingToken)
 		return
 	}
-	count, err := h.svc.UnreadCount(c.Request.Context(), uid)
+	count, err := h.svc.UnreadCount(c.Request.Context(), middleware.GetCallerSource(c), uid)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -89,7 +89,7 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	if err := h.svc.MarkRead(c.Request.Context(), uid, id); err != nil {
+	if err := h.svc.MarkRead(c.Request.Context(), middleware.GetCallerSource(c), uid, id); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -108,7 +108,7 @@ func (h *NotificationHandler) MarkAllRead(c *gin.Context) {
 		response.Error(c, middleware.ErrMissingToken)
 		return
 	}
-	if err := h.svc.MarkAllRead(c.Request.Context(), uid); err != nil {
+	if err := h.svc.MarkAllRead(c.Request.Context(), middleware.GetCallerSource(c), uid); err != nil {
 		response.Error(c, err)
 		return
 	}
@@ -129,7 +129,7 @@ func (h *NotificationHandler) Stream(c *gin.Context) {
 		return
 	}
 
-	ch, unsubscribe := h.svc.Subscribe(uid)
+	ch, unsubscribe := h.svc.Subscribe(middleware.GetCallerSource(c), uid)
 	if ch == nil {
 		// Нэг хэрэглэгчийн зэрэгцээ холболтын хязгаар хэтэрсэн.
 		response.Abort(c, http.StatusTooManyRequests, i18n.ErrTooManyRequests)

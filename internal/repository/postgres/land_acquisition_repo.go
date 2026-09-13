@@ -245,11 +245,10 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, filter.ProfessionalOrgID)
 		i++
 	}
-	if filter.HasSubmittedValuation {
-		// Санхүүд хянуулахаар ИЛГЭЭСЭН үнэлгээтэй нэгж талбартай чөлөөлөлтүүд л
+	if filter.HasReviewableValuation {
 		where += ` AND EXISTS (
 			SELECT 1 FROM parcel_valuation_submission vs
-			WHERE vs.acquisition_id = la.id AND vs.status = 'submitted'
+			WHERE vs.acquisition_id = la.id AND vs.status IN ('submitted', 'approved')
 		)`
 	}
 
@@ -3629,6 +3628,48 @@ func (r *landAcqRepo) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID
 	var acqID uuid.UUID
 	err := r.db.QueryRow(ctx, `SELECT acquisition_id FROM assets WHERE id=$1`, assetID).Scan(&acqID)
 	if err == pgx.ErrNoRows {
+		// Үнэлгээ цуцлагдахад хөрөнгийн мөр УСТДАГ. Зураг нь хадгалалтад
+		// үлдэж, snapshot дотроос харагддаг тул мөр нь алга болсон ч
+		// архивын snapshot-оос эзнийг нь олно — эс бөгөөс "Хүчингүй
+		// болгосон үнэлгээ" дэх зураг бүр 403 болно.
+		return r.snapshotOwnerAcquisition(ctx, "assets", assetID)
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return acqID, nil
+}
+
+// GetCompensationAcquisition — олговрын харьяалагдах чөлөөлөлт (файлын эрх
+// шалгахад: compensation-report/<comp_id>). Устсан мөрийн хувьд архивын
+// snapshot-оос олно — үнэлгээ цуцлахад олговрын мөрүүд устдаг.
+func (r *landAcqRepo) GetCompensationAcquisition(ctx context.Context, compID uuid.UUID) (uuid.UUID, error) {
+	var acqID uuid.UUID
+	err := r.db.QueryRow(ctx, `SELECT acquisition_id FROM compensation WHERE id=$1`, compID).Scan(&acqID)
+	if err == pgx.ErrNoRows {
+		return r.snapshotOwnerAcquisition(ctx, "compensations", compID)
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return acqID, nil
+}
+
+// snapshotOwnerAcquisition — цуцлагдсан үнэлгээний snapshot дотроос өгсөн
+// ID-тай хөрөнгө/олговрыг агуулсан мөрийн чөлөөлөлтийг олно. `column` нь
+// ЗӨВХӨН дотоод дуудагчийн тогтмол ("assets" | "compensations").
+func (r *landAcqRepo) snapshotOwnerAcquisition(ctx context.Context, column string, id uuid.UUID) (uuid.UUID, error) {
+	if column != "assets" && column != "compensations" {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	var acqID uuid.UUID
+	err := r.db.QueryRow(ctx, `
+		SELECT acquisition_id
+		FROM parcel_valuation_snapshot
+		WHERE `+column+` @> jsonb_build_array(jsonb_build_object('id', $1::text))
+		ORDER BY cancelled_at DESC
+		LIMIT 1`, id.String()).Scan(&acqID)
+	if err == pgx.ErrNoRows {
 		return uuid.Nil, domain.ErrNotFound
 	}
 	if err != nil {
@@ -4614,18 +4655,26 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		statusCh <- statusRes{list, err}
 	}()
 
-	// 3. Нэгж талбарын нийт тоо, чөлөөлөгдсөн тоо, чөлөөлөгдсөн талбай
+	// 3. Нэгж талбарын нийт тоо, ЧӨЛӨӨЛӨГДСӨН тоо ба талбай.
+	//
+	// Шалгуур нь нэгж талбарын ТӨЛӨВ = "Чөлөөлсөн" (ParcelStatusReleased).
+	// Өмнө нь `compensation_paid` тугаар тоолдог байсан нь ӨӨР ойлголт:
+	// тэр нь олговор ОЛГОГДСОН эсэхийг заадаг ба хуучин системээс импортлох /
+	// төлбөрийн үйлдлээр тавигддаг тул "Чөлөөлсөн" төлөвтэй талбар огт
+	// байхгүй атал энэ хоёр карт 65% харуулж, дэргэдэх "Чөлөөлөлтийн
+	// гүйцэтгэл"-ээс (эцсийн төлөвөөр бодогддог) зөрдөг байв.
 	go func() {
 		var total, freed int64
 		var freedArea float64
 		err := r.db.QueryRow(ctx, fmt.Sprintf(`
 			SELECT
 				COUNT(*),
-				COUNT(*) FILTER (WHERE compensation_paid = true),
-				COALESCE(SUM(acquisition_area_m2) FILTER (WHERE compensation_paid = true), 0)
+				COUNT(*) FILTER (WHERE p.status = %d),
+				COALESCE(SUM(p.acquisition_area_m2) FILTER (WHERE p.status = %d), 0)
 			FROM parcel p
 			WHERE p.acquisition_id IN (%s)%s%s
-		`, acqSubquery, parcelYearCond, parcelScopeCond), args...).Scan(&total, &freed, &freedArea)
+		`, domain.ParcelStatusReleased, domain.ParcelStatusReleased,
+			acqSubquery, parcelYearCond, parcelScopeCond), args...).Scan(&total, &freed, &freedArea)
 		statsCh <- statsRes{total, freed, freedArea, err}
 	}()
 
@@ -4983,17 +5032,14 @@ func (r *landAcqRepo) IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UU
 	return exists, err
 }
 
-// OrgUserIDs — байгууллагын идэвхтэй ажилтнуудын нэвтрэх эрхийн ID-ууд
-// (hr_department.organization → hr_employee.user_id). Нэвтрэх эрхгүй ажилтан
-// (user_id IS NULL) орохгүй.
+// OrgUserIDs returns app-owned login IDs, never HR user IDs from authdb.
 func (r *landAcqRepo) OrgUserIDs(ctx context.Context, orgID domain.ID) ([]domain.ID, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT DISTINCT e.user_id
-		FROM sdplatform.hr_employee e
-		JOIN sdplatform.hr_department d ON d.department_id = e.department_id
-		WHERE d.organization = $1
-		  AND e.user_id IS NOT NULL
-		  AND COALESCE(e.is_active, 1) <> 0`, orgID)
+		SELECT e.id
+		FROM valuation_org_employee e
+		JOIN valuation_org_profile o ON o.id = e.org_id
+		WHERE e.org_id = $1 AND e.is_active AND o.is_active
+		  AND COALESCE(e.password, '') <> ''`, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -5180,11 +5226,12 @@ func (r *landAcqRepo) insertStatusHistory(ctx context.Context, ch domain.ParcelS
 
 func (r *landAcqRepo) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT h.id, h.parcel_id, h.acquisition_id, h.status_id, ps.name, h.status_date, h.created_by,
+		SELECT h.id, h.parcel_id, h.acquisition_id, h.status_id, ps.name, h.status_date,
+		       COALESCE(h.created_by, ''),
 		       COALESCE(h.reason, ''), COALESCE(h.attachment_url, ''), COALESCE(h.attachment_name, '')
 		FROM parcel_status_history h
 		JOIN parcel_status ps ON ps.id = h.status_id
-		JOIN parcel p ON p.parcel_id = h.parcel_id
+		JOIN parcel p ON p.parcel_id = h.parcel_id AND p.acquisition_id = h.acquisition_id
 		WHERE p.id = $1
 		ORDER BY h.status_date DESC
 	`, parcelID)
@@ -5246,16 +5293,19 @@ func (r *landAcqRepo) GetValuationSubmission(ctx context.Context, acquisitionID,
 	}
 	vType := normalizeValuationType(valuationType)
 	row := r.db.QueryRow(ctx, `
-		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
-		       reviewed_by, reviewed_at, last_note,
-		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
-		       created_at, updated_at
-		FROM parcel_valuation_submission
-		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
+		SELECT s.id, s.acquisition_id, s.parcel_id, s.valuation_type, s.status,
+		       COALESCE(s.submitted_by, ''),
+		       s.submitted_at,
+		       COALESCE(s.reviewed_by, ''),
+		       s.reviewed_at, s.last_note,
+		       COALESCE(s.attachment_url,''), COALESCE(s.attachment_name,''),
+		       s.created_at, s.updated_at
+		FROM parcel_valuation_submission s
+		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3`, acquisitionID, code, vType)
 	return scanValuationSubmission(row, acquisitionID, code, vType)
 }
 
-// TransitionValuationSubmission — төлөв шилжүүлэх (submit|approve|return), түүх хадгална.
+// TransitionValuationSubmission — төлөв шилжүүлэх (submit|approve|return|cancel), түүх хадгална.
 // approve үед тухайн урсгал нэгж талбарын "үндсэн" (selected_valuation_type) болно.
 func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition) (*domain.ValuationSubmission, error) {
 	acquisitionID, parcelID := in.AcquisitionID, in.ParcelID
@@ -5266,11 +5316,11 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 	}
 	vType := normalizeValuationType(in.ValuationType)
 
-	// ХАВСРАЛТ нь ЗӨВХӨН буцаалтад хамаарна. Бусад үйлдэлд ирсэн ч
-	// хадгалахгүй — эс бөгөөс "илгээх" дээрх файл буцаалтын хавсралт болж
-	// харагдана.
+	// ХАВСРАЛТ нь буцаалт болон цуцлалтад хамаарна. Бусад үйлдэлд ирсэн ч
+	// хадгалахгүй — эс бөгөөс "илгээх" дээрх файл буцаалт/цуцлалтын хавсралт
+	// болж харагдана.
 	attachURL, attachName := "", ""
-	if action == "return" {
+	if action == "return" || action == "cancel" {
 		attachURL, attachName = in.AttachmentURL, in.AttachmentName
 	}
 
@@ -5281,10 +5331,26 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Одоогийн төлөв (мөр байхгүй бол Ноорог)
+	// Hold the acquisition status stable and serialize all streams of this parcel.
+	var acquisitionStatus int
+	if err = tx.QueryRow(ctx, `SELECT status FROM land_acquisition WHERE id=$1 FOR SHARE`, acquisitionID).Scan(&acquisitionStatus); err != nil {
+		return nil, err
+	}
+	if acquisitionStatus == domain.LandAcquisitionStatusVerified {
+		return nil, domain.ErrAcquisitionLocked
+	}
+	var lockedParcelID uuid.UUID
+	if err = tx.QueryRow(ctx, `SELECT id FROM parcel WHERE id=$1 AND acquisition_id=$2 FOR UPDATE`, parcelID, acquisitionID).Scan(&lockedParcelID); err != nil {
+		return nil, err
+	}
+
 	from := domain.ValuationStatusDraft
-	_ = tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT status FROM parcel_valuation_submission WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
 		acquisitionID, code, vType).Scan(&from)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 
 	// Шилжилтийн дүрэм
 	var to string
@@ -5304,6 +5370,11 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 			return nil, domain.ErrInvalidTransition
 		}
 		to = domain.ValuationStatusReturned
+	case "cancel":
+		if from != domain.ValuationStatusApproved {
+			return nil, domain.ErrInvalidTransition
+		}
+		to = domain.ValuationStatusDraft
 	default:
 		return nil, domain.ErrInvalidInput
 	}
@@ -5334,7 +5405,7 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 			SET status=$3, submitted_by=$4, submitted_at=NOW(), last_note=$5,
 			    attachment_url=$7, attachment_name=$8, updated_at=NOW()`,
 			acquisitionID, code, to, userID, note, vType, attachURL, attachName)
-	} else {
+	} else if action != "cancel" {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, reviewed_by, reviewed_at, last_note, attachment_url, attachment_name)
 			VALUES ($1,$2,$6,$3,$4,NOW(),$5,$7,$8)
@@ -5345,6 +5416,191 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if action == "cancel" {
+		if attachURL == "" {
+			return nil, domain.ErrValuationCancelAttachmentRequired
+		}
+		// ҮНЭЛГЭЭНИЙ ТАЙЛАН нь цуцлахад ЗААВАЛ байх ёстой ба түүхэнд үлдэнэ.
+		// Тайлан ХОЁР флоугоор бүртгэгдсэн байж болно:
+		//   1) "Хөрөнгийн үнэлгээний тайлан" төрлийн parcel_document (шинэ),
+		//   2) баталгаажсан олговрын valuation_report_url (хуучин өгөгдөл).
+		// Аль нь ч байсан ХОЛБООСЫГ нь snapshot дээр хуулж авна — цуцлалтын
+		// дараа олговрын мөр устаж, хавсралт нь салгагдах тул тайлан зөвхөн
+		// түүхээс татагдана.
+		var reportDocID uuid.UUID
+		var reportURL, reportName string
+		if err = tx.QueryRow(ctx, `
+			SELECT d.id, COALESCE(d.file_url,''), COALESCE(d.name,'')
+			FROM parcel_document pd
+			JOIN document d ON d.id = pd.document_id
+			JOIN document_type dt ON dt.id = d.document_type_id
+			WHERE pd.parcel_id=$1 AND dt.type='valuation_report'
+			ORDER BY d.uploaded_at DESC
+			LIMIT 1`, parcelID,
+		).Scan(&reportDocID, &reportURL, &reportName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if reportURL == "" {
+			reportDocID = uuid.Nil
+			if err = tx.QueryRow(ctx, `
+				SELECT COALESCE(c.valuation_report_url,''), COALESCE(c.valuation_report_name,'')
+				FROM compensation c
+				WHERE c.acquisition_id=$1 AND c.parcel_id=$2
+				  AND c.valuation_type=$3 AND c.status='approved'
+				  AND COALESCE(c.valuation_report_url,'') <> ''
+				ORDER BY c.updated_at DESC
+				LIMIT 1`, acquisitionID, code, vType,
+			).Scan(&reportURL, &reportName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
+		}
+		if reportURL == "" {
+			return nil, domain.ErrValuationReportRequired
+		}
+		if reportName == "" {
+			reportName = "Үнэлгээний тайлан"
+		}
+		var snapshotID uuid.UUID
+		if err = tx.QueryRow(ctx, `
+			INSERT INTO parcel_valuation_snapshot (
+				acquisition_id, parcel_id, valuation_type, submission_id, note, cancelled_by,
+				submitted_by, submitted_at, reviewed_by, reviewed_at,
+				report_url, report_name,
+				land_valuation, assets, compensations, total_amount
+			)
+			SELECT s.acquisition_id, s.parcel_id, s.valuation_type, s.id, $4, $5,
+			       COALESCE(s.submitted_by,''), s.submitted_at,
+			       COALESCE(s.reviewed_by,''), s.reviewed_at,
+			       $7, $8,
+			       COALESCE((
+			         SELECT to_jsonb(lv)
+			         FROM land_valuation lv
+			         WHERE lv.acquisition_id=s.acquisition_id AND lv.parcel_id=s.parcel_id
+			           AND lv.valuation_type=s.valuation_type
+			       ), '{}'::jsonb),
+			       COALESCE((
+			         SELECT jsonb_agg(asset_json ORDER BY created_at DESC)
+			         FROM (
+			           SELECT a.created_at,
+			                  to_jsonb(a)
+			                  || jsonb_build_object(
+			                    'specs', COALESCE((
+			                      SELECT jsonb_agg(to_jsonb(sp) ORDER BY sp.id)
+			                      FROM asset_spec sp
+			                      WHERE sp.asset_id=a.id
+			                    ), '[]'::jsonb),
+			                    'calculations', COALESCE((
+			                      SELECT jsonb_agg(
+			                        to_jsonb(calc)
+			                        || jsonb_build_object(
+			                          'calc_code', COALESCE(t.code,''),
+			                          'calc_name', COALESCE(t.name,''),
+			                          'calc_group', COALESCE(t.grp,'')
+			                        )
+			                        ORDER BY calc.sort_index, calc.id
+			                      )
+			                      FROM asset_calculation calc
+			                      JOIN asset_calc_type t ON t.id = calc.calc_type_id
+			                      WHERE calc.asset_id=a.id
+			                    ), '[]'::jsonb)
+			                  ) AS asset_json
+			           FROM assets a
+			           WHERE a.acquisition_id=s.acquisition_id AND a.parcel_id=s.parcel_id
+			             AND a.valuation_type=s.valuation_type
+			         ) asset_rows
+			       ), '[]'::jsonb),
+			       COALESCE((
+			         SELECT jsonb_agg(comp_json ORDER BY created_at DESC)
+			         FROM (
+			           SELECT c.created_at,
+			                  to_jsonb(c)
+			                  || jsonb_build_object(
+			                    'grant', COALESCE((
+			                      SELECT to_jsonb(cg)
+			                      FROM compensation_grant cg
+			                      WHERE cg.compensation_id=c.id
+			                      LIMIT 1
+			                    ), '{}'::jsonb)
+			                  ) AS comp_json
+			           FROM compensation c
+			           WHERE c.acquisition_id=s.acquisition_id AND c.parcel_id=s.parcel_id
+			             AND c.valuation_type=s.valuation_type
+			         ) comp_rows
+			       ), '[]'::jsonb),
+			       COALESCE((
+			         SELECT SUM(c.amount)
+			         FROM compensation c
+			         WHERE c.acquisition_id=s.acquisition_id AND c.parcel_id=s.parcel_id
+			           AND c.valuation_type=s.valuation_type AND c.status='approved'
+			       ), 0)
+			FROM parcel_valuation_submission s
+			WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3 AND s.status=$6
+			RETURNING id`,
+			acquisitionID, code, vType, note, userID, domain.ValuationStatusApproved,
+			reportURL, reportName).Scan(&snapshotID); err != nil {
+			if err == pgx.ErrNoRows {
+				return nil, domain.ErrInvalidTransition
+			}
+			return nil, err
+		}
+		updated, updateErr := tx.Exec(ctx,
+			`UPDATE parcel SET selected_valuation_type=NULL, status=$4 WHERE acquisition_id=$1 AND parcel_id=$2 AND (selected_valuation_type=$3 OR selected_valuation_type IS NULL)`,
+			acquisitionID, code, vType, domain.ParcelStatusEvaluating)
+		if updateErr != nil {
+			return nil, updateErr
+		}
+		if updated.RowsAffected() != 1 {
+			return nil, domain.ErrInvalidTransition
+		}
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO parcel_status_history (
+				parcel_id, acquisition_id, status_id, created_by, reason,
+				attachment_url, attachment_name
+			)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			code, acquisitionID, domain.ParcelStatusEvaluating, userID, note, attachURL, attachName); err != nil {
+			return nil, err
+		}
+		if _, err = tx.Exec(ctx,
+			`DELETE FROM compensation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+			acquisitionID, code, vType); err != nil {
+			return nil, err
+		}
+		if _, err = tx.Exec(ctx,
+			`DELETE FROM land_valuation WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+			acquisitionID, code, vType); err != nil {
+			return nil, err
+		}
+		if _, err = tx.Exec(ctx,
+			`DELETE FROM assets WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+			acquisitionID, code, vType); err != nil {
+			return nil, err
+		}
+		// Үнэлгээний тайланг нэгж талбарын ХАВСРАЛТААС салгана — дараагийн
+		// үнэлгээ өөрийн тайлантай ирэх тул хуучин нь "Баримт бичиг" табд
+		// үлдвэл андуурагдана. Мөрийг нь л устгана: MinIO дээрх файл ХЭВЭЭР
+		// үлдэх тул snapshot дээрх холбоосоор татагдана.
+		if reportDocID != uuid.Nil {
+			if _, err = tx.Exec(ctx,
+				`DELETE FROM parcel_document WHERE parcel_id=$1 AND document_id=$2`,
+				parcelID, reportDocID); err != nil {
+				return nil, err
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM document WHERE id=$1`, reportDocID); err != nil {
+				return nil, err
+			}
+		}
+		if _, err = tx.Exec(ctx, `
+			UPDATE parcel_valuation_submission
+			SET status=$4, submitted_by='', submitted_at=NULL,
+			    reviewed_by='', reviewed_at=NULL,
+			    last_note=$5, attachment_url=$6, attachment_name=$7, updated_at=NOW()
+			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+			acquisitionID, code, vType, to, note, attachURL, attachName); err != nil {
+			return nil, err
+		}
 	}
 
 	// Зөвшөөрсөн урсгал нь нэгж талбарын үндсэн (selected) үнэлгээ болно.
@@ -5420,18 +5676,24 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 		return nil, err
 	}
 
+	row := tx.QueryRow(ctx, `
+		SELECT s.id, s.acquisition_id, s.parcel_id, s.valuation_type, s.status,
+		       COALESCE(s.submitted_by, ''),
+		       s.submitted_at,
+		       COALESCE(s.reviewed_by, ''),
+		       s.reviewed_at, s.last_note,
+		       COALESCE(s.attachment_url,''), COALESCE(s.attachment_name,''),
+		       s.created_at, s.updated_at
+		FROM parcel_valuation_submission s
+		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3`, acquisitionID, code, vType)
+	submission, err := scanValuationSubmission(row, acquisitionID, code, vType)
+	if err != nil {
+		return nil, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-
-	row := r.db.QueryRow(ctx, `
-		SELECT id, acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at,
-		       reviewed_by, reviewed_at, last_note,
-		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
-		       created_at, updated_at
-		FROM parcel_valuation_submission
-		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`, acquisitionID, code, vType)
-	return scanValuationSubmission(row, acquisitionID, code, vType)
+	return submission, nil
 }
 
 func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error) {
@@ -5441,12 +5703,13 @@ func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquis
 	}
 	vType := normalizeValuationType(valuationType)
 	rows, err := r.db.Query(ctx, `
-		SELECT id, acquisition_id, parcel_id, valuation_type, action, from_status, to_status, note,
-		       COALESCE(attachment_url,''), COALESCE(attachment_name,''),
-		       created_by, created_at
-		FROM parcel_valuation_submission_history
-		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
-		ORDER BY created_at DESC, id DESC`, acquisitionID, code, vType)
+		SELECT h.id, h.acquisition_id, h.parcel_id, h.valuation_type, h.action, h.from_status, h.to_status, h.note,
+		       COALESCE(h.attachment_url,''), COALESCE(h.attachment_name,''),
+		       COALESCE(h.created_by, ''),
+		       h.created_at
+		FROM parcel_valuation_submission_history h
+		WHERE h.acquisition_id=$1 AND h.parcel_id=$2 AND h.valuation_type=$3
+		ORDER BY h.created_at DESC, h.id DESC`, acquisitionID, code, vType)
 	if err != nil {
 		return nil, err
 	}
@@ -5461,6 +5724,47 @@ func (r *landAcqRepo) ListValuationSubmissionHistory(ctx context.Context, acquis
 			return nil, err
 		}
 		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
+func (r *landAcqRepo) ListValuationSnapshots(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSnapshot, error) {
+	code, err := r.parcelCodeByID(ctx, acquisitionID, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	vType := normalizeValuationType(valuationType)
+	rows, err := r.db.Query(ctx, `
+		SELECT s.id, s.acquisition_id, s.parcel_id, s.valuation_type, s.submission_id,
+		       s.note,
+		       COALESCE(s.cancelled_by, ''),
+		       s.cancelled_at,
+		       COALESCE(s.submitted_by, ''),
+		       s.submitted_at,
+		       COALESCE(s.reviewed_by, ''),
+		       s.reviewed_at,
+		       s.land_valuation, s.assets, s.compensations, s.total_amount,
+		       COALESCE(s.report_url, ''), COALESCE(s.report_name, '')
+		FROM parcel_valuation_snapshot s
+		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3
+		ORDER BY s.cancelled_at DESC, s.id DESC`, acquisitionID, code, vType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.ValuationSnapshot
+	for rows.Next() {
+		s := &domain.ValuationSnapshot{}
+		if err := rows.Scan(
+			&s.ID, &s.AcquisitionID, &s.ParcelID, &s.ValuationType, &s.SubmissionID,
+			&s.Note, &s.CancelledBy, &s.CancelledAt,
+			&s.SubmittedBy, &s.SubmittedAt, &s.ReviewedBy, &s.ReviewedAt,
+			&s.LandValuation, &s.Assets, &s.Compensations, &s.TotalAmount,
+			&s.ReportURL, &s.ReportName,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, s)
 	}
 	return result, rows.Err()
 }
@@ -5938,7 +6242,7 @@ func (r *landAcqRepo) DeleteAssetSpecType(ctx context.Context, id int) error {
 }
 
 func (r *landAcqRepo) ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCalcType, error) {
-	rows, err := r.db.Query(ctx, `SELECT id, code, name, default_unit, sort_order FROM asset_calc_type ORDER BY sort_order`)
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, default_unit, sort_order, COALESCE(grp,'') FROM asset_calc_type ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
 	}
@@ -5946,7 +6250,7 @@ func (r *landAcqRepo) ListAssetCalcTypes(ctx context.Context) ([]*domain.AssetCa
 	var result []*domain.AssetCalcType
 	for rows.Next() {
 		t := &domain.AssetCalcType{}
-		if err := rows.Scan(&t.ID, &t.Code, &t.Name, &t.DefaultUnit, &t.SortOrder); err != nil {
+		if err := rows.Scan(&t.ID, &t.Code, &t.Name, &t.DefaultUnit, &t.SortOrder, &t.Grp); err != nil {
 			return nil, err
 		}
 		result = append(result, t)

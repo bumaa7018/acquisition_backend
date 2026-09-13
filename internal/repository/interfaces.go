@@ -9,7 +9,29 @@ import (
 	"github.com/google/uuid"
 )
 
+// LoginUserRepository — НЭВТРЭЛТЭД шаардлагатай ХАМГИЙН БАГА багц.
+//
+// Хэрэглэгчийн бүртгэл хоёр санд амьдарна: sdplatform.sd_user (authdb) ба
+// appdb.valuation_org_employee. AuthService тэдгээрийг ЗӨВХӨН энэ интерфейсээр
+// хардаг тул эх сурвалж нэмэхэд нэвтрэлтийн логик өөрчлөгдөхгүй.
+//
+// Source() нь токенд бичигдэх тэмдэг (domain.UserSource*) — хоёр сангийн
+// user_id мөргөлддөг тул хэрэглэгчийг ID-гаар хайхад ЗААВАЛ хамт хэрэглэнэ.
+type LoginUserRepository interface {
+	Source() string
+	GetActiveByLogin(ctx context.Context, login string) (*domain.User, error)
+	GetByID(ctx context.Context, id domain.ID) (*domain.User, error)
+	GetRoles(ctx context.Context, userID domain.ID) ([]string, error)
+	GetPermissions(ctx context.Context, userID domain.ID) ([]string, error)
+	OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	UpdatePassword(ctx context.Context, id domain.ID, hashed string) error
+	InvalidateSessions(ctx context.Context, userID domain.ID) error
+}
+
 type UserRepository interface {
+	// Source — domain.UserSource* (LoginUserRepository-г үз).
+	Source() string
 	Create(ctx context.Context, user *domain.User) error
 	CreateWithEmployee(ctx context.Context, user *domain.User, employee *domain.Employee, person *domain.Person) error
 	GetByID(ctx context.Context, id domain.ID) (*domain.User, error)
@@ -46,7 +68,11 @@ type UserRepository interface {
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
 	// IsSessionValid — тухайн issuedAt хугацаанд олгогдсон токен хэрэглэгчийн
 	// эх цэгээс хойш байвал (буюу эх цэг тавиагүй бол) true.
-	IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error)
+	//
+	// source нь ТОКЕНООС ирнэ (domain.UserSource*). user_token_epoch нь
+	// (user_source, user_id)-ээр түлхүүрлэгддэг ба хоёр сангийн user_id
+	// мөргөлддөг тул эх сурвалжгүйгээр өөр хэрэглэгчийн эх цэг шалгагдана.
+	IsSessionValid(ctx context.Context, source string, userID domain.ID, issuedAt time.Time) (bool, error)
 }
 
 type OrganizationRepository interface {
@@ -313,8 +339,13 @@ type LandAssetRepository interface {
 	// байгууллагын үнэлгээг устгахаас сэргийлнэ).
 	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) (string, error)
 	// GetAssetAcquisition — хөрөнгийн харьяалагдах чөлөөлөлт. Файлын түлхүүрийн
-	// эрх шалгахад (asset-photo/<asset_id>/...) хэрэглэнэ.
+	// эрх шалгахад (asset-photo/<asset_id>/...) хэрэглэнэ. Мөр нь устсан
+	// (үнэлгээ цуцлагдсан) бол архивын snapshot-оос олно.
 	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)
+	// GetCompensationAcquisition — олговрын харьяалагдах чөлөөлөлт
+	// (compensation-report/<comp_id>/...). GetAssetAcquisition-тэй ижилхэн
+	// устсан мөрийг архивын snapshot-оос олно.
+	GetCompensationAcquisition(ctx context.Context, compID uuid.UUID) (uuid.UUID, error)
 	UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error
 	ListAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetSpec, error)
 	UpsertAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID, calcs []domain.AssetCalculation) error
@@ -418,6 +449,7 @@ type LandWorkflowRepository interface {
 	// ЗӨВХӨН буцаалтад хамаарах ба ЗААВАЛ БИШ (domain.ValuationTransition).
 	TransitionValuationSubmission(ctx context.Context, in domain.ValuationTransition) (*domain.ValuationSubmission, error)
 	ListValuationSubmissionHistory(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSubmissionHistory, error)
+	ListValuationSnapshots(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) ([]*domain.ValuationSnapshot, error)
 	ListAcquisitionWorkflows(ctx context.Context) ([]*domain.AcquisitionWorkflow, error)
 	CreateAcquisitionWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.AcquisitionWorkflow, error)
 	DeleteAcquisitionWorkflow(ctx context.Context, id int) error
@@ -536,12 +568,14 @@ type DocumentTypeRepository interface {
 // NotificationRepository — хэрэглэгчийн мэдэгдэл (main DB).
 // Бүх унших/бичих үйлдэл recipient_id-аар шүүгдэж, хэрэглэгч зөвхөн
 // өөрийн мэдэгдэлд ханддаг.
+// source нь ЗААВАЛ (domain.UserSource*): recipientID нь authdb ба appdb хоёрт
+// мөргөлддөг тул эх сурвалжгүйгээр өөр хэрэглэгчийн мэдэгдэл уншигдана.
 type NotificationRepository interface {
 	CreateBatch(ctx context.Context, ns []*domain.Notification) error
-	ListByRecipient(ctx context.Context, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
-	UnreadCount(ctx context.Context, recipientID domain.ID) (int64, error)
-	MarkRead(ctx context.Context, recipientID domain.ID, id uuid.UUID) error
-	MarkAllRead(ctx context.Context, recipientID domain.ID) error
+	ListByRecipient(ctx context.Context, source string, recipientID domain.ID, onlyUnread bool, page, pageSize int) ([]*domain.Notification, int64, error)
+	UnreadCount(ctx context.Context, source string, recipientID domain.ID) (int64, error)
+	MarkRead(ctx context.Context, source string, recipientID domain.ID, id uuid.UUID) error
+	MarkAllRead(ctx context.Context, source string, recipientID domain.ID) error
 }
 
 // AuditLogRepository — ажилтны бизнес үйлдлийн append-only лог.

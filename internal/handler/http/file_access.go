@@ -92,10 +92,14 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// `valuation-return/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
 	// дүрмээр шалгагдана: буцаалтыг санхүү хийдэг ч хавсралтыг үнэлгээ
 	// бичсэн байгууллага УНШИХ шаардлагатай.
+	// valuation-cancel — баталгаажсан үнэлгээг ЦУЦЛАХАД заавал хавсаргах
+	// үндэслэлийн PDF (`valuation-cancel/<нэгж талбарын uuid>/<нэр>`).
+	// valuation-return-тэй ижил дүрэм: цуцлалтыг санхүү/ахлах хийдэг ч
+	// үндэслэлийг үнэлгээ бичсэн байгууллага УНШИХ шаардлагатай.
 	// estimated-value — ТӨСӨӨЛЛИЙН үнэлгээг гэрчлэх хавсралт. Түлхүүр нь
 	// `estimated-value/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
 	// дүрмээр шалгагдана.
-	case "parcel", "notice", "emongolia", "valuation-return", "estimated-value":
+	case "parcel", "notice", "emongolia", "valuation-return", "valuation-cancel", "estimated-value":
 		err = h.authorizeParcel(c, ownerID)
 	case "compensation-report":
 		err = h.authorizeCompensation(c, ownerID)
@@ -176,19 +180,24 @@ func (h *FileAccessHandler) authorizeParcel(c *gin.Context, id string) error {
 
 // authorizeCompensation — үнэлгээний тайлан. Эзэн нь нөхөх олговрын мөр тул
 // эхлээд харьяалагдах чөлөөлөлтийг олж, дараа нь ижил дүрмээр шалгана.
+//
+// Үнэлгээ ЦУЦЛАГДАХАД олговрын мөр устдаг ч файл нь архивын snapshot дотор
+// харагдсаар байдаг тул эзнийг олохдоо snapshot-ыг ч хамруулна
+// (GetCompensationAcquisition) — эс бөгөөс архивын тайлан бүр 403 болно.
 func (h *FileAccessHandler) authorizeCompensation(c *gin.Context, id string) error {
 	compID, err := uuid.Parse(id)
 	if err != nil {
 		return domain.ErrForbidden
 	}
-	comp, err := h.svc.GetGlobalCompensation(c.Request.Context(), compID)
-	if err != nil || comp == nil {
+	acqID, err := h.svc.GetCompensationAcquisition(c.Request.Context(), compID)
+	if err != nil {
 		return domain.ErrForbidden
 	}
-	return h.authorizeAcquisition(c, comp.AcquisitionID.String())
+	return h.authorizeAcquisition(c, acqID.String())
 }
 
-// authorizeAsset — байгууламжийн зураг. Эзэн нь хөрөнгийн мөр.
+// authorizeAsset — байгууламжийн зураг. Эзэн нь хөрөнгийн мөр (устсан бол
+// архивын snapshot).
 func (h *FileAccessHandler) authorizeAsset(c *gin.Context, id string) error {
 	assetID, err := uuid.Parse(id)
 	if err != nil {

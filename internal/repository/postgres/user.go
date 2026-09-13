@@ -45,6 +45,14 @@ func NewUserRepoFor(source string, db, appDB *pgxpool.Pool) *UserRepo {
 	return &UserRepo{db: db, appDB: appDB, source: source}
 }
 
+// Source — токен болон user_token_epoch-д бичигдэх эх сурвалжийн тэмдэг.
+func (r *UserRepo) Source() string {
+	if r.source == "" {
+		return domain.UserSourceAuth
+	}
+	return r.source
+}
+
 const userSelectSQL = `
 	SELECT u.user_id, COALESCE(u.username, ''), COALESCE(u.email, ''), COALESCE(u.password, ''),
 	       COALESCE(u.firstname, ''), COALESCE(u.lastname, ''),
@@ -522,13 +530,20 @@ func (r *UserRepo) InvalidateSessions(ctx context.Context, userID domain.ID) err
 }
 
 // IsSessionValid — эх цэг тавиагүй бол true; эх цэгээс өмнө олгогдсон токенд false.
-func (r *UserRepo) IsSessionValid(ctx context.Context, userID domain.ID, issuedAt time.Time) (bool, error) {
+//
+// source нь ТОКЕНООС ирнэ (r.source БИШ): user_token_epoch нь appdb-д байрладаг
+// тул энэ нэг шалгагч хоёр эх сурвалжийг (auth / valuation_org) хоёуланг нь
+// үйлчилнэ. Хоёр сангийн user_id мөргөлддөг тул source-ыг орхиж БОЛОХГҮЙ.
+func (r *UserRepo) IsSessionValid(ctx context.Context, source string, userID domain.ID, issuedAt time.Time) (bool, error) {
+	if source == "" {
+		source = domain.UserSourceAuth
+	}
 	var invalid bool
 	err := r.appDB.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM user_token_epoch
 			WHERE user_source = $3 AND user_id = $1 AND valid_from > $2
-		)`, userID, issuedAt, r.source).Scan(&invalid)
+		)`, userID, issuedAt, source).Scan(&invalid)
 	if err != nil {
 		return false, err
 	}

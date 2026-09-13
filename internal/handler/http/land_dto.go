@@ -40,12 +40,13 @@ type landAcquisitionResponse struct {
 	// OverlappingParcelCount — БАЙРШЛААР давхардсан нэгж талбарын тоо.
 	// 0-ээс их бол чөлөөлөлт "Хээрийн судалгаа" төлөв рүү шилжихгүй тул
 	// жагсаалт дээр улаанаар анхааруулна.
-	OverlappingParcelCount int64            `json:"overlapping_parcel_count"`
-	ProgressPercent        int              `json:"progress_percent"`
-	ProfessionalOrgID      *string          `json:"professional_org_id,omitempty"`
-	ProfessionalOrgName    string           `json:"professional_org_name,omitempty"`
-	AUs                    []auResponse     `json:"aus"`
-	Parcels                []parcelResponse `json:"parcels"`
+	OverlappingParcelCount int64                         `json:"overlapping_parcel_count"`
+	ProgressPercent        int                           `json:"progress_percent"`
+	ProfessionalOrgID      *string                       `json:"professional_org_id,omitempty"`
+	ProfessionalOrgName    string                        `json:"professional_org_name,omitempty"`
+	AUs                    []auResponse                  `json:"aus"`
+	Parcels                []parcelResponse              `json:"parcels"`
+	AssignedUsers          []acquisitionAssigneeResponse `json:"assigned_users"`
 	// Дэлгэрэнгүй (GetByID) дээр л бөглөгдөнө — тусдаа funding-sources GET API-г орлоно
 	FundingSources []fundingSourceResponse `json:"funding_sources,omitempty"`
 	// Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ — мөн зөвхөн GetByID дээр (plan хүснэгтээс).
@@ -58,6 +59,15 @@ type landAcquisitionResponse struct {
 	PlanStartDate    *string `json:"plan_start_date,omitempty"`
 	PlanEndDate      *string `json:"plan_end_date,omitempty"`
 	PlanApprovedDate *string `json:"plan_approved_date,omitempty"`
+}
+
+type acquisitionAssigneeResponse struct {
+	UserID         string `json:"user_id"`
+	UserName       string `json:"user_name"`
+	UserPosition   string `json:"user_position"`
+	AssignedBy     string `json:"assigned_by"`
+	AssignedByName string `json:"assigned_by_name"`
+	AssignedAt     string `json:"assigned_at"`
 }
 
 type auResponse struct {
@@ -826,6 +836,17 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 		r.ProfessionalOrgID = &s
 	}
 	r.ProfessionalOrgName = acq.ProfessionalOrgName
+	r.AssignedUsers = make([]acquisitionAssigneeResponse, 0, len(acq.AssignedUsers))
+	for _, assignee := range acq.AssignedUsers {
+		r.AssignedUsers = append(r.AssignedUsers, acquisitionAssigneeResponse{
+			UserID:         strconv.FormatInt(int64(assignee.UserID), 10),
+			UserName:       assignee.UserName,
+			UserPosition:   assignee.UserPosition,
+			AssignedBy:     strconv.FormatInt(int64(assignee.AssignedBy), 10),
+			AssignedByName: assignee.AssignedByName,
+			AssignedAt:     assignee.AssignedAt.Format(time.RFC3339),
+		})
+	}
 	for _, au := range acq.AUs {
 		r.AUs = append(r.AUs, auResponse{
 			AU1Code: au.AU1Code, AU1Name: au.AU1Name,

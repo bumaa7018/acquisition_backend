@@ -26,25 +26,23 @@ import (
 // салсан тул HR-аар дамжуулбал токены org_id нь professional_org_id-тай хэзээ ч
 // таарахгүй байв (ажилтан нэвтэрч чадах ч ажлаа харж чадахгүй).
 //
-// sdplatform-д ЗӨВХӨН нэвтрэлтийн МӨР нэмэгдэнэ (sd_user); хүснэгтийн бүтэц,
-// HR-ийн байгууллага/хэлтэс/ажилтан хөндөгдөхгүй. РОЛЬ ОНООГДОХГҮЙ —
-// хандалт нь токены `valuation_org` тэмдэг ба аппын allowlist-ээр шийдэгдэнэ
-// (internal/middleware/valuation_org.go).
+// НЭВТРЭХ ЭРХ ч мөн appdb-д: valuation_org_employee.username / password
+// (000024 миграц). sdplatform-д ЮУ Ч бичигдэхгүй — өмнө нь энд sd_user мөр
+// үүсгэж, идэвхгүй болгодог байсныг ХАСАВ: authdb нь ажиллаж байгаа ГУС-ийн
+// сан тул апп тэнд хэрэглэгч үүсгэх/өөрчлөх ёсгүй.
 //
-// Хоёр САНГИЙН хооронд нэг гүйлгээ байх боломжгүй тул дараалал нь:
-//  1. authdb — нэвтрэх эрхийг бэлдэж user_id-г шийднэ;
-//  2. appdb  — профайл + ажилтныг НЭГ гүйлгээнд бичнэ;
-//  3. authdb — хасагдсан/сэргэсэн эрхийн төлөвийг тэнцүүлнэ.
+// РОЛЬ ОНООГДОХГҮЙ — хандалт нь токены `valuation_org` тэмдэг ба аппын
+// allowlist-ээр шийдэгдэнэ (internal/middleware/valuation_org.go).
 //
-// 2-т алдаа гарвал 1-д үүссэн sd_user мөр эзэнгүй үлдэж болно — дараагийн
-// хадгалалт түүнийг username-ээр НЬ дахин ашиглана (шинэ мөр үүсгэхгүй).
+// Бүх зүйл НЭГ САНД болсон тул нэг гүйлгээнд багтана: ажилтны мөр өөрөө
+// нэвтрэх нэгж бөгөөд is_active нь нэвтрэх эрхийн төлөв (тусад нь
+// тэнцүүлэх алхам шаардлагагүй).
 type ValuationOrgRepo struct {
-	db     *pgxpool.Pool
-	authDB *pgxpool.Pool
+	db *pgxpool.Pool
 }
 
-func NewValuationOrgRepo(db, authDB *pgxpool.Pool) *ValuationOrgRepo {
-	return &ValuationOrgRepo{db: db, authDB: authDB}
+func NewValuationOrgRepo(db *pgxpool.Pool) *ValuationOrgRepo {
+	return &ValuationOrgRepo{db: db}
 }
 
 const valuationOrgSelectSQL = `
@@ -128,7 +126,8 @@ func (r *ValuationOrgRepo) GetByID(ctx context.Context, id domain.ID) (*domain.V
 // (мөрийг устгадаггүй тул түүх хадгалагдана) — идэвхтэй нь эхэлж жагсана.
 func (r *ValuationOrgRepo) listEmployees(ctx context.Context, orgID domain.ID) ([]*domain.Employee, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, last_name, first_name, register_no, position_name,
+		SELECT id, user_id, COALESCE(username, ''), last_name, first_name,
+		       register_no, position_name,
 		       phone, email, is_active, created_at, updated_at
 		FROM valuation_org_employee
 		WHERE org_id = $1
@@ -145,8 +144,9 @@ func (r *ValuationOrgRepo) listEmployees(ctx context.Context, orgID domain.ID) (
 			lastName, firstName, registerNo, position string
 			phone, email                              string
 		)
-		if err := rows.Scan(&e.ID, &e.UserID, &lastName, &firstName, &registerNo,
-			&position, &phone, &email, &e.IsActive, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.UserID, &e.Username, &lastName, &firstName,
+			&registerNo, &position, &phone, &email, &e.IsActive,
+			&e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
 		org := orgID
@@ -170,62 +170,12 @@ func (r *ValuationOrgRepo) listEmployees(ctx context.Context, orgID domain.ID) (
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := r.fillUsernames(ctx, out); err != nil {
-		return nil, err
-	}
 	return out, nil
-}
-
-// fillUsernames — ажилтнуудын нэвтрэх нэрийг authdb-аас нөхнө.
-//
-// sd_user нь ӨӨР САНД байдаг тул join хийх боломжгүй — user_id-уудаар нэг
-// хүсэлт болгож татна. Нэр олдохгүй (эрх устсан) бол хоосон үлдэнэ: ажилтны
-// жагсаалт үүнээс болж унах ёсгүй.
-func (r *ValuationOrgRepo) fillUsernames(ctx context.Context, emps []*domain.Employee) error {
-	ids := make([]domain.ID, 0, len(emps))
-	for _, e := range emps {
-		if e.UserID != nil {
-			ids = append(ids, *e.UserID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-
-	rows, err := r.authDB.Query(ctx,
-		`SELECT user_id, COALESCE(username, '') FROM sdplatform.sd_user WHERE user_id = ANY($1::int4[])`, ids)
-	if err != nil {
-		return mapHRError(err)
-	}
-	defer rows.Close()
-
-	names := make(map[domain.ID]string, len(ids))
-	for rows.Next() {
-		var (
-			id       domain.ID
-			username string
-		)
-		if err := rows.Scan(&id, &username); err != nil {
-			return err
-		}
-		names[id] = username
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, e := range emps {
-		if e.UserID != nil {
-			e.Username = names[*e.UserID]
-		}
-	}
-	return nil
 }
 
 // Create — байгууллагыг (ба ажилтныг) appdb-д үүсгэнэ.
 func (r *ValuationOrgRepo) Create(ctx context.Context, v *domain.ValuationOrg, emps []domain.ValuationOrgEmployee) error {
-	logins, err := r.ensureLogins(ctx, emps)
-	if err != nil {
+	if err := validateLogins(emps); err != nil {
 		return err
 	}
 
@@ -260,22 +210,17 @@ func (r *ValuationOrgRepo) Create(ctx context.Context, v *domain.ValuationOrg, e
 	v.CreatedAt = now
 	v.UpdatedAt = now
 
-	sync, err := syncValuationEmployees(ctx, tx, v.ID, emps, logins)
-	if err != nil {
+	if err := syncValuationEmployees(ctx, tx, v.ID, emps); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return r.applyLoginState(ctx, sync)
+	return tx.Commit(ctx)
 }
 
 // Update — байгууллагын мэдээлэл (ба emps != nil бол ажилтнууд) шинэчилнэ.
 //
 // ЭНЭ ФУНКЦ ШИНЭ БАЙГУУЛЛАГА ҮҮСГЭХГҮЙ: мөр олдохгүй бол ErrNotFound.
 func (r *ValuationOrgRepo) Update(ctx context.Context, v *domain.ValuationOrg, emps []domain.ValuationOrgEmployee) error {
-	logins, err := r.ensureLogins(ctx, emps)
-	if err != nil {
+	if err := validateLogins(emps); err != nil {
 		return err
 	}
 
@@ -312,21 +257,17 @@ func (r *ValuationOrgRepo) Update(ctx context.Context, v *domain.ValuationOrg, e
 	}
 	v.UpdatedAt = now
 
-	sync, err := syncValuationEmployees(ctx, tx, v.ID, emps, logins)
-	if err != nil {
+	if err := syncValuationEmployees(ctx, tx, v.ID, emps); err != nil {
 		return err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return r.applyLoginState(ctx, sync)
+	return tx.Commit(ctx)
 }
 
 // Delete — чөлөөлөлт/нэгж талбарт холбогдоогүй байгууллагыг л устгана.
 //
-// Ажилтнууд FK-ийн ON DELETE CASCADE-ээр устах тул нэвтрэх эрхийг нь ЭХЛЭЭД
-// хааж, токеныг хүчингүй болгоно — эс бөгөөс байгууллага байхгүй болсон ч
-// ажилтан нэвтэрсээр байна.
+// Ажилтнууд FK-ийн ON DELETE CASCADE-ээр устах тул нэвтрэх эрх нь тэдэнтэй
+// хамт алга болно. Гэхдээ олгогдсон ACCESS токен хүчинтэй хэвээр байх тул
+// эхлээд токены эх цэгийг зөөж, тэднийг хүчингүй болгоно.
 func (r *ValuationOrgRepo) Delete(ctx context.Context, id domain.ID) error {
 	linked, err := hrExists(ctx, r.db, `SELECT EXISTS(
 		SELECT 1 FROM land_acquisition WHERE professional_org_id = $1
@@ -346,9 +287,11 @@ func (r *ValuationOrgRepo) Delete(ctx context.Context, id domain.ID) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Нэвтрэх эрхтэй ажилтнуудын ID — тэдгээр нь ӨӨРСДӨӨ user_id (эх сурвалж
+	// нь valuation_org).
 	userIDs, err := collectEmployeeUserIDs(ctx, tx, `
-		SELECT user_id FROM valuation_org_employee
-		WHERE org_id = $1 AND user_id IS NOT NULL`, id)
+		SELECT id FROM valuation_org_employee
+		WHERE org_id = $1 AND username IS NOT NULL`, id)
 	if err != nil {
 		return err
 	}
@@ -363,20 +306,26 @@ func (r *ValuationOrgRepo) Delete(ctx context.Context, id domain.ID) error {
 	if res.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	return r.applyLoginState(ctx, loginSync{deactivate: userIDs})
+	return tx.Commit(ctx)
 }
 
 // ---------------------------------------------------------------------------
 // Ажилтан
 // ---------------------------------------------------------------------------
 
-// loginSync — appdb-ийн гүйлгээ commit болсны дараа authdb-д тэнцүүлэх төлөв.
-type loginSync struct {
-	activate   []domain.ID
-	deactivate []domain.ID
+// validateLogins — нэвтрэх эрхийн оролтыг УРЬДЧИЛАН шалгана.
+//
+// Нууц үг нь ШИНЭ эрх олгоход заавал шаардлагатай. Байгаа ажилтны нууц үгийг
+// солихгүй бол хоосон үлдээж болно (тэр үед хуучин hash хэвээр).
+func validateLogins(emps []domain.ValuationOrgEmployee) error {
+	for i := range emps {
+		e := &emps[i]
+		if strings.TrimSpace(e.Username) == "" && strings.TrimSpace(e.Password) != "" {
+			// Нэргүй нууц үг утгагүй — дуудагчийн алдаа.
+			return domain.ErrInvalidInput
+		}
+	}
+	return nil
 }
 
 // syncValuationEmployees — байгууллагын ажилтнуудын БҮРЭН төлөвийг тавина.
@@ -384,33 +333,31 @@ type loginSync struct {
 // emps == nil бол ажилтнуудад ХҮРЭХГҮЙ (зөвхөн байгууллагын мэдээлэл засварласан
 // тохиолдол). Хоосон биш бол жагсаалтад ороогүй идэвхтэй ажилтан идэвхгүй болно
 // — мөр УСТГАХГҮЙ тул түүх, баримт дээрх нэр хадгалагдана.
+//
+// Нэвтрэх эрх нь мөрийн өөрийнх нь username/password тул тусад нь authdb-д
+// тэнцүүлэх алхам БАЙХГҮЙ: бүх зүйл энэ нэг гүйлгээнд багтана.
 func syncValuationEmployees(
 	ctx context.Context,
 	tx pgx.Tx,
 	orgID domain.ID,
 	emps []domain.ValuationOrgEmployee,
-	logins map[int]domain.ID,
-) (loginSync, error) {
-	var sync loginSync
+) error {
 	if emps == nil {
-		return sync, nil
+		return nil
 	}
 
 	keep := make([]domain.ID, 0, len(emps))
 	for i := range emps {
-		id, err := saveValuationEmployee(ctx, tx, orgID, &emps[i], logins[i])
+		id, err := saveValuationEmployee(ctx, tx, orgID, &emps[i])
 		if err != nil {
-			return sync, err
+			return err
 		}
 		keep = append(keep, id)
-		if uid, ok := logins[i]; ok {
-			sync.activate = append(sync.activate, uid)
-		}
 	}
 
-	// Жагсаалтад ороогүй ажилтныг идэвхгүй болгож, нэвтрэх эрхийг нь хаана.
-	// keep хоосон байж болзошгүй тул query-г тусад нь салгана (<> ALL('{}')
-	// нь ҮРГЭЛЖ true болох тул зөв, гэхдээ уншихад бүрхэг).
+	// Жагсаалтад ороогүй ажилтныг идэвхгүй болгоно. keep хоосон байж болзошгүй
+	// тул query-г тусад нь салгана (<> ALL('{}') нь ҮРГЭЛЖ true болох тул зөв,
+	// гэхдээ уншихад бүрхэг).
 	var (
 		rows pgx.Rows
 		err  error
@@ -421,64 +368,56 @@ func syncValuationEmployees(
 			UPDATE valuation_org_employee
 			SET is_active = false, updated_at = $2
 			WHERE org_id = $1 AND is_active
-			RETURNING user_id`, orgID, now)
+			RETURNING id`, orgID, now)
 	} else {
 		rows, err = tx.Query(ctx, `
 			UPDATE valuation_org_employee
 			SET is_active = false, updated_at = $3
 			WHERE org_id = $1 AND is_active AND id <> ALL($2::int4[])
-			RETURNING user_id`, orgID, keep, now)
+			RETURNING id`, orgID, keep, now)
 	}
 	if err != nil {
-		return sync, mapHRError(err)
+		return mapHRError(err)
 	}
+	var removed []domain.ID
 	for rows.Next() {
-		var uid *domain.ID
-		if err := rows.Scan(&uid); err != nil {
+		var id domain.ID
+		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return sync, err
+			return err
 		}
-		if uid != nil {
-			sync.deactivate = append(sync.deactivate, *uid)
-		}
+		removed = append(removed, id)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return sync, err
+		return err
 	}
 
-	// Байгууллагаас хасагдсан ажилтны олгогдсон токен ч хүчингүй болно.
-	if err := invalidateUserSessions(ctx, tx, sync.deactivate); err != nil {
-		return sync, err
-	}
-	return sync, nil
+	// Байгууллагаас хасагдсан ажилтны олгогдсон токен ч хүчингүй болно
+	// (is_active=false нь refresh-ийг л зогсооно, access токен хэвээр).
+	return invalidateUserSessions(ctx, tx, removed)
 }
 
 // saveValuationEmployee — нэг ажилтныг бичиж, valuation_org_employee.id-г
-// буцаана.
+// буцаана. Тэр id нь ажилтны user_id мөн болно (user_source=valuation_org).
 //
-// userID нь 0 бол нэвтрэх эрх шийдэгдээгүй (username хоосон) — тэр үед байгаа
-// user_id-г ХЭВЭЭР үлдээнэ, эрх хасах нь тусдаа зориудын үйлдэл байх ёстой.
+// НЭВТРЭХ ЭРХ: username хоосон бол БАЙГАА нэр/нууц үгийг хөндөхгүй — эрх хасах
+// нь тусдаа зориудын үйлдэл байх ёстой. Нууц үг хоосон бол хуучин hash хэвээр.
 //
-// uq_valuation_org_employee_user нь нэг нэвтрэх эрхийг зөвхөн нэг ИДЭВХТЭЙ
-// ажилтанд зөвшөөрдөг тул хэрэглэгчийг өөр ажилтан/байгууллага руу зэрэг
-// холбох гэвэл ErrAlreadyExists болно (409) — зориуд.
+// uq_valuation_org_employee_username нь нэг нэрийг зөвхөн нэг ИДЭВХТЭЙ
+// ажилтанд зөвшөөрдөг тул давхардвал ErrAlreadyExists болно (409) — зориуд.
 func saveValuationEmployee(
 	ctx context.Context,
 	tx pgx.Tx,
 	orgID domain.ID,
 	in *domain.ValuationOrgEmployee,
-	userID domain.ID,
 ) (domain.ID, error) {
 	position := strings.TrimSpace(in.PositionName)
 	if position == "" {
 		position = domain.ValuationOrgDefaultPosition
 	}
-	var newUser *domain.ID
-	if userID != 0 {
-		uid := userID
-		newUser = &uid
-	}
+	username := optionalText(in.Username)
+	password := optionalText(in.Password)
 
 	// 1) ID өгсөн бол ЯГ тэр мөрийг засна. org_id-г нөхцөлд шалгах нь өөр
 	//    байгууллагын ажилтныг ID-гаар нь өөрлөхөөс сэргийлнэ.
@@ -489,11 +428,13 @@ func saveValuationEmployee(
 			SET last_name = LEFT($1, 250), first_name = LEFT($2, 250),
 			    register_no = LEFT($3, 20), position_name = LEFT($4, 250),
 			    phone = LEFT($5, 50), email = LEFT($6, 250),
-			    user_id = COALESCE($7, user_id), is_active = true, updated_at = $8
-			WHERE id = $9 AND org_id = $10
+			    username = COALESCE(LEFT($7, 50), username),
+			    "password" = COALESCE(LEFT($8, 150), "password"),
+			    is_active = true, updated_at = $9
+			WHERE id = $10 AND org_id = $11
 			RETURNING id`,
 			in.LastName, in.FirstName, in.RegisterNo, position, in.Phone, in.Email,
-			newUser, time.Now(), *in.ID, orgID).Scan(&id)
+			username, password, time.Now(), *in.ID, orgID).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, domain.ErrNotFound
 		}
@@ -511,10 +452,12 @@ func saveValuationEmployee(
 		UPDATE valuation_org_employee
 		SET last_name = LEFT($1, 250), first_name = LEFT($2, 250),
 		    position_name = LEFT($3, 250), phone = LEFT($4, 50), email = LEFT($5, 250),
-		    user_id = COALESCE($6, user_id), is_active = true, updated_at = $7
-		WHERE org_id = $8 AND register_no = LEFT($9, 20) AND register_no <> ''
+		    username = COALESCE(LEFT($6, 50), username),
+		    "password" = COALESCE(LEFT($7, 150), "password"),
+		    is_active = true, updated_at = $8
+		WHERE org_id = $9 AND register_no = LEFT($10, 20) AND register_no <> ''
 		RETURNING id`,
-		in.LastName, in.FirstName, position, in.Phone, in.Email, newUser, now,
+		in.LastName, in.FirstName, position, in.Phone, in.Email, username, password, now,
 		orgID, in.RegisterNo).Scan(&id)
 	if err == nil {
 		return id, nil
@@ -523,35 +466,41 @@ func saveValuationEmployee(
 		return 0, mapHRError(err)
 	}
 
-	// 3) Шинэ ажилтан.
+	// 3) Шинэ ажилтан. Нэвтрэх нэр өгсөн мөртлөө нууц үггүй бол эрх олгох
+	//    боломжгүй (hash хоосон мөр нэвтрэлтэд ОГТ олдохгүй — GetActiveByLogin).
+	if username != nil && password == nil {
+		return 0, domain.ErrInvalidInput
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO valuation_org_employee (
-			org_id, user_id, last_name, first_name, register_no, position_name,
-			phone, email, is_active, created_at, updated_at)
-		VALUES ($1, $2, LEFT($3, 250), LEFT($4, 250), LEFT($5, 20), LEFT($6, 250),
-			LEFT($7, 50), LEFT($8, 250), true, $9, $9)
+			org_id, last_name, first_name, register_no, position_name,
+			phone, email, username, "password", is_active, created_at, updated_at)
+		VALUES ($1, LEFT($2, 250), LEFT($3, 250), LEFT($4, 20), LEFT($5, 250),
+			LEFT($6, 50), LEFT($7, 250), LEFT($8, 50), LEFT($9, 150), true, $10, $10)
 		RETURNING id`,
-		orgID, newUser, in.LastName, in.FirstName, in.RegisterNo, position,
-		in.Phone, in.Email, now).Scan(&id); err != nil {
+		orgID, in.LastName, in.FirstName, in.RegisterNo, position,
+		in.Phone, in.Email, username, password, now).Scan(&id); err != nil {
 		return 0, mapHRError(err)
 	}
 	return id, nil
 }
 
 // invalidateUserSessions — олгогдсон токеныг хүчингүй болгоно (appdb-ийн
-// user_token_epoch; jwt.Manager унших үедээ шалгана). sd_user-ийг идэвхгүй
-// болгох нь refresh-ийг л зогсоох тул access token дуусах хүртэл хүчинтэй
-// байдаг — эрх хассан ажилтан тэр хугацаанд ажиллаж болохгүй.
+// user_token_epoch; jwt.Manager унших үедээ шалгана). is_active=false нь
+// refresh-ийг л зогсоох тул access token дуусах хүртэл хүчинтэй байдаг —
+// эрх хассан ажилтан тэр хугацаанд ажиллаж болохгүй.
+//
+// userIDs нь valuation_org_employee.id — иймд эх сурвалж 'valuation_org'.
 func invalidateUserSessions(ctx context.Context, q hrQuerier, userIDs []domain.ID) error {
 	if len(userIDs) == 0 {
 		return nil
 	}
 	_, err := q.Exec(ctx, `
 		INSERT INTO user_token_epoch (user_source, user_id, valid_from)
-		SELECT 'auth', u, date_trunc('second', NOW())
+		SELECT $2, u, date_trunc('second', NOW())
 		FROM UNNEST($1::int4[]) AS t(u)
 		ON CONFLICT (user_source, user_id) DO UPDATE SET valid_from = EXCLUDED.valid_from`,
-		userIDs)
+		userIDs, domain.UserSourceValuationOrg)
 	return mapHRError(err)
 }
 
@@ -573,106 +522,8 @@ func collectEmployeeUserIDs(ctx context.Context, tx pgx.Tx, query string, args .
 }
 
 // ---------------------------------------------------------------------------
-// Нэвтрэх эрх — sdplatform.sd_user (authdb). ЗӨВХӨН МӨР нэмнэ/шинэчилнэ.
+// Туслахууд
 // ---------------------------------------------------------------------------
-
-// ensureLogins — username өгсөн ажилтан бүрт sd_user-ийг бэлдэж (олдвол
-// холбоно, эс бөгөөс үүсгэнэ) professional_org ролиудыг олгоно.
-//
-// Буцах map нь emps-ийн ИНДЕКС → user_id. Username хоосон ажилтан map-д орохгүй
-// — нэвтрэх эрх ЗААВАЛ БИШ.
-//
-// in.Password нь ЭНД ирэхдээ аль хэдийн hash хийгдсэн байх ёстой (service).
-func (r *ValuationOrgRepo) ensureLogins(ctx context.Context, emps []domain.ValuationOrgEmployee) (map[int]domain.ID, error) {
-	out := make(map[int]domain.ID, len(emps))
-	wanted := false
-	for i := range emps {
-		if strings.TrimSpace(emps[i].Username) != "" {
-			wanted = true
-			break
-		}
-	}
-	if !wanted {
-		return out, nil
-	}
-
-	tx, err := r.authDB.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	for i := range emps {
-		e := &emps[i]
-		username := strings.TrimSpace(e.Username)
-		if username == "" {
-			continue
-		}
-
-		var userID domain.ID
-		err := tx.QueryRow(ctx,
-			`SELECT user_id FROM sdplatform.sd_user WHERE username = LEFT($1, 50) AND deleted_at IS NULL`,
-			username).Scan(&userID)
-		switch {
-		case err == nil:
-			if e.Password != "" {
-				if _, err := tx.Exec(ctx,
-					`UPDATE sdplatform.sd_user SET "password" = LEFT($1, 150), updated_at = $2 WHERE user_id = $3`,
-					e.Password, time.Now(), userID); err != nil {
-					return nil, mapHRError(err)
-				}
-			}
-		case errors.Is(err, pgx.ErrNoRows):
-			if e.Password == "" {
-				// Шинэ эрх үүсгэхэд нууц үг заавал шаардлагатай.
-				return nil, domain.ErrInvalidInput
-			}
-			now := time.Now()
-			// email-д UNIQUE индекс (ux_sd_user_email_active) байдаг тул
-			// имэйлгүй ажилтанд ХООСОН МӨР биш NULL бичнэ — эс бөгөөс
-			// имэйлгүй хоёр дахь ажилтан "давхардсан" гэж татгалзагдана.
-			if err := tx.QueryRow(ctx, `
-				INSERT INTO sdplatform.sd_user (username, email, "password", firstname, lastname, created_at, updated_at, is_active)
-				VALUES (LEFT($1, 50), LEFT(NULLIF($2::text, ''), 250), LEFT($3, 150), LEFT($4::text, 50), LEFT($5::text, 50), $6::date, $6, true)
-				RETURNING user_id`,
-				username, e.Email, e.Password, e.FirstName, e.LastName, now).Scan(&userID); err != nil {
-				return nil, mapHRError(err)
-			}
-		default:
-			return nil, err
-		}
-
-		// РОЛЬ ОНООХГҮЙ. Үнэлгээний байгууллага системийн үндсэн хэрэглэгчээс
-		// тусдаа явдаг тул sdplatform-ийн роль/эрх (professional_org,
-		// compensation:*) түүний хандалтад ямар ч үүрэг хүлээхгүй: ажилтан
-		// valuation_org_employee дээр байснаар токенд `valuation_org` тэмдэг
-		// авч, /prof болон дашбоардад ТЭР тэмдгээр нэвтэрнэ
-		// (middleware.ValuationOrgScope / RequireValuationOrgCaller).
-		//
-		// Роль олговол тэр нь дотоод маршрутууд руу санамсаргүй эрх нэмэх
-		// эрсдэлтэй — allowlist хаадаг ч эрхийн эх сурвалж хоёр болох нь өөрөө
-		// эмзэг байдал.
-		out[i] = userID
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// applyLoginState — ажилтны төлөвийг нэвтрэх эрх дээр тусгана.
-//
-// ЭНЭ ЦОНХ нь тухайн байгууллагын ажилтны эрхийн ЭХ СУРВАЛЖ: жагсаалтад байгаа
-// ажилтан нэвтэрч чадна, хасагдсан нь чадахгүй. Тиймээс /users цонхоор гараар
-// хаасан эрх энд дахин нээгдэж болно — байгууллагын ажилтны эрхийг энэ цонхоор
-// удирдана гэсэн зориудын шийдэл.
-func (r *ValuationOrgRepo) applyLoginState(ctx context.Context, s loginSync) error {
-	if err := r.setLoginActive(ctx, s.deactivate, false); err != nil {
-		return err
-	}
-	return r.setLoginActive(ctx, s.activate, true)
-}
 
 // optionalText — хоосон мөрийг NULL болгоно (JSON-д талбар огт гарахгүй).
 func optionalText(v string) *string {
@@ -681,16 +532,4 @@ func optionalText(v string) *string {
 		return nil
 	}
 	return &v
-}
-
-func (r *ValuationOrgRepo) setLoginActive(ctx context.Context, userIDs []domain.ID, active bool) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-	_, err := r.authDB.Exec(ctx, `
-		UPDATE sdplatform.sd_user
-		SET is_active = $2, updated_at = NOW()
-		WHERE user_id = ANY($1::int4[]) AND is_active IS DISTINCT FROM $2`,
-		userIDs, active)
-	return mapHRError(err)
 }

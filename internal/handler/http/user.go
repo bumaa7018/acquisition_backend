@@ -44,6 +44,14 @@ func isSelf(c *gin.Context, target domain.ID) bool {
 // бүрэн байгаа эрхийн багцтай роль-ыг л бусдад олгож чадна. (Админ бүх эрхтэй
 // тул ямар ч роль олгоно.) roles:AssignPermission-ийн адил зарчим.
 func (h *UserHandler) callerCanGrantRole(c *gin.Context, role *domain.Role) bool {
+	// Мэргэжлийн байгууллагын роль ХЭНД Ч олгогдохгүй — админд ч. Тэр роль нь
+	// хэрэглэгчийн бүтцээс тусдаа бүртгэлд хамаарна (domain.Role.IsAPIGrantable).
+	// Энэ шалгалт эрхийн шалгалтаас ӨМНӨ байх ёстой: доорх давталт нь "дуудагч
+	// эрхүүдийг нь эзэмшсэн үү" гэдгийг л хардаг тул compensation:* эзэмшдэг
+	// админыг нэвтрүүлчихнэ.
+	if role == nil || !role.IsAPIGrantable() {
+		return false
+	}
 	if callerHasRole(c, "admin") && roleIsSystem10Only(role) {
 		return true
 	}
@@ -122,7 +130,10 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	userID, _ := c.Get(middleware.CtxUserID)
 	id, _ := userID.(domain.ID)
 
-	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	// Эх сурвалжтай нь хайна: appdb дээрх хэрэглэгч (үнэлгээний байгууллагын
+	// ажилтан) authdb-д байхгүй тул зөвхөн ID-гаар хайвал 404 өгнө, эсвэл ижил
+	// дугаартай ӨӨР хүний бүртгэл буцна.
+	user, err := h.userSvc.GetBySource(c.Request.Context(), middleware.GetCallerSource(c), id)
 	if err != nil {
 		response.Error(c, err)
 		return
