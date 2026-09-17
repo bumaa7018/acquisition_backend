@@ -1,0 +1,168 @@
+{
+  "acquisitions": [
+    {
+      "ID": "00000000-0000-4000-8000-000000000001",
+      "PlanID": null,
+      "PlanCode": "PLAN-0001",
+      "PlanName": "",
+      "PlanGeomWKT": "",
+      "PlanAreaM2": 0,
+      "GeometryWKT": "",
+      "AreaM2": 400137,
+      "Status": 2,
+      "StartDate": null,
+      "EndDate": null,
+      "AcquisitionName": "Хэмжилтийн чөлөөлөлт 1",
+      "ImplementingOrg": "",
+      "Reason": "",
+      "ResponsibleOrg": "",
+      "FundingSource": "",
+      "GeneralCategoryID": null,
+      "GeneralCategoryName": "",
+      "SubCategoryID": null,
+      "SubCategoryName": "",
+      "DecreeNumber": "",
+      "DecreeDate": null,
+      "NithDecreeNumber": "",
+      "GroupListNumber": "",
+      "CreatedAt": "0001-01-01T00:00:00Z",
+      "CreatedBy": "",
+      "UpdatedAt": "0001-01-01T00:00:00Z",
+      "UpdatedBy": "",
+      "AUs": null,
+      "Parcels": null,
+      "ParcelCount": 100,
+      "FinalParcelCount": 51,
+      "OverlappingParcelCount": 0,
+      "AssignedUsers": null,
+      "ProfessionalOrgID": null,
+      "ProfessionalOrgName": "",
+      "PlanParcelID": "",
+      "PlanTypeName": "",
+      "PlanGazner": "",
+      "PlanStartDate": null,
+      "PlanEndDate": null,
+      "PlanApprovedDate": null
+    }
+  ],
+  "parcel_statuses": [
+    {
+      "id": 0,
+      "code": "pending",
+      "name": "Хүлээгдэж буй",
+      "sort_order": 0
+    },
+    {
+      "id": 1,
+      "code": "processing",
+      "name": "Зөвшилцөх шатандаа",
+      "sort_order": 1
+    },
+    {
+      "id": 2,
+      "code": "evaluating",
+      "name": "Үнэлгээ хийх",
+      "sort_order": 2
+    },
+    {
+      "id": 3,
+      "code": "affected_out",
+      "name": "Нөлөөлөгдсөн гарсан",
+      "sort_order": 3
+    },
+    {
+      "id": 4,
+      "code": "rejected",
+      "name": "Татгалзсан",
+      "sort_order": 4
+    },
+    {
+      "id": 5,
+      "code": "released",
+      "name": "Чөлөөлсөн",
+      "sort_order": 5
+    }
+  ],
+  "total_parcels": 100,
+  "freed_parcels": 17,
+  "freed_area_m2": 5984,
+  "plan_area_m2": 400137,
+  "total_orders": 0,
+  "total_compensation": 2813702443,
+  "status_breakdown": [
+    {
+      "status_id": 0,
+      "name": "Хүлээгдэж буй",
+      "count": 16,
+      "area_m2": 5600
+    },
+    {
+      "status_id": 1,
+      "name": "Зөвшилцөх шатандаа",
+      "count": 16,
+      "area_m2": 5616
+    },
+    {
+      "status_id": 2,
+      "name": "Үнэлгээ хийх",
+      "count": 17,
+      "area_m2": 5933
+    },
+    {
+      "status_id": 3,
+      "name": "Нөлөөлөгдсөн гарсан",
+      "count": 17,
+      "area_m2": 5950
+    },
+    {
+      "status_id": 4,
+      "name": "Татгалзсан",
+      "count": 17,
+      "area_m2": 5967
+    },
+    {
+      "status_id": 5,
+      "name": "Чөлөөлсөн",
+      "count": 17,
+      "area_m2": 5984
+    }
+  ],
+  "timeline": [
+    {
+      "date": "2024.01.08",
+      "count": 100
+    }
+  ],
+  "valuation_statuses": [
+    {
+      "status": "draft",
+      "count": 100
+    }
+  ],
+  "valuation_types": [
+    {
+      "valuation_type": "asset",
+      "count": 33,
+      "amount": 932647341
+    },
+    {
+      "valuation_type": "independent",
+      "count": 33,
+      "amount": 895944313
+    },
+    {
+      "valuation_type": "mika",
+      "count": 34,
+      "amount": 985110789
+    }
+  ],
+  "filtered_au1_codes": [
+    "11"
+  ],
+  "filtered_au2_codes": [
+    "1102"
+  ],
+  "filtered_au3_codes": [
+    "110201"
+  ]
+}

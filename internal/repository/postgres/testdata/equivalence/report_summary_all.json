@@ -1,0 +1,49 @@
+{
+  "AcquisitionCount": 100,
+  "ParcelCount": 10000,
+  "TotalAreaM2": 13347500,
+  "TotalParcelAreaM2": 19958500,
+  "TotalCompensation": 280554730142,
+  "LandCompensation": 280554730142,
+  "RealStateCompensation": 0,
+  "PropertyCompensation": 0,
+  "OtherCompensation": 0,
+  "StatusBreakdown": [
+    {
+      "Status": 0,
+      "StatusName": "Хүлээгдэж буй",
+      "Count": 1667
+    },
+    {
+      "Status": 1,
+      "StatusName": "Зөвшилцөх шатандаа",
+      "Count": 1666
+    },
+    {
+      "Status": 2,
+      "StatusName": "Үнэлгээ хийх",
+      "Count": 1666
+    },
+    {
+      "Status": 3,
+      "StatusName": "Нөлөөлөгдсөн гарсан",
+      "Count": 1666
+    },
+    {
+      "Status": 4,
+      "StatusName": "Татгалзсан",
+      "Count": 1667
+    },
+    {
+      "Status": 5,
+      "StatusName": "Чөлөөлсөн",
+      "Count": 1668
+    }
+  ],
+  "YearBreakdown": [
+    {
+      "Year": 2026,
+      "Count": 100
+    }
+  ]
+}

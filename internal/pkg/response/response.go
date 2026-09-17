@@ -189,6 +189,8 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusConflict, i18n.ErrPersonDeleteForbidden
 	case domain.ErrHasReleasedParcels:
 		return http.StatusConflict, i18n.ErrHasReleasedParcels
+	case domain.ErrCategoryInUse:
+		return http.StatusConflict, i18n.ErrCategoryInUse
 	case domain.ErrConfirmedDecisionLinked:
 		return http.StatusConflict, i18n.ErrConfirmedDecisionLinked
 	case domain.ErrReleasedParcelOutsideBoundary:

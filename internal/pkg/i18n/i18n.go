@@ -73,6 +73,7 @@ const (
 	ErrShapefileFormat         Key = "shapefile_format"
 	ErrPersonDeleteForbidden   Key = "person_delete_forbidden"
 	ErrHasReleasedParcels      Key = "has_released_parcels"
+	ErrCategoryInUse           Key = "category_in_use"
 	ErrConfirmedDecisionLinked Key = "confirmed_decision_linked"
 	ErrReleasedParcelOutside   Key = "released_parcel_outside_boundary"
 	ErrDeleteNotNew            Key = "delete_not_new"
@@ -188,6 +189,7 @@ var messages = map[Key][2]string{
 	ErrDeleteNotNew:            {"Зөвхөн NEW статустай чөлөөлөлтийг устгах боломжтой", "Only acquisitions with NEW status can be deleted"},
 	ErrPersonDeleteForbidden:   {"Хүний мэдээллийг устгах боломжгүй. Ажилтныг чөлөөлөх бол ажилтны бүртгэлийг идэвхгүй болгоно.", "Person records cannot be deleted; deactivate the employee instead."},
 	ErrHasReleasedParcels:      {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
+	ErrCategoryInUse:           {"Энэ ангилалд (эсвэл дэд ангилалд нь) чөлөөлөлт холбогдсон тул устгах боломжгүй. Устгасан чөлөөлөлт ч холбоосоо хадгалдаг. Эхлээд тэдгээрийн ангилалыг өөрчилнө үү.", "The category (or one of its sub-categories) is used by acquisitions and cannot be deleted; deleted acquisitions still hold the reference. Reassign them first."},
 	ErrConfirmedDecisionLinked: {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
 	ErrReleasedParcelOutside:   {"Шинэ хил нь \"Чөлөөлсөн\" төлөвтэй нэгж талбарыг гадна орхиж байна. Чөлөөлсөн нэгж талбарууд бүгд шинэ хилд багтсан байх шаардлагатай.", "The new boundary excludes parcels that are already released. All released parcels must fall inside the new boundary."},
 	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},

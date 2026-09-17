@@ -37,6 +37,23 @@ func NewValuationOrgLoginRepo(db *pgxpool.Pool) *ValuationOrgLoginRepo {
 // Source — domain.UserSourceValuationOrg. Токен болон user_token_epoch-д бичнэ.
 func (r *ValuationOrgLoginRepo) Source() string { return domain.UserSourceValuationOrg }
 
+// valuationOrgLoginSelectSQL — нэвтрэлтийн бүх зам ЭНЭ нэг лавлагааг хэрэглэнэ.
+//
+// НЭВТРЭХ ЭРХ нь ХОЁР төлөвөөс хамаарна: ажилтны `ve.is_active` БА харьяа
+// байгууллагынх нь `vp.is_active`. Байгууллагыг хүчингүй болгоход ажилтнуудынх
+// нь мөрийг МАССААР дарж бичихгүй — энд JOIN-оор нийлүүлж ТООЦНО. Ингэснээр:
+//
+//   - байгууллагыг сэргээхэд ажилтнууд нь өмнөх төлөвөөрөө буцаж ирнэ (тусад
+//     нь хүчингүй болгосон ажилтан хүчингүй хэвээр үлдэнэ);
+//   - `uq_valuation_org_employee_username … WHERE is_active` хэсэгчилсэн
+//     индексүүд хөндөгдөхгүй (массаар сэргээхэд давхардаж унах эрсдэлгүй).
+//
+// ЯАГААД ЭНЭ ЧУХАЛ ВЭ: байгууллага хүчингүй үед `ValuationOrgIDForUser` нь
+// nil буцаадаг тул токенд `valuation_org` тэмдэг ТАВИГДАХГҮЙ. Тэмдэггүй
+// бол `ValuationOrgScope`-ийн allowlist ОГТ хэрэгжихгүй (зөвхөн тэмдэгтэй
+// дуудагчид үйлчилдэг) — өөрөөр хэлбэл байгууллагыг хүчингүй болгоход
+// ажилтан нь илүү ХЯЗГААРГҮЙ токен авч, эрх шалгадаггүй бүх лавлах
+// маршрутад хүрдэг байв. Нэвтрэлтийг энд зогсоох нь үүнийг үндсээр нь таслана.
 const valuationOrgLoginSelectSQL = `
 	SELECT ve.id,
 	       COALESCE(ve.username, ''),
@@ -45,7 +62,8 @@ const valuationOrgLoginSelectSQL = `
 	       ve.first_name, ve.last_name,
 	       COALESCE(ve.position_name, ''),
 	       ve.is_active, ve.created_at, ve.updated_at
-	FROM valuation_org_employee ve`
+	FROM valuation_org_employee ve
+	JOIN valuation_org_profile vp ON vp.id = ve.org_id AND vp.is_active`
 
 func scanValuationOrgLogin(row rowScanner, u *domain.User) error {
 	return row.Scan(&u.ID, &u.Username, &u.Email, &u.Password,

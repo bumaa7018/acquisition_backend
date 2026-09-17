@@ -139,8 +139,13 @@ func TestValuationOrg_NilEmployeesLeavesStaffUntouched(t *testing.T) {
 	assert.Nil(t, repo.lastEmps, "nil бол repo ажилтнуудад хүрэхгүй")
 }
 
-// Хоосон массив нь "бүх ажилтныг хас" гэсэн ЗОРИУДЫН үйлдэл — nil-ээс ялгаатай.
-func TestValuationOrg_EmptyEmployeesClearsStaff(t *testing.T) {
+// РЕГРЕСС: хоосон массив нь "бүх ажилтныг хас" ГЭСЭН ҮГ БИШ.
+//
+// Дэлгэцийн маягт дэлгэрэнгүй ачаалагдаж дуусахаас өмнө хадгалахад яг хоосон
+// массив илгээдэг тул нэг санамсаргүй даралт байгууллагын БҮХ ажилтныг
+// системээс гаргаж, дахин нэвтрэх ч боломжгүй болгодог байв. nil ба [] хоёр
+// ижилхэн "ажилтанд хүрэхгүй" гэсэн утгатай.
+func TestValuationOrg_EmptyEmployeesLeavesStaffUntouched(t *testing.T) {
 	repo := &fakeValuationOrgRepo{}
 	svc := service.NewValuationOrgService(repo)
 
@@ -149,8 +154,7 @@ func TestValuationOrg_EmptyEmployeesClearsStaff(t *testing.T) {
 		Employees: []domain.ValuationOrgEmployee{},
 	})
 	require.NoError(t, err)
-	assert.NotNil(t, repo.lastEmps)
-	assert.Empty(t, repo.lastEmps)
+	assert.Nil(t, repo.lastEmps, "хоосон массив бол repo ажилтнуудад хүрэхгүй")
 }
 
 func TestValuationOrg_RejectsInvalidEmployees(t *testing.T) {

@@ -20,7 +20,8 @@ func NewParcelStatusRepo(db *pgxpool.Pool) *ParcelStatusRepo {
 
 func (r *ParcelStatusRepo) List(ctx context.Context) ([]*domain.ParcelStatus, error) {
 	rows, err := r.db.Query(ctx,
-		`SELECT id, code, name, sort_order FROM parcel_status ORDER BY sort_order, id`)
+		`SELECT id, code, name, sort_order, COALESCE(color, '')
+		   FROM parcel_status ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +30,7 @@ func (r *ParcelStatusRepo) List(ctx context.Context) ([]*domain.ParcelStatus, er
 	var list []*domain.ParcelStatus
 	for rows.Next() {
 		ps := &domain.ParcelStatus{}
-		if err := rows.Scan(&ps.ID, &ps.Code, &ps.Name, &ps.SortOrder); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Code, &ps.Name, &ps.SortOrder, &ps.Color); err != nil {
 			return nil, err
 		}
 		list = append(list, ps)
@@ -40,8 +41,9 @@ func (r *ParcelStatusRepo) List(ctx context.Context) ([]*domain.ParcelStatus, er
 func (r *ParcelStatusRepo) GetByID(ctx context.Context, id int) (*domain.ParcelStatus, error) {
 	ps := &domain.ParcelStatus{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, code, name, sort_order FROM parcel_status WHERE id = $1`, id).
-		Scan(&ps.ID, &ps.Code, &ps.Name, &ps.SortOrder)
+		`SELECT id, code, name, sort_order, COALESCE(color, '')
+		   FROM parcel_status WHERE id = $1`, id).
+		Scan(&ps.ID, &ps.Code, &ps.Name, &ps.SortOrder, &ps.Color)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -53,14 +55,16 @@ func (r *ParcelStatusRepo) GetByID(ctx context.Context, id int) (*domain.ParcelS
 
 func (r *ParcelStatusRepo) Create(ctx context.Context, ps *domain.ParcelStatus) error {
 	return r.db.QueryRow(ctx,
-		`INSERT INTO parcel_status (code, name, sort_order) VALUES ($1, $2, $3) RETURNING id`,
-		ps.Code, ps.Name, ps.SortOrder).Scan(&ps.ID)
+		`INSERT INTO parcel_status (code, name, sort_order, color)
+		 VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id`,
+		ps.Code, ps.Name, ps.SortOrder, ps.Color).Scan(&ps.ID)
 }
 
 func (r *ParcelStatusRepo) Update(ctx context.Context, ps *domain.ParcelStatus) error {
 	res, err := r.db.Exec(ctx,
-		`UPDATE parcel_status SET code=$1, name=$2, sort_order=$3 WHERE id=$4`,
-		ps.Code, ps.Name, ps.SortOrder, ps.ID)
+		`UPDATE parcel_status SET code=$1, name=$2, sort_order=$3, color=NULLIF($4, '')
+		  WHERE id=$5`,
+		ps.Code, ps.Name, ps.SortOrder, ps.Color, ps.ID)
 	if err != nil {
 		return err
 	}

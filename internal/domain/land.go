@@ -353,6 +353,15 @@ type AcquisitionCategory struct {
 	// Өөр сангийн бүртгэл тул FK байхгүй, нэрийг дэлгэц /departments-ээс
 	// тааруулна. nil = тодорхойлоогүй.
 	DepartmentID *int `json:"department_id"`
+	// AcquisitionCount — ЭНЭ ангилалд холбогдсон чөлөөлөлтийн тоо
+	// (ерөнхий ангилалд дэд ангилалуудаараа дамжсан нь ч орно).
+	//
+	// ЯАГААД: ангилалыг устгахад `land_acquisition`-ийн FK зөрчигдөж,
+	// хэрэглэгчид "Дотоод алдаа гарлаа" гэсэн ойлгомжгүй 500 буцдаг байв.
+	// Тоог урьдчилж харуулснаар устгахын ӨМНӨ анхааруулна.
+	AcquisitionCount int `json:"acquisition_count"`
+	// SubCount — дэд ангилалын тоо (зөвхөн ерөнхий ангилалд).
+	SubCount int `json:"sub_count"`
 }
 
 // ParcelStatus — нэгж талбарын төлөв (lookup)
@@ -361,6 +370,12 @@ type ParcelStatus struct {
 	Code      string `json:"code"`
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
+	// Color — `#rrggbb`. Төлөвийн өнгөний ЦОРЫН ГАНЦ эх сурвалж: жагсаалтын
+	// тэмдэглэгээ, дашбоардын диаграм, мөн газрын зураг дээрх төлөвийн
+	// давхарга (GeoServer-ийн SLD руу `env=fill:<өнгө>`-өөр дамжина) бүгд
+	// эндээс авна. Хоосон бол дуудагч тал саарал өгөгдмөл хэрэглэнэ —
+	// шинээр нэмсэн төлөв өнгө сонгоогүй байж болно.
+	Color string `json:"color"`
 }
 
 // ParcelStatusHistory — нэгж талбарын статус солигдсон түүх

@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -42,10 +45,30 @@ func (r *landAcqRepo) ListConstructionTypes(ctx context.Context) ([]*domain.Cons
 func (r *landAcqRepo) ListAcquisitionCategories(ctx context.Context, parentID *int) ([]*domain.AcquisitionCategory, error) {
 	var rows pgx.Rows
 	var err error
+	// Холбогдсон чөлөөлөлтийн тоог ХАМТ буцаана — устгахын өмнө анхааруулахад
+	// хэрэглэгдэнэ. Ерөнхий ангилалд ӨӨРӨӨР нь болон ДЭД ангилалуудаараа
+	// холбогдсон бүх чөлөөлөлт тоологдоно (устгахад тэд бүгд хөндөгдөнө).
+	//
+	// ЗӨӨЛӨН УСТГАСАН чөлөөлөлт ч ТООЛОГДОНО. Тоолох дүрэм нь
+	// DeleteAcquisitionCategory-гийн хаалттай ЯГ ИЖИЛ байх ёстой: FK нь
+	// `deleted_at`-ыг мэддэггүй тул устгасан чөлөөлөлт лавлагааг барьсаар
+	// байдаг. Зөрүүтэй бол дэлгэц `0` харуулаад устгахад 409 ирж, хэрэглэгч
+	// юунд саадуурснаа олж харахгүй.
+	const usage = `
+		SELECT c.id, c.name, c.parent_id, c.sort_order, c.department_id,
+		       (SELECT count(*) FROM land_acquisition la
+		         WHERE la.general_category_id = c.id
+		            OR la.sub_category_id = c.id
+		            OR la.sub_category_id IN (SELECT s.id FROM acquisition_category s
+		                                       WHERE s.parent_id = c.id))::int,
+		       (SELECT count(*) FROM acquisition_category s WHERE s.parent_id = c.id)::int
+		  FROM acquisition_category c
+		 WHERE %s
+		 ORDER BY c.sort_order`
 	if parentID == nil {
-		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order, department_id FROM acquisition_category WHERE parent_id IS NULL ORDER BY sort_order`)
+		rows, err = r.db.Query(ctx, fmt.Sprintf(usage, "c.parent_id IS NULL"))
 	} else {
-		rows, err = r.db.Query(ctx, `SELECT id, name, parent_id, sort_order, department_id FROM acquisition_category WHERE parent_id = $1 ORDER BY sort_order`, *parentID)
+		rows, err = r.db.Query(ctx, fmt.Sprintf(usage, "c.parent_id = $1"), *parentID)
 	}
 	if err != nil {
 		return nil, err
@@ -54,7 +77,8 @@ func (r *landAcqRepo) ListAcquisitionCategories(ctx context.Context, parentID *i
 	var result []*domain.AcquisitionCategory
 	for rows.Next() {
 		c := &domain.AcquisitionCategory{}
-		if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder, &c.DepartmentID); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.ParentID, &c.SortOrder, &c.DepartmentID,
+			&c.AcquisitionCount, &c.SubCount); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
@@ -91,12 +115,61 @@ func (r *landAcqRepo) UpdateAcquisitionCategory(ctx context.Context, id int, nam
 }
 
 func (r *landAcqRepo) DeleteAcquisitionCategory(ctx context.Context, id int) error {
-	_, err := r.db.Exec(ctx, `DELETE FROM acquisition_category WHERE id=$1`, id)
+	// Ерөнхий ангилалыг устгахад дэд ангилалууд нь эзэнгүй үлдэхгүйн тулд хамт
+	// устана. Тиймээс хаалт нь ӨӨРӨӨР нь болон ДЭД ангилалуудаараа холбогдсон
+	// БҮХ чөлөөлөлтийг тооцно — аль нэг нь холбогдсон бол юу ч устгахгүй.
+	//
+	// Өмнө нь шууд DELETE хийдэг байсан тул `land_acquisition`-ийн FK зөрчигдөж
+	// хэрэглэгчид "Дотоод алдаа гарлаа" (500) буцдаг байв.
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// ЗӨӨЛӨН УСТГАСАН чөлөөлөлтийг ОРУУЛЖ тооцно: FK нь `deleted_at`-ыг
+	// мэддэггүй тул устгасан чөлөөлөлт лавлагааг барьсаар байдаг. `deleted_at
+	// IS NULL`-аар шүүвэл хаалт 0 гэж үзээд DELETE нь FK зөрчилд унаж, засахыг
+	// зорьсон 500 эргээд ирнэ. ListAcquisitionCategories-ийн AcquisitionCount
+	// нь ЯГ ИЖИЛ дүрмээр тоолдог — хоёрын аль нэгийг өөрчилвөл нөгөөг нь мөн.
+	var used int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM land_acquisition la
+		 WHERE la.general_category_id = $1
+		    OR la.sub_category_id = $1
+		    OR la.sub_category_id IN (SELECT s.id FROM acquisition_category s
+		                               WHERE s.parent_id = $1)`, id).Scan(&used); err != nil {
+		return err
+	}
+	if used > 0 {
+		return domain.ErrCategoryInUse
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM acquisition_category WHERE parent_id=$1`, id); err != nil {
+		return mapCategoryDeleteError(err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM acquisition_category WHERE id=$1`, id); err != nil {
+		return mapCategoryDeleteError(err)
+	}
+	return tx.Commit(ctx)
+}
+
+// mapCategoryDeleteError — хаалтыг давсан FK зөрчлийг 500 биш 409 болгоно.
+//
+// Хаалт ба DELETE нь нэг гүйлгээнд ажиллах ч READ COMMITTED дор зэрэгцээ
+// гүйлгээ энэ хооронд ангилалд холбогдсон чөлөөлөлт үүсгэж болно. Тэр үед
+// FK нь устгалыг зогсооно — хэрэглэгчид ижил ойлгомжтой мессеж очих ёстой.
+func mapCategoryDeleteError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" { // foreign_key_violation
+		return domain.ErrCategoryInUse
+	}
 	return err
 }
 
 func (r *landAcqRepo) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
-	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order FROM parcel_status ORDER BY sort_order`)
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order, COALESCE(color, '')
+		FROM parcel_status ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +177,7 @@ func (r *landAcqRepo) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelS
 	var result []*domain.ParcelStatus
 	for rows.Next() {
 		status := &domain.ParcelStatus{}
-		if err := rows.Scan(&status.ID, &status.Code, &status.Name, &status.SortOrder); err != nil {
+		if err := rows.Scan(&status.ID, &status.Code, &status.Name, &status.SortOrder, &status.Color); err != nil {
 			return nil, err
 		}
 		result = append(result, status)
@@ -3054,6 +3127,18 @@ func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 func (r *landAcqRepo) GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error) {
 	where, args := buildReportParcelWhere(filter)
 
+	// parcel_agg нь нэгж талбар БҮРД нэг мөр үүсгэдэг ба дотроо сүүлийн
+	// статусын огноог correlated дэд асуулгаар олно (10,000 талбар = 10,000
+	// хайлт), дээрээс нь compensation/assets руу JOIN хийнэ.
+	//
+	// Өмнө нь энэ CTE-г ГУРВАН ТУСДАА асуулгад (нийлбэр, төлөвийн задаргаа,
+	// жилийн задаргаа) шигтгэж илгээдэг байсан тул бүх ажил 3 удаа давтагдаж,
+	// сүлжээгээр 3 удаа очдог байв.
+	//
+	// PostgreSQL 12+ дээр НЭГ асуулга дотор хоёр ба түүнээс олон удаа
+	// лавласан CTE нь inline хийгдэхгүй — ганц удаа materialize хийгдэнэ.
+	// Тиймээс гурвууланг нь нэг асуулга болгосноор parcel_agg 3 биш 1 удаа
+	// бодогдоно. Буцаах утга ижил.
 	cte := fmt.Sprintf(`
 		WITH parcel_agg AS (
 			SELECT
@@ -3079,8 +3164,23 @@ func (r *landAcqRepo) GetReportSummary(ctx context.Context, filter domain.Report
 		)
 	`, where)
 
+	// Задаргаануудыг JSON багана болгон нэг мөрөнд авчирна. json_agg доторх
+	// ORDER BY нь өмнөх тусдаа асуулгуудын ORDER BY-тай яг ижил дараалал өгнө.
 	summary := &domain.ReportSummary{}
-	if err := r.db.QueryRow(ctx, cte+`
+	var statusJSON, yearJSON []byte
+	if err := r.db.QueryRow(ctx, cte+`,
+		by_status AS (
+			SELECT status, status_name, COUNT(*) AS cnt
+			FROM parcel_agg
+			GROUP BY status, status_name
+		),
+		by_year AS (
+			SELECT EXTRACT(YEAR FROM status_date)::int AS year,
+			       COUNT(DISTINCT acquisition_id) AS cnt
+			FROM parcel_agg
+			WHERE status_date IS NOT NULL
+			GROUP BY 1
+		)
 		SELECT
 			COUNT(DISTINCT acquisition_id),
 			COUNT(*),
@@ -3089,58 +3189,54 @@ func (r *landAcqRepo) GetReportSummary(ctx context.Context, filter domain.Report
 			COALESCE(SUM(total_comp), 0),
 			COALESCE(SUM(land_comp), 0),
 			COALESCE(SUM(real_state_comp), 0),
-			COALESCE(SUM(property_comp), 0)
+			COALESCE(SUM(property_comp), 0),
+			COALESCE((
+				SELECT json_agg(json_build_object('s', s.status, 'n', s.status_name, 'c', s.cnt)
+				                ORDER BY s.status)
+				FROM by_status s
+			), '[]'::json),
+			COALESCE((
+				SELECT json_agg(json_build_object('y', y.year, 'c', y.cnt) ORDER BY y.year DESC)
+				FROM by_year y
+			), '[]'::json)
 		FROM parcel_agg
 	`, args...).Scan(
 		&summary.AcquisitionCount, &summary.ParcelCount, &summary.TotalAreaM2, &summary.TotalParcelAreaM2, &summary.TotalCompensation,
 		&summary.LandCompensation, &summary.RealStateCompensation, &summary.PropertyCompensation,
+		&statusJSON, &yearJSON,
 	); err != nil {
 		return nil, err
 	}
 	summary.OtherCompensation = summary.TotalCompensation - summary.LandCompensation -
 		summary.RealStateCompensation - summary.PropertyCompensation
 
-	statusRows, err := r.db.Query(ctx, cte+`
-		SELECT status, status_name, COUNT(*)
-		FROM parcel_agg
-		GROUP BY status, status_name
-		ORDER BY status
-	`, args...)
-	if err != nil {
-		return nil, err
+	var statusRaw []struct {
+		Status     int    `json:"s"`
+		StatusName string `json:"n"`
+		Count      int    `json:"c"`
 	}
-	defer statusRows.Close()
-	for statusRows.Next() {
-		var s domain.ReportStatusStat
-		if err := statusRows.Scan(&s.Status, &s.StatusName, &s.Count); err != nil {
-			return nil, err
-		}
-		summary.StatusBreakdown = append(summary.StatusBreakdown, s)
+	if err := json.Unmarshal(statusJSON, &statusRaw); err != nil {
+		return nil, fmt.Errorf("төлөвийн задаргаа задарсангүй: %w", err)
 	}
-	if err := statusRows.Err(); err != nil {
-		return nil, err
+	// Мөр бүрээр append хийнэ — хоосон үед талбар nil хэвээр үлдэж, өмнөх
+	// зан төлөвтэй яг таарна (хоосон массив биш).
+	for _, s := range statusRaw {
+		summary.StatusBreakdown = append(summary.StatusBreakdown, domain.ReportStatusStat{
+			Status: s.Status, StatusName: s.StatusName, Count: s.Count,
+		})
 	}
 
-	yearRows, err := r.db.Query(ctx, cte+`
-		SELECT EXTRACT(YEAR FROM status_date)::int AS year, COUNT(DISTINCT acquisition_id)
-		FROM parcel_agg
-		WHERE status_date IS NOT NULL
-		GROUP BY year
-		ORDER BY year DESC
-	`, args...)
-	if err != nil {
-		return nil, err
+	var yearRaw []struct {
+		Year  int `json:"y"`
+		Count int `json:"c"`
 	}
-	defer yearRows.Close()
-	for yearRows.Next() {
-		var y domain.ReportYearStat
-		if err := yearRows.Scan(&y.Year, &y.Count); err != nil {
-			return nil, err
-		}
-		summary.YearBreakdown = append(summary.YearBreakdown, y)
+	if err := json.Unmarshal(yearJSON, &yearRaw); err != nil {
+		return nil, fmt.Errorf("жилийн задаргаа задарсангүй: %w", err)
 	}
-	if err := yearRows.Err(); err != nil {
-		return nil, err
+	for _, y := range yearRaw {
+		summary.YearBreakdown = append(summary.YearBreakdown, domain.ReportYearStat{
+			Year: y.Year, Count: y.Count,
+		})
 	}
 
 	return summary, nil
@@ -4533,21 +4629,11 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		args = append(args, filter.ProfessionalOrgID)
 		i++
 	}
-	parcelScopeCond := ""
 	acqParcelScopeCond := ""
 	if filter.FilterByParcelStatus {
-		parcelScopeCond += fmt.Sprintf(" AND p.status = %d", filter.ParcelStatusID)
 		acqParcelScopeCond += fmt.Sprintf(" AND p_scope.status = %d", filter.ParcelStatusID)
 	}
 	if profParam != 0 {
-		parcelScopeCond += fmt.Sprintf(` AND (
-			EXISTS (
-				SELECT 1 FROM land_acquisition la_scope
-				WHERE la_scope.id = p.acquisition_id AND la_scope.deleted_at IS NULL
-				  AND la_scope.professional_org_id = $%d::int4
-			)
-			OR p.independent_org_id = $%d::int4
-		)`, profParam, profParam)
 		acqParcelScopeCond += fmt.Sprintf(` AND (
 			la.professional_org_id = $%d::int4 OR p_scope.independent_org_id = $%d::int4
 		)`, profParam, profParam)
@@ -4560,15 +4646,113 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	}
 	_ = i // suppress unused warning after last condition
 
-	acqSubquery := fmt.Sprintf("SELECT la.id FROM land_acquisition la WHERE %s", where)
+	// ── Шүүлтэд тохирох чөлөөлөлтийн id-г НЭГ УДАА тодорхойлно ───────────────
+	//
+	// Өмнө нь дээрх `where`-ийг дэд асуулга болгон доорх 8 асуулга ТУС БҮРД
+	// шигтгэдэг байв. Жилийн шүүлт нь дотроо нэгж талбар БҮРИЙН сүүлийн
+	// статусын огноог олдог (10,000 мөр) тул тэр ажил 8 дахин давтагдаж,
+	// зэрэгцээ ажиллахдаа DB-г санах ойгоор дүүргэдэг байсан.
+	//
+	// Үр дүн ИЖИЛ: `la.id IN (<where-ээр шүүсэн>)` ба `la.id = ANY(<тэр
+	// шүүлтийн үр дүн>)` нь тодорхойлолтоороо ижил олонлог. Хоосон үед
+	// хоёулаа мөр буцаахгүй.
+	//
+	// ХЯЗГААР ТАВИХГҮЙ. Дашбоардын нийлбэр (нийт талбай, олговор, төлөвийн
+	// задаргаа) нь шүүлтэд таарсан БҮХ чөлөөлөлтийг хамрах ёстой — таславал
+	// тоо чимээгүйгээр буруу болно, алдаа буцаавал тайлан огт харагдахгүй.
+	// Хоёулаа хэрэглэгчийн хувьд буруу зан төлөв.
+	//
+	// ТӨЛБӨР: id тус бүр 16 байт бөгөөд доорх 8 асуулгад тус бүрд массив болж
+	// дамжина (10,000 чөлөөлөлт ≈ 160KB × 8 = 1.3MB/хүсэлт). Чөлөөлөлтийн тоо
+	// хэдэн арван мянга руу дөхвөл энэ нь мэдрэгдэж эхэлнэ.
+	//
+	// ТЭР ҮЕД: энэ хэсгийг УСТГААД `where`-ийг дэд асуулга болгон буцааж
+	// шигтгэнэ (`la.id IN (SELECT …)`). Материалчилсан харагдац (materialized
+	// view) БОЛОХГҮЙ: дашбоард нь чөлөөлөлт/нэгж талбарыг шууд дуудаж
+	// харуулдаг тул REFRESH хийх хүртэл шинээр үүсгэсэн өгөгдөл харагдахгүй
+	// болно.
+	//
+	// Дэд асуулга руу буцах нь одоо БОЛОМЖТОЙ: энэ материалчлалыг хийх болсон
+	// шалтгаан нь жилийн шүүлтийн correlated дэд асуулга (нэгж талбар бүрийн
+	// сүүлийн статусын огноо) 8 дахин давтагддаг байсан явдал юм. Тэр зардлыг
+	// migration 000031-ийн `(parcel_id, status_date DESC)` индекс 17.7 дахин
+	// бууруулсан тул давталтын үнэ өмнөхтэй адилгүй. Шилжихийн өмнө
+	// `perf_baseline_test.go`-оор хэмжиж, `perf_equivalence_test.go`-оор үр
+	// дүн өөрчлөгдөөгүйг батална.
+	acqIDs := make([]uuid.UUID, 0, 256)
+	idRows, err := r.db.Query(ctx,
+		fmt.Sprintf(`SELECT la.id FROM land_acquisition la WHERE %s`, where), args...)
+	if err != nil {
+		return nil, err
+	}
+	for idRows.Next() {
+		var id uuid.UUID
+		if err := idRows.Scan(&id); err != nil {
+			idRows.Close()
+			return nil, err
+		}
+		acqIDs = append(acqIDs, id)
+	}
+	idRows.Close()
+	if err := idRows.Err(); err != nil {
+		return nil, err
+	}
 
-	// нэгж талбарын түвшний он шүүлтүүр — $N параметруудыг acqSubquery-тэй хуваалцана
+	// Доорх асуулгууд ӨӨРИЙН гэсэн параметрийн дугаарлалттай ($1 = id массив).
+	// PostgreSQL нь хэрэглэгдээгүй параметр дамжуулахыг ЗӨВШӨӨРДӨГГҮЙ тул
+	// (`expected N arguments, got M`) асуулга бүрд яг хэрэглэх параметрээ
+	// өгнө — эхний хэсгийн `args`-ыг дахин ашиглахгүй.
+	const acqIDCond = "= ANY($1::uuid[])"
+
+	// buildParcelScope — нэгж талбарын хамрах нөхцөл. Өөр өөр асуулга өөр
+	// дугаараас эхэлдэг тул (жилийн параметртэй эсэхээс хамаарч) эхлэх
+	// дугаарыг гаднаас өгнө.
+	buildParcelScope := func(next int) (string, []any) {
+		cond := ""
+		var extra []any
+		if filter.FilterByParcelStatus {
+			cond += fmt.Sprintf(" AND p.status = %d", filter.ParcelStatusID)
+		}
+		if filter.ProfessionalOrgID != "" {
+			cond += fmt.Sprintf(` AND (
+			EXISTS (
+				SELECT 1 FROM land_acquisition la_scope
+				WHERE la_scope.id = p.acquisition_id AND la_scope.deleted_at IS NULL
+				  AND la_scope.professional_org_id = $%d::int4
+			)
+			OR p.independent_org_id = $%d::int4
+		)`, next, next)
+			extra = append(extra, filter.ProfessionalOrgID)
+		}
+		return cond, extra
+	}
+
+	// (а) Нэгж талбарын түвшний асуулгууд: $1 = id, $2.. = он, дараа нь хамрах хүрээ.
+	pargs := []any{acqIDs}
+	pi := 2
 	parcelYearCond := ""
 	if len(yearPlaceholders) > 0 {
+		ph := make([]string, len(filter.Years))
+		for j, yr := range filter.Years {
+			ph[j] = fmt.Sprintf("$%d", pi)
+			pargs = append(pargs, yr)
+			pi++
+		}
 		parcelYearCond = fmt.Sprintf(` AND EXTRACT(YEAR FROM (
 			SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
-		)) IN (%s)`, strings.Join(yearPlaceholders, ","))
+		)) IN (%s)`, strings.Join(ph, ","))
 	}
+	parcelScopeCond, scopeArgs := buildParcelScope(pi)
+	pargs = append(pargs, scopeArgs...)
+
+	// (б) Чөлөөлөлтийн жагсаалтын асуулга нь ОН шүүлт хэрэглэхгүй (он нь
+	// аль хэдийн acqIDs дотор шүүгдсэн) тул $2-оос эхэлнэ.
+	aargs := []any{acqIDs}
+	acqScopeCond, acqScopeArgs := buildParcelScope(2)
+	aargs = append(aargs, acqScopeArgs...)
+
+	// (в) Захиргааны нэгжийн кодын асуулга зөвхөн id-г хэрэглэнэ.
+	auArgs := []any{acqIDs}
 
 	// ── горутинуудаар зэрэгцүүлэн асуулга ────────────────────────────────────
 	type acqRes struct {
@@ -4620,7 +4804,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			       COUNT(p.id) FILTER (WHERE COALESCE(p.status,0) IN (3,4,5))
 			FROM land_acquisition la
 			LEFT JOIN parcel p ON p.acquisition_id = la.id%s
-			WHERE %s
+			WHERE la.id %s
 			GROUP BY la.id, la.acquisition_name, la.plan_code, la.status, la.area_m2, la.decree_number, la.created_at
 			-- ЭРЭМБЭ: явц БАГААС ИХ рүү — анхаарал хэрэгтэй (гүйцэтгэл султай)
 			-- чөлөөлөлтүүд дээд талд гарна. Нэгж талбаргүй бол тэг гэж үзнэ.
@@ -4631,7 +4815,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			            / COUNT(p.id) END ASC,
 			  la.created_at DESC
 			LIMIT 1000
-		`, parcelScopeCond, where), args...)
+		`, acqScopeCond, acqIDCond), aargs...)
 		if err != nil {
 			acqCh <- acqRes{nil, err}
 			return
@@ -4681,9 +4865,9 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 				COUNT(*) FILTER (WHERE p.status = %d),
 				COALESCE(SUM(p.acquisition_area_m2) FILTER (WHERE p.status = %d), 0)
 			FROM parcel p
-			WHERE p.acquisition_id IN (%s)%s%s
+			WHERE p.acquisition_id %s%s%s
 		`, domain.ParcelStatusReleased, domain.ParcelStatusReleased,
-			acqSubquery, parcelYearCond, parcelScopeCond), args...).Scan(&total, &freed, &freedArea)
+			acqIDCond, parcelYearCond, parcelScopeCond), pargs...).Scan(&total, &freed, &freedArea)
 		statsCh <- statsRes{total, freed, freedArea, err}
 	}()
 
@@ -4694,10 +4878,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			       COUNT(*), COALESCE(SUM(p.acquisition_area_m2), 0)
 			FROM parcel p
 			LEFT JOIN parcel_status ps ON ps.id = p.status
-			WHERE p.acquisition_id IN (%s)%s%s
+			WHERE p.acquisition_id %s%s%s
 			GROUP BY p.status, ps.name
 			ORDER BY p.status
-		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		`, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
 		if err != nil {
 			breakdownCh <- breakdownRes{nil, err}
 			return
@@ -4721,11 +4905,11 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			SELECT TO_CHAR(la.start_date, 'YYYY.MM.DD'), COUNT(p.id)
 			FROM parcel p
 			JOIN land_acquisition la ON la.id = p.acquisition_id
-			WHERE p.acquisition_id IN (%s)
+			WHERE p.acquisition_id %s
 			  AND la.start_date IS NOT NULL%s%s
 			GROUP BY la.start_date
 			ORDER BY la.start_date
-		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		`, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
 		if err != nil {
 			timelineCh <- timelineRes{nil, err}
 			return
@@ -4759,20 +4943,20 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 						  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 					) AS amt
 					FROM parcel p
-					WHERE p.acquisition_id IN (%s)%s%s
+					WHERE p.acquisition_id %s%s%s
 				) x
-			`, acqSubquery, parcelYearCond, parcelScopeCond)
+			`, acqIDCond, parcelYearCond, parcelScopeCond)
 		} else {
 			compSQL = fmt.Sprintf(`
 				SELECT COALESCE(SUM(c.amount), 0)
 				FROM compensation c
 				JOIN parcel p ON p.acquisition_id = c.acquisition_id AND p.parcel_id = c.parcel_id
-				WHERE c.acquisition_id IN (%s)
+				WHERE c.acquisition_id %s
 				  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
 				  %s
-			`, acqSubquery, parcelScopeCond)
+			`, acqIDCond, parcelScopeCond)
 		}
-		err := r.db.QueryRow(ctx, compSQL, args...).Scan(&total)
+		err := r.db.QueryRow(ctx, compSQL, pargs...).Scan(&total)
 		compCh <- compRes{total, err}
 	}()
 
@@ -4782,10 +4966,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			SELECT s.status, COUNT(*)
 			FROM parcel_valuation_submission s
 			JOIN parcel p ON p.acquisition_id = s.acquisition_id AND p.parcel_id = s.parcel_id
-			WHERE p.acquisition_id IN (%s)%s%s
+			WHERE p.acquisition_id %s%s%s
 			GROUP BY s.status
 			ORDER BY s.status
-		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		`, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
 		if err != nil {
 			valuationCh <- valuationRes{err: err}
 			return
@@ -4819,10 +5003,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			       )), 0)
 			FROM parcel_valuation_submission s
 			JOIN parcel p ON p.acquisition_id = s.acquisition_id AND p.parcel_id = s.parcel_id
-			WHERE p.acquisition_id IN (%s)%s%s
+			WHERE p.acquisition_id %s%s%s
 			GROUP BY s.valuation_type
 			ORDER BY s.valuation_type
-		`, acqSubquery, parcelYearCond, parcelScopeCond), args...)
+		`, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
 		if err != nil {
 			valuationCh <- valuationRes{err: err}
 			return
@@ -4853,8 +5037,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			SELECT DISTINCT
 				COALESCE(au1_code, ''), COALESCE(au2_code, ''), au3_code
 			FROM land_acquisition_au
-			WHERE land_acquisition_id IN (%s)
-		`, acqSubquery), args...)
+			WHERE land_acquisition_id %s
+		`, acqIDCond), auArgs...)
 		if err != nil {
 			auCodesCh <- auCodesRes{nil, nil, nil, err}
 			return
@@ -4881,11 +5065,15 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			auCodesCh <- auCodesRes{nil, nil, nil, err}
 			return
 		}
+		// Go-гийн map давталт нь ЗОРИУД санамсаргүй дараалалтай тул эрэмбэлэхгүй
+		// бол шүүлтийн кодын жагсаалт хүсэлт болгонд өөр дарааллаар буцаж,
+		// frontend дээрх сонголтын жагсаалт дашбоард сэргээх бүрд холилддог.
 		toSlice := func(m map[string]struct{}) []string {
 			s := make([]string, 0, len(m))
 			for k := range m {
 				s = append(s, k)
 			}
+			sort.Strings(s)
 			return s
 		}
 		auCodesCh <- auCodesRes{toSlice(au1Set), toSlice(au2Set), toSlice(au3Set), nil}

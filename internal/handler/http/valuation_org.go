@@ -33,9 +33,12 @@ type valuationOrgBody struct {
 	Address          string  `json:"address"`
 	Note             string  `json:"note"`
 	IsActive         *bool   `json:"is_active"`
-	// Employees — байгууллагын ажилтнууд. Талбарыг ОГТ илгээхгүй бол
-	// ажилтнуудад хүрэхгүй; илгээвэл жагсаалт нь БҮРЭН төлөвийг илэрхийлнэ
-	// (ороогүй ажилтан идэвхгүй болно). Хоосон массив = бүх ажилтныг хасах.
+	// Employees — байгууллагын ажилтнууд. Талбарыг ОГТ илгээхгүй бол ЭСВЭЛ
+	// хоосон массив илгээвэл ажилтнуудад ХҮРЭХГҮЙ; нэр орсон жагсаалт илгээвэл
+	// тэр нь БҮРЭН төлөвийг илэрхийлнэ (ороогүй ажилтан идэвхгүй болно).
+	//
+	// БҮХ ажилтныг нэг дор хүчингүй болгохыг `is_active=false`-аар
+	// гүйцэтгэнэ — байгууллага хүчингүй бол ажилтнууд нь нэвтрэхгүй.
 	Employees []valuationOrgEmployeeBody `json:"employees"`
 }
 
@@ -114,9 +117,11 @@ func valuationOrgReqFromBody(b valuationOrgBody) (service.ValuationOrgRequest, e
 	return req, nil
 }
 
-// valuationOrgEmployees — nil (талбар илгээгээгүй) ба хоосон массив (бүх
-// ажилтныг хас) хоёрыг ЯЛГАЖ хадгална: service/repo нь nil-ийг "хүрэхгүй",
-// хоосныг "цэвэрлэ" гэж ойлгодог.
+// valuationOrgEmployees — оролтыг domain хэлбэрт хөрвүүлнэ.
+//
+// nil ба хоосон массивыг ЯЛГАХ ХЭРЭГГҮЙ: service нь хоёуланг нь "ажилтанд
+// хүрэхгүй" гэж үздэг (prepareValuationOrg). nil-ийг nil-ээр буцааж байгаа нь
+// зөвхөн дэмий хуваарилалт хийхгүйн тулд.
 func valuationOrgEmployees(in []valuationOrgEmployeeBody) []domain.ValuationOrgEmployee {
 	if in == nil {
 		return nil

@@ -257,6 +257,31 @@ func (r *ValuationOrgRepo) Update(ctx context.Context, v *domain.ValuationOrg, e
 	}
 	v.UpdatedAt = now
 
+	// Байгууллагыг ХҮЧИНГҮЙ болгоход ажилтнуудынх нь олгогдсон токеныг таслана.
+	//
+	// Нэвтрэх эрх нь `ve.is_active AND vp.is_active`-аар ТООЦОГДДОГ
+	// (valuationOrgLoginSelectSQL) тул шинэ нэвтрэлт болон refresh аль хэдийн
+	// хаагдана. Харин ӨМНӨ олгогдсон ACCESS токен дуусах хүртлээ хүчинтэй тул
+	// эх цэгийг нь зөөж, тэр цонхыг хаана.
+	//
+	// Ажилтны `is_active`-ыг МАССААР дарж бичихгүй: байгууллагыг сэргээхэд
+	// ажилтнууд өмнөх төлөвөөрөө буцаж ирэх ёстой.
+	//
+	// Хүчингүй байгууллагыг дахин хадгалахад давтан ажиллаж болно — эх цэг
+	// шинэчлэгдэхээс өөр үр дагаваргүй (тэдний хэн нь ч нэвтэрсэн байх
+	// боломжгүй) тул өмнөх төлөвийг тусад нь уншихгүй.
+	if !v.IsActive {
+		userIDs, err := collectEmployeeUserIDs(ctx, tx, `
+			SELECT id FROM valuation_org_employee
+			WHERE org_id = $1 AND username IS NOT NULL`, v.ID)
+		if err != nil {
+			return err
+		}
+		if err := invalidateUserSessions(ctx, tx, userIDs); err != nil {
+			return err
+		}
+	}
+
 	if err := syncValuationEmployees(ctx, tx, v.ID, emps); err != nil {
 		return err
 	}
@@ -342,7 +367,14 @@ func syncValuationEmployees(
 	orgID domain.ID,
 	emps []domain.ValuationOrgEmployee,
 ) error {
-	if emps == nil {
+	// ХАМГААЛАЛТЫН ТОР (бодлого БИШ). Хоосон жагсаалт нь "ажилтанд хүрэхгүй"
+	// гэсэн үг — шийдвэр нь service давхаргад тавигддаг (prepareValuationOrg).
+	// Энд давхарлаж байгаа шалтгаан нь: доорх UPDATE-ийн `keep` хоосон үед
+	// `id <> ALL('{}')` нь ҮРГЭЛЖ true болох тул тор алдвал энэ функц
+	// байгууллагын БҮХ ажилтныг чимээгүй унтраана. Хохирол нь эргэшгүй
+	// (бүх ажилтан системээс гарч, дахин нэвтэрч чадахгүй) тул хаалтыг
+	// дуудагчийн зөв байдалд найдуулахгүй.
+	if len(emps) == 0 {
 		return nil
 	}
 
@@ -355,27 +387,14 @@ func syncValuationEmployees(
 		keep = append(keep, id)
 	}
 
-	// Жагсаалтад ороогүй ажилтныг идэвхгүй болгоно. keep хоосон байж болзошгүй
-	// тул query-г тусад нь салгана (<> ALL('{}') нь ҮРГЭЛЖ true болох тул зөв,
-	// гэхдээ уншихад бүрхэг).
-	var (
-		rows pgx.Rows
-		err  error
-		now  = time.Now()
-	)
-	if len(keep) == 0 {
-		rows, err = tx.Query(ctx, `
-			UPDATE valuation_org_employee
-			SET is_active = false, updated_at = $2
-			WHERE org_id = $1 AND is_active
-			RETURNING id`, orgID, now)
-	} else {
-		rows, err = tx.Query(ctx, `
-			UPDATE valuation_org_employee
-			SET is_active = false, updated_at = $3
-			WHERE org_id = $1 AND is_active AND id <> ALL($2::int4[])
-			RETURNING id`, orgID, keep, now)
-	}
+	// Жагсаалтад ороогүй ажилтныг идэвхгүй болгоно. Дээрх хамгаалалтаас болж
+	// `keep` хэзээ ч хоосон байхгүй тул нэг л query хангалттай.
+	now := time.Now()
+	rows, err := tx.Query(ctx, `
+		UPDATE valuation_org_employee
+		SET is_active = false, updated_at = $3
+		WHERE org_id = $1 AND is_active AND id <> ALL($2::int4[])
+		RETURNING id`, orgID, keep, now)
 	if err != nil {
 		return mapHRError(err)
 	}
