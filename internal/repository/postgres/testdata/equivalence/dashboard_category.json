@@ -1458,37 +1458,43 @@
       "id": 0,
       "code": "pending",
       "name": "Хүлээгдэж буй",
-      "sort_order": 0
+      "sort_order": 0,
+      "color": ""
     },
     {
       "id": 1,
       "code": "processing",
       "name": "Зөвшилцөх шатандаа",
-      "sort_order": 1
+      "sort_order": 1,
+      "color": ""
     },
     {
       "id": 2,
       "code": "evaluating",
       "name": "Үнэлгээ хийх",
-      "sort_order": 2
+      "sort_order": 2,
+      "color": ""
     },
     {
       "id": 3,
       "code": "affected_out",
       "name": "Нөлөөлөгдсөн гарсан",
-      "sort_order": 3
+      "sort_order": 3,
+      "color": ""
     },
     {
       "id": 4,
       "code": "rejected",
       "name": "Татгалзсан",
-      "sort_order": 4
+      "sort_order": 4,
+      "color": ""
     },
     {
       "id": 5,
       "code": "released",
       "name": "Чөлөөлсөн",
-      "sort_order": 5
+      "sort_order": 5,
+      "color": ""
     }
   ],
   "total_parcels": 3300,
@@ -1535,140 +1541,7 @@
       "area_m2": 735750
     }
   ],
-  "timeline": [
-    {
-      "date": "2024.01.22",
-      "count": 100
-    },
-    {
-      "date": "2024.02.12",
-      "count": 100
-    },
-    {
-      "date": "2024.03.04",
-      "count": 100
-    },
-    {
-      "date": "2024.03.25",
-      "count": 100
-    },
-    {
-      "date": "2024.04.15",
-      "count": 100
-    },
-    {
-      "date": "2024.05.06",
-      "count": 100
-    },
-    {
-      "date": "2024.05.27",
-      "count": 100
-    },
-    {
-      "date": "2024.06.17",
-      "count": 100
-    },
-    {
-      "date": "2024.07.08",
-      "count": 100
-    },
-    {
-      "date": "2024.07.29",
-      "count": 100
-    },
-    {
-      "date": "2024.08.19",
-      "count": 100
-    },
-    {
-      "date": "2024.09.09",
-      "count": 100
-    },
-    {
-      "date": "2024.09.30",
-      "count": 100
-    },
-    {
-      "date": "2024.10.21",
-      "count": 100
-    },
-    {
-      "date": "2024.11.11",
-      "count": 100
-    },
-    {
-      "date": "2024.12.02",
-      "count": 100
-    },
-    {
-      "date": "2024.12.23",
-      "count": 100
-    },
-    {
-      "date": "2025.01.13",
-      "count": 100
-    },
-    {
-      "date": "2025.02.03",
-      "count": 100
-    },
-    {
-      "date": "2025.02.24",
-      "count": 100
-    },
-    {
-      "date": "2025.03.17",
-      "count": 100
-    },
-    {
-      "date": "2025.04.07",
-      "count": 100
-    },
-    {
-      "date": "2025.04.28",
-      "count": 100
-    },
-    {
-      "date": "2025.05.19",
-      "count": 100
-    },
-    {
-      "date": "2025.06.09",
-      "count": 100
-    },
-    {
-      "date": "2025.06.30",
-      "count": 100
-    },
-    {
-      "date": "2025.07.21",
-      "count": 100
-    },
-    {
-      "date": "2025.08.11",
-      "count": 100
-    },
-    {
-      "date": "2025.09.01",
-      "count": 100
-    },
-    {
-      "date": "2025.09.22",
-      "count": 100
-    },
-    {
-      "date": "2025.10.13",
-      "count": 100
-    },
-    {
-      "date": "2025.11.03",
-      "count": 100
-    },
-    {
-      "date": "2025.11.24",
-      "count": 100
-    }
-  ],
+  "timeline": null,
   "valuation_statuses": [
     {
       "status": "draft",

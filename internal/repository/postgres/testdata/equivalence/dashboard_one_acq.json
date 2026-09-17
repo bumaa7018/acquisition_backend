@@ -50,37 +50,43 @@
       "id": 0,
       "code": "pending",
       "name": "Хүлээгдэж буй",
-      "sort_order": 0
+      "sort_order": 0,
+      "color": ""
     },
     {
       "id": 1,
       "code": "processing",
       "name": "Зөвшилцөх шатандаа",
-      "sort_order": 1
+      "sort_order": 1,
+      "color": ""
     },
     {
       "id": 2,
       "code": "evaluating",
       "name": "Үнэлгээ хийх",
-      "sort_order": 2
+      "sort_order": 2,
+      "color": ""
     },
     {
       "id": 3,
       "code": "affected_out",
       "name": "Нөлөөлөгдсөн гарсан",
-      "sort_order": 3
+      "sort_order": 3,
+      "color": ""
     },
     {
       "id": 4,
       "code": "rejected",
       "name": "Татгалзсан",
-      "sort_order": 4
+      "sort_order": 4,
+      "color": ""
     },
     {
       "id": 5,
       "code": "released",
       "name": "Чөлөөлсөн",
-      "sort_order": 5
+      "sort_order": 5,
+      "color": ""
     }
   ],
   "total_parcels": 100,
@@ -127,12 +133,7 @@
       "area_m2": 5984
     }
   ],
-  "timeline": [
-    {
-      "date": "2024.01.08",
-      "count": 100
-    }
-  ],
+  "timeline": null,
   "valuation_statuses": [
     {
       "status": "draft",

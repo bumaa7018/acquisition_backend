@@ -4899,17 +4899,30 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		breakdownCh <- breakdownRes{result, rows.Err()}
 	}()
 
-	// 5. Цаг хугацааны график (чөлөөлөлтийн эхлэх огноогоор нэгж талбарын тоо)
+	// 5. Цаг хугацааны график — нэгж талбар БАТАЛГААЖСАН огноогоор.
+	//
+	// ӨМНӨ НЬ чөлөөлөлтийн `start_date`-аар байсан бөгөөд хоёр сул талтай байв:
+	//   1. Тэр талбар гараар бөглөгддөг ба бүртгэлийн ихэнхэд хоосон — `IS NOT
+	//      NULL` нөхцөл тэдгээрийг бүрмөсөн хасдаг тул график хоосон гардаг.
+	//   2. Чөлөөлөлт бүрд ГАНЦ огноо тул бүх нэгж талбар нь нэг өдөрт бөөгнөрч,
+	//      явцын бодит тархалт харагддаггүй.
+	//
+	// Одоо нэгж талбар "Чөлөөлсөн" төлөвт ПЕРВЫЙ УДАА шилжсэн огноог авна —
+	// энэ нь төлөвийн түүхээс гардаг тул бодитоор дүүрсэн, олон жилд тархсан.
+	// MIN() нь төлөв нааш цааш солигдсон талбарыг давхар тоолохоос сэргийлнэ.
 	go func() {
 		rows, err := r.db.Query(ctx, fmt.Sprintf(`
-			SELECT TO_CHAR(la.start_date, 'YYYY.MM.DD'), COUNT(p.id)
+			SELECT TO_CHAR(c.confirmed_at, 'YYYY.MM.DD'), COUNT(*)
 			FROM parcel p
-			JOIN land_acquisition la ON la.id = p.acquisition_id
-			WHERE p.acquisition_id %s
-			  AND la.start_date IS NOT NULL%s%s
-			GROUP BY la.start_date
-			ORDER BY la.start_date
-		`, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
+			JOIN LATERAL (
+				SELECT MIN(psh.status_date) AS confirmed_at
+				FROM parcel_status_history psh
+				WHERE psh.parcel_id = p.parcel_id AND psh.status_id = %d
+			) c ON c.confirmed_at IS NOT NULL
+			WHERE p.acquisition_id %s%s%s
+			GROUP BY c.confirmed_at
+			ORDER BY c.confirmed_at
+		`, domain.ParcelStatusReleased, acqIDCond, parcelYearCond, parcelScopeCond), pargs...)
 		if err != nil {
 			timelineCh <- timelineRes{nil, err}
 			return
