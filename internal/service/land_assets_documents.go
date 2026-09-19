@@ -135,6 +135,28 @@ func (s *landService) DeleteLandValuation(ctx context.Context, acquisitionID uui
 	return nil
 }
 
+// ListValuationNotes — нэгж талбарын үнэлгээний хүснэгт бүрийн тайлбар.
+func (s *landService) ListValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.ValuationSectionNote, error) {
+	return s.landRepo.ListValuationNotes(ctx, acquisitionID, parcelID, valuationType)
+}
+
+// SaveValuationNotes — тайлбаруудыг хадгалаад, шинэчилсэн бүрэн жагсаалтыг буцаана.
+func (s *landService) SaveValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string, notes map[string]string, updatedBy string) ([]*domain.ValuationSectionNote, error) {
+	if err := s.landRepo.UpsertValuationNotes(ctx, acquisitionID, parcelID, valuationType, notes, updatedBy); err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(notes))
+	for k := range notes {
+		keys = append(keys, k)
+	}
+	s.auditLog(ctx, "updated", domain.AuditResourceValuation, parcelID, uuidPtr(acquisitionID), nil, map[string]any{
+		"parcel_id":      parcelID,
+		"valuation_type": valuationType,
+		"section_keys":   keys,
+	})
+	return s.landRepo.ListValuationNotes(ctx, acquisitionID, parcelID, valuationType)
+}
+
 func (s *landService) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
 	res, err := s.landRepo.ImportValuation(ctx, acquisitionID, imp)
 	if err != nil {

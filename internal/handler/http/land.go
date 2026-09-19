@@ -2367,6 +2367,89 @@ func (h *LandHandler) DeleteLandValuation(c *gin.Context) {
 	response.OK(c, nil)
 }
 
+// ListValuationNotes — нэгж талбарын үнэлгээний хүснэгт бүрийн ТАЙЛБАР.
+func (h *LandHandler) ListValuationNotes(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	parcelID := c.Query("parcel_id")
+	if parcelID == "" {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	vType := c.Query("valuation_type")
+	if mikaOnlyCaller(c) {
+		vType = domain.ValuationTypeMika
+	}
+	list, err := h.svc.ListValuationNotes(c.Request.Context(), acqID, parcelID, vType)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
+// SaveValuationNotes — хүснэгтийн тайлбаруудыг хадгална (section_key → бичвэр).
+// Мапад ороогүй хэсгийн тайлбар хэвээр үлдэнэ, хоосон бичвэр нь тухайн тайлбарыг устгана.
+func (h *LandHandler) SaveValuationNotes(c *gin.Context) {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	var body struct {
+		ParcelID      string            `json:"parcel_id" binding:"required"`
+		ValuationType string            `json:"valuation_type"`
+		Notes         map[string]string `json:"notes" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	if mikaOnlyCaller(c) {
+		body.ValuationType = domain.ValuationTypeMika
+	}
+	// Гадаад дуудагч (мэрг. байгууллага / МИКА) зөвхөн ӨӨРИЙН урсгалд бичнэ —
+	// эс бөгөөс `valuation_type`-аар бусдын урсгалын тайлбарыг дарж бичих боломжтой.
+	if streams := callerValuationStreams(c); len(streams) > 0 {
+		if body.ValuationType == "" {
+			body.ValuationType = streams[0]
+		}
+		if !domain.ValuationStreamAllowed(body.ValuationType, streams) {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+	}
+	// Мэргэжлийн байгууллагын дуудагч зөвхөн ХАРЬЯАЛАГДАХ нэгж талбартаа бичнэ
+	// (parcel_id нь body-гоор ирдэг тул middleware шалгаж чадахгүй — IDOR хамгаалалт).
+	if middleware.IsValuationOrgCaller(c) {
+		orgID, ok := middleware.GetCallerOrgID(c)
+		if !ok {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, orgID)
+		if err != nil || !member {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+	}
+	updatedBy := ""
+	if uid, ok := c.Get("userID"); ok {
+		if id, ok2 := uid.(domain.ID); ok2 {
+			updatedBy = strconv.FormatInt(int64(id), 10)
+		}
+	}
+	list, err := h.svc.SaveValuationNotes(c.Request.Context(), acqID, body.ParcelID, body.ValuationType, body.Notes, updatedBy)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
 // ImportValuation — Excel-ээс задлан авсан бүхэл үнэлгээг НЭГ хүсэлтээр (нэг транзакц) оруулна.
 func (h *LandHandler) ImportValuation(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
@@ -2392,11 +2475,14 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 			SourceFileName      string  `json:"source_file_name"`
 			SourceFileHash      string  `json:"source_file_hash"`
 		} `json:"land"`
-		Assets []struct {
+		// Хүснэгт бүрийн ТАЙЛБАР (section_key → бичвэр). Excel-д байвал ирнэ.
+		SectionNotes map[string]string `json:"section_notes"`
+		Assets       []struct {
 			AssetNumber        string  `json:"asset_number"`
 			AssetType          string  `json:"asset_type"`
 			AssetName          string  `json:"asset_name"`
 			AreaM2             float64 `json:"area_m2"`
+			FloorCount         int     `json:"floor_count"`
 			Unit               string  `json:"unit"`
 			Capacity           string  `json:"capacity"`
 			Description        string  `json:"description"`
@@ -2454,6 +2540,7 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 		ParcelID:      body.ParcelID,
 		ValuationType: body.ValuationType,
 		Replace:       body.Replace,
+		SectionNotes:  body.SectionNotes,
 		CreatedBy:     createdBy,
 		Land: domain.LandValuation{
 			ValuationType:       body.ValuationType,
@@ -2477,6 +2564,7 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 			AssetType:          normalizeAssetRecordType(a.AssetType),
 			AssetName:          a.AssetName,
 			AreaM2:             a.AreaM2,
+			FloorCount:         a.FloorCount,
 			Unit:               a.Unit,
 			Capacity:           a.Capacity,
 			Description:        a.Description,

@@ -327,6 +327,24 @@ func (m *MockLandService) ImportValuation(ctx context.Context, acquisitionID uui
 	return res, args.Error(1)
 }
 
+func (m *MockLandService) ListValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.ValuationSectionNote, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, valuationType)
+	var res []*domain.ValuationSectionNote
+	if v := args.Get(0); v != nil {
+		res = v.([]*domain.ValuationSectionNote)
+	}
+	return res, args.Error(1)
+}
+
+func (m *MockLandService) SaveValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string, notes map[string]string, updatedBy string) ([]*domain.ValuationSectionNote, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, valuationType, notes, updatedBy)
+	var res []*domain.ValuationSectionNote
+	if v := args.Get(0); v != nil {
+		res = v.([]*domain.ValuationSectionNote)
+	}
+	return res, args.Error(1)
+}
+
 func (m *MockLandService) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
 	return m.Called(ctx, parcelID, paid).Error(0)
 }

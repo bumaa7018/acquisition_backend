@@ -4043,6 +4043,93 @@ func syncLandCompensation(ctx context.Context, tx pgx.Tx, acqID uuid.UUID, parce
 	return err
 }
 
+// ── Үнэлгээний хүснэгтийн ТАЙЛБАР ────────────────────────────────────────────
+
+// ListValuationNotes — нэгж талбар + урсгалын бүх хүснэгтийн тайлбар.
+func (r *landAcqRepo) ListValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.ValuationSectionNote, error) {
+	vType := valuationType
+	if vType == "" {
+		vType = domain.ValuationTypeAsset
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, acquisition_id, parcel_id, valuation_type, section_key,
+		       COALESCE(note,''), COALESCE(updated_by,''), created_at, updated_at
+		FROM valuation_section_note
+		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
+		ORDER BY section_key
+	`, acquisitionID, parcelID, vType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.ValuationSectionNote
+	for rows.Next() {
+		n := &domain.ValuationSectionNote{}
+		if err := rows.Scan(&n.ID, &n.AcquisitionID, &n.ParcelID, &n.ValuationType,
+			&n.SectionKey, &n.Note, &n.UpdatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// UpsertValuationNotes — хүснэгтүүдийн тайлбарыг нэг транзакцаар шинэчилнэ.
+// Хоосон бичвэр = тайлбарыг УСТГАХ (мөрийг үлдээж хоосон хадгалах нь утгагүй).
+// Мапад ОРООГҮЙ хэсгийн тайлбар ХЭВЭЭР үлдэнэ — дэлгэц нэг хүснэгтийн тайлбарыг
+// дангаар нь хадгалж чадна.
+func (r *landAcqRepo) UpsertValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string, notes map[string]string, updatedBy string) error {
+	if len(notes) == 0 {
+		return nil
+	}
+	vType := valuationType
+	if vType == "" {
+		vType = domain.ValuationTypeAsset
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var exists bool
+	if err = tx.QueryRow(ctx,
+		"SELECT EXISTS(SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2)",
+		acquisitionID, parcelID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return domain.ErrNotFound
+	}
+
+	for key, note := range notes {
+		if key == "" {
+			continue
+		}
+		trimmed := strings.TrimSpace(note)
+		if trimmed == "" {
+			if _, err = tx.Exec(ctx, `
+				DELETE FROM valuation_section_note
+				WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 AND section_key=$4
+			`, acquisitionID, parcelID, vType, key); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO valuation_section_note (acquisition_id, parcel_id, valuation_type,
+				section_key, note, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$6)
+			ON CONFLICT (acquisition_id, parcel_id, valuation_type, section_key) DO UPDATE
+			SET note=$5, updated_by=$6, updated_at=NOW()
+		`, acquisitionID, parcelID, vType, key, trimmed, updatedBy); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 // ImportValuation — бүхэл нэгж талбарын үнэлгээг НЭГ ТРАНЗАКЦААР оруулна.
 // Replace=true бол хуучин олговор/хөрөнгийг эхлээд устгаж, дараа нь газрын үнэлгээ,
 // хөрөнгө, spec, calc, нөхөн олговрыг бүгдийг нэг дор бичнэ. Аль нэг алдвал бүгд rollback.
@@ -4143,10 +4230,11 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		if err = tx.QueryRow(ctx, `
 			INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
 				floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price, valuation_type)
-			VALUES ($1,$2,$3,$4,$5,0,$6,$7,'',$8,$9,$10,$11,$12,$13)
+			VALUES ($1,$2,$3,$4,$5,$14,$6,$7,'',$8,$9,$10,$11,$12,$13)
 			RETURNING id
 		`, acquisitionID, imp.ParcelID, a.AssetNumber, a.AssetType, a.AssetName,
-			a.AreaM2, a.OwnerName, a.Notes, a.Unit, a.Capacity, a.Description, a.UnitPrice, vType).Scan(&assetID); err != nil {
+			a.AreaM2, a.OwnerName, a.Notes, a.Unit, a.Capacity, a.Description, a.UnitPrice, vType,
+			a.FloorCount).Scan(&assetID); err != nil {
 			return nil, err
 		}
 		res.CreatedAssets++
@@ -4188,6 +4276,28 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 				return nil, err
 			}
 			res.CreatedComps++
+		}
+	}
+
+	// 3. Хүснэгт бүрийн ТАЙЛБАР (Excel-ийн "ТАЙЛБАР:" мөр). Импортын хүрээнд
+	// зөвхөн ИРСЭН хэсгийнхийг шинэчилнэ — Excel-д тайлбаргүй хүснэгтийн хуучин
+	// тайлбар (гараас бичсэн байж болно) арчигдахгүй.
+	for key, note := range imp.SectionNotes {
+		if key == "" {
+			continue
+		}
+		trimmed := strings.TrimSpace(note)
+		if trimmed == "" {
+			continue
+		}
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO valuation_section_note (acquisition_id, parcel_id, valuation_type,
+				section_key, note, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$6)
+			ON CONFLICT (acquisition_id, parcel_id, valuation_type, section_key) DO UPDATE
+			SET note=$5, updated_by=$6, updated_at=NOW()
+		`, acquisitionID, imp.ParcelID, vType, key, trimmed, imp.CreatedBy); err != nil {
+			return nil, err
 		}
 	}
 

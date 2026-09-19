@@ -1142,6 +1142,18 @@ func (m *MockLandAcquisitionRepository) ImportValuation(ctx context.Context, acq
 	return args.Get(0).(*domain.ValuationImportResult), args.Error(1)
 }
 
+func (m *MockLandAcquisitionRepository) ListValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) ([]*domain.ValuationSectionNote, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, valuationType)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*domain.ValuationSectionNote), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) UpsertValuationNotes(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string, notes map[string]string, updatedBy string) error {
+	return m.Called(ctx, acquisitionID, parcelID, valuationType, notes, updatedBy).Error(0)
+}
+
 // ── Дроны ортофото ───────────────────────────────────────────────────────────
 
 func (m *MockLandAcquisitionRepository) ListDroneImages(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.DroneImage, error) {

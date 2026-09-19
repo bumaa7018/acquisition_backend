@@ -1432,6 +1432,23 @@ type LandValuation struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
+// ValuationSectionNote — үнэлгээний хүснэгт (3.1–5.1) бүрийн ТАЙЛБАР.
+// Excel-ийн "ТАЙЛБАР:" мөрөөс импортлогдоно, дэлгэц дээр гараас засагдана.
+// SectionKey нь frontend-ийн ValuationSectionKey-тэй ижил утгатай (land_valuation,
+// building_cost, other_assets, …) — бүртгэл болгож хатуулаагүй тул загварт
+// шинэ хүснэгт нэмэгдэхэд миграц шаардахгүй.
+type ValuationSectionNote struct {
+	ID            uuid.UUID `json:"id"`
+	AcquisitionID uuid.UUID `json:"acquisition_id"`
+	ParcelID      string    `json:"parcel_id"`
+	ValuationType string    `json:"valuation_type"`
+	SectionKey    string    `json:"section_key"`
+	Note          string    `json:"note"`
+	UpdatedBy     string    `json:"updated_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // ── Excel-ээс бөөнөөр оруулах (нэг транзакц, олон API дуудлагыг орлоно) ──
 
 // ValuationImportAsset — импортод орох нэг хөрөнгө + түүний spec/calc/олговор
@@ -1440,6 +1457,7 @@ type ValuationImportAsset struct {
 	AssetType          string
 	AssetName          string
 	AreaM2             float64
+	FloorCount         int // "Давхрын тоо" үзүүлэлтээс (барилгын тодорхойлолтын хүснэгт)
 	Unit               string
 	Capacity           string
 	Description        string
@@ -1458,7 +1476,10 @@ type ValuationImport struct {
 	Replace       bool   // true бол уг талбар+урсгалын хуучин хөрөнгө/олговрыг эхлээд устгана
 	Land          LandValuation
 	Assets        []ValuationImportAsset
-	CreatedBy     string
+	// SectionNotes — хүснэгт бүрийн ТАЙЛБАР (section_key → бичвэр). Хоосон бол
+	// хуучин тайлбарыг ХЭВЭЭР үлдээнэ (импорт нь тайлбарыг санамсаргүй арчихгүй).
+	SectionNotes map[string]string
+	CreatedBy    string
 }
 
 // ValuationImportResult — импортын дүн
