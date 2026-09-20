@@ -112,6 +112,36 @@ func (s *landService) TransitionValuationSubmission(
 	if in.Action == "cancel" && attachment == nil {
 		return nil, domain.ErrValuationCancelAttachmentRequired
 	}
+	// ИЛГЭЭХ үеийн хавсралт = БАТАЛГААЖААГҮЙ үнэлгээний тайлан (PDF/Word).
+	// Буцаах/цуцлахын хавсралтаас ТУСДАА талбарт хадгалагдана — тэр нь үйлдэл
+	// бүрд дарж бичигддэг тул тайлан тэнд байвал буцаалтын дараа алга болно.
+	if attachment != nil && in.Action == "submit" {
+		if s.files == nil {
+			return nil, domain.ErrInternalServer
+		}
+		// Хуучин тайланг (солигдвол) цэвэрлэхийн тулд эхлээд уншина.
+		var oldURL string
+		if prev, err := s.landRepo.GetValuationSubmission(ctx, in.AcquisitionID, in.ParcelID, in.ValuationType); err == nil && prev != nil {
+			oldURL = prev.DraftReportURL
+		}
+		stored, err := s.files.Save(ctx, "valuation-draft", in.ParcelID.String(),
+			attachment.Filename, attachment.ContentType, attachment.Data, true)
+		if err != nil {
+			return nil, err
+		}
+		in.DraftReportURL, in.DraftReportName = stored.URL, stored.Name
+		defer func() {
+			if !attachment.committed {
+				// Шилжилт унасан — шинэ файлыг цэвэрлэнэ.
+				_ = s.files.Delete(ctx, stored.URL)
+				return
+			}
+			// Амжилттай — солигдсон хуучин тайланг цэвэрлэнэ.
+			if oldURL != "" && oldURL != stored.URL {
+				_ = s.files.Delete(ctx, oldURL)
+			}
+		}()
+	}
 	if attachment != nil && (in.Action == "return" || in.Action == "cancel") {
 		if s.files == nil {
 			return nil, domain.ErrInternalServer

@@ -33,6 +33,78 @@ func (s *MainSeeder) seedSelectedValuationBackfill(ctx context.Context) error {
 	return err
 }
 
+// SeedCancelledValuationFiles — migration 000039-д харгалзах ӨГӨГДЛИЙН засвар:
+// ӨМНӨ нь цуцлагдсан үнэлгээнүүдийн файлыг тухайн snapshot-д холбоно.
+//
+// Яагаад: цуцлах логик өмнө нь зөвхөн тайлан/эх хүснэгтийг parcel_document-оос
+// хассан ба илгээлтийн БАТАЛГААЖААГҮЙ тайланг (draft_report_*) хөндөөгүй тул тэр
+// нь шинэ үнэлгээний "Нөхөх олговор" дэлгэц дээр хуучнаараа харагдсаар байв.
+// Мөн snapshot.files хоосон учир аль файл АЛЬ цуцлалтынх нь тодорхойгүй байсан.
+//
+// Идемпотент: files аль хэдийн бөглөгдсөн snapshot-ыг алгасна, draft_report нь
+// хоосон болсон мөрийг дахин хөндөхгүй.
+func (s *MainSeeder) SeedCancelledValuationFiles(ctx context.Context) error {
+	// 1) Хуучин snapshot-уудын files-ыг report_url/source_url-ээс бүрдүүлнэ.
+	if _, err := s.db.Exec(ctx, `
+		UPDATE parcel_valuation_snapshot s
+		SET files = (
+			SELECT COALESCE(jsonb_agg(f), '[]'::jsonb)
+			FROM (
+				SELECT jsonb_build_object(
+				         'label', 'Баталгаажсан тайлан',
+				         'name', COALESCE(NULLIF(s.report_name,''), 'Баталгаажсан тайлан'),
+				         'url', s.report_url) AS f
+				WHERE COALESCE(s.report_url,'') <> ''
+				UNION ALL
+				SELECT jsonb_build_object(
+				         'label', 'Үнэлгээний хүснэгт',
+				         'name', COALESCE(NULLIF(s.source_name,''), 'Үнэлгээний хүснэгт'),
+				         'url', s.source_url)
+				WHERE COALESCE(s.source_url,'') <> ''
+			) rows
+		)
+		WHERE COALESCE(jsonb_array_length(s.files), 0) = 0
+		  AND (COALESCE(s.report_url,'') <> '' OR COALESCE(s.source_url,'') <> '')
+	`); err != nil {
+		return err
+	}
+
+	// 2) Цуцлагдсаны дараа илгээлтийн мөрөнд үлдсэн БАТАЛГААЖААГҮЙ тайланг
+	//    хамгийн сүүлийн snapshot руу зөөнө (давхардвал нэмэхгүй).
+	if _, err := s.db.Exec(ctx, `
+		WITH leftover AS (
+			SELECT sub.id AS submission_id,
+			       sub.draft_report_url AS url,
+			       COALESCE(NULLIF(sub.draft_report_name,''), 'Тайлан') AS name,
+			       (SELECT snap.id
+			          FROM parcel_valuation_snapshot snap
+			         WHERE snap.acquisition_id = sub.acquisition_id
+			           AND snap.parcel_id = sub.parcel_id
+			           AND snap.valuation_type = sub.valuation_type
+			         ORDER BY snap.cancelled_at DESC
+			         LIMIT 1) AS snapshot_id
+			FROM parcel_valuation_submission sub
+			WHERE COALESCE(sub.draft_report_url,'') <> ''
+			  AND sub.status = 'draft'
+		), moved AS (
+			UPDATE parcel_valuation_snapshot snap
+			SET files = snap.files || jsonb_build_array(
+			    jsonb_build_object('label','Тайлан','name',l.name,'url',l.url))
+			FROM leftover l
+			WHERE snap.id = l.snapshot_id
+			  AND NOT snap.files @> jsonb_build_array(jsonb_build_object('url', l.url))
+			RETURNING l.submission_id
+		)
+		UPDATE parcel_valuation_submission sub
+		SET draft_report_url = '', draft_report_name = ''
+		FROM leftover l
+		WHERE sub.id = l.submission_id AND l.snapshot_id IS NOT NULL
+	`); err != nil {
+		return err
+	}
+	return nil
+}
+
 // SeedPlanBackfill — migration 000068-ийн plan хүснэгтэд харгалзах өгөгдлийн
 // шилжүүлэг: одоо байгаа чөлөөлөлтүүдийн төлөвлөгөөний мэдээллийг (plan_code,
 // plan_name, plan_geom, plan_area_m2) plan хүснэгт руу зөөнө.
@@ -125,11 +197,21 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 		  ('meeting_minutes',        'Хурлын тэмдэглэл',                                                       'parcel'),
 		  ('contract',               'Гэрээ',                                                                   'parcel'),
 		  ('consent_note',           'Зөвшилцлөлийн тэмдэглэл',                                               'parcel'),
-		  ('valuation_report',       'Хөрөнгийн үнэлгээний тайлан',                                            'parcel'),
+		  ('valuation_report',       'Баталгаажсан тайлан',                                                     'parcel'),
+		  ('valuation_source',       'Үнэлгээний хүснэгт',                                                      'parcel'),
 		  ('other',                  'БУСАД',                                                                   'both')
 		ON CONFLICT (type) DO NOTHING
 	`)
 	if err != nil {
+		return err
+	}
+	// НЭР солигдсон төрлүүд: ON CONFLICT DO NOTHING нь байгаа мөрийг хөнддөггүй
+	// тул нэрийг тусад нь тэгшитгэнэ (зөвхөн ӨГӨГДМӨЛ нэр хэвээр байвал —
+	// хэрэглэгч гараас өөрчилсөн байвал хүндэтгэнэ).
+	if _, err = s.db.Exec(ctx, `
+		UPDATE document_type SET name = 'Баталгаажсан тайлан'
+		WHERE type = 'valuation_report' AND name = 'Хөрөнгийн үнэлгээний тайлан'
+	`); err != nil {
 		return err
 	}
 	slog.Info("document types seeded")

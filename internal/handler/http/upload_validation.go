@@ -74,6 +74,10 @@ func allowedEstimatedValueContentType(data []byte) (string, bool) {
 
 const (
 	docxContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	// xlsxAllowedDocumentType — "Үнэлгээний хүснэгт" нь Excel файл ӨӨРӨӨ
+	// (үнэлгээг оруулсан эх хүснэгт) тул зөвхөн энэ төрөлд .xlsx зөвшөөрнө.
+	xlsxAllowedDocumentType = "valuation_source"
 	// docxAllowedDocumentType — Гэрээг хэвлэхэд Хурлын тэмдэглэлийг Word
 	// баримт байдлаар нэгтгэдэг тул зөвхөн энэ төрөлд PDF-ээс гадна DOCX зөвшөөрнө.
 	docxAllowedDocumentType = "meeting_minutes"
@@ -89,12 +93,25 @@ func isDocxFile(filename string, data []byte) bool {
 	return len(data) >= 4 && data[0] == 'P' && data[1] == 'K' && data[2] == 0x03 && data[3] == 0x04
 }
 
+// isXlsxFile — .xlsx (Office Open XML) эсэхийг өргөтгөл + zip гарын үсгээр шалгана
+// (docx-тэй ижил шалтгаан: DetectContentType нь "application/zip" гэж буцаана).
+func isXlsxFile(filename string, data []byte) bool {
+	if !strings.HasSuffix(strings.ToLower(filename), ".xlsx") {
+		return false
+	}
+	return len(data) >= 4 && data[0] == 'P' && data[1] == 'K' && data[2] == 0x03 && data[3] == 0x04
+}
+
 // allowedDocumentContentType — хавсралт байршуулах үед агуулгын төрлийг шалгана.
 // Ерөнхийдөө зөвхөн PDF зөвшөөрнө; "Хурлын тэмдэглэл" (meeting_minutes) төрөлд
-// Гэрээтэй хэвлэхдээ нэгтгэдэг тул Word (docx) файл нэмж зөвшөөрнө.
+// Гэрээтэй хэвлэхдээ нэгтгэдэг тул Word (docx), "Үнэлгээний хүснэгт"
+// (valuation_source) төрөлд үнэлгээг оруулсан эх Excel (xlsx) зөвшөөрнө.
 func allowedDocumentContentType(filename string, data []byte, dt *domain.DocumentType) (string, bool) {
 	if dt != nil && dt.Type == docxAllowedDocumentType && isDocxFile(filename, data) {
 		return docxContentType, true
+	}
+	if dt != nil && dt.Type == xlsxAllowedDocumentType && isXlsxFile(filename, data) {
+		return xlsxContentType, true
 	}
 	return allowedPDFContentType(data)
 }

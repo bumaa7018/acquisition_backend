@@ -4053,10 +4053,12 @@ func (r *landAcqRepo) ListValuationNotes(ctx context.Context, acquisitionID uuid
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT id, acquisition_id, parcel_id, valuation_type, section_key,
-		       COALESCE(note,''), COALESCE(updated_by,''), created_at, updated_at
+		       COALESCE(note,''), COALESCE(section_no,''), COALESCE(table_label,''),
+		       COALESCE(title,''), COALESCE(sort_order,0),
+		       COALESCE(updated_by,''), created_at, updated_at
 		FROM valuation_section_note
 		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
-		ORDER BY section_key
+		ORDER BY sort_order, section_key
 	`, acquisitionID, parcelID, vType)
 	if err != nil {
 		return nil, err
@@ -4066,7 +4068,8 @@ func (r *landAcqRepo) ListValuationNotes(ctx context.Context, acquisitionID uuid
 	for rows.Next() {
 		n := &domain.ValuationSectionNote{}
 		if err := rows.Scan(&n.ID, &n.AcquisitionID, &n.ParcelID, &n.ValuationType,
-			&n.SectionKey, &n.Note, &n.UpdatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
+			&n.SectionKey, &n.Note, &n.SectionNo, &n.TableLabel, &n.Title, &n.SortOrder,
+			&n.UpdatedBy, &n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, n)
@@ -4109,9 +4112,19 @@ func (r *landAcqRepo) UpsertValuationNotes(ctx context.Context, acquisitionID uu
 		}
 		trimmed := strings.TrimSpace(note)
 		if trimmed == "" {
+			// Excel-ээс ирсэн хүснэгтийн мета мэдээлэлтэй бол мөрийг УСТГАХГҮЙ —
+			// зөвхөн бичвэрийг цэвэрлэнэ (дэлгэцийн дугаар/дараалал хэвээр үлдэнэ).
+			if _, err = tx.Exec(ctx, `
+				UPDATE valuation_section_note SET note='', updated_by=$5, updated_at=NOW()
+				WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 AND section_key=$4
+				  AND (section_no <> '' OR table_label <> '' OR title <> '')
+			`, acquisitionID, parcelID, vType, key, updatedBy); err != nil {
+				return err
+			}
 			if _, err = tx.Exec(ctx, `
 				DELETE FROM valuation_section_note
 				WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3 AND section_key=$4
+				  AND section_no = '' AND table_label = '' AND title = ''
 			`, acquisitionID, parcelID, vType, key); err != nil {
 				return err
 			}
@@ -4279,24 +4292,34 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 		}
 	}
 
-	// 3. Хүснэгт бүрийн ТАЙЛБАР (Excel-ийн "ТАЙЛБАР:" мөр). Импортын хүрээнд
-	// зөвхөн ИРСЭН хэсгийнхийг шинэчилнэ — Excel-д тайлбаргүй хүснэгтийн хуучин
-	// тайлбар (гараас бичсэн байж болно) арчигдахгүй.
-	for key, note := range imp.SectionNotes {
-		if key == "" {
+	// 3. Хүснэгт бүрийн ТАЙЛБАР ба таних мэдээлэл (дугаар, "Хүснэгт-N", гарчиг,
+	// дараалал). Импортын хүрээнд зөвхөн ИРСЭН хэсгийнхийг шинэчилнэ — Excel-д
+	// байхгүй хүснэгтийн хуучин тайлбар (гараас бичсэн байж болно) арчигдахгүй.
+	sections := imp.Sections
+	if len(sections) == 0 {
+		for key, note := range imp.SectionNotes {
+			sections = append(sections, domain.ValuationSectionInput{Key: key, Note: note})
+		}
+	}
+	for _, sec := range sections {
+		if sec.Key == "" {
 			continue
 		}
-		trimmed := strings.TrimSpace(note)
-		if trimmed == "" {
+		note := strings.TrimSpace(sec.Note)
+		// Тайлбаргүй ч хүснэгтийн мета мэдээлэл хадгалагдана (дэлгэц дугаар/дараалал
+		// нь оруулсан файлаас гарна). Аль аль нь хоосон бол алгасна.
+		if note == "" && sec.SectionNo == "" && sec.TableLabel == "" && sec.Title == "" {
 			continue
 		}
 		if _, err = tx.Exec(ctx, `
 			INSERT INTO valuation_section_note (acquisition_id, parcel_id, valuation_type,
-				section_key, note, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,$5,$6,$6)
+				section_key, note, section_no, table_label, title, sort_order, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
 			ON CONFLICT (acquisition_id, parcel_id, valuation_type, section_key) DO UPDATE
-			SET note=$5, updated_by=$6, updated_at=NOW()
-		`, acquisitionID, imp.ParcelID, vType, key, trimmed, imp.CreatedBy); err != nil {
+			SET note=$5, section_no=$6, table_label=$7, title=$8, sort_order=$9,
+				updated_by=$10, updated_at=NOW()
+		`, acquisitionID, imp.ParcelID, vType, sec.Key, note,
+			sec.SectionNo, sec.TableLabel, sec.Title, sec.SortOrder, imp.CreatedBy); err != nil {
 			return nil, err
 		}
 	}
@@ -5588,7 +5611,8 @@ func scanValuationSubmission(row pgx.Row, acqID uuid.UUID, code, vType string) (
 	s := &domain.ValuationSubmission{}
 	err := row.Scan(&s.ID, &s.AcquisitionID, &s.ParcelID, &s.ValuationType, &s.Status,
 		&s.SubmittedBy, &s.SubmittedAt, &s.ReviewedBy, &s.ReviewedAt,
-		&s.LastNote, &s.AttachmentURL, &s.AttachmentName, &s.CreatedAt, &s.UpdatedAt)
+		&s.LastNote, &s.AttachmentURL, &s.AttachmentName,
+		&s.DraftReportURL, &s.DraftReportName, &s.CreatedAt, &s.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		// Мөр байхгүй бол анхдагч "Ноорог" төлөвөөр буцаана
 		return &domain.ValuationSubmission{AcquisitionID: acqID, ParcelID: code, ValuationType: vType, Status: domain.ValuationStatusDraft}, nil
@@ -5619,6 +5643,7 @@ func (r *landAcqRepo) GetValuationSubmission(ctx context.Context, acquisitionID,
 		       COALESCE(s.reviewed_by, ''),
 		       s.reviewed_at, s.last_note,
 		       COALESCE(s.attachment_url,''), COALESCE(s.attachment_name,''),
+		       COALESCE(s.draft_report_url,''), COALESCE(s.draft_report_name,''),
 		       s.created_at, s.updated_at
 		FROM parcel_valuation_submission s
 		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3`, acquisitionID, code, vType)
@@ -5718,13 +5743,20 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 	// attachment_url/name нь ҮЙЛДЭЛ БҮРД дарж бичигдэнэ (буцаалт биш үед хоосон
 	// болно) — `last_note`-той ижил зарчим: карт нь СҮҮЛИЙН үйлдлийг харуулна.
 	if action == "submit" {
+		// Баталгаажаагүй тайлан ($9/$10) нь ЗӨВХӨН илгээх үед тавигдана. Хоосон
+		// ирвэл өмнөх тайланг ХЭВЭЭР үлдээнэ (COALESCE NULLIF) — буцаагдаад
+		// дахин илгээхэд тайлангаа дахин хавсаргах шаардлагагүй.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at, last_note, attachment_url, attachment_name)
-			VALUES ($1,$2,$6,$3,$4,NOW(),$5,$7,$8)
+			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, submitted_by, submitted_at, last_note, attachment_url, attachment_name, draft_report_url, draft_report_name)
+			VALUES ($1,$2,$6,$3,$4,NOW(),$5,$7,$8,$9,$10)
 			ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
 			SET status=$3, submitted_by=$4, submitted_at=NOW(), last_note=$5,
-			    attachment_url=$7, attachment_name=$8, updated_at=NOW()`,
-			acquisitionID, code, to, userID, note, vType, attachURL, attachName)
+			    attachment_url=$7, attachment_name=$8,
+			    draft_report_url=COALESCE(NULLIF($9,''), parcel_valuation_submission.draft_report_url),
+			    draft_report_name=COALESCE(NULLIF($10,''), parcel_valuation_submission.draft_report_name),
+			    updated_at=NOW()`,
+			acquisitionID, code, to, userID, note, vType, attachURL, attachName,
+			in.DraftReportURL, in.DraftReportName)
 	} else if action != "cancel" {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO parcel_valuation_submission (acquisition_id, parcel_id, valuation_type, status, reviewed_by, reviewed_at, last_note, attachment_url, attachment_name)
@@ -5776,24 +5808,77 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 				return nil, err
 			}
 		}
-		if reportURL == "" {
-			return nil, domain.ErrValuationReportRequired
+		// ЭХ ХҮСНЭГТ (импортын Excel) — тайлантай ижил зарчим: баримтаас
+		// хасаад холбоосыг нь түүхэн snapshot дээр үлдээнэ.
+		var sourceDocID uuid.UUID
+		var sourceURL, sourceName string
+		if err = tx.QueryRow(ctx, `
+			SELECT d.id, COALESCE(d.file_url,''), COALESCE(d.name,'')
+			FROM parcel_document pd
+			JOIN document d ON d.id = pd.document_id
+			JOIN document_type dt ON dt.id = d.document_type_id
+			WHERE pd.parcel_id=$1 AND dt.type='valuation_source'
+			ORDER BY d.uploaded_at DESC
+			LIMIT 1`, parcelID,
+		).Scan(&sourceDocID, &sourceURL, &sourceName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
 		}
-		if reportName == "" {
+		// Тайлан ЗААВАЛ БИШ: баталгаажсан тайлан нь нэгж талбарыг "Чөлөөлсөн"
+		// болгоход шаардагдана (ParcelStatusReleased-ийн шалгалт). Үнэлгээг
+		// ХҮЧИНГҮЙ болгоход хүчингүй болгосны ҮНДЭСЛЭЛ (cancel хавсралт) л
+		// шаардлагатай — тайлан хараахан үүсээгүй байж болно.
+		if reportURL != "" && reportName == "" {
 			reportName = "Үнэлгээний тайлан"
+		}
+		// БАТАЛГААЖААГҮЙ ТАЙЛАН ("Тайлан") — илгээхэд хавсаргасан файл нь
+		// parcel_document БИШ, илгээлтийн мөрөн дээр байдаг. Цуцлалтын дараа
+		// мөр нь draft болж ҮЛДДЭГ тул тайлан нь ШИНЭ үнэлгээний дэлгэц дээр
+		// хуучнаараа харагдсаар байв. Иймд холбоосыг snapshot руу зөөгөөд
+		// доор мөрөөс нь ЦЭВЭРЛЭНЭ.
+		var draftURL, draftName string
+		if err = tx.QueryRow(ctx, `
+			SELECT COALESCE(draft_report_url,''), COALESCE(draft_report_name,'')
+			FROM parcel_valuation_submission
+			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+			acquisitionID, code, vType,
+		).Scan(&draftURL, &draftName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		// Энэ үнэлгээний файлын БҮРЭН жагсаалт — snapshot-той хамт явна.
+		// Хөрөнгийн ЗУРАГ энд ОРОХГҮЙ: snapshot.assets доторх photo_pdf_url-ээр
+		// хүснэгтийн "Харах" товчноос нээгдэнэ (файлын эрх нь устсан хөрөнгийг
+		// snapshot-аас олдог — GetAssetAcquisition).
+		snapshotFiles := make([]domain.ValuationSnapshotFile, 0, 3)
+		addFile := func(label, name, url string) {
+			if url == "" {
+				return
+			}
+			if name == "" {
+				name = label
+			}
+			snapshotFiles = append(snapshotFiles, domain.ValuationSnapshotFile{
+				Label: label, Name: name, URL: url,
+			})
+		}
+		addFile("Баталгаажсан тайлан", reportName, reportURL)
+		addFile("Тайлан", draftName, draftURL)
+		addFile("Үнэлгээний хүснэгт", sourceName, sourceURL)
+		filesJSON, err := json.Marshal(snapshotFiles)
+		if err != nil {
+			return nil, err
 		}
 		var snapshotID uuid.UUID
 		if err = tx.QueryRow(ctx, `
 			INSERT INTO parcel_valuation_snapshot (
 				acquisition_id, parcel_id, valuation_type, submission_id, note, cancelled_by,
 				submitted_by, submitted_at, reviewed_by, reviewed_at,
-				report_url, report_name,
+				report_url, report_name, source_url, source_name, files,
 				land_valuation, assets, compensations, total_amount
 			)
 			SELECT s.acquisition_id, s.parcel_id, s.valuation_type, s.id, $4, $5,
 			       COALESCE(s.submitted_by,''), s.submitted_at,
 			       COALESCE(s.reviewed_by,''), s.reviewed_at,
-			       $7, $8,
+			       $7, $8, $9, $10, $11::jsonb,
 			       COALESCE((
 			         SELECT to_jsonb(lv)
 			         FROM land_valuation lv
@@ -5859,7 +5944,7 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 			WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3 AND s.status=$6
 			RETURNING id`,
 			acquisitionID, code, vType, note, userID, domain.ValuationStatusApproved,
-			reportURL, reportName).Scan(&snapshotID); err != nil {
+			reportURL, reportName, sourceURL, sourceName, string(filesJSON)).Scan(&snapshotID); err != nil {
 			if err == pgx.ErrNoRows {
 				return nil, domain.ErrInvalidTransition
 			}
@@ -5902,20 +5987,28 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 		// үнэлгээ өөрийн тайлантай ирэх тул хуучин нь "Баримт бичиг" табд
 		// үлдвэл андуурагдана. Мөрийг нь л устгана: MinIO дээрх файл ХЭВЭЭР
 		// үлдэх тул snapshot дээрх холбоосоор татагдана.
-		if reportDocID != uuid.Nil {
+		for _, docID := range []uuid.UUID{reportDocID, sourceDocID} {
+			if docID == uuid.Nil {
+				continue
+			}
 			if _, err = tx.Exec(ctx,
 				`DELETE FROM parcel_document WHERE parcel_id=$1 AND document_id=$2`,
-				parcelID, reportDocID); err != nil {
+				parcelID, docID); err != nil {
 				return nil, err
 			}
-			if _, err = tx.Exec(ctx, `DELETE FROM document WHERE id=$1`, reportDocID); err != nil {
+			if _, err = tx.Exec(ctx, `DELETE FROM document WHERE id=$1`, docID); err != nil {
 				return nil, err
 			}
 		}
+		// Илгээлтийн мөр DRAFT болж ЭХНЭЭСЭЭ эхэлнэ: хуучин үнэлгээний тайлан
+		// (draft_report_*) энд үлдвэл ШИНЭ үнэлгээний "Нөхөх олговор" дэлгэц
+		// дээр хуучин тайлан харагдана. Холбоос нь snapshot.files дээр
+		// хуулагдсан тул зөвхөн түүхийн дэлгэрэнгүйгээс татагдана.
 		if _, err = tx.Exec(ctx, `
 			UPDATE parcel_valuation_submission
 			SET status=$4, submitted_by='', submitted_at=NULL,
 			    reviewed_by='', reviewed_at=NULL,
+			    draft_report_url='', draft_report_name='',
 			    last_note=$5, attachment_url=$6, attachment_name=$7, updated_at=NOW()
 			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
 			acquisitionID, code, vType, to, note, attachURL, attachName); err != nil {
@@ -6003,6 +6096,7 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 		       COALESCE(s.reviewed_by, ''),
 		       s.reviewed_at, s.last_note,
 		       COALESCE(s.attachment_url,''), COALESCE(s.attachment_name,''),
+		       COALESCE(s.draft_report_url,''), COALESCE(s.draft_report_name,''),
 		       s.created_at, s.updated_at
 		FROM parcel_valuation_submission s
 		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3`, acquisitionID, code, vType)
@@ -6064,7 +6158,9 @@ func (r *landAcqRepo) ListValuationSnapshots(ctx context.Context, acquisitionID,
 		       COALESCE(s.reviewed_by, ''),
 		       s.reviewed_at,
 		       s.land_valuation, s.assets, s.compensations, s.total_amount,
-		       COALESCE(s.report_url, ''), COALESCE(s.report_name, '')
+		       COALESCE(s.report_url, ''), COALESCE(s.report_name, ''),
+		       COALESCE(s.source_url, ''), COALESCE(s.source_name, ''),
+		       COALESCE(s.files, '[]'::jsonb)
 		FROM parcel_valuation_snapshot s
 		WHERE s.acquisition_id=$1 AND s.parcel_id=$2 AND s.valuation_type=$3
 		ORDER BY s.cancelled_at DESC, s.id DESC`, acquisitionID, code, vType)
@@ -6080,7 +6176,8 @@ func (r *landAcqRepo) ListValuationSnapshots(ctx context.Context, acquisitionID,
 			&s.Note, &s.CancelledBy, &s.CancelledAt,
 			&s.SubmittedBy, &s.SubmittedAt, &s.ReviewedBy, &s.ReviewedAt,
 			&s.LandValuation, &s.Assets, &s.Compensations, &s.TotalAmount,
-			&s.ReportURL, &s.ReportName,
+			&s.ReportURL, &s.ReportName, &s.SourceURL, &s.SourceName,
+			&s.Files,
 		); err != nil {
 			return nil, err
 		}

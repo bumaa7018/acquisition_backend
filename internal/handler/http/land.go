@@ -2477,7 +2477,17 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 		} `json:"land"`
 		// Хүснэгт бүрийн ТАЙЛБАР (section_key → бичвэр). Excel-д байвал ирнэ.
 		SectionNotes map[string]string `json:"section_notes"`
-		Assets       []struct {
+		// Хүснэгтийн тайлбар + таних мэдээлэл (дугаар, "Хүснэгт-N", гарчиг, дараалал).
+		// Ирвэл section_notes-оос давамгайлна.
+		Sections []struct {
+			Key        string `json:"key"`
+			Note       string `json:"note"`
+			SectionNo  string `json:"section_no"`
+			TableLabel string `json:"table_label"`
+			Title      string `json:"title"`
+			SortOrder  int    `json:"sort_order"`
+		} `json:"sections"`
+		Assets []struct {
 			AssetNumber        string  `json:"asset_number"`
 			AssetType          string  `json:"asset_type"`
 			AssetName          string  `json:"asset_name"`
@@ -2557,6 +2567,16 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 			SourceFileName:      body.Land.SourceFileName,
 			SourceFileHash:      body.Land.SourceFileHash,
 		},
+	}
+	for _, sec := range body.Sections {
+		imp.Sections = append(imp.Sections, domain.ValuationSectionInput{
+			Key:        sec.Key,
+			Note:       sec.Note,
+			SectionNo:  sec.SectionNo,
+			TableLabel: sec.TableLabel,
+			Title:      sec.Title,
+			SortOrder:  sec.SortOrder,
+		})
 	}
 	for _, a := range body.Assets {
 		ia := domain.ValuationImportAsset{

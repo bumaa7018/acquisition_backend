@@ -30,6 +30,11 @@ func TestValuationOrgRouteAllowed(t *testing.T) {
 		{"/parcel-statuses/:id", http.MethodDelete, false},
 		{"/document-types", http.MethodGet, true},
 		{"/plans/search", http.MethodGet, true},
+		// Файлын эрхийн гарц — ЗӨВХӨН GET. Хаалттай байсан тул үнэлгээний
+		// байгууллага өөрийн оруулсан зураг/баримтаа нээж чаддаггүй байв.
+		{"/files/authorize", http.MethodGet, true},
+		{"/files/authorize", http.MethodPost, false},
+		{"/files", http.MethodGet, false},
 		// Шүүлтүүр/лавлах — токентой бол нээлттэй, БИЧИХ нь хаалттай.
 		{"/land-acquisitions/filter-options", http.MethodGet, true},
 		{"/land-acquisitions/districts", http.MethodGet, true},
@@ -68,7 +73,6 @@ func TestValuationOrgRouteAllowed(t *testing.T) {
 		{"/funding-sources", http.MethodGet, false},
 		{"/compensations", http.MethodGet, false},
 		{"/construction-types", http.MethodGet, false},
-		{"/files/authorize", http.MethodGet, false},
 	}
 	for _, tc := range cases {
 		assert.Equal(t, tc.want, valuationOrgRouteAllowed(tc.route, tc.method),

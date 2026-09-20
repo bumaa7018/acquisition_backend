@@ -464,10 +464,15 @@ type ValuationSubmission struct {
 	LastNote      string     `json:"last_note"`
 	// ХАМГИЙН СҮҮЛИЙН үйлдлийн хавсралт (`last_note`-той ижил зарчим).
 	// Хоосон = хавсралтгүй. Хавсралт нь ЗААВАЛ БИШ.
-	AttachmentURL  string    `json:"attachment_url"`
-	AttachmentName string    `json:"attachment_name"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	AttachmentURL  string `json:"attachment_url"`
+	AttachmentName string `json:"attachment_name"`
+	// БАТАЛГААЖААГҮЙ үнэлгээний тайлан — ИЛГЭЭХ үед хавсаргана (PDF/Word).
+	// Буцаах/цуцлах үйлдэлд ХӨНДӨГДӨХГҮЙ (attachment_*-аас ялгаатай) тул
+	// хянагч бүх шатанд уншиж чадна.
+	DraftReportURL  string    `json:"draft_report_url"`
+	DraftReportName string    `json:"draft_report_name"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // ValuationTransition — үнэлгээний илгээх/зөвшөөрөх/буцаах шилжилтийн оролт.
@@ -487,6 +492,9 @@ type ValuationTransition struct {
 	// заавал хүлээн авна. Хоосон бол return хавсралтгүй явж болно.
 	AttachmentURL  string
 	AttachmentName string
+	// Баталгаажаагүй үнэлгээний тайлан — ЗӨВХӨН submit үед утгатай.
+	DraftReportURL  string
+	DraftReportName string
 }
 
 // ValuationSubmissionHistory — төлөв шилжилт бүрийн түүх (тайлбартай)
@@ -531,6 +539,21 @@ type ValuationSnapshot struct {
 	// татагдана. Файл нь хадгалалтад ХЭВЭЭР үлдэнэ.
 	ReportURL  string `json:"report_url"`
 	ReportName string `json:"report_name"`
+	// Цуцлах үед хавсралтаас хасагдсан ЭХ ХҮСНЭГТ (Excel) — түүхээс татагдана.
+	SourceURL  string `json:"source_url"`
+	SourceName string `json:"source_name"`
+	// Files — цуцлах мөчид ЭНЭ үнэлгээнд хамаарч байсан файлуудын БҮРЭН
+	// жагсаалт (Баталгаажсан тайлан, Тайлан, Үнэлгээний хүснэгт). Зөвхөн
+	// түүхийн дэлгэрэнгүйд харагдана. Хуучин snapshot дээр хоосон байх тул
+	// хэрэглэгчийн тал ReportURL/SourceURL руу ухарна.
+	Files []ValuationSnapshotFile `json:"files"`
+}
+
+// ValuationSnapshotFile — архивын НЭГ файлын холбоос.
+type ValuationSnapshotFile struct {
+	Label string `json:"label"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
 }
 
 // ParcelEstimatedValueChange — ТӨСӨӨЛЛИЙН үнэлгээний НЭГ өөрчлөлт.
@@ -1444,9 +1467,24 @@ type ValuationSectionNote struct {
 	ValuationType string    `json:"valuation_type"`
 	SectionKey    string    `json:"section_key"`
 	Note          string    `json:"note"`
-	UpdatedBy     string    `json:"updated_by"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Excel дэх хүснэгтийн таних мэдээлэл — дэлгэц дугаар/нэр/дарааллыг үүнээс авна.
+	SectionNo  string    `json:"section_no"`  // "3.3"
+	TableLabel string    `json:"table_label"` // "Хүснэгт-3"
+	Title      string    `json:"title"`       // "Газрын үнэлгээ"
+	SortOrder  int       `json:"sort_order"`  // файл дахь дараалал
+	UpdatedBy  string    `json:"updated_by"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// ValuationSectionInput — импортын үед нэг хүснэгтийн тайлбар + таних мэдээлэл.
+type ValuationSectionInput struct {
+	Key        string
+	Note       string
+	SectionNo  string
+	TableLabel string
+	Title      string
+	SortOrder  int
 }
 
 // ── Excel-ээс бөөнөөр оруулах (нэг транзакц, олон API дуудлагыг орлоно) ──
@@ -1479,7 +1517,10 @@ type ValuationImport struct {
 	// SectionNotes — хүснэгт бүрийн ТАЙЛБАР (section_key → бичвэр). Хоосон бол
 	// хуучин тайлбарыг ХЭВЭЭР үлдээнэ (импорт нь тайлбарыг санамсаргүй арчихгүй).
 	SectionNotes map[string]string
-	CreatedBy    string
+	// Sections — хүснэгтийн тайлбар + дугаар/нэр/дараалал. SectionNotes-оос
+	// ДЭЛГЭРЭНГҮЙ хувилбар нь; хоёул ирвэл Sections давамгайлна.
+	Sections  []ValuationSectionInput
+	CreatedBy string
 }
 
 // ValuationImportResult — импортын дүн

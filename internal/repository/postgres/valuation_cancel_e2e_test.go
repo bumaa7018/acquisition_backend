@@ -138,7 +138,7 @@ func TestE2E_ValuationCancelAllParcelStatuses(t *testing.T) {
 }
 
 func TestE2E_ValuationCancelGuardsPreserveApprovedData(t *testing.T) {
-	for _, scenario := range []string{"confirmed acquisition", "missing attachment", "missing report", "missing selected type"} {
+	for _, scenario := range []string{"confirmed acquisition", "missing attachment", "report not required", "missing selected type"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
 			f, cancel := approvedValuationFixture(t, domain.ParcelStatusEvaluating)
@@ -151,10 +151,12 @@ func TestE2E_ValuationCancelGuardsPreserveApprovedData(t *testing.T) {
 			case "missing attachment":
 				cancel.AttachmentURL = ""
 				expected = domain.ErrValuationCancelAttachmentRequired
-			case "missing report":
+			case "report not required":
+				// Баталгаажсан тайлан нь нэгж талбарыг "Чөлөөлсөн" болгоход
+				// шаардагдана; үнэлгээг ХҮЧИНГҮЙ болгоход зөвхөн цуцлалтын
+				// хавсралт л шаардлагатай тул тайлангүй ч амжилттай явна.
 				_, err := f.pool.Exec(ctx, `UPDATE compensation SET valuation_report_url='' WHERE acquisition_id=$1`, f.acqID)
 				require.NoError(t, err)
-				expected = domain.ErrValuationReportRequired
 			case "missing selected type":
 				_, err := f.pool.Exec(ctx, `UPDATE parcel SET selected_valuation_type=NULL, status=1 WHERE id=$1`, cancel.ParcelID)
 				require.NoError(t, err)
@@ -228,4 +230,75 @@ func TestE2E_ValuationCancelMovesReportDocumentToSnapshot(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM document WHERE id=$1`, docID).Scan(&docs))
 	assert.Zero(t, docs)
+}
+
+// Цуцлахад ЭНЭ үнэлгээний БҮХ файл (Баталгаажсан тайлан, Тайлан, Үнэлгээний
+// хүснэгт) нэгж талбарын хавсралт/илгээлтээс хасагдаж, ЗӨВХӨН тухайн
+// snapshot-д холбогдоно. Дараагийн үнэлгээ цэвэр хуудаснаас эхэлнэ.
+func TestE2E_ValuationCancelBindsAllFilesToSnapshot(t *testing.T) {
+	ctx := context.Background()
+	f, cancel := approvedValuationFixture(t, domain.ParcelStatusEvaluating)
+
+	// Хуучин олговрын холбоосыг арилгаж ЗӨВХӨН хавсралтын флоуг шалгана.
+	_, err := f.pool.Exec(ctx, `UPDATE compensation SET valuation_report_url='' WHERE acquisition_id=$1`, f.acqID)
+	require.NoError(t, err)
+
+	attach := func(docType, name, url string) uuid.UUID {
+		t.Helper()
+		var docTypeID int
+		require.NoError(t, f.pool.QueryRow(ctx,
+			`SELECT id FROM document_type WHERE type=$1`, docType).Scan(&docTypeID))
+		docID := uuid.New()
+		_, err := f.pool.Exec(ctx, `
+			INSERT INTO document (id, name, file_type, file_url, document_type_id)
+			VALUES ($1,$2,'application/pdf',$3,$4)`, docID, name, url, docTypeID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx,
+			`INSERT INTO parcel_document (parcel_id, document_id) VALUES ($1,$2)`, cancel.ParcelID, docID)
+		require.NoError(t, err)
+		return docID
+	}
+	const (
+		reportURL = "/api/files/parcel/e2e/approved.pdf"
+		sourceURL = "/api/files/parcel/e2e/valuation.xlsx"
+		draftURL  = "/api/files/valuation-draft/e2e/draft.pdf"
+	)
+	reportDocID := attach("valuation_report", "Баталгаажсан.pdf", reportURL)
+	sourceDocID := attach("valuation_source", "Үнэлгээ.xlsx", sourceURL)
+	// Илгээхэд хавсаргасан тайлан нь parcel_document БИШ, илгээлтийн мөрөн дээр.
+	_, err = f.pool.Exec(ctx, `
+		UPDATE parcel_valuation_submission SET draft_report_url=$2, draft_report_name='Тайлан.pdf'
+		WHERE acquisition_id=$1`, f.acqID, draftURL)
+	require.NoError(t, err)
+
+	_, err = f.repo.TransitionValuationSubmission(ctx, cancel)
+	require.NoError(t, err)
+
+	snapshots, err := f.repo.ListValuationSnapshots(ctx, f.acqID, cancel.ParcelID, "asset")
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	byLabel := map[string]domain.ValuationSnapshotFile{}
+	for _, file := range snapshots[0].Files {
+		byLabel[file.Label] = file
+	}
+	require.Len(t, byLabel, 3)
+	assert.Equal(t, reportURL, byLabel["Баталгаажсан тайлан"].URL)
+	assert.Equal(t, "Баталгаажсан.pdf", byLabel["Баталгаажсан тайлан"].Name)
+	assert.Equal(t, draftURL, byLabel["Тайлан"].URL)
+	assert.Equal(t, sourceURL, byLabel["Үнэлгээний хүснэгт"].URL)
+
+	// Нэгж талбар дээр нэг ч хавсралт үлдэхгүй, илгээлтийн тайлан цэвэрлэгдэнэ.
+	var linked, docs int
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM parcel_document WHERE parcel_id=$1`, cancel.ParcelID).Scan(&linked))
+	assert.Zero(t, linked)
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM document WHERE id=ANY($1)`,
+		[]uuid.UUID{reportDocID, sourceDocID}).Scan(&docs))
+	assert.Zero(t, docs)
+	var leftoverDraft string
+	require.NoError(t, f.pool.QueryRow(ctx,
+		`SELECT draft_report_url FROM parcel_valuation_submission WHERE acquisition_id=$1`,
+		f.acqID).Scan(&leftoverDraft))
+	assert.Empty(t, leftoverDraft, "хуучин тайлан шинэ үнэлгээн дээр үлдэхгүй")
 }

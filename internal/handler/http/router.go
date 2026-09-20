@@ -519,6 +519,8 @@ func NewRouter(
 					// Байгааламж — үнэлгээ (valuation:create/update)
 					profLandItem.GET("/assets", landH.ListAssets)
 					profLandItem.POST("/assets", landH.CreateAsset)
+					// Хөрөнгийн мэдээллийг дэлгэцээс шууд засах (нэр, хэмжээ, нэгж үнэ г.м)
+					profLandItem.PUT("/assets/:asset_id", landH.UpdateAsset)
 					profLandItem.DELETE("/assets/:asset_id", landH.DeleteAsset)
 					profLandItem.POST("/assets/:asset_id/photos", landH.UploadAssetPhoto)
 					profLandItem.GET("/assets/:asset_id/specs", landH.ListAssetSpecs)

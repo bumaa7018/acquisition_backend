@@ -1,6 +1,7 @@
 package http
 
 import (
+	"log/slog"
 	"strings"
 
 	"acquisition_backend/internal/domain"
@@ -63,9 +64,28 @@ func supervisoryReader(c *gin.Context) bool {
 // @Failure      403  {object}  response.Response
 // @Router       /files/authorize [get]
 func (h *FileAccessHandler) Authorize(c *gin.Context) {
+	// Татгалзсан шалтгааныг ТОДОРХОЙ бичнэ. Урьд нь бүх татгалзал ялгаагүй
+	// 403 байсан тул "яагаад харагдахгүй байна вэ" гэдгийг лог, дэмжлэгээс
+	// тогтоох боломжгүй байв (эрх, гишүүнчлэл, хуваарилалт, түлхүүрийн
+	// формат — аль нь ч байж болно).
+	deny := func(stage string) {
+		userID, _ := middleware.GetCallerID(c)
+		orgID, hasOrg := middleware.GetCallerOrgID(c)
+		slog.Warn("file access denied",
+			"stage", stage,
+			"key", c.Query("key"),
+			"user_id", userID,
+			"org_id", orgID,
+			"has_org", hasOrg,
+			"valuation_org", middleware.IsValuationOrgCaller(c),
+			"senior", middleware.IsSenior(c),
+		)
+		response.Error(c, domain.ErrForbidden)
+	}
+
 	namespace, ownerID, ok := splitObjectKey(c.Query("key"))
 	if !ok {
-		response.Error(c, domain.ErrForbidden)
+		deny("bad_key")
 		return
 	}
 
@@ -75,7 +95,7 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// түүний хандалт нь 2-р давхаргын БАЙГУУЛЛАГЫН гишүүнчлэлээр шалгагдана.
 	if !middleware.IsValuationOrgCaller(c) &&
 		!callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") {
-		response.Error(c, domain.ErrForbidden)
+		deny("no_read_permission")
 		return
 	}
 
@@ -99,7 +119,10 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// estimated-value — ТӨСӨӨЛЛИЙН үнэлгээг гэрчлэх хавсралт. Түлхүүр нь
 	// `estimated-value/<нэгж талбарын uuid>/<нэр>` тул нэгж талбарын ИЖИЛ
 	// дүрмээр шалгагдана.
-	case "parcel", "notice", "emongolia", "valuation-return", "valuation-cancel", "estimated-value":
+	// valuation-draft — БАТАЛГААЖААГҮЙ үнэлгээний тайлан (илгээх үед хавсаргана).
+	// Санхүүгийн мэргэжилтэн хянахдаа, үнэлгээ хийсэн байгууллага буцаж шалгахдаа
+	// уншина — тиймээс нэгж талбарын ИЖИЛ дүрмээр.
+	case "parcel", "notice", "emongolia", "valuation-return", "valuation-cancel", "estimated-value", "valuation-draft":
 		err = h.authorizeParcel(c, ownerID)
 	case "compensation-report":
 		err = h.authorizeCompensation(c, ownerID)
@@ -110,7 +133,7 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 		err = domain.ErrForbidden
 	}
 	if err != nil {
-		response.Error(c, err)
+		deny("owner_check:" + namespace)
 		return
 	}
 	response.OK(c, gin.H{"allowed": true})

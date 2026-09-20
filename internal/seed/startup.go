@@ -89,6 +89,14 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
+			// Үнэлгээний хүснэгт (Excel эх файл) төрөл нэмэгдсэн ба баталгаажсан
+			// тайлангийн нэр өөрчлөгдсөн тул дахин синк хийнэ.
+			name: "000011_document_types_valuation_source",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
+		{
 			// Migration 000048-ийн schema-д харгалзах data backfill (зөвхөн seeder-ээр).
 			name: "000010_selected_valuation_backfill",
 			run: func(ctx context.Context) error {
@@ -270,6 +278,17 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000032_person_types_resync",
 			run: func(ctx context.Context) error {
 				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedAuthLookups(ctx)
+			},
+		},
+		{
+			// Migration 000039-ийн parcel_valuation_snapshot.files-д харгалзах
+			// өгөгдлийн засвар: ӨМНӨ цуцлагдсан үнэлгээний файлуудыг тухайн
+			// snapshot-д холбож, илгээлтийн мөрөнд үлдсэн хуучин тайланг
+			// цэвэрлэнэ (эс бөгөөс шинэ үнэлгээн дээр харагдсаар байна).
+			// (000033-ыг устсан valuation_login алхам эзэлсэн тул 000034.)
+			name: "000034_cancelled_valuation_files",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedCancelledValuationFiles(ctx)
 			},
 		},
 	}); err != nil {

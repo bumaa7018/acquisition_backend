@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -467,24 +468,66 @@ func TestTransitionValuation_ReturnWithoutAttachment(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
-// Хавсралт нь ЗӨВХӨН буцаалт/цуцлалтад хамаарна: "илгээх" дээр файл ирвэл
-// хаягдана (эс бөгөөс тэр файл буцаалт/цуцлалтын хавсралт болж харагдана).
-func TestTransitionValuation_SubmitDropsAttachment(t *testing.T) {
+// ИЛГЭЭХ үеийн хавсралт = БАТАЛГААЖААГҮЙ үнэлгээний тайлан. Өмнө нь хаягддаг
+// байсныг өөрчилсөн: санхүү хянахдаа тайланг уншдаг тул service рүү дамжина
+// (тэнд тусдаа `draft_report_*` талбарт хадгалагдана).
+func TestTransitionValuation_SubmitKeepsDraftReport(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	mockSvc, w, run := multipartTransition(t,
 		[]string{"senior_specialist"},
 		map[string]string{"action": "submit", "note": "илгээв", "valuation_type": "asset"},
-		"file.pdf", samplePDF)
+		"tailan.pdf", samplePDF)
 
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),
-		(*service.ValuationAttachment)(nil)).
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
+			return a != nil && a.Filename == "tailan.pdf" && a.ContentType == "application/pdf"
+		})).
 		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
 
 	run(acqID, parcelID)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSvc.AssertExpectations(t)
+}
+
+// Тайланг Word (.docx)-ээр хавсаргаж болно — байгууллагууд ихэвчлэн Word-ээр
+// бэлддэг. Зөвхөн ИЛГЭЭХ үйлдэлд (буцаах/цуцлах нь PDF хэвээр).
+func TestTransitionValuation_SubmitAcceptsDocx(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	docx := append([]byte{'P', 'K', 0x03, 0x04}, make([]byte, 64)...)
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"senior_specialist"},
+		map[string]string{"action": "submit", "note": "илгээв", "valuation_type": "asset"},
+		"tailan.docx", docx)
+
+	mockSvc.On("TransitionValuationSubmission", mock.Anything,
+		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
+			return a != nil && strings.HasSuffix(a.ContentType, "wordprocessingml.document")
+		})).
+		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+// Буцаалтад Word зөвшөөрөгдөхгүй (зөвхөн PDF).
+func TestTransitionValuation_ReturnRejectsDocx(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	docx := append([]byte{'P', 'K', 0x03, 0x04}, make([]byte, 64)...)
+	mockSvc, w, run := multipartTransition(t,
+		[]string{"finance_specialist"},
+		map[string]string{"action": "return", "note": "тайлбар", "valuation_type": "asset"},
+		"tailan.docx", docx)
+
+	run(acqID, parcelID)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockSvc.AssertNotCalled(t, "TransitionValuationSubmission",
+		mock.Anything, mock.Anything, mock.Anything)
 }
 
 // PDF биш файлыг хүлээж авахгүй (allowedPDFContentType).

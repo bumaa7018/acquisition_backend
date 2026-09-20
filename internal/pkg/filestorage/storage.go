@@ -80,13 +80,47 @@ type Storage interface {
 	Delete(ctx context.Context, fileURL string) error
 }
 
+// sanitizeObjectName — ОБЪЕКТЫН нэрэнд ашиглах аюулгүй хэлбэрт оруулна.
+//
+// MinIO/S3 сервер зарим тэмдэгтийг зөвшөөрдөггүй ("Objectname contains
+// unsupported characters" 500 алдаа) — хэрэглэгчийн файлын нэрэнд `:`, `?`,
+// `*`, `"`, `<`, `>`, `|`, `\` эсвэл удирдлагын тэмдэгт орвол БАЙРШУУЛАЛТ
+// БҮТЭЛГҮЙТДЭГ. Нэрийг харуулахдаа ЭХ нэрийг (cleanName) ашигладаг тул энд
+// зөвхөн ХАДГАЛАХ нэрийг цэвэрлэнэ — кирилл үсэг (UTF-8) хэвээр үлдэнэ.
+func sanitizeObjectName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r < 0x20 || r == 0x7f: // удирдлагын тэмдэгт
+			b.WriteByte('_')
+		case strings.ContainsRune(`\/:*?"<>|`, r):
+			b.WriteByte('_')
+		case r == ' ':
+			b.WriteByte('_')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := strings.Trim(b.String(), "._")
+	if out == "" {
+		out = "file"
+	}
+	if len(out) > 180 {
+		out = out[:180]
+	}
+	return out
+}
+
 // storedFileName — хадгалах нэрийг бэлдэнэ. Adapter-ууд (локал ба S3) ижил
 // дүрмээр нэрлэснээр шилжүүлэлт болон URL-ийн бүтэц таарна.
+//
+// cleanName — хэрэглэгчид ХАРУУЛАХ эх нэр, storedName — объектын түлхүүрт
+// орох цэвэршүүлсэн нэр.
 func storedFileName(filename string, unique bool) (cleanName, storedName string) {
 	cleanName = filepath.Base(filename)
-	storedName = cleanName
+	storedName = sanitizeObjectName(cleanName)
 	if unique {
-		storedName = uuid.New().String() + "_" + cleanName
+		storedName = uuid.New().String() + "_" + storedName
 	}
 	return cleanName, storedName
 }
