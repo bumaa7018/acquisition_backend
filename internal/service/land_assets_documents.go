@@ -32,11 +32,8 @@ func (s *landService) CreateAsset(ctx context.Context, b *domain.Asset) (*domain
 	return b, nil
 }
 
-func (s *landService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
-	if err := s.landRepo.UpdateAsset(ctx, b); err != nil {
-		return nil, err
-	}
-	return b, nil
+func (s *landService) UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error) {
+	return s.landRepo.UpdateAsset(ctx, u)
 }
 
 func (s *landService) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {

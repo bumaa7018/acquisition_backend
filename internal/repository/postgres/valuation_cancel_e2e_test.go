@@ -15,6 +15,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// attachSubmitDocuments — илгээхэд шаардагдах хоёр баримтыг нэгж талбарт залгана.
+func attachSubmitDocuments(t *testing.T, f *fixture, parcelID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	for _, d := range []struct{ docType, name, url string }{
+		{"valuation_report", "Үнэлгээний тайлан", "/api/files/parcel/e2e/report.pdf"},
+		{"work_photo", "Ажлын зураг", "/api/files/parcel/e2e/photo.jpg"},
+	} {
+		var typeID int
+		require.NoError(t, f.pool.QueryRow(ctx,
+			`SELECT id FROM document_type WHERE type=$1`, d.docType).Scan(&typeID))
+		docID := uuid.New()
+		_, err := f.pool.Exec(ctx, `
+			INSERT INTO document (id, name, file_type, file_url, document_type_id)
+			VALUES ($1,$2,'application/pdf',$3,$4)`, docID, d.name, d.url, typeID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx,
+			`INSERT INTO parcel_document (parcel_id, document_id) VALUES ($1,$2)`, parcelID, docID)
+		require.NoError(t, err)
+	}
+}
+
+// clearParcelDocuments — нэгж талбарын БҮХ хавсралтыг арилгана (тестүүд өөрсдийн
+// файлын багцыг цэвэр орчинд шалгахын тулд).
+func clearParcelDocuments(t *testing.T, f *fixture, parcelID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := f.pool.Exec(ctx, `
+		DELETE FROM document d
+		USING parcel_document pd
+		WHERE pd.document_id = d.id AND pd.parcel_id = $1`, parcelID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `DELETE FROM parcel_document WHERE parcel_id=$1`, parcelID)
+	require.NoError(t, err)
+}
+
 func approvedValuationFixture(t *testing.T, parcelStatus int) (*fixture, domain.ValuationTransition) {
 	t.Helper()
 	ctx := context.Background()
@@ -30,6 +66,9 @@ func approvedValuationFixture(t *testing.T, parcelStatus int) (*fixture, domain.
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO compensation (acquisition_id, parcel_id, amount, valuation_report_url) VALUES ($1,$2,250000,'/test/report.pdf')`, f.acqID, code)
 	require.NoError(t, err)
+	// ИЛГЭЭХЭД нэгж талбарт "Үнэлгээний тайлан" ба "Ажлын зураг" хоёр баримт
+	// заавал байх ёстой (хөрөнгө тус бүрийн зургийг СОЛЬСОН дүрэм).
+	attachSubmitDocuments(t, f, parcelID)
 	base := domain.ValuationTransition{
 		AcquisitionID: f.acqID, ParcelID: parcelID, ValuationType: domain.ValuationTypeAsset,
 		Action: "submit", Note: "Submit", UserID: "Submitting Employee",
@@ -107,10 +146,20 @@ func TestE2E_ValuationCancelAllParcelStatuses(t *testing.T) {
 			require.Len(t, compensations, 1)
 			assert.Equal(t, "Original asset", assets[0]["asset_name"])
 			assert.Equal(t, "/test/report.pdf", compensations[0]["valuation_report_url"])
-			// Үнэлгээний тайлан нь ТҮҮХЭНД үлдэнэ: олговрын мөр устсан ч
-			// snapshot дээрх холбоосоор татагдана.
-			assert.Equal(t, "/test/report.pdf", snapshot.ReportURL)
+			// Үнэлгээний тайлан нь ТҮҮХЭНД үлдэнэ: хавсралтын мөр устсан ч
+			// snapshot дээрх холбоосоор татагдана. Тайлан нь одоо илгээхэд
+			// заавал хавсаргадаг parcel_document тул түүний зам хадгалагдана
+			// (олговрын хуучин valuation_report_url нь зөвхөн ухрах хувилбар).
+			assert.Equal(t, "/api/files/parcel/e2e/report.pdf", snapshot.ReportURL)
 			assert.NotEmpty(t, snapshot.ReportName)
+			// Ажлын зураг ч мөн түүхэнд хадгалагдана.
+			var photoFiles int
+			for _, file := range snapshot.Files {
+				if file.Label == "Ажлын зураг" {
+					photoFiles++
+				}
+			}
+			assert.Equal(t, 1, photoFiles, "ажлын зураг snapshot дээр үлдэнэ")
 			history, err := f.repo.ListValuationSubmissionHistory(ctx, f.acqID, cancel.ParcelID, "asset")
 			require.NoError(t, err)
 			require.Len(t, history, 3)
@@ -124,6 +173,9 @@ func TestE2E_ValuationCancelAllParcelStatuses(t *testing.T) {
 			_, err = f.repo.TransitionValuationSubmission(ctx, cancel)
 			assert.ErrorIs(t, err, domain.ErrInvalidTransition)
 			// A new round must not overwrite the cancelled snapshot.
+			// Цуцлалт нь тайлан/ажлын зургийг хавсралтаас хассан тул ШИНЭ
+			// үнэлгээ өөрийн баримтуудаа дахин хавсаргана.
+			attachSubmitDocuments(t, f, cancel.ParcelID)
 			cancel.Action, cancel.UserID = "submit", "New Appraiser"
 			sub, err = f.repo.TransitionValuationSubmission(ctx, cancel)
 			require.NoError(t, err)
@@ -203,6 +255,8 @@ func TestE2E_ValuationCancelMovesReportDocumentToSnapshot(t *testing.T) {
 	// Олговрын хуучин холбоосыг арилгаж ЗӨВХӨН хавсралтын флоуг шалгана.
 	_, err := f.pool.Exec(ctx, `UPDATE compensation SET valuation_report_url='' WHERE acquisition_id=$1`, f.acqID)
 	require.NoError(t, err)
+	// Илгээхэд шаардагдсан баримтуудыг цэвэрлэж, ЗӨВХӨН энэ тестийн тайланг үлдээнэ.
+	clearParcelDocuments(t, f, cancel.ParcelID)
 
 	docID := uuid.New()
 	const reportURL = "/api/files/parcel/e2e/report.pdf"
@@ -232,7 +286,7 @@ func TestE2E_ValuationCancelMovesReportDocumentToSnapshot(t *testing.T) {
 	assert.Zero(t, docs)
 }
 
-// Цуцлахад ЭНЭ үнэлгээний БҮХ файл (Баталгаажсан тайлан, Тайлан, Үнэлгээний
+// Цуцлахад ЭНЭ үнэлгээний БҮХ файл (Үнэлгээний тайлан, Тайлан, эх
 // хүснэгт) нэгж талбарын хавсралт/илгээлтээс хасагдаж, ЗӨВХӨН тухайн
 // snapshot-д холбогдоно. Дараагийн үнэлгээ цэвэр хуудаснаас эхэлнэ.
 func TestE2E_ValuationCancelBindsAllFilesToSnapshot(t *testing.T) {
@@ -242,6 +296,8 @@ func TestE2E_ValuationCancelBindsAllFilesToSnapshot(t *testing.T) {
 	// Хуучин олговрын холбоосыг арилгаж ЗӨВХӨН хавсралтын флоуг шалгана.
 	_, err := f.pool.Exec(ctx, `UPDATE compensation SET valuation_report_url='' WHERE acquisition_id=$1`, f.acqID)
 	require.NoError(t, err)
+	// Илгээхэд шаардагдсан баримтуудыг цэвэрлэнэ (энэ тест өөрийнхөө файлуудыг залгана).
+	clearParcelDocuments(t, f, cancel.ParcelID)
 
 	attach := func(docType, name, url string) uuid.UUID {
 		t.Helper()
@@ -282,8 +338,8 @@ func TestE2E_ValuationCancelBindsAllFilesToSnapshot(t *testing.T) {
 		byLabel[file.Label] = file
 	}
 	require.Len(t, byLabel, 3)
-	assert.Equal(t, reportURL, byLabel["Баталгаажсан тайлан"].URL)
-	assert.Equal(t, "Баталгаажсан.pdf", byLabel["Баталгаажсан тайлан"].Name)
+	assert.Equal(t, reportURL, byLabel["Үнэлгээний тайлан"].URL)
+	assert.Equal(t, "Баталгаажсан.pdf", byLabel["Үнэлгээний тайлан"].Name)
 	assert.Equal(t, draftURL, byLabel["Тайлан"].URL)
 	assert.Equal(t, sourceURL, byLabel["Үнэлгээний хүснэгт"].URL)
 

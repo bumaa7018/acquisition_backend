@@ -27,7 +27,17 @@ var (
 	ErrValuationNotApproved              = errors.New("compensation valuation is not approved yet")
 	ErrNonFinalParcels                   = errors.New("all parcels must be in final status before confirming acquisition")
 	ErrAssetPhotoRequired                = errors.New("real estate assets must have photos before submitting valuation")
-	ErrReportBeforeApproval              = errors.New("valuation must be approved before attaching the report")
+	// Үнэлгээ ИЛГЭЭХЭД нэгж талбарын хавсралтад заавал байх ёстой хоёр баримт:
+	// баталгаажсан тайлан (PDF/Word) ба хээрийн ажлын зураг. Өмнө нь тайланг
+	// илгээлтийн мөрөн дээр тусад нь хадгалж, зургийг хөрөнгө тус бүрээр
+	// нэхдэг байсныг эдгээрээр СОЛИВ.
+	ErrSubmitReportRequired    = errors.New("approved valuation report must be attached before submitting")
+	ErrSubmitWorkPhotoRequired = errors.New("work photos must be attached before submitting")
+	// Үнэлгээг санхүүд ИЛГЭЭСЭН эсвэл БАТАЛГААЖСАН бол мэдээлэл өөрчлөгдөхгүй:
+	// санхүүгийн хянасан тоо ба хавсаргасан тайлан хоёр зөрөх эрсдэлтэй.
+	// Засвар нь зөвхөн илгээгээгүй (draft) / буцаагдсан (returned) төлөвт.
+	ErrValuationSubmittedLocked = errors.New("valuation is submitted and cannot be edited")
+	ErrReportBeforeApproval     = errors.New("valuation must be approved before attaching the report")
 	// Хавсралт нь хүсэлтийн дугаараар (app_no) татагддаг тул нэгж талбарын
 	// дэлгэрэнгүй эхлээд татагдсан байх ёстой.
 	ErrParcelAppNoMissing = errors.New("parcel has no application number yet, sync the parcel first")

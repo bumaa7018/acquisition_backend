@@ -333,7 +333,7 @@ type LandProgressRepository interface {
 type LandAssetRepository interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) error
-	UpdateAsset(ctx context.Context, b *domain.Asset) error
+	UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error)
 	// DeleteAsset — allowedStreams хоосон бол хязгаарлалтгүй; эс бөгөөс мөрийн
 	// valuation_type тэдгээрийн аль нэгтэй таарсан үед л устгана (МИКА өөр
 	// байгууллагын үнэлгээг устгахаас сэргийлнэ).

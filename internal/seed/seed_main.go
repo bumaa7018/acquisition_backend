@@ -51,8 +51,8 @@ func (s *MainSeeder) SeedCancelledValuationFiles(ctx context.Context) error {
 			SELECT COALESCE(jsonb_agg(f), '[]'::jsonb)
 			FROM (
 				SELECT jsonb_build_object(
-				         'label', 'Баталгаажсан тайлан',
-				         'name', COALESCE(NULLIF(s.report_name,''), 'Баталгаажсан тайлан'),
+				         'label', 'Үнэлгээний тайлан',
+				         'name', COALESCE(NULLIF(s.report_name,''), 'Үнэлгээний тайлан'),
 				         'url', s.report_url) AS f
 				WHERE COALESCE(s.report_url,'') <> ''
 				UNION ALL
@@ -197,8 +197,9 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 		  ('meeting_minutes',        'Хурлын тэмдэглэл',                                                       'parcel'),
 		  ('contract',               'Гэрээ',                                                                   'parcel'),
 		  ('consent_note',           'Зөвшилцлөлийн тэмдэглэл',                                               'parcel'),
-		  ('valuation_report',       'Баталгаажсан тайлан',                                                     'parcel'),
+		  ('valuation_report',       'Үнэлгээний тайлан',                                                       'parcel'),
 		  ('valuation_source',       'Үнэлгээний хүснэгт',                                                      'parcel'),
+		  ('work_photo',             'Ажлын зураг',                                                             'parcel'),
 		  ('other',                  'БУСАД',                                                                   'both')
 		ON CONFLICT (type) DO NOTHING
 	`)
@@ -209,8 +210,12 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 	// тул нэрийг тусад нь тэгшитгэнэ (зөвхөн ӨГӨГДМӨЛ нэр хэвээр байвал —
 	// хэрэглэгч гараас өөрчилсөн байвал хүндэтгэнэ).
 	if _, err = s.db.Exec(ctx, `
-		UPDATE document_type SET name = 'Баталгаажсан тайлан'
-		WHERE type = 'valuation_report' AND name = 'Хөрөнгийн үнэлгээний тайлан'
+		-- Нэршил: ИЛГЭЭХ шатанд хавсаргадаг тул "баталгаажсан" гэж нэрлэх нь
+		-- урсгалтай зөрчилддөг (тайлан нь санхүү баталгаажуулсны ДАРАА л
+		-- баталгаажна). Нэг файл, нэг төрөл — нэр нь "Үнэлгээний тайлан".
+		UPDATE document_type SET name = 'Үнэлгээний тайлан'
+		WHERE type = 'valuation_report'
+		  AND name IN ('Хөрөнгийн үнэлгээний тайлан', 'Баталгаажсан тайлан')
 	`); err != nil {
 		return err
 	}

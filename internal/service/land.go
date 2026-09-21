@@ -84,7 +84,7 @@ type LandAcquisitionService interface {
 type LandAssetService interface {
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
-	UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
+	UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error)
 	DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) error
 	// GetAssetAcquisition — файлын түлхүүрийн эрх шалгахад (asset-photo/<asset_id>).
 	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)

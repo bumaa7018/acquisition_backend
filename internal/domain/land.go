@@ -556,6 +556,32 @@ type ValuationSnapshotFile struct {
 	URL   string `json:"url"`
 }
 
+// AssetUpdate — хөрөнгийн ХЭСЭГЧИЛСЭН засвар: nil талбар нь "хөндөхгүй".
+//
+// ЯАГААД заавал заагч (pointer): дэлгэц бүр өөрийн хэсгийг л илгээдэг —
+// хөрөнгийн цонх нэр/нэгж/үнэ, Хүснэгт-4 давхар/талбай, Хүснэгт-5 талбай/нэгж
+// үнэ. Бүтэн бүтэц илгээх шаардвал илгээгээгүй талбарууд (нэр, ангилал,
+// тэмдэглэл, нэгж талбарын дугаар) хоосон утгаараа дарагдана. Тэр дундаас
+// parcel_id хоосон болоход UPDATE нь ямар ч мөр олохгүй → хэрэглэгчид 404
+// харагддаг байсан гол шалтгаан нь ЭНЭ.
+type AssetUpdate struct {
+	ID            uuid.UUID
+	AcquisitionID uuid.UUID
+	ParcelID      *string
+	AssetNumber   *string
+	AssetType     *string
+	AssetName     *string
+	FloorCount    *int
+	AreaM2        *float64
+	OwnerName     *string
+	Address       *string
+	Notes         *string
+	Unit          *string
+	Capacity      *string
+	Description   *string
+	UnitPrice     *float64
+}
+
 // ParcelEstimatedValueChange — ТӨСӨӨЛЛИЙН үнэлгээний НЭГ өөрчлөлт.
 //
 // `parcel` дээрх талбарууд нь зөвхөн ОДООГИЙН байдал тул өөрчлөлт бүр
@@ -806,7 +832,11 @@ type LandAcquisitionBoundaryHistory struct {
 type LandAcquisitionFilter struct {
 	PlanCode        string
 	AcquisitionName string
-	Status          int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
+	// ParcelID — НЭГЖ ТАЛБАРЫН дугаараар хайх. Хэрэглэгч гартаа нэгж талбарын
+	// дугаартай ирээд "энэ аль чөлөөлөлтөд байгаа вэ?" гэж хайдаг тул
+	// чөлөөлөлтийн жагсаалт нь нэгж талбараар шүүгдэнэ (хэсэгчилсэн тохироо).
+	ParcelID string
+	Status   int // 0 = шүүлт хийхгүй; 1=NEW, 2=ACTIVE, 3=CLOSED, 4=CANCELLED
 	// AU2Code — СУМ/ДҮҮРГИЙН код. Чөлөөлөлт бүртгэхэд хилээр нь тодорхойлогдож
 	// land_acquisition_au-д хадгалагддаг тул тэр хүснэгтээр шүүнэ. Нэг
 	// чөлөөлөлт хэд хэдэн багтай (au3) байж болох ч дүүрэг нь ихэвчлэн нэг.

@@ -281,6 +281,16 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
+			// "Ажлын зураг" (work_photo) төрөл нэмэгдсэн: үнэлгээ илгээхэд
+			// тайлантай хамт заавал хавсаргана. Мөн valuation_report-ийн нэр
+			// "Үнэлгээний тайлан" болж өөрчлөгдсөн (илгээх шатанд хавсаргадаг
+			// тул "баталгаажсан" нэр урсгалтай зөрчилдөж байв).
+			name: "000036_document_types_work_photo_and_report_rename",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
+		{
 			// Migration 000039-ийн parcel_valuation_snapshot.files-д харгалзах
 			// өгөгдлийн засвар: ӨМНӨ цуцлагдсан үнэлгээний файлуудыг тухайн
 			// snapshot-д холбож, илгээлтийн мөрөнд үлдсэн хуучин тайланг

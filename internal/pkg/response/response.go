@@ -211,6 +211,12 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusLocked, i18n.ErrNotFieldStage
 	case domain.ErrAssetPhotoRequired:
 		return http.StatusUnprocessableEntity, i18n.ErrAssetPhotoRequired
+	case domain.ErrValuationSubmittedLocked:
+		return http.StatusConflict, i18n.ErrValuationSubmittedLocked
+	case domain.ErrSubmitReportRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrSubmitReportRequired
+	case domain.ErrSubmitWorkPhotoRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrSubmitWorkPhotoRequired
 	case domain.ErrReportBeforeApproval:
 		return http.StatusUnprocessableEntity, i18n.ErrReportBeforeApproval
 	case domain.ErrParcelAppNoMissing:

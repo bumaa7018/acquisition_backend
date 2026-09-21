@@ -10,11 +10,11 @@ import (
 	"acquisition_backend/internal/domain"
 )
 
-// Файл оруулах дээд хэмжээ — frontend-ийн 50MB шалгалттай ижил.
+// Файл оруулах дээд хэмжээ — frontend-ийн шалгалттай ижил (20MB).
 const (
-	maxDocumentUploadSize = 50 * 1024 * 1024
-	maxAssetPhotoSize     = 50 * 1024 * 1024
-	maxShapefileSize      = 50 * 1024 * 1024
+	maxDocumentUploadSize = 20 * 1024 * 1024
+	maxAssetPhotoSize     = 20 * 1024 * 1024
+	maxShapefileSize      = 20 * 1024 * 1024
 	maxShapefileFormSize  = maxShapefileSize + 1024*1024
 )
 
@@ -81,6 +81,13 @@ const (
 	// docxAllowedDocumentType — Гэрээг хэвлэхэд Хурлын тэмдэглэлийг Word
 	// баримт байдлаар нэгтгэдэг тул зөвхөн энэ төрөлд PDF-ээс гадна DOCX зөвшөөрнө.
 	docxAllowedDocumentType = "meeting_minutes"
+	// valuationReportDocumentType — "Үнэлгээний тайлан". Үнэлгээний
+	// байгууллагууд тайлангаа Word-ээр бэлддэг тул PDF-ээс гадна DOCX зөвшөөрнө.
+	valuationReportDocumentType = "valuation_report"
+	// workPhotoDocumentType — "Ажлын зураг". Хээрийн судалгааны зургууд нь
+	// гар утаснаас шууд ордог тул JPEG/PNG зөвшөөрнө (PDF-д хөрвүүлэхийг
+	// шаардах нь ажлыг л хүндрүүлнэ).
+	workPhotoDocumentType = "work_photo"
 )
 
 // isDocxFile — .docx (Office Open XML) файл эсэхийг өргөтгөл + zip гарын үсгээр шалгана.
@@ -109,6 +116,14 @@ func isXlsxFile(filename string, data []byte) bool {
 func allowedDocumentContentType(filename string, data []byte, dt *domain.DocumentType) (string, bool) {
 	if dt != nil && dt.Type == docxAllowedDocumentType && isDocxFile(filename, data) {
 		return docxContentType, true
+	}
+	if dt != nil && dt.Type == valuationReportDocumentType && isDocxFile(filename, data) {
+		return docxContentType, true
+	}
+	if dt != nil && dt.Type == workPhotoDocumentType {
+		if contentType := detectContentType(data); contentType == "image/jpeg" || contentType == "image/png" {
+			return contentType, true
+		}
 	}
 	if dt != nil && dt.Type == xlsxAllowedDocumentType && isXlsxFile(filename, data) {
 		return xlsxContentType, true

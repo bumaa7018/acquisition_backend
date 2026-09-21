@@ -297,13 +297,10 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 				response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 				return
 			}
-			// Илгээх үеийн хавсралт = баталгаажаагүй тайлан. Байгууллагууд
-			// тайлангаа Word-ээр бэлддэг тул PDF-ээс гадна .docx зөвшөөрнө;
-			// буцаах/цуцлахын хавсралт нь өмнөх шигээ зөвхөн PDF.
+			// Хавсралт нь ЗӨВХӨН буцаах/цуцлах үйлдлийнх (үндэслэлийн PDF).
+			// Илгээх үед файл АВАХГҮЙ: баталгаажсан тайлан ба ажлын зураг нь
+			// нэгж талбарын баримт (parcel_document) болж тусдаа хавсрагдана.
 			contentType, ok := allowedPDFContentType(data)
-			if !ok && req.Action == "submit" && isDocxFile(fh.Filename, data) {
-				contentType, ok = docxContentType, true
-			}
 			if !ok {
 				response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 				return
@@ -365,10 +362,10 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action"})
 		return
 	}
-	// Хавсралт нь буцаалт болон цуцлалтад хамаарна — бусад үйлдэлд ирвэл
+	// Хавсралт нь ЗӨВХӨН буцаалт, цуцлалтад хамаарна — бусад үйлдэлд ирвэл
 	// хаяна (илгээх дээрх файл буцаалт/цуцлалтын хавсралт болж харагдахаас
 	// сэргийлнэ). Цуцлалтад эрх шалгасны дараа заавал PDF хавсралт шаардана.
-	if req.Action != "return" && req.Action != "cancel" && req.Action != "submit" {
+	if req.Action != "return" && req.Action != "cancel" {
 		attachment = nil
 	}
 	if req.Action == "cancel" && attachment == nil {

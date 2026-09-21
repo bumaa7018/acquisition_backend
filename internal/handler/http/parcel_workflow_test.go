@@ -6,7 +6,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -471,7 +470,13 @@ func TestTransitionValuation_ReturnWithoutAttachment(t *testing.T) {
 // ИЛГЭЭХ үеийн хавсралт = БАТАЛГААЖААГҮЙ үнэлгээний тайлан. Өмнө нь хаягддаг
 // байсныг өөрчилсөн: санхүү хянахдаа тайланг уншдаг тул service рүү дамжина
 // (тэнд тусдаа `draft_report_*` талбарт хадгалагдана).
-func TestTransitionValuation_SubmitKeepsDraftReport(t *testing.T) {
+// ИЛГЭЭХ үед файл АВАХГҮЙ.
+//
+// Өмнө нь илгээлтэд "баталгаажаагүй тайлан" хавсаргадаг байсныг больсон:
+// баталгаажсан тайлан ба ажлын зураг хоёр нь нэгж талбарын БАРИМТ
+// (parcel_document) болж тусдаа хавсрагдаж, илгээхэд тэдгээрийн БАЙГАА эсэхийг
+// л шалгана. Тиймээс хүсэлтэд файл ирсэн ч үйлчилгээ рүү дамжихгүй.
+func TestTransitionValuation_SubmitIgnoresAttachment(t *testing.T) {
 	acqID, parcelID := uuid.New(), uuid.New()
 	mockSvc, w, run := multipartTransition(t,
 		[]string{"senior_specialist"},
@@ -480,32 +485,7 @@ func TestTransitionValuation_SubmitKeepsDraftReport(t *testing.T) {
 
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),
-		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
-			return a != nil && a.Filename == "tailan.pdf" && a.ContentType == "application/pdf"
-		})).
-		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
-
-	run(acqID, parcelID)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	mockSvc.AssertExpectations(t)
-}
-
-// Тайланг Word (.docx)-ээр хавсаргаж болно — байгууллагууд ихэвчлэн Word-ээр
-// бэлддэг. Зөвхөн ИЛГЭЭХ үйлдэлд (буцаах/цуцлах нь PDF хэвээр).
-func TestTransitionValuation_SubmitAcceptsDocx(t *testing.T) {
-	acqID, parcelID := uuid.New(), uuid.New()
-	docx := append([]byte{'P', 'K', 0x03, 0x04}, make([]byte, 64)...)
-	mockSvc, w, run := multipartTransition(t,
-		[]string{"senior_specialist"},
-		map[string]string{"action": "submit", "note": "илгээв", "valuation_type": "asset"},
-		"tailan.docx", docx)
-
-	mockSvc.On("TransitionValuationSubmission", mock.Anything,
-		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),
-		mock.MatchedBy(func(a *service.ValuationAttachment) bool {
-			return a != nil && strings.HasSuffix(a.ContentType, "wordprocessingml.document")
-		})).
+		mock.MatchedBy(func(a *service.ValuationAttachment) bool { return a == nil })).
 		Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
 
 	run(acqID, parcelID)

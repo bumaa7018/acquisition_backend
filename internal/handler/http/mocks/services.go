@@ -389,7 +389,7 @@ func (m *MockLandService) CreateAsset(ctx context.Context, b *domain.Asset) (*do
 	return args.Get(0).(*domain.Asset), args.Error(1)
 }
 
-func (m *MockLandService) UpdateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error) {
+func (m *MockLandService) UpdateAsset(ctx context.Context, b *domain.AssetUpdate) (*domain.Asset, error) {
 	args := m.Called(ctx, b)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

@@ -94,6 +94,9 @@ const (
 	ErrParcelsOverlap                    Key = "parcels_overlap"
 	ErrNotFieldStage                     Key = "acq_not_field_stage"
 	ErrAssetPhotoRequired                Key = "asset_photo_required"
+	ErrValuationSubmittedLocked          Key = "valuation_submitted_locked"
+	ErrSubmitReportRequired              Key = "submit_report_required"
+	ErrSubmitWorkPhotoRequired           Key = "submit_work_photo_required"
 	ErrReportBeforeApproval              Key = "report_before_approval"
 	ErrParcelAppNoMissing                Key = "parcel_app_no_missing"
 	ErrParcelOwnedNoPayment              Key = "parcel_owned_no_payment"
@@ -208,6 +211,9 @@ var messages = map[Key][2]string{
 	ErrParcelsOverlap:                    {"Нэгж талбарууд хоорондоо байршлаар давхцаж байна. Давхардлыг арилгах хүртэл \"Хээрийн судалгаа\" төлөвт шилжих боломжгүй — нэг газрын нөхөх олговор хоёр удаа бодогдох эрсдэлтэй.", "Parcels overlap each other by location. Resolve the overlaps before moving to field survey."},
 	ErrNotFieldStage:                     {"Нэгж талбартай ажиллахын тулд чөлөөлөлт \"Хээрийн судалгаа\" төлөвт байх шаардлагатай.", "Working with parcels requires the acquisition to be in field survey status."},
 	ErrAssetPhotoRequired:                {"Үл хөдлөх төрөлтэй хөрөнгө бүрт зураг (PDF) хавсаргасны дараа илгээх боломжтой.", "Every real estate asset must have a photo attached before submitting the valuation."},
+	ErrValuationSubmittedLocked:          {"Үнэлгээг илгээсэн/баталгаажсан тул засварлах боломжгүй. Буцаагдсан эсвэл илгээгээгүй төлөвт засна.", "The valuation has been submitted or approved and can no longer be edited."},
+	ErrSubmitReportRequired:              {"Үнэлгээ илгээхийн өмнө \"Үнэлгээний тайлан\"-г хавсаргана уу.", "Attach the valuation report before submitting."},
+	ErrSubmitWorkPhotoRequired:           {"Үнэлгээ илгээхийн өмнө \"Ажлын зураг\"-ийг хавсаргана уу.", "Attach the work photos before submitting."},
 	ErrReportBeforeApproval:              {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
 	ErrParcelAppNoMissing:                {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
 	ErrParcelOwnedNoPayment:              {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
@@ -229,7 +235,7 @@ var messages = map[Key][2]string{
 	ErrBasemapExtent:                     {"Зургийн хүрээг (minLon, minLat, maxLon, maxLat) зөв оруулна уу.", "Provide a valid image extent (minLon, minLat, maxLon, maxLat)."},
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
-	ErrFileTooLarge:           {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // upload_validation.go лимиттэй ижил
+	ErrFileTooLarge:           {"Файл 20MB-аас хэтэрсэн байна", "file exceeds 20MB limit"}, // upload_validation.go лимиттэй ижил
 	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
 	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},
 	ErrDroneAlreadyRegistered: {"Зураг аль хэдийн бүртгэгдсэн байна", "image is already registered"},

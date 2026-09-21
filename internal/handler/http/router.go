@@ -538,6 +538,10 @@ func NewRouter(
 					// Нөхөх олговор — үнэлгээ (valuation:create/update)
 					profLandItem.GET("/compensations", landH.ListCompensations)
 					profLandItem.POST("/compensations", landH.CreateCompensation)
+					// Олговрын дүн/тайлбарыг дэлгэцээс засах. Байхгүй байсан тул
+					// мэргэжлийн байгууллагын засвар 404 өгдөг байв (үндсэн
+					// маршрутад аль хэдийн байсан).
+					profLandItem.PUT("/compensations/:comp_id", landH.UpdateCompensation)
 					profLandItem.DELETE("/compensations/:comp_id", landH.DeleteCompensation)
 					profLandItem.GET("/compensations/:comp_id/history", landH.ListCompensationHistory)
 					profLandItem.POST("/compensations/:comp_id/report", landH.UploadCompensationReport)

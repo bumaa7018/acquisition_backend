@@ -641,8 +641,10 @@ func (m *MockLandAcquisitionRepository) CreateAsset(ctx context.Context, b *doma
 	return m.Called(ctx, b).Error(0)
 }
 
-func (m *MockLandAcquisitionRepository) UpdateAsset(ctx context.Context, b *domain.Asset) error {
-	return m.Called(ctx, b).Error(0)
+func (m *MockLandAcquisitionRepository) UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error) {
+	args := m.Called(ctx, u)
+	asset, _ := args.Get(0).(*domain.Asset)
+	return asset, args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error) {

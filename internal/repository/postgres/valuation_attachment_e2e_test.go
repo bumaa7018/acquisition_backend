@@ -47,6 +47,8 @@ func TestE2E_ValuationReturnAttachment(t *testing.T) {
 		`SELECT id FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2`,
 		f.acqID, code).Scan(&parcelUUID))
 
+	// Илгээхэд "Үнэлгээний тайлан" + "Ажлын зураг" хоёр баримт заавал.
+	attachSubmitDocuments(t, f, parcelUUID)
 	base := domain.ValuationTransition{
 		AcquisitionID: f.acqID,
 		ParcelID:      parcelUUID,

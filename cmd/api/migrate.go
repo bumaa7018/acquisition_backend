@@ -90,8 +90,15 @@ func reconcileMainBaseline(ctx context.Context, dsn string) error {
 		return nil
 	}
 
-	// Бүтэц байхгүй, эсвэл төлөв нь аль хэдийн зөв — хэвийн зам.
-	if !hasStructure || (recorded && !dirty && version == baselineVersion) {
+	// Бүтэц байхгүй, эсвэл төлөв нь ЦЭВЭР бүртгэгдсэн — хэвийн зам, хөндөхгүй.
+	//
+	// АНХААР: өмнө нь энд `version == baselineVersion` гэж шаарддаг байсан тул
+	// 1-ээс ДЭЭШ явсан (жишээ нь 40) ЦЭВЭР сан бүрийг "тамга байхгүй" гэж үзэж,
+	// restart бүрд schema_migrations-ыг 1 болгож ЭГҮҮЛЭЭД 2..N-г дахин
+	// ажиллуулдаг байв. Тэр давталтын дундуур (түгжээ/1 минутын хугацаа дуусах)
+	// тасрахад сан `dirty` болж, апп "Dirty database version N" гэж уначихдаг.
+	// Цэвэр төлөвтэй санг ямар ч хувилбарт нь ХӨНДӨХГҮЙ.
+	if !hasStructure || (recorded && !dirty) {
 		return nil
 	}
 	if recorded && dirty && version != baselineVersion {

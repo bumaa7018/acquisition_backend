@@ -229,6 +229,16 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		args = append(args, "%"+filter.PlanCode+"%")
 		i++
 	}
+	if filter.ParcelID != "" {
+		// Устгагдаагүй нэгж талбараар шүүнэ; EXISTS нь мөр давхардуулахгүй.
+		where += fmt.Sprintf(` AND EXISTS (
+			SELECT 1 FROM parcel p
+			WHERE p.acquisition_id = la.id AND p.deleted_at IS NULL
+			  AND p.parcel_id ILIKE $%d
+		)`, i)
+		args = append(args, "%"+filter.ParcelID+"%")
+		i++
+	}
 	if filter.AcquisitionName != "" {
 		where += fmt.Sprintf(" AND acquisition_name ILIKE $%d", i)
 		args = append(args, "%"+filter.AcquisitionName+"%")
@@ -3464,20 +3474,17 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 }
 
 func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID, doc *domain.Document) error {
-	// "Хөрөнгийн үнэлгээний тайлан" (valuation_report) төрлийн хавсралтыг ЗӨВХӨН
-	// үнэлгээ баталгаажсан (selected_valuation_type тавигдсан) нэгж талбарт оруулна.
+	// "Үнэлгээний тайлан" (valuation_report) нь өмнө нь ЗӨВХӨН үнэлгээ
+	// баталгаажсан (selected_valuation_type тавигдсан) нэгж талбарт орж
+	// байсан. Одоо тайланг ИЛГЭЭХ шатанд заавал хавсаргадаг болсон тул тэр
+	// хаалт нь өөрийнхөө шаардлагыг хаадаг болов: илгээхийн өмнө хавсаргах
+	// гэхээр "баталгаажсаны дараа хавсаргана" гэж татгалздаг байв. Тайлан нь
+	// бусад баримттай ижил дүрмээр орно; хэн, хэзээ хавсаргахыг маршрутын
+	// эрх (профайлын гишүүнчлэл) ба дэлгэцийн төлөв шийднэ.
 	ct, err := r.db.Exec(ctx, `
 		WITH ins AS (
 			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at, document_type_id)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0)
-			WHERE NOT EXISTS (
-				SELECT 1 FROM document_type dt
-				WHERE dt.id = $10::int AND dt.type = 'valuation_report'
-				  AND NOT EXISTS (
-					SELECT 1 FROM parcel p
-					WHERE p.id = $9 AND p.selected_valuation_type IS NOT NULL
-				  )
-			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0))
 			RETURNING id
 		)
 		INSERT INTO parcel_document (parcel_id, document_id)
@@ -3487,7 +3494,7 @@ func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID,
 		return err
 	}
 	if ct.RowsAffected() == 0 {
-		return domain.ErrReportBeforeApproval
+		return domain.ErrNotFound
 	}
 	return nil
 }
@@ -3688,6 +3695,9 @@ func (r *landAcqRepo) ListAssets(ctx context.Context, acquisitionID uuid.UUID, f
 }
 
 func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
+	if err := r.ensureValuationEditable(ctx, b.AcquisitionID, b.ParcelID, b.ValuationType); err != nil {
+		return err
+	}
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO assets (acquisition_id, parcel_id, asset_number, asset_type, asset_name,
 		                    floor_count, area_m2, owner_name, address, notes, unit, capacity, description, unit_price, valuation_type)
@@ -3707,24 +3717,57 @@ func (r *landAcqRepo) CreateAsset(ctx context.Context, b *domain.Asset) error {
 	return err
 }
 
-func (r *landAcqRepo) UpdateAsset(ctx context.Context, b *domain.Asset) error {
-	err := r.db.QueryRow(ctx, `
-		UPDATE assets SET parcel_id=$2, asset_number=$3, asset_type=$4, asset_name=$5,
-		    floor_count=$6, area_m2=$7, owner_name=$8, address=$9, notes=$10,
-		    unit=$11, capacity=$12, description=$13, unit_price=$14, updated_at=NOW()
-		WHERE id=$1 AND acquisition_id=$15
-		  AND EXISTS (
-		      SELECT 1 FROM parcel WHERE acquisition_id=$15 AND parcel_id=$2
-		  )
-		RETURNING updated_at
-	`, b.ID, b.ParcelID, b.AssetNumber, b.AssetType, b.AssetName,
-		b.FloorCount, b.AreaM2, b.OwnerName, b.Address, b.Notes,
-		b.Unit, b.Capacity, b.Description, b.UnitPrice, b.AcquisitionID,
-	).Scan(&b.UpdatedAt)
-	if err == pgx.ErrNoRows {
-		return domain.ErrNotFound
+// UpdateAsset — ХЭСЭГЧИЛСЭН засвар: NULL ирсэн талбар хэвээр үлдэнэ.
+//
+// Нэгж талбарын шалгалт нь ШИНЭ parcel_id (эсвэл өөрчлөгдөөгүй бол ОДООГИЙН)
+// утгаар хийгдэнэ. Өмнө нь илгээгээгүй parcel_id хоосон мөр гэж очиж, EXISTS
+// шалгалт унаж, засвар бүр 404 (ErrNotFound) буцаадаг байв.
+func (r *landAcqRepo) UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error) {
+	if err := r.ensureAssetEditable(ctx, u.ID); err != nil {
+		return nil, err
 	}
-	return err
+	b := &domain.Asset{}
+	err := r.db.QueryRow(ctx, `
+		UPDATE assets a SET
+		    parcel_id    = COALESCE($2, a.parcel_id),
+		    asset_number = COALESCE($3, a.asset_number),
+		    asset_type   = COALESCE($4, a.asset_type),
+		    asset_name   = COALESCE($5, a.asset_name),
+		    floor_count  = COALESCE($6, a.floor_count),
+		    area_m2      = COALESCE($7, a.area_m2),
+		    owner_name   = COALESCE($8, a.owner_name),
+		    address      = COALESCE($9, a.address),
+		    notes        = COALESCE($10, a.notes),
+		    unit         = COALESCE($11, a.unit),
+		    capacity     = COALESCE($12, a.capacity),
+		    description  = COALESCE($13, a.description),
+		    unit_price   = COALESCE($14, a.unit_price),
+		    updated_at   = NOW()
+		WHERE a.id=$1 AND a.acquisition_id=$15
+		  AND EXISTS (
+		      SELECT 1 FROM parcel p
+		      WHERE p.acquisition_id=$15 AND p.parcel_id = COALESCE($2, a.parcel_id)
+		  )
+		RETURNING a.id, a.acquisition_id, a.parcel_id, COALESCE(a.asset_number,''),
+		          COALESCE(a.asset_type,'property'), COALESCE(a.asset_name,''),
+		          COALESCE(a.floor_count,0), COALESCE(a.area_m2,0), COALESCE(a.owner_name,''),
+		          COALESCE(a.address,''), COALESCE(a.notes,''), COALESCE(a.unit,''),
+		          COALESCE(a.capacity,''), COALESCE(a.description,''), COALESCE(a.unit_price,0),
+		          COALESCE(a.valuation_type,'asset'), a.created_at, a.updated_at
+	`, u.ID, u.ParcelID, u.AssetNumber, u.AssetType, u.AssetName,
+		u.FloorCount, u.AreaM2, u.OwnerName, u.Address, u.Notes,
+		u.Unit, u.Capacity, u.Description, u.UnitPrice, u.AcquisitionID,
+	).Scan(&b.ID, &b.AcquisitionID, &b.ParcelID, &b.AssetNumber,
+		&b.AssetType, &b.AssetName, &b.FloorCount, &b.AreaM2, &b.OwnerName,
+		&b.Address, &b.Notes, &b.Unit, &b.Capacity, &b.Description, &b.UnitPrice,
+		&b.ValuationType, &b.CreatedAt, &b.UpdatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // DeleteAsset — хөрөнгийг устгаад, хавсаргасан зургийн PDF-ийн URL-ыг буцаана
@@ -3786,6 +3829,9 @@ func (r *landAcqRepo) snapshotOwnerAcquisition(ctx context.Context, column strin
 // allowedStreams хоосон бол хязгаарлалтгүй (дотоод ахлах/админ); эс бөгөөс
 // зөвхөн дуудагчийн үнэлгээний урсгалын мөр устана.
 func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UUID, allowedStreams []string) (string, error) {
+	if err := r.ensureAssetEditable(ctx, id); err != nil {
+		return "", err
+	}
 	var streams any
 	if len(allowedStreams) > 0 {
 		streams = allowedStreams
@@ -3817,6 +3863,9 @@ func (r *landAcqRepo) DeleteAsset(ctx context.Context, acquisitionID, id uuid.UU
 
 func (r *landAcqRepo) UpsertAssetSpecs(ctx context.Context, acquisitionID, assetID uuid.UUID, specs []domain.AssetSpec) error {
 	if err := r.ensureAssetInAcquisition(ctx, acquisitionID, assetID); err != nil {
+		return err
+	}
+	if err := r.ensureAssetEditable(ctx, assetID); err != nil {
 		return err
 	}
 	for _, s := range specs {
@@ -3860,22 +3909,41 @@ func (r *landAcqRepo) UpsertAssetCalculations(ctx context.Context, acquisitionID
 	if err := r.ensureAssetInAcquisition(ctx, acquisitionID, assetID); err != nil {
 		return err
 	}
+	if err := r.ensureAssetEditable(ctx, assetID); err != nil {
+		return err
+	}
+	// ДАРААЛАЛ: мөр бүр Excel дэх байрлалаа (sort_index) хадгална. Засварлахад
+	// шинэ sort_index ОНООХГҮЙ — эс бөгөөс засвар хийсэн мөр хүснэгтийн эхэнд
+	// үсэрч, бүлгүүд (Итгэлцүүр г.м) тасалдана. Шинээр нэмэгдсэн мөр л одоо
+	// байгаа хамгийн их индексийн дараа орно.
+	var nextIdx int
+	if err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(MAX(sort_index),-1)+1 FROM asset_calculation WHERE asset_id=$1`,
+		assetID).Scan(&nextIdx); err != nil {
+		return err
+	}
 	for _, c := range calcs {
+		// grp: ирсэн утгыг л бичнэ. Хоосон ирвэл ХУУЧНЫГ хадгална (дэлгэцээс
+		// зөвхөн тоо засахад бүлэг арилахгүй).
 		_, err := r.db.Exec(ctx, `
-			INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (asset_id, calc_type_id) DO UPDATE SET unit=$3, value=$4
-		`, assetID, c.CalcTypeID, c.Unit, c.Value)
+			INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value, grp, sort_index)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (asset_id, calc_type_id) DO UPDATE
+			SET unit=$3, value=$4,
+			    grp=COALESCE(NULLIF($5,''), asset_calculation.grp)
+		`, assetID, c.CalcTypeID, c.Unit, c.Value, c.CalcGroup, nextIdx)
 		if err != nil {
 			return err
 		}
+		nextIdx++
 	}
 	return nil
 }
 
 func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, assetID uuid.UUID) ([]*domain.AssetCalculation, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.asset_id, c.calc_type_id, t.code, t.name, COALESCE(t.grp,''), c.unit, c.value
+		SELECT c.id, c.asset_id, c.calc_type_id, t.code, t.name,
+		       COALESCE(NULLIF(c.grp,''), t.grp, ''), c.unit, c.value
 		FROM asset_calculation c
 		JOIN asset_calc_type t ON t.id = c.calc_type_id
 		JOIN assets a ON a.id = c.asset_id
@@ -3898,6 +3966,9 @@ func (r *landAcqRepo) ListAssetCalculations(ctx context.Context, acquisitionID, 
 }
 
 func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandValuation) error {
+	if err := r.ensureValuationEditable(ctx, v.AcquisitionID, v.ParcelID, v.ValuationType); err != nil {
+		return err
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -3918,10 +3989,22 @@ func (r *landAcqRepo) UpsertLandValuation(ctx context.Context, v *domain.LandVal
 			SELECT 1 FROM parcel WHERE acquisition_id=$1 AND parcel_id=$2
 		)
 		ON CONFLICT (acquisition_id, parcel_id, valuation_type) DO UPDATE
+		-- ТЕКСТ талбарууд: ХООСОН ирвэл хуучин утга ХЭВЭЭР үлдэнэ.
+		-- Дэлгэцийн газрын үнэлгээний маягт нь зөвхөн талбай/үнэ хоёрыг илгээдэг
+		-- тул энэ хамгаалалтгүй бол нэг засвар хийхэд гэрчилгээний дугаар,
+		-- үнэлгээчний бүх мэдээлэл (Excel-ээс орсон) чимээгүйхэн арчигдана.
 		SET land_area_m2=$3, base_price_per_m2=$4,
-			ownership_cert_no=$5, appraiser_org_name=$6, appraiser_reg_no=$7, appraiser_state_reg_no=$8,
-			appraiser_director=$9, appraiser_license=$10, appraiser_address=$11, appraiser_contact=$12,
-			source_file_name=$13, source_file_hash=$14, updated_at=NOW()
+			ownership_cert_no=COALESCE(NULLIF($5,''), land_valuation.ownership_cert_no),
+			appraiser_org_name=COALESCE(NULLIF($6,''), land_valuation.appraiser_org_name),
+			appraiser_reg_no=COALESCE(NULLIF($7,''), land_valuation.appraiser_reg_no),
+			appraiser_state_reg_no=COALESCE(NULLIF($8,''), land_valuation.appraiser_state_reg_no),
+			appraiser_director=COALESCE(NULLIF($9,''), land_valuation.appraiser_director),
+			appraiser_license=COALESCE(NULLIF($10,''), land_valuation.appraiser_license),
+			appraiser_address=COALESCE(NULLIF($11,''), land_valuation.appraiser_address),
+			appraiser_contact=COALESCE(NULLIF($12,''), land_valuation.appraiser_contact),
+			source_file_name=COALESCE(NULLIF($13,''), land_valuation.source_file_name),
+			source_file_hash=COALESCE(NULLIF($14,''), land_valuation.source_file_hash),
+			updated_at=NOW()
 		RETURNING id, created_at, updated_at
 	`, v.AcquisitionID, v.ParcelID, v.LandAreaM2, v.BasePricePerM2,
 		v.OwnershipCertNo, v.AppraiserOrgName, v.AppraiserRegNo, v.AppraiserStateRegNo,
@@ -3968,6 +4051,9 @@ func (r *landAcqRepo) GetLandValuation(ctx context.Context, acquisitionID uuid.U
 func (r *landAcqRepo) DeleteLandValuation(ctx context.Context, acquisitionID uuid.UUID, parcelID, valuationType string) error {
 	if valuationType == "" {
 		valuationType = domain.ValuationTypeAsset
+	}
+	if err := r.ensureValuationEditable(ctx, acquisitionID, parcelID, valuationType); err != nil {
+		return err
 	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -4147,6 +4233,9 @@ func (r *landAcqRepo) UpsertValuationNotes(ctx context.Context, acquisitionID uu
 // Replace=true бол хуучин олговор/хөрөнгийг эхлээд устгаж, дараа нь газрын үнэлгээ,
 // хөрөнгө, spec, calc, нөхөн олговрыг бүгдийг нэг дор бичнэ. Аль нэг алдвал бүгд rollback.
 func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UUID, imp *domain.ValuationImport) (*domain.ValuationImportResult, error) {
+	if err := r.ensureValuationEditable(ctx, acquisitionID, imp.ParcelID, imp.ValuationType); err != nil {
+		return nil, err
+	}
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -4274,9 +4363,9 @@ func (r *landAcqRepo) ImportValuation(ctx context.Context, acquisitionID uuid.UU
 			}
 			// sort_index = файл дахь мөрийн дараалал (харуулахдаа энэ дарааллыг сэргээнэ)
 			if _, err = tx.Exec(ctx, `
-				INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value, sort_index) VALUES ($1,$2,$3,$4,$5)
-				ON CONFLICT (asset_id, calc_type_id) DO UPDATE SET unit=$3, value=$4, sort_index=$5
-			`, assetID, ctid, c.Unit, c.Value, idx); err != nil {
+				INSERT INTO asset_calculation (asset_id, calc_type_id, unit, value, sort_index, grp) VALUES ($1,$2,$3,$4,$5,$6)
+				ON CONFLICT (asset_id, calc_type_id) DO UPDATE SET unit=$3, value=$4, sort_index=$5, grp=$6
+			`, assetID, ctid, c.Unit, c.Value, idx, c.CalcGroup); err != nil {
 				return nil, err
 			}
 		}
@@ -4447,6 +4536,11 @@ func (r *landAcqRepo) ListCompensations(ctx context.Context, acquisitionID uuid.
 }
 
 func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensation) error {
+	if c.ParcelID != "" {
+		if err := r.ensureValuationEditable(ctx, c.AcquisitionID, c.ParcelID, c.ValuationType); err != nil {
+			return err
+		}
+	}
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO compensation (
 			acquisition_id, target_type, parcel_id, asset_id,
@@ -4472,6 +4566,9 @@ func (r *landAcqRepo) CreateCompensation(ctx context.Context, c *domain.Compensa
 }
 
 func (r *landAcqRepo) UpdateCompensation(ctx context.Context, c *domain.Compensation) error {
+	if err := r.ensureCompensationEditable(ctx, c.ID); err != nil {
+		return err
+	}
 	// Татгалзсан үнэлгээг засварлахад автоматаар 'pending' болгоно
 	err := r.db.QueryRow(ctx, `
 		UPDATE compensation SET
@@ -4502,6 +4599,9 @@ func (r *landAcqRepo) UpdateCompensation(ctx context.Context, c *domain.Compensa
 }
 
 func (r *landAcqRepo) DeleteCompensation(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	if err := r.ensureCompensationEditable(ctx, id); err != nil {
+		return err
+	}
 	ct, err := r.db.Exec(ctx, "DELETE FROM compensation WHERE id=$1 AND acquisition_id=$2", id, acquisitionID)
 	if err != nil {
 		return err
@@ -5398,6 +5498,71 @@ func (r *landAcqRepo) OrgUserIDs(ctx context.Context, orgID domain.ID) ([]domain
 	return out, rows.Err()
 }
 
+// ── Үнэлгээ засах хаалт ──────────────────────────────────────────────────────
+//
+// Үнэлгээг санхүүд ИЛГЭЭСЭН (submitted) буюу БАТАЛГААЖСАН (approved) бол
+// түүний мэдээлэл өөрчлөгдөж болохгүй: санхүүгийн хянасан тоо, хавсаргасан
+// тайлан хоёр чимээгүйхэн зөрөх эрсдэлтэй. Засвар нь ЗӨВХӨН илгээгээгүй
+// (draft) эсвэл БУЦААГДСАН (returned) төлөвт хийгдэнэ.
+//
+// ЯАГААД репозиторид: засварын маршрутууд олон (хөрөнгө, үзүүлэлт, тооцоолол,
+// олговор, газрын үнэлгээ, импорт) бөгөөд зарим нь URL дээрээ нэгж талбаргүй
+// (зөвхөн asset_id/comp_id) тул middleware-ээр бүрэн хамгаалах боломжгүй.
+// Энд тавьснаар /land болон /prof ХОЁУЛАА ижил дүрмээр хаалттай болно.
+func (r *landAcqRepo) ensureValuationEditable(ctx context.Context, acquisitionID uuid.UUID, parcelCode, valuationType string) error {
+	var status string
+	err := r.db.QueryRow(ctx, `
+		SELECT status FROM parcel_valuation_submission
+		WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3`,
+		acquisitionID, parcelCode, normalizeValuationType(valuationType)).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // илгээлтийн мөр байхгүй = хараахан илгээгээгүй
+	}
+	if err != nil {
+		return err
+	}
+	if status == domain.ValuationStatusSubmitted || status == domain.ValuationStatusApproved {
+		return domain.ErrValuationSubmittedLocked
+	}
+	return nil
+}
+
+// ensureAssetEditable — хөрөнгийн мөрөөс нэгж талбар/урсгалыг олж ижил дүрмээр
+// шалгана (URL дээр зөвхөн asset_id ирдэг маршрутуудад).
+func (r *landAcqRepo) ensureAssetEditable(ctx context.Context, assetID uuid.UUID) error {
+	var acqID uuid.UUID
+	var parcelCode, vType string
+	err := r.db.QueryRow(ctx,
+		`SELECT acquisition_id, parcel_id, COALESCE(valuation_type,'asset') FROM assets WHERE id=$1`,
+		assetID).Scan(&acqID, &parcelCode, &vType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return r.ensureValuationEditable(ctx, acqID, parcelCode, vType)
+}
+
+// ensureCompensationEditable — олговрын мөрөөс нэгж талбар/урсгалыг олж шалгана.
+func (r *landAcqRepo) ensureCompensationEditable(ctx context.Context, compID uuid.UUID) error {
+	var acqID uuid.UUID
+	var parcelCode, vType string
+	err := r.db.QueryRow(ctx,
+		`SELECT acquisition_id, COALESCE(parcel_id,''), COALESCE(valuation_type,'asset') FROM compensation WHERE id=$1`,
+		compID).Scan(&acqID, &parcelCode, &vType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if parcelCode == "" {
+		return nil
+	}
+	return r.ensureValuationEditable(ctx, acqID, parcelCode, vType)
+}
+
 func (r *landAcqRepo) ensureAssetInAcquisition(ctx context.Context, acquisitionID, assetID uuid.UUID) error {
 	var exists bool
 	err := r.db.QueryRow(ctx, `
@@ -5724,18 +5889,38 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 		return nil, domain.ErrInvalidInput
 	}
 
-	// Илгээхийн өмнө тухайн урсгалын БҮХ "Үл хөдлөх" төрлийн хөрөнгө зурагтай эсэхийг шалгана.
+	// ИЛГЭЭХИЙН ӨМНӨ нэгж талбарын хавсралтад ХОЁР баримт байх ёстой:
+	// "Үнэлгээний тайлан" (valuation_report) ба "Ажлын зураг" (work_photo).
+	//
+	// ЯАГААД өөрчлөгдсөн: өмнө нь хөрөнгө БҮРТ зураг нэхэж, тайланг илгээлтийн
+	// мөрөн дээр тусад нь хадгалдаг байв. Одоо зураг нь хөрөнгөөр биш ХЭЭРИЙН
+	// АЖЛААР бүрддэг ба тайлан нь баримт бичгийн жагсаалтад шууд орно — тиймээс
+	// хоёулаа parcel_document болж, шалгалт нь ЭНД (нэг дүрмээр) хийгдэнэ.
 	if action == "submit" {
-		var missingPhotos int
-		if err := tx.QueryRow(ctx, `
-			SELECT COUNT(*) FROM assets
-			WHERE acquisition_id=$1 AND parcel_id=$2 AND valuation_type=$3
-			  AND asset_type='real_state' AND COALESCE(photo_pdf_url,'')=''`,
-			acquisitionID, code, vType).Scan(&missingPhotos); err != nil {
+		hasDoc := func(docType string) (bool, error) {
+			var exists bool
+			err := tx.QueryRow(ctx, `
+				SELECT EXISTS(
+					SELECT 1 FROM parcel_document pd
+					JOIN document d ON d.id = pd.document_id
+					JOIN document_type dt ON dt.id = d.document_type_id
+					WHERE pd.parcel_id=$1 AND dt.type=$2 AND COALESCE(d.file_url,'') <> ''
+				)`, parcelID, docType).Scan(&exists)
+			return exists, err
+		}
+		hasReport, err := hasDoc("valuation_report")
+		if err != nil {
 			return nil, err
 		}
-		if missingPhotos > 0 {
-			return nil, domain.ErrAssetPhotoRequired
+		if !hasReport {
+			return nil, domain.ErrSubmitReportRequired
+		}
+		hasPhotos, err := hasDoc("work_photo")
+		if err != nil {
+			return nil, err
+		}
+		if !hasPhotos {
+			return nil, domain.ErrSubmitWorkPhotoRequired
 		}
 	}
 
@@ -5860,9 +6045,37 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 				Label: label, Name: name, URL: url,
 			})
 		}
-		addFile("Баталгаажсан тайлан", reportName, reportURL)
+		addFile("Үнэлгээний тайлан", reportName, reportURL)
 		addFile("Тайлан", draftName, draftURL)
 		addFile("Үнэлгээний хүснэгт", sourceName, sourceURL)
+		// АЖЛЫН ЗУРАГ — илгээхэд заавал хавсаргадаг хээрийн зургууд. Тайлантай
+		// ижил зарчим: цуцлагдсан үнэлгээнийх тул хавсралтаас хасаад түүхэнд
+		// үлдээнэ (шинэ үнэлгээ өөрийн зургаа оруулна).
+		photoRows, err := tx.Query(ctx, `
+			SELECT d.id, COALESCE(d.file_url,''), COALESCE(d.name,'')
+			FROM parcel_document pd
+			JOIN document d ON d.id = pd.document_id
+			JOIN document_type dt ON dt.id = d.document_type_id
+			WHERE pd.parcel_id=$1 AND dt.type='work_photo'
+			ORDER BY d.uploaded_at`, parcelID)
+		if err != nil {
+			return nil, err
+		}
+		var photoDocIDs []uuid.UUID
+		for photoRows.Next() {
+			var id uuid.UUID
+			var url, name string
+			if err := photoRows.Scan(&id, &url, &name); err != nil {
+				photoRows.Close()
+				return nil, err
+			}
+			photoDocIDs = append(photoDocIDs, id)
+			addFile("Ажлын зураг", name, url)
+		}
+		photoRows.Close()
+		if err := photoRows.Err(); err != nil {
+			return nil, err
+		}
 		filesJSON, err := json.Marshal(snapshotFiles)
 		if err != nil {
 			return nil, err
@@ -5902,7 +6115,7 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 			                        || jsonb_build_object(
 			                          'calc_code', COALESCE(t.code,''),
 			                          'calc_name', COALESCE(t.name,''),
-			                          'calc_group', COALESCE(t.grp,'')
+			                          'calc_group', COALESCE(NULLIF(calc.grp,''), t.grp, '')
 			                        )
 			                        ORDER BY calc.sort_index, calc.id
 			                      )
@@ -5987,7 +6200,7 @@ func (r *landAcqRepo) TransitionValuationSubmission(ctx context.Context, in doma
 		// үнэлгээ өөрийн тайлантай ирэх тул хуучин нь "Баримт бичиг" табд
 		// үлдвэл андуурагдана. Мөрийг нь л устгана: MinIO дээрх файл ХЭВЭЭР
 		// үлдэх тул snapshot дээрх холбоосоор татагдана.
-		for _, docID := range []uuid.UUID{reportDocID, sourceDocID} {
+		for _, docID := range append([]uuid.UUID{reportDocID, sourceDocID}, photoDocIDs...) {
 			if docID == uuid.Nil {
 				continue
 			}
@@ -6229,6 +6442,9 @@ func (r *landAcqRepo) UpdateCompensationReport(ctx context.Context, id uuid.UUID
 // UpdateAssetPhoto — хөрөнгийн зургийн PDF-ийн URL-ийг хадгална (асеет уг чөлөөлөлтөд
 // хамаарна). Солигдсон ХУУЧИН файлын URL-ийг буцаана — дуудагч хадгалалтаас цэвэрлэнэ.
 func (r *landAcqRepo) UpdateAssetPhoto(ctx context.Context, acquisitionID, assetID uuid.UUID, photoURL, photoName string) (string, error) {
+	if err := r.ensureAssetEditable(ctx, assetID); err != nil {
+		return "", err
+	}
 	var oldURL string
 	err := r.db.QueryRow(ctx, `
 		UPDATE assets a SET photo_pdf_url=$1, photo_pdf_name=$2, updated_at=NOW()

@@ -177,6 +177,7 @@ func (h *LandHandler) List(c *gin.Context) {
 	filter := domain.LandAcquisitionFilter{
 		PlanCode:          c.Query("plan_code"),
 		AcquisitionName:   c.Query("acquisition_name"),
+		ParcelID:          strings.TrimSpace(c.Query("parcel_id")),
 		Status:            queryInt(c, "status", 0),
 		AU2Code:           c.Query("au2_code"),
 		AU3Code:           c.Query("au3_code"),
@@ -2055,41 +2056,49 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		return
 	}
 
+	// ЗААГЧ (pointer) — талбар ИРСЭН эсэхийг ялгана. Дэлгэц бүр өөрийн хэсгийг
+	// л илгээдэг тул ирээгүй талбарыг ХЭВЭЭР үлдээнэ; эс бөгөөс нэр, ангилал,
+	// нэгж талбарын дугаар зэрэг нь хоосон утгаар дарагдана (parcel_id хоосон
+	// болоход UPDATE нь мөр олохгүй → 404).
 	var body struct {
-		ParcelID             string  `json:"parcel_id"`
-		AssetNumber          string  `json:"asset_number"`
-		AssetType            string  `json:"asset_type"`
-		AssetName            string  `json:"asset_name"`
-		LegacyBuildingNumber string  `json:"building_number"`
-		LegacyBuildingType   string  `json:"building_type"`
-		FloorCount           int     `json:"floor_count"`
-		AreaM2               float64 `json:"area_m2"`
-		OwnerName            string  `json:"owner_name"`
-		Address              string  `json:"address"`
-		Notes                string  `json:"notes"`
-		Unit                 string  `json:"unit"`
-		Capacity             string  `json:"capacity"`
-		Description          string  `json:"description"`
-		UnitPrice            float64 `json:"unit_price"`
+		ParcelID             *string  `json:"parcel_id"`
+		AssetNumber          *string  `json:"asset_number"`
+		AssetType            *string  `json:"asset_type"`
+		AssetName            *string  `json:"asset_name"`
+		LegacyBuildingNumber *string  `json:"building_number"`
+		LegacyBuildingType   *string  `json:"building_type"`
+		FloorCount           *int     `json:"floor_count"`
+		AreaM2               *float64 `json:"area_m2"`
+		OwnerName            *string  `json:"owner_name"`
+		Address              *string  `json:"address"`
+		Notes                *string  `json:"notes"`
+		Unit                 *string  `json:"unit"`
+		Capacity             *string  `json:"capacity"`
+		Description          *string  `json:"description"`
+		UnitPrice            *float64 `json:"unit_price"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
 
-	if body.AssetNumber == "" {
+	if body.AssetNumber == nil {
 		body.AssetNumber = body.LegacyBuildingNumber
 	}
-	if body.AssetName == "" {
+	if body.AssetName == nil {
 		body.AssetName = body.LegacyBuildingType
 	}
+	if body.AssetType != nil {
+		normalized := normalizeAssetRecordType(*body.AssetType)
+		body.AssetType = &normalized
+	}
 
-	b := &domain.Asset{
+	b := &domain.AssetUpdate{
 		ID:            assetID,
 		AcquisitionID: acqID,
 		ParcelID:      body.ParcelID,
 		AssetNumber:   body.AssetNumber,
-		AssetType:     normalizeAssetRecordType(body.AssetType),
+		AssetType:     body.AssetType,
 		AssetName:     body.AssetName,
 		FloorCount:    body.FloorCount,
 		AreaM2:        body.AreaM2,
@@ -2237,6 +2246,9 @@ func (h *LandHandler) UpsertAssetCalculations(c *gin.Context) {
 			CalcTypeID int     `json:"calc_type_id"`
 			Unit       string  `json:"unit"`
 			Value      float64 `json:"value"`
+			// Бүлэг (Итгэлцүүр г.м) — мөр өөрийн бүлгээ авч явна. Хоосон ирвэл
+			// хадгалагдсан бүлэг хэвээр үлдэнэ (зөвхөн тоо засахад алдагдахгүй).
+			Group string `json:"group"`
 		} `json:"calculations"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -2245,7 +2257,9 @@ func (h *LandHandler) UpsertAssetCalculations(c *gin.Context) {
 	}
 	calcs := make([]domain.AssetCalculation, len(body.Calculations))
 	for i, c := range body.Calculations {
-		calcs[i] = domain.AssetCalculation{AssetID: assetID, CalcTypeID: c.CalcTypeID, Unit: c.Unit, Value: c.Value}
+		calcs[i] = domain.AssetCalculation{
+			AssetID: assetID, CalcTypeID: c.CalcTypeID, Unit: c.Unit, Value: c.Value, CalcGroup: c.Group,
+		}
 	}
 	if err := h.svc.UpsertAssetCalculations(c.Request.Context(), acqID, assetID, calcs); err != nil {
 		response.Error(c, err)
