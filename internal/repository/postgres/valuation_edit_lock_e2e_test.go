@@ -198,7 +198,7 @@ func TestE2E_ValuationReportAttachableBeforeApproval(t *testing.T) {
 
 	doc := &domain.Document{
 		ID: uuid.New(), Name: "Үнэлгээний тайлан", FileType: "application/pdf",
-		FileURL: "/api/files/parcel/e2e/report-before-approval.pdf",
+		FileURL:        "/api/files/parcel/e2e/report-before-approval.pdf",
 		DocumentTypeID: typeID, UploadedAt: time.Now(),
 	}
 	require.NoError(t, f.repo.AddParcelDocument(ctx, parcelID, doc),

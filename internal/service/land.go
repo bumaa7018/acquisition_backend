@@ -244,6 +244,8 @@ type LandDroneService interface {
 
 type LandFundingService interface {
 	ListFundingSources(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.FundingSource, error)
+	// GetFinanceDashboard — санхүүгийн хяналтын самбар (он/дүүрэг/хороогоор).
+	GetFinanceDashboard(ctx context.Context, filter domain.FinanceDashboardFilter) (*domain.FinanceDashboard, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
 	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
 	DeleteFundingSource(ctx context.Context, id uuid.UUID) error

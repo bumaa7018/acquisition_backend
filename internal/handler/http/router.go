@@ -689,6 +689,13 @@ func NewRouter(
 		// Үнэлгээний байгууллагын ажилтан эрхгүйгээр (роль/permission-гүй)
 		// нэвтэрнэ — handler дотор org_id-гаар ХАТУУ шүүгдэнэ; org_id байхгүй
 		// бол 403.
+		// САНХҮҮГИЙН хяналтын самбар — зөвхөн мөнгөн дүн/тоо (газрын зураггүй).
+		// Санхүүгийн мэргэжилтэн compensation:read-ээр, дотоод ажилтан
+		// land:read-ээр уншина.
+		protected.GET("/dashboard/finance",
+			middleware.RequireAnyPermission("land:read", "compensation:read"),
+			landH.FinanceDashboard)
+
 		protected.GET("/dashboard",
 			middleware.AllowValuationOrgOr(
 				middleware.RequirePermissionOrRole("land:read", "mika", "finance_specialist")),
@@ -762,7 +769,10 @@ func NewRouter(
 		parcels := protected.Group("/parcels")
 		parcels.Use(notParcelLocked)
 		{
-			parcels.GET("", middleware.RequirePermission("land:read"), landH.ListGlobalParcels)
+			// Нэгж талбарын ЖАГСААЛТ — санхүүгийн мэргэжилтэн (compensation:read)
+			// мөн уншина: нөхөх олговрын хяналтад аль нэгж талбар ямар төлөвт
+			// явааг харах шаардлагатай. Бичих үйлдлүүд урьдын адил land:update.
+			parcels.GET("", middleware.RequireAnyPermission("land:read", "compensation:read"), landH.ListGlobalParcels)
 			// ЖИЧ: :id-тай маршрутуудад parcelAssignedOrSenior ЗААВАЛ байна.
 			// Түүнгүйгээр `/land-acquisitions/:id/parcels/:parcel_id`-ийн
 			// хуваарилалтын хаалтыг энэ глобал замаар бүрэн тойрч болдог байв

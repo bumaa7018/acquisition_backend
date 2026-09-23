@@ -206,15 +206,17 @@ func (h *LandHandler) List(c *gin.Context) {
 		}
 	}
 
-	// Санхүү/МИКА (хяналтын гадаад ролиуд) зөвхөн "Хээрийн судалгаа" төлөвтэй
+	// МИКА (хяналтын гадаад роль) зөвхөн "Хээрийн судалгаа" төлөвтэй
 	// чөлөөлөлтийг харна — query параметрээс үл хамааран сервер талд хатуу шүүнэ.
-	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
-		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
+	//
+	// САНХҮҮГИЙН мэргэжилтэн ЖАГСААЛТАД бүх чөлөөлөлтийг харна: нөхөх олговрын
+	// хяналт, санхүүжилтийн тайлан нь дууссан/баталгаажсан чөлөөлөлтийг ч
+	// хамардаг. Үйлдлийн эрх (баталгаажуулах, цуцлах, засах) нь ӨӨРЧЛӨГДӨӨГҮЙ —
+	// тэдгээр нь тус тусын маршрут/шилжилтийн дүрмээр шалгагдана.
+	if ctxHasRole(c, "mika", "МИКА") &&
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") &&
+		!ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") {
 		filter.Status = domain.LandAcquisitionStatusField
-		// Санхүү илгээсэн үнэлгээг хянана, баталгаажсан үнэлгээг цуцалж болно.
-		if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") {
-			filter.HasReviewableValuation = true
-		}
 	}
 
 	list, total, err := h.svc.List(c.Request.Context(), filter)
@@ -3719,6 +3721,36 @@ func (h *LandHandler) SetParcelCompensation(c *gin.Context) {
 // @Security     BearerAuth
 // @Success      200  {object}  response.Response
 // @Router       /dashboard [get]
+// FinanceDashboard godoc
+// @Summary      Санхүүгийн хяналтын самбарын нэгтгэл
+// @Description  Он / дүүрэг / хороогоор нөхөх олговрын дүн, олгосон дүн, тоо
+// @Tags         dashboard
+// @Produce      json
+// @Security     BearerAuth
+// @Param        year      query  []int   false  "Он (олон удаа)"
+// @Param        au2_code  query  string  false  "Дүүрэг/сум"
+// @Param        au3_code  query  string  false  "Хороо/баг"
+// @Success      200  {object}  response.Response
+// @Router       /dashboard/finance [get]
+func (h *LandHandler) FinanceDashboard(c *gin.Context) {
+	filter := domain.FinanceDashboardFilter{
+		AU2Code:       strings.TrimSpace(c.Query("au2_code")),
+		AU3Code:       strings.TrimSpace(c.Query("au3_code")),
+		AcquisitionID: strings.TrimSpace(c.Query("acquisition_id")),
+	}
+	for _, y := range c.QueryArray("year") {
+		if n, err := strconv.Atoi(y); err == nil {
+			filter.Years = append(filter.Years, n)
+		}
+	}
+	summary, err := h.svc.GetFinanceDashboard(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, summary)
+}
+
 func (h *LandHandler) Dashboard(c *gin.Context) {
 	filter := domain.DashboardFilter{
 		AcquisitionID:     c.Query("acquisition_id"),

@@ -601,6 +601,12 @@ func (m *MockLandAcquisitionRepository) CreateProgress(ctx context.Context, p *d
 	return nil
 }
 
+func (m *MockLandAcquisitionRepository) GetFinanceDashboard(ctx context.Context, filter domain.FinanceDashboardFilter) (*domain.FinanceDashboard, error) {
+	args := m.Called(ctx, filter)
+	out, _ := args.Get(0).(*domain.FinanceDashboard)
+	return out, args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
 	return m.Called(ctx, parcelID, paid).Error(0)
 }

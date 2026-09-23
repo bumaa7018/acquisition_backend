@@ -422,6 +422,8 @@ type LandDocumentRepository interface {
 	// шалгаж уншина (IDOR-оос сэргийлнэ).
 	GetParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) (*domain.Document, error)
 	GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error)
+	// GetFinanceDashboard — санхүүгийн хяналтын самбарын нэгтгэл (он/дүүрэг/хороо).
+	GetFinanceDashboard(ctx context.Context, filter domain.FinanceDashboardFilter) (*domain.FinanceDashboard, error)
 }
 
 type LandAssigneeRepository interface {

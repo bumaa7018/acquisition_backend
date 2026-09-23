@@ -1755,6 +1755,76 @@ type ValuationTypeStat struct {
 }
 
 // DashboardSummary — дашбоардын нийлмэл хариу (бүх тооцоо DB-д хийгдсэн)
+// ── САНХҮҮГИЙН хяналтын самбар ───────────────────────────────────────────────
+//
+// Санхүүгийн мэргэжилтэн газрын зураг/байршил биш ЗӨВХӨН мөнгөн дүн, тоог
+// хардаг тул тусдаа хөнгөн нэгтгэл. Он нь ОЛГОВРЫН огнооноос (эс бөгөөс
+// хянасан/үүсгэсэн огноо) тодорхойлогдоно — санхүүгийн гүйлгээний он.
+type FinanceDashboardFilter struct {
+	Years         []int
+	AU2Code       string // дүүрэг/сум
+	AU3Code       string // хороо/баг
+	AcquisitionID string // тодорхой чөлөөлөлт
+}
+
+// FinanceOption — шүүлтүүрийн сонголт (код + нэр).
+type FinanceOption struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+// FinanceBucket — нэгтгэлийн НЭГ мөр (он / дүүрэг / чөлөөлөлт / төсөв).
+type FinanceBucket struct {
+	Key     string  `json:"key"`
+	Name    string  `json:"name"`
+	Amount  float64 `json:"amount"`
+	Granted float64 `json:"granted"`
+	Pending float64 `json:"pending"`
+	Parcels int64   `json:"parcels"`
+	// Count — мөрийн тоо (төлөв/төсвийн задаргаанд чөлөөлөлтийн тоо).
+	Count int64 `json:"count"`
+}
+
+// FinanceStage — нэгж талбарын гүйцэтгэлийн НЭГ шат (тоо + мөнгөн дүн).
+type FinanceStage struct {
+	Count  int64   `json:"count"`
+	Amount float64 `json:"amount"`
+}
+
+type FinanceDashboard struct {
+	TotalAmount   float64         `json:"total_amount"`
+	GrantedAmount float64         `json:"granted_amount"`
+	PendingAmount float64         `json:"pending_amount"`
+	TotalParcels  int64           `json:"total_parcels"`
+	ByYear        []FinanceBucket `json:"by_year"`
+	ByDistrict    []FinanceBucket `json:"by_district"`
+	ByKhoroo      []FinanceBucket `json:"by_khoroo"`
+	// Үнэлгээний бүтэц — чөлөөлөлтийн "Санхүүжилт" табтай ИЖИЛ задаргаа.
+	LandAmount      float64 `json:"land_amount"`
+	RealStateAmount float64 `json:"real_state_amount"`
+	PropertyAmount  float64 `json:"property_amount"`
+	// Нэгж талбарын гүйцэтгэлийн дөрвөн ТАСАРХАЙ шат (нийлбэр = TotalParcels).
+	StageGranted   FinanceStage `json:"stage_granted"`
+	StageApproved  FinanceStage `json:"stage_approved"`
+	StageSubmitted FinanceStage `json:"stage_submitted"`
+	StagePending   FinanceStage `json:"stage_pending"`
+	// Санхүүжилтийн эх үүсвэрийн төрлөөр.
+	FundingByType []FinanceBucket `json:"funding_by_type"`
+	FundingTotal  float64         `json:"funding_total"`
+	// ЧӨЛӨӨЛӨЛТИЙН мэдээлэл: чартад — ЯВЖ БУЙ (баталгаажаагүй) чөлөөлөлтүүд
+	// дүнгээр буурахаар; картад — төлөв ба төсвийн задаргаа.
+	TopAcquisitions    []FinanceBucket `json:"top_acquisitions"`
+	TotalAcquisitions  int64           `json:"total_acquisitions"`
+	AcquisitionStatus  []FinanceBucket `json:"acquisition_status"`
+	AcquisitionBudgets []FinanceBucket `json:"acquisition_budgets"`
+	// Шүүлтүүрийн сонголтууд — дүүрэг нь ҮРГЭЛЖ бүрэн, хороо нь сонгосон
+	// дүүргээр (эс бөгөөс сонгосон шүүлтээ өөрчлөх боломжгүй болно).
+	DistrictOptions []FinanceOption `json:"district_options"`
+	KhorooOptions   []FinanceOption `json:"khoroo_options"`
+	/** Шүүлтүүрийн сонголтод хэрэглэх бүх он (шүүлтээс үл хамааран). */
+	Years []int `json:"years"`
+}
+
 type DashboardSummary struct {
 	Acquisitions      []*LandAcquisition    `json:"acquisitions"`
 	ParcelStatuses    []*ParcelStatus       `json:"parcel_statuses"`

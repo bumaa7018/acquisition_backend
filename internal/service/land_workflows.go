@@ -172,6 +172,12 @@ func (s *landService) ListFundingSources(ctx context.Context, acquisitionID uuid
 	return s.landRepo.ListFundingSources(ctx, acquisitionID)
 }
 
+func (s *landService) GetFinanceDashboard(
+	ctx context.Context, filter domain.FinanceDashboardFilter,
+) (*domain.FinanceDashboard, error) {
+	return s.landRepo.GetFinanceDashboard(ctx, filter)
+}
+
 func (s *landService) CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
 	if err := s.landRepo.CreateFundingSource(ctx, fs); err != nil {
 		return nil, err
