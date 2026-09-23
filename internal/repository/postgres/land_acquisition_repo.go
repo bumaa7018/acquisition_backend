@@ -159,6 +159,23 @@ func (r *landAcqRepo) DeleteAcquisitionCategory(ctx context.Context, id int) err
 // Хаалт ба DELETE нь нэг гүйлгээнд ажиллах ч READ COMMITTED дор зэрэгцээ
 // гүйлгээ энэ хооронд ангилалд холбогдсон чөлөөлөлт үүсгэж болно. Тэр үед
 // FK нь устгалыг зогсооно — хэрэглэгчид ижил ойлгомжтой мессеж очих ёстой.
+// mapWorkflowInsertError — ажлын урсгалын шилжилт нэмэхэд гарах ойлгомжтой
+// алдаанууд. Хоёр шилжилт нь (from, to) хосоороо UNIQUE бөгөөд төлөв нь FK-тэй:
+// эдгээрийг дамжуулбал хэрэглэгч "Дотоод алдаа гарлаа" (500) гэсэн утгагүй
+// мессеж хардаг байв.
+func mapWorkflowInsertError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505": // unique_violation — ижил шилжилт аль хэдийн бүртгэгдсэн
+			return domain.ErrAlreadyExists
+		case "23503": // foreign_key_violation — байхгүй төлөв заасан
+			return domain.ErrInvalidInput
+		}
+	}
+	return err
+}
+
 func mapCategoryDeleteError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" { // foreign_key_violation
@@ -5613,7 +5630,7 @@ func (r *landAcqRepo) CreateParcelWorkflow(ctx context.Context, fromStatusID *in
 		RETURNING id, from_status_id, to_status_id, sort_order
 	`, fromStatusID, toStatusID, sortOrder).Scan(&w.ID, &w.FromStatusID, &w.ToStatusID, &w.SortOrder)
 	if err != nil {
-		return nil, err
+		return nil, mapWorkflowInsertError(err)
 	}
 	// fetch names
 	if w.FromStatusID != nil {
@@ -6689,7 +6706,7 @@ func (r *landAcqRepo) CreateAcquisitionWorkflow(ctx context.Context, fromStatusI
 		RETURNING id, from_status, to_status, sort_order
 	`, fromStatusID, toStatusID, sortOrder).Scan(&w.ID, &w.FromStatusID, &w.ToStatusID, &w.SortOrder)
 	if err != nil {
-		return nil, err
+		return nil, mapWorkflowInsertError(err)
 	}
 	if w.FromStatusID != nil {
 		w.FromStatusName = domain.AcquisitionStatusLabels[*w.FromStatusID]
