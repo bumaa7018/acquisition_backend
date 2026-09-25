@@ -4,6 +4,11 @@
 -- seeder алхмаар ажиллана:
 --     go run ./cmd/seed-sql -db main scripts/seed_parcel_status_color.sql
 --
+-- ТЭМДЭГЛЭЛ: асаах үеийн seeder (internal/seed/seed_reference.go) нь одоо
+-- төлөвийг ӨНГӨТЭЙ нь үүсгэж, өнгөгүй мөрийг бөглөдөг болсон тул `make seed` /
+-- `make reset-db` хийхэд энэ скрипт ШААРДЛАГАГҮЙ. Зөвхөн өнгийг гараар
+-- анхны утгад нь буцаах хэрэгтэй үед гар аргаар ажиллуулна.
+--
 -- Утгууд нь ӨМНӨ НЬ frontend-д хатуу бичигдсэн байсантай ЯГ ижил
 -- (src/types/index.ts → PARCEL_STATUS_STYLES, layer-config.ts, болон
 -- GeoServer styles/parcel_s0..s5.sld). Иймд харагдах байдал өөрчлөгдөхгүй —

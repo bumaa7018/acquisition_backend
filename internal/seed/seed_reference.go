@@ -105,15 +105,23 @@ var referenceRows = []struct {
 	name string
 	sql  string
 }{
+	// ӨНГӨ нь заавал хамт орно: төлөвийн өнгөний ЭХ СУРВАЛЖ нь энэ бүртгэл
+	// (дашбоард, жагсаалт, газрын зургийн давхарга бүгд эндээс авна). Өнгөгүй
+	// үүсгэвэл `reset-db` хийсний дараа бүх төлөв саарал өгөгдмөлөөр харагдана.
+	// Утгууд нь frontend-ийн хуучин хатуу хүснэгттэй (PARCEL_STATUS_STYLES) ижил.
+	//
+	// ON CONFLICT нь ЗӨВХӨН өнгөгүй (NULL) мөрийг бөглөнө — өмнө нь үүссэн
+	// сангуудыг зассан ч гараар сонгосон өнгийг ДАРЖ БИЧИХГҮЙ.
 	{"parcel_status", `
-		INSERT INTO parcel_status (id, code, name, sort_order) VALUES
-			(0, 'pending',      'Хүлээгдэж буй',        0),
-			(1, 'processing',   'Зөвшилцөх шатандаа',   1),
-			(2, 'evaluating',   'Үнэлгээ хийх',         2),
-			(3, 'affected_out', 'Нөлөөлөгдсөн гарсан',  3),
-			(4, 'rejected',     'Татгалзсан',           4),
-			(5, 'released',     'Чөлөөлсөн',            5)
-			ON CONFLICT (id) DO NOTHING`},
+		INSERT INTO parcel_status (id, code, name, sort_order, color) VALUES
+			(0, 'pending',      'Хүлээгдэж буй',        0, '#64748b'),
+			(1, 'processing',   'Зөвшилцөх шатандаа',   1, '#facc15'),
+			(2, 'evaluating',   'Үнэлгээ хийх',         2, '#f97316'),
+			(3, 'affected_out', 'Нөлөөлөгдсөн гарсан',  3, '#3b82f6'),
+			(4, 'rejected',     'Татгалзсан',           4, '#ef4444'),
+			(5, 'released',     'Чөлөөлсөн',            5, '#22c55e')
+			ON CONFLICT (id) DO UPDATE SET color = EXCLUDED.color
+			WHERE parcel_status.color IS NULL`},
 
 	{"acquisition_category", acquisitionCategorySeedSQL},
 
