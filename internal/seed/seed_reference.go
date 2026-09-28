@@ -97,6 +97,7 @@ const acquisitionCategorySeedSQL = `
 // referenceRows — хүснэгт тус бүрийн лавлах мөрүүд, эх нь архивласан миграцууд:
 //
 //	parcel_status      ← 000020 / 000030
+//	parcel_workflow    ← 103.87.255.222/appdb2
 //	acquisition_category
 //	construction_type  ← 000017
 //	asset_spec_type    ← 000041
@@ -122,6 +123,21 @@ var referenceRows = []struct {
 			(5, 'released',     'Чөлөөлсөн',            5, '#22c55e')
 			ON CONFLICT (id) DO UPDATE SET color = EXCLUDED.color
 			WHERE parcel_status.color IS NULL`},
+
+	// Нэгж талбарын ажлын урсгал — 103.87.255.222/appdb2-т тохируулсан
+	// шилжилтүүд (2026-09-28). parcel_status-ийн ДАРАА орох ёстой (FK).
+	// Байгаа шилжилтийг хөндөхгүй, дутуугаа л нэмнэ.
+	{"parcel_workflow", `
+		INSERT INTO parcel_workflow (from_status_id, to_status_id, sort_order) VALUES
+			(0, 2, 1), -- Хүлээгдэж буй      → Үнэлгээ хийх
+			(2, 3, 2), -- Үнэлгээ хийх       → Нөлөөлөгдсөн гарсан
+			(2, 1, 3), -- Үнэлгээ хийх       → Зөвшилцөх шатандаа
+			(1, 2, 4), -- Зөвшилцөх шатандаа → Үнэлгээ хийх
+			(1, 4, 5), -- Зөвшилцөх шатандаа → Татгалзсан
+			(4, 1, 6), -- Татгалзсан         → Зөвшилцөх шатандаа
+			(1, 5, 7), -- Зөвшилцөх шатандаа → Чөлөөлсөн
+			(5, 4, 8)  -- Чөлөөлсөн          → Татгалзсан
+		ON CONFLICT (from_status_id, to_status_id) DO NOTHING`},
 
 	{"acquisition_category", acquisitionCategorySeedSQL},
 

@@ -286,4 +286,11 @@ if [[ "$AUTH_DB_NAME" != "$DB_NAME" ]]; then
   verify_auth_reference_data "$PG_CONTAINER"
 fi
 
+# Засаг захиргааны нэгж (аймаг/сум/баг — au1/au2/au3)-ийг хамгийн сүүлд
+# backup_data/-аас ачаална. appdb дөнгөж цэвэрлэгдсэн тул хүснэгтүүд хоосон.
+echo "Аймаг, сум, багийн хил ачаалж байна..."
+ROOT_DIR="$ROOT_DIR" COMPOSE_FILE="$COMPOSE_FILE" ENV_FILE="$ENV_FILE" \
+  DB_USER="$DB_USER" DB_NAME="$DB_NAME" PG_CONTAINER="$PG_CONTAINER" \
+  "$ROOT_DIR/scripts/load_admin_units.sh"
+
 echo "DB reset дууслаа. API healthy, migrations dirty=false байх ёстой."

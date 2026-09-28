@@ -2785,8 +2785,12 @@ func (r *landAcqRepo) ListParcelOverlaps(ctx context.Context, parcelID uuid.UUID
 		SELECT po.other_parcel_id, COALESCE(po.other_parcel_code,''),
 		       COALESCE(po.overlap_area_m2, 0),
 		       COALESCE(op.status, 0), COALESCE(ps.name,''),
-		       po.detected_at
+		       po.detected_at,
+		       COALESCE(ST_AsText(op.geometry),''),
+		       COALESCE(ST_AsText(ST_CollectionExtract(
+		           ST_Intersection(ST_MakeValid(p.geometry), ST_MakeValid(op.geometry)), 3)),'')
 		  FROM parcel_overlap po
+		  LEFT JOIN parcel p ON p.id = po.parcel_id
 		  LEFT JOIN parcel op ON op.id = po.other_parcel_id
 		  LEFT JOIN parcel_status ps ON ps.id = op.status
 		 WHERE po.parcel_id = $1
@@ -2802,6 +2806,7 @@ func (r *landAcqRepo) ListParcelOverlaps(ctx context.Context, parcelID uuid.UUID
 		if err := rows.Scan(
 			&o.OtherParcelID, &o.OtherParcelCode, &o.OverlapAreaM2,
 			&o.OtherStatusID, &o.OtherStatusName, &o.DetectedAt,
+			&o.OtherGeometryWKT, &o.OverlapGeometryWKT,
 		); err != nil {
 			return nil, err
 		}

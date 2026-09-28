@@ -990,6 +990,11 @@ type ParcelOverlap struct {
 	OtherStatusID   int       `json:"other_status_id"`
 	OtherStatusName string    `json:"other_status_name"`
 	DetectedAt      time.Time `json:"detected_at"`
+	// OtherGeometryWKT — давхцаж буй талбарын хил, OverlapGeometryWKT — хоёр
+	// талбарын огтлолцох хэсэг (зөвхөн полигон). Хоёулаа EPSG:4326 WKT;
+	// дэлгэрэнгүйн газрын зураг дээр давхцуулж харуулахад хэрэглэнэ.
+	OtherGeometryWKT   string `json:"other_geometry_wkt,omitempty"`
+	OverlapGeometryWKT string `json:"overlap_geometry_wkt,omitempty"`
 }
 
 // ParcelDetailInfo — parcel_detail + right_holder холбосон мэдээлэл
