@@ -76,13 +76,6 @@ func (s *Service) enqueue(sessionID, kind string, run func(ctx context.Context, 
 	}
 }
 
-// waitIdle — өмнө нь дараалалд орсон бүх ажил дуусахыг хүлээнэ (тестэд).
-func (s *Service) waitIdle() {
-	done := make(chan struct{})
-	s.queue <- func() { close(done) }
-	<-done
-}
-
 func (s *Service) job(sessionID string) *Job {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
