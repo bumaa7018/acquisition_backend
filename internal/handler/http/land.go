@@ -3819,6 +3819,8 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		PlanAreaM2:        summary.PlanAreaM2,
 		TotalOrders:       summary.TotalOrders,
 		TotalCompensation: summary.TotalCompensation,
+		Decisions:         summary.Decisions,
+		Compensation:      summary.Compensation,
 		StatusBreakdown:   summary.StatusBreakdown,
 		Timeline:          summary.Timeline,
 		FilteredAU1Codes:  summary.FilteredAU1Codes,

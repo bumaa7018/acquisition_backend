@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"acquisition_backend/internal/legacyimport"
 	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/jwt"
@@ -138,6 +139,7 @@ func NewRouter(
 		var decisionSvcs service.DecisionServices
 		var menuSvc service.MenuService
 		var settingSvc service.SettingService
+		var legacyImportSvc *legacyimport.Service
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
 			case service.DecisionServices:
@@ -164,6 +166,28 @@ func NewRouter(
 				employeeSvc = v
 			case service.SettingService:
 				settingSvc = v
+			case *legacyimport.Service:
+				legacyImportSvc = v
+			}
+		}
+
+		// Хуучин мэдээллийн импорт — системийн хүснэгтүүдэд бөөнөөр бичдэг тул
+		// ЗӨВХӨН админ (admin / «Админ» роль).
+		if legacyImportSvc != nil {
+			legacyH := NewLegacyImportHandler(legacyImportSvc)
+			legacy := protected.Group("/legacy-import")
+			legacy.Use(middleware.RequireAnyRole("admin"))
+			{
+				legacy.GET("/categories", legacyH.Categories)
+				legacy.GET("/sessions", legacyH.List)
+				legacy.POST("/sessions", legacyH.Create)
+				legacy.GET("/sessions/:id", legacyH.Get)
+				legacy.DELETE("/sessions/:id", legacyH.Delete)
+				legacy.POST("/sessions/:id/commit", legacyH.Commit)
+				legacy.GET("/sessions/:id/progress", legacyH.Progress)
+				legacy.GET("/sessions/:id/rollback", legacyH.RollbackPreview)
+				legacy.POST("/sessions/:id/rollback", legacyH.Rollback)
+				legacy.POST("/sessions/:id/:step", legacyH.Upload)
 			}
 		}
 

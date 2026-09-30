@@ -1830,6 +1830,27 @@ type FinanceDashboard struct {
 	Years []int `json:"years"`
 }
 
+// DashboardDecisions — dashboard-ын чөлөөлөлтүүдтэй (decision_draft.acquisition_id
+// эсвэл идэвхтэй нэгж талбарын холбоосоор) холбоотой захирамжийн төсөл, явцаар.
+type DashboardDecisions struct {
+	Total      int64 `json:"total"`
+	Confirmed  int64 `json:"confirmed"`  // Баталгаажсан (status = 2)
+	Confirming int64 `json:"confirming"` // Баталгаажуулах (явц confirming)
+	Reviewing  int64 `json:"reviewing"`  // Хянагдаж буй (явц reviewing)
+	Draft      int64 `json:"draft"`      // Төсөл (явц бүртгэгдээгүй)
+}
+
+// DashboardCompensation — нөхөх олговрын задаргаа (нэгж талбарын сонгосон
+// үнэлгээний төрлөөр). Issued — захирамж гарсан (Баталгаажсан эсвэл
+// Баталгаажуулах шатны захирамжид идэвхтэй холбогдсон) нэгж талбар;
+// Approved/Unapproved — захирамжгүй нэгж талбарын үнэлгээ баталгаажсан эсэх.
+type DashboardCompensation struct {
+	Total      float64 `json:"total"`
+	Issued     float64 `json:"issued"`
+	Approved   float64 `json:"approved"`
+	Unapproved float64 `json:"unapproved"`
+}
+
 type DashboardSummary struct {
 	Acquisitions      []*LandAcquisition    `json:"acquisitions"`
 	ParcelStatuses    []*ParcelStatus       `json:"parcel_statuses"`
@@ -1839,6 +1860,8 @@ type DashboardSummary struct {
 	PlanAreaM2        float64               `json:"plan_area_m2"`
 	TotalOrders       int64                 `json:"total_orders"`
 	TotalCompensation float64               `json:"total_compensation"`
+	Decisions         DashboardDecisions    `json:"decisions"`
+	Compensation      DashboardCompensation `json:"compensation"`
 	StatusBreakdown   []ParcelStatusStat    `json:"status_breakdown"`
 	Timeline          []TimelinePoint       `json:"timeline"`
 	ValuationStatuses []ValuationStatusStat `json:"valuation_statuses"`

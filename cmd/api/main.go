@@ -32,6 +32,7 @@ import (
 
 	"acquisition_backend/internal/config"
 	handler "acquisition_backend/internal/handler/http"
+	"acquisition_backend/internal/legacyimport"
 	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/email"
 	"acquisition_backend/internal/pkg/filestorage"
@@ -294,7 +295,14 @@ func main() {
 		return
 	}
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, externalAPIKeys)
+	// Хуучин мэдээллийн импорт — ГУС руу цуварсан, 1 секунд завсарлагатай.
+	legacyImportSvc := legacyimport.NewService(mainDB, legacyimport.GusConfig{
+		BaseURL:  middlewareBaseURL,
+		Username: cfg.Middleware.Username,
+		Password: cfg.Middleware.Password,
+	}).WithCleanup(fileStorage, droneStorage) // «Хасах» үед файл ба дроны давхарга
+
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, legacyImportSvc, externalAPIKeys)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

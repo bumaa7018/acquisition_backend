@@ -433,6 +433,8 @@ type dashboardResponse struct {
 	PlanAreaM2        float64                      `json:"plan_area_m2"`
 	TotalOrders       int64                        `json:"total_orders"`
 	TotalCompensation float64                      `json:"total_compensation"`
+	Decisions         domain.DashboardDecisions    `json:"decisions"`
+	Compensation      domain.DashboardCompensation `json:"compensation"`
 	StatusBreakdown   []domain.ParcelStatusStat    `json:"status_breakdown"`
 	Timeline          []domain.TimelinePoint       `json:"timeline"`
 	ValuationStatuses []domain.ValuationStatusStat `json:"valuation_statuses,omitempty"`

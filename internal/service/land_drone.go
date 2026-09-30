@@ -71,6 +71,15 @@ var (
 // droneStoreName — зургийн GeoServer store/давхаргын нэр. Файлын нэр нь аль
 // хэдийн давхардахгүй, аюулгүй тэмдэгттэй тул өргөтгөлийг хасаад хэрэглэнэ
 // (цэгийг доогуур зураасаар сольж давхаргын нэрийг цэвэр болгоно).
+// RemoveLayer — дроны зургийн GeoServer давхаргыг устгана (хуучин мэдээллийн
+// импортыг «Хасах» үед). Тохируулаагүй бол юу ч хийхгүй.
+func (d DroneStorage) RemoveLayer(ctx context.Context, fileName string) error {
+	if d.Publisher == nil || !d.Publisher.Configured() {
+		return nil
+	}
+	return d.Publisher.Delete(ctx, droneStoreName(fileName))
+}
+
 func droneStoreName(fileName string) string {
 	name := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 	name = strings.ReplaceAll(name, ".", "_")

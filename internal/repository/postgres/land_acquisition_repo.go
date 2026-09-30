@@ -5033,7 +5033,11 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		err    error
 	}
 	type compRes struct {
-		total float64
+		comp domain.DashboardCompensation
+		err  error
+	}
+	type decisionRes struct {
+		stats domain.DashboardDecisions
 		err   error
 	}
 	type valuationRes struct {
@@ -5048,6 +5052,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	breakdownCh := make(chan breakdownRes, 1)
 	timelineCh := make(chan timelineRes, 1)
 	compCh := make(chan compRes, 1)
+	decisionCh := make(chan decisionRes, 1)
 	valuationCh := make(chan valuationRes, 1)
 
 	// 1. Шүүлтэд тохирох чөлөөлөлтүүд
@@ -5195,37 +5200,77 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		timelineCh <- timelineRes{result, rows.Err()}
 	}()
 
-	// 6. Нийт нөхөн олговорын дүн
+	// 6. Нөхөн олговорын дүн ба задаргаа.
+	//
+	// pf — шүүлтэд орсон нэгж талбар бүрийн НЭГ мөр: сонгосон үнэлгээний төрөл,
+	// захирамж гарсан эсэх (Баталгаажсан, эсвэл Баталгаажуулах шатны захирамжид
+	// идэвхтэй холбогдсон), үнэлгээ баталгаажсан эсэх. Мөр давхардахгүй:
+	// идэвхтэй холбоос нэгж талбарт нэг (uq_ddp_active_parcel), баталгаажуулалт
+	// (acquisition_id, parcel_id, valuation_type)-аар нэг (pvs_acq_parcel_type_key).
+	//
+	// MATERIALIZED — нэгж талбарын түвшинд hash join-оор НЭГ удаа бодно. Үгүй
+	// бол planner олговор×нэгж талбарын холболтыг (COALESCE нөхцөлөөс) 1 мөр гэж
+	// буруу тооцоолж, 600k мөр бүрд index-ээр хайдаг nested loop сонгодог
+	// (300k нэгж талбарт 1.5с → 4с болж байв). Он шүүлт энд — нэгж талбарын
+	// түвшинд — орох тул олговрын (олон мөр) талд correlated subquery үүсэхгүй.
 	go func() {
-		var total float64
-		var compSQL string
-		if parcelYearCond != "" {
-			// Он шүүлтүүртэй үед: parcel-аас (цөөн мөр) хөтөлж, олговрыг scalar subquery-ээр
-			// нийлүүлнэ. compensation (олон мөр)-оос хөтлөвөл nested correlated subquery
-			// сая дахин ажиллаж (~11 сая), асуулга минутаар удааширдаг тул parcel-аас хөтөлнө.
-			compSQL = fmt.Sprintf(`
-				SELECT COALESCE(SUM(x.amt), 0) FROM (
-					SELECT (
-						SELECT COALESCE(SUM(c.amount), 0) FROM compensation c
-						WHERE c.parcel_id = p.parcel_id AND c.acquisition_id = p.acquisition_id
-						  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-					) AS amt
-					FROM parcel p
-					WHERE p.acquisition_id %s%s%s
-				) x
-			`, acqIDCond, parcelYearCond, parcelScopeCond)
-		} else {
-			compSQL = fmt.Sprintf(`
-				SELECT COALESCE(SUM(c.amount), 0)
-				FROM compensation c
-				JOIN parcel p ON p.acquisition_id = c.acquisition_id AND p.parcel_id = c.parcel_id
-				WHERE c.acquisition_id %s
-				  AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-				  %s
-			`, acqIDCond, parcelScopeCond)
-		}
-		err := r.db.QueryRow(ctx, compSQL, pargs...).Scan(&total)
-		compCh <- compRes{total, err}
+		compSQL := fmt.Sprintf(`
+			WITH pf AS MATERIALIZED (
+				SELECT p.acquisition_id, p.parcel_id,
+				       COALESCE(p.selected_valuation_type, 'asset') AS vtype,
+				       COALESCE(d.status = %d OR ph.progress_type = '%s', false) AS issued,
+				       s.id IS NOT NULL AS approved
+				FROM parcel p
+				LEFT JOIN decision_draft_parcel ddp ON ddp.parcel_id = p.id AND ddp.removed_at IS NULL
+				LEFT JOIN decision_draft d ON d.id = ddp.decision_draft_id
+				LEFT JOIN decision_draft_progress_history ph ON ph.id = d.current_progress_history_id
+				LEFT JOIN parcel_valuation_submission s
+				       ON s.acquisition_id = p.acquisition_id AND s.parcel_id = p.parcel_id
+				      AND s.valuation_type = COALESCE(p.selected_valuation_type, 'asset') AND s.status = '%s'
+				WHERE p.acquisition_id %s%s%s
+			)
+			SELECT COALESCE(SUM(c.amount), 0)::float8,
+			       COALESCE(SUM(c.amount) FILTER (WHERE pf.issued), 0)::float8,
+			       COALESCE(SUM(c.amount) FILTER (WHERE NOT pf.issued AND pf.approved), 0)::float8,
+			       COALESCE(SUM(c.amount) FILTER (WHERE NOT pf.issued AND NOT pf.approved), 0)::float8
+			FROM compensation c
+			JOIN pf ON pf.acquisition_id = c.acquisition_id AND pf.parcel_id = c.parcel_id AND pf.vtype = c.valuation_type
+			WHERE c.acquisition_id %s
+		`, domain.DecisionDraftStatusConfirmed, domain.DecisionDraftProgressConfirming, domain.ValuationStatusApproved,
+			acqIDCond, parcelYearCond, parcelScopeCond, acqIDCond)
+		var comp domain.DashboardCompensation
+		err := r.db.QueryRow(ctx, compSQL, pargs...).Scan(&comp.Total, &comp.Issued, &comp.Approved, &comp.Unapproved)
+		compCh <- compRes{comp, err}
+	}()
+
+	// 6б. Захирамжийн төсөл — dashboard-ын чөлөөлөлтүүдээр (decision_draft.acquisition_id
+	// эсвэл идэвхтэй нэгж талбарын холбоосоор) хайж, явцаар нь тоолно. Захирамжийн
+	// хуудастай ИЖИЛ шалгуур: status 2 = Баталгаажсан, бусад нь одоогийн явцаар.
+	go func() {
+		var d domain.DashboardDecisions
+		err := r.db.QueryRow(ctx, fmt.Sprintf(`
+			WITH ids AS (
+				SELECT dd.id FROM decision_draft dd WHERE dd.acquisition_id %s
+				UNION
+				SELECT ddp.decision_draft_id FROM decision_draft_parcel ddp
+				  JOIN parcel p ON p.id = ddp.parcel_id
+				 WHERE p.acquisition_id %s AND ddp.removed_at IS NULL
+			)
+			SELECT COUNT(*),
+			       COUNT(*) FILTER (WHERE d.status = %d),
+			       COUNT(*) FILTER (WHERE d.status <> %d AND ph.progress_type = '%s'),
+			       COUNT(*) FILTER (WHERE d.status <> %d AND ph.progress_type = '%s'),
+			       COUNT(*) FILTER (WHERE d.status <> %d AND COALESCE(ph.progress_type, '') NOT IN ('%s', '%s'))
+			FROM ids
+			JOIN decision_draft d ON d.id = ids.id
+			LEFT JOIN decision_draft_progress_history ph ON ph.id = d.current_progress_history_id
+		`, acqIDCond, acqIDCond,
+			domain.DecisionDraftStatusConfirmed,
+			domain.DecisionDraftStatusConfirmed, domain.DecisionDraftProgressConfirming,
+			domain.DecisionDraftStatusConfirmed, domain.DecisionDraftProgressReviewing,
+			domain.DecisionDraftStatusConfirmed, domain.DecisionDraftProgressConfirming, domain.DecisionDraftProgressReviewing,
+		), acqIDs).Scan(&d.Total, &d.Confirmed, &d.Confirming, &d.Reviewing, &d.Draft)
+		decisionCh <- decisionRes{d, err}
 	}()
 
 	// 7. Үнэлгээний илгээх/баталгаажуулах төлөв болон урсгалын нэгтгэл
@@ -5354,23 +5399,21 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	bkR := <-breakdownCh
 	tlR := <-timelineCh
 	compR := <-compCh
+	decR := <-decisionCh
 	valR := <-valuationCh
 	auCodesR := <-auCodesCh
 
-	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, valR.err, auCodesR.err} {
+	for _, e := range []error{acqR.err, statusR.err, statsR.err, bkR.err, tlR.err, compR.err, decR.err, valR.err, auCodesR.err} {
 		if e != nil {
 			return nil, e
 		}
 	}
 
-	// plan_area_m2 болон total_orders-ийг чөлөөлөлтийн жагсаалтаас тооцно
+	// plan_area_m2-ийг чөлөөлөлтийн жагсаалтаас тооцно. total_orders — баталгаажсан
+	// захирамжийн тоо (захирамжийн төслөөс, чөлөөлөлтөөр хайсан).
 	var planAreaM2 float64
-	var totalOrders int64
 	for _, a := range acqR.list {
 		planAreaM2 += a.AreaM2
-		if a.DecreeNumber != "" {
-			totalOrders++
-		}
 	}
 
 	return &domain.DashboardSummary{
@@ -5380,8 +5423,10 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		FreedParcels:      statsR.freedParcels,
 		FreedAreaM2:       statsR.freedAreaM2,
 		PlanAreaM2:        planAreaM2,
-		TotalOrders:       totalOrders,
-		TotalCompensation: compR.total,
+		TotalOrders:       decR.stats.Confirmed,
+		TotalCompensation: compR.comp.Total,
+		Decisions:         decR.stats,
+		Compensation:      compR.comp,
 		StatusBreakdown:   bkR.rows,
 		Timeline:          tlR.points,
 		ValuationStatuses: valR.statuses,
