@@ -55,13 +55,24 @@ func TestDuplicateAndSyntheticParcelID(t *testing.T) {
 	if got := duplicateParcelID("1802301324", 2, "f|s|1"); got != "D21802301324" {
 		t.Fatalf("D2 угтвар: %q", got)
 	}
+
 	// 12 тэмдэгтэд багтахгүй бол тогтвортой ERR… дугаар.
 	long := duplicateParcelID("180230132400", 3, "f|s|9")
+
 	if long != syntheticParcelID("f|s|9") || len(long) != 12 {
 		t.Fatalf("урт дугаар → ERR: %q", long)
 	}
-	if syntheticParcelID("a|b|1") != syntheticParcelID("a|b|1") || syntheticParcelID("a|b|1") == syntheticParcelID("a|b|2") {
-		t.Fatal("ERR дугаар мөрийн түлхүүрээс тогтвортой")
+
+	id1 := syntheticParcelID("a|b|1")
+	id2 := syntheticParcelID("a|b|1")
+	id3 := syntheticParcelID("a|b|2")
+
+	if id1 != id2 {
+		t.Fatalf("ижил түлхүүр тогтвортой байх ёстой: %q != %q", id1, id2)
+	}
+
+	if id1 == id3 {
+		t.Fatalf("өөр түлхүүр өөр synthetic ID өгөх ёстой: %q == %q", id1, id3)
 	}
 }
 
