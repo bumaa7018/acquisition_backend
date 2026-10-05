@@ -107,7 +107,7 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		for _, q := range []string{
-			`DELETE FROM decision_draft WHERE proposal_no LIKE 'legacy/%' OR proposal_no = 'E2E-CTRL'`,
+			`DELETE FROM decision_draft WHERE created_by = 'legacy-import' OR proposal_no = 'E2E-CTRL'`,
 			`DELETE FROM land_acquisition WHERE created_by IN ($1, 'e2e-other')
 			   OR legacy_import_id IN (SELECT id FROM legacy_import_stage.session WHERE created_by = 'e2e')`,
 			`DELETE FROM legacy_import_stage.rollback_log WHERE session_id IN (SELECT id FROM legacy_import_stage.session WHERE created_by = 'e2e')`,
@@ -156,7 +156,7 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewService(pool, GusConfig{BaseURL: gus.URL, Username: "gus-user", Password: "gus-pass", Delay: time.Millisecond})
-	id, err := svc.Create(ctx, "e2e")
+	id, err := svc.Create(ctx, "e2e", ModeFull)
 	require.NoError(t, err)
 	choice := CategoryChoice{General: strconv.Itoa(generalID), Sub: strconv.Itoa(subID)}
 
@@ -275,6 +275,13 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 	var ctrlParcelAcq string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT acquisition_id::text FROM parcel WHERE parcel_id = $1`, preexisting).Scan(&ctrlParcelAcq))
 	require.Equal(t, ctrlAcq, ctrlParcelAcq, "санд байсан нэгж талбар өөр чөлөөлөлтөд хэвээр")
+	// Захирамжийн төсөл: дугаар «ОН/дугаар» (legacy/ угтваргүй), төсөв тодорхойгүй бол «Нийслэл».
+	drafts := count(t, ctx, pool, `SELECT count(*) FROM decision_draft WHERE created_by = $1`, Actor)
+	require.Positive(t, drafts, "импорт захирамж үүсгэнэ")
+	require.Zero(t, count(t, ctx, pool, `SELECT count(*) FROM decision_draft WHERE created_by = $1 AND proposal_no !~ '^[0-9]{4}/'`, Actor),
+		"захирамжийн дугаар legacy/ угтваргүй")
+	require.Equal(t, drafts, count(t, ctx, pool, `SELECT count(*) FROM decision_draft d JOIN decision_budget b ON b.id = d.budget_id
+		WHERE d.created_by = $1 AND b.name = 'Нийслэл'`, Actor), "санхүүжилтийн төрөл тодорхойгүй бол Нийслэл")
 
 	_, err = svc.UploadParcels(ctx, id, parcelFiles)
 	require.ErrorIs(t, err, ErrCommitted)

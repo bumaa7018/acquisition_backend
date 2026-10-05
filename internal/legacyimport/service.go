@@ -100,14 +100,17 @@ type session struct {
 	parcels  *ParcelView
 	reports  *ReportView
 	result   *CommitResult
+	projects map[string]ProjectSettings // «Зөвхөн үнэлгээ»: төслийн тохиргоо
 }
 
 func (s *Service) load(ctx context.Context, q querier, id string) (*session, error) {
 	var ss session
 	var created, updated time.Time
-	err := q.QueryRow(ctx, `SELECT id::text, created_by, created_at, updated_at, status, category, boundary, parcels, reports, result, rollback
+	err := q.QueryRow(ctx, `SELECT id::text, created_by, created_at, updated_at, status, mode, category, boundary, parcels, reports, result, rollback,
+			COALESCE(projects, '{}')
 		FROM `+stage+`.session WHERE id = $1`, id).
-		Scan(&ss.ID, &ss.CreatedBy, &created, &updated, &ss.Status, &ss.Category, &ss.boundary, &ss.parcels, &ss.reports, &ss.result, &ss.Rollback)
+		Scan(&ss.ID, &ss.CreatedBy, &created, &updated, &ss.Status, &ss.Mode, &ss.Category, &ss.boundary, &ss.parcels, &ss.reports, &ss.result, &ss.Rollback,
+			&ss.projects)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -165,8 +168,9 @@ func (s *Service) Categories(ctx context.Context) ([]Category, error) {
 }
 
 func (s *Service) List(ctx context.Context) ([]SessionListItem, error) {
-	rows, err := s.db.Query(ctx, `SELECT id::text, created_by, created_at, updated_at, status,
-			jsonb_array_length(COALESCE(boundary->'rows','[]')),
+	rows, err := s.db.Query(ctx, `SELECT id::text, created_by, created_at, updated_at, status, mode,
+			CASE WHEN mode = 'valuation' THEN COALESCE((reports->'stats'->>'projects')::int, 0)
+			     ELSE jsonb_array_length(COALESCE(boundary->'rows','[]')) END,
 			COALESCE((parcels->'stats'->>'total')::int, 0),
 			COALESCE((reports->'stats'->>'rows')::int, 0),
 			s.status = 'committed' AND EXISTS (SELECT 1 FROM `+stage+`.owned o WHERE o.session_id = s.id AND o.kind = 'land_acquisition'),
@@ -178,17 +182,33 @@ func (s *Service) List(ctx context.Context) ([]SessionListItem, error) {
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (SessionListItem, error) {
 		var it SessionListItem
 		var created, updated time.Time
-		err := r.Scan(&it.ID, &it.CreatedBy, &created, &updated, &it.Status, &it.Acquisitions, &it.Parcels, &it.ReportRows, &it.Deletable, &it.Rollback)
+		err := r.Scan(&it.ID, &it.CreatedBy, &created, &updated, &it.Status, &it.Mode, &it.Acquisitions, &it.Parcels, &it.ReportRows, &it.Deletable, &it.Rollback)
 		it.CreatedAt, it.UpdatedAt = created.Format(time.RFC3339), updated.Format(time.RFC3339)
 		return it, err
 	})
 }
 
-func (s *Service) Create(ctx context.Context, createdBy string) (string, error) {
+// Create — шинэ импорт. mode: full (хил + нэгж талбар + үнэлгээ) | valuation (зөвхөн үнэлгээ).
+func (s *Service) Create(ctx context.Context, createdBy, mode string) (string, error) {
+	switch mode {
+	case "":
+		mode = ModeFull
+	case ModeFull, ModeValuation:
+	default:
+		return "", &StepError{"Импортын горим буруу: " + mode}
+	}
 	id := uuid.NewString()
-	_, err := s.db.Exec(ctx, `INSERT INTO `+stage+`.session (id, created_by) VALUES ($1, $2)`, id, createdBy)
+	_, err := s.db.Exec(ctx, `INSERT INTO `+stage+`.session (id, created_by, mode) VALUES ($1, $2, $3)`, id, createdBy, mode)
 	return id, err
 }
+
+// Импортын горим.
+const (
+	ModeFull      = "full"
+	ModeValuation = "valuation"
+)
+
+var errValuationMode = &StepError{"«Зөвхөн үнэлгээ» импортод хил, нэгж талбарын файл оруулахгүй — үнэлгээний эксэлээ оруулна уу"}
 
 func (s *Service) Delete(ctx context.Context, id string) error {
 	ss, err := s.load(ctx, s.db, id)
@@ -244,13 +264,17 @@ func (s *Service) Get(ctx context.Context, id string) (*State, error) {
 		return nil, err
 	}
 	return &State{Session: ss.SessionInfo, Boundary: ss.boundary, Parcels: ss.parcels, Reports: ss.reports,
-		Result: ss.result, Summary: *summary, Job: s.job(id), RollbackLog: log}, nil
+		Result: ss.result, Summary: *summary, Job: s.job(id), RollbackLog: log, ProjectSettings: ss.projects}, nil
 }
 
 // UploadBoundary — 1-р алхам. Хил солигдвол дараагийн алхмуудын шалгалт арилна.
 func (s *Service) UploadBoundary(ctx context.Context, id string, files []UploadedFile, choice CategoryChoice) (*State, error) {
-	if _, err := s.requireDraft(ctx, id); err != nil {
+	ss, err := s.requireDraft(ctx, id)
+	if err != nil {
 		return nil, err
+	}
+	if ss.Mode == ModeValuation {
+		return nil, errValuationMode
 	}
 	view, err := s.analyzeBoundary(ctx, s.db, id, files, choice)
 	if err != nil {
@@ -269,6 +293,9 @@ func (s *Service) UploadParcels(ctx context.Context, id string, files []Uploaded
 	ss, err := s.requireDraft(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if ss.Mode == ModeValuation {
+		return nil, errValuationMode
 	}
 	if ss.boundary == nil || !ss.boundary.CanProceed {
 		return nil, &StepError{"Эхлээд чөлөөлөлтийн хилийн файлыг алдаагүй оруулна уу"}
@@ -305,6 +332,9 @@ func (s *Service) UploadReports(ctx context.Context, id string, files []Uploaded
 	ss, err := s.requireDraft(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if ss.Mode == ModeValuation {
+		return s.uploadValuation(ctx, id, files)
 	}
 	if ss.boundary == nil || !ss.boundary.CanProceed || ss.parcels == nil || !ss.parcels.CanProceed {
 		return nil, &StepError{"Эхлээд чөлөөлөлтийн хил ба нэгж талбарын файлыг оруулна уу"}
@@ -360,7 +390,13 @@ func (s *Service) Commit(ctx context.Context, id string) error {
 		choice = *ss.Category
 	}
 	s.enqueue(id, "commit", func(ctx context.Context, _ *Job) error {
-		result, err := s.commitSession(ctx, id, choice)
+		var result *CommitResult
+		var err error
+		if ss.Mode == ModeValuation {
+			result, err = s.commitValuationSession(ctx, id)
+		} else {
+			result, err = s.commitSession(ctx, id, choice)
+		}
 		// Хэрэглэгчийн хүсэлт цуцлагдсан ч үр дүнг заавал хадгална.
 		saveCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -381,6 +417,9 @@ func (s *Service) Commit(ctx context.Context, id string) error {
 // ── 4. Нэгтгэл ──────────────────────────────────────────────────────────────
 
 func (s *Service) summary(ctx context.Context, ss *session) (*Summary, error) {
+	if ss.Mode == ModeValuation {
+		return valuationSummary(ss), nil
+	}
 	type counts struct{ parcels, outside, reportRows int }
 	byIdx := map[int]counts{}
 	rows, err := s.db.Query(ctx, `SELECT b.idx,

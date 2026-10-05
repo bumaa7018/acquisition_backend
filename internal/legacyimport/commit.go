@@ -16,6 +16,9 @@ import (
 // оруулахад (CLI эсвэл вэб) давхардуулахгүй, өөрийн мөрөө л шинэчилнэ.
 const Actor = "legacy-import"
 
+// defaultBudget — санхүүжилтийн төрөл тодорхойгүй захирамжийн төсөв (migration 000044).
+const defaultBudget = "Нийслэл"
+
 // importMark — assets.notes (created_by баганагүй хүснэгт).
 const importMark = "Хуучин мэдээллийн импорт"
 
@@ -252,16 +255,7 @@ func commitAcquisitions(ctx context.Context, tx pgx.Tx, sessionID string, cats *
 				VALUES ($1, $2, 0, 1, $3, $4, NOW())`, uuid.NewString(), acqID, "Хуучин мэдээллээс импортлов", Actor); err != nil {
 				return err
 			}
-			// Хилтэй огтлолцох баг/хороо.
-			_, err = tx.Exec(ctx, `INSERT INTO land_acquisition_au (
-					land_acquisition_id, au1_code, au1_name, au2_code, au2_name, au3_code, au3_name,
-					created_at, created_by, updated_at, updated_by)
-				SELECT $1, COALESCE(a3.au1_code,''), COALESCE(a1.name,''), COALESCE(a3.au2_code,''), COALESCE(a2.name,''),
-				       a3.code, COALESCE(a3.name,''), NOW(), $3, NOW(), $3
-				  FROM au3 a3 LEFT JOIN au1 a1 ON a1.code = a3.au1_code LEFT JOIN au2 a2 ON a2.code = a3.au2_code
-				 WHERE a3.geometry IS NOT NULL AND ST_Intersects(a3.geometry, ST_MakeValid(ST_GeomFromText($2, 4326)))
-				ON CONFLICT (land_acquisition_id, au3_code) DO NOTHING`, acqID, it.row.WKT, Actor)
-			return err
+			return insertAcquisitionAU(ctx, tx, acqID, it.row.WKT)
 		})
 		if err != nil {
 			log.add("failed", "acquisition", planParcelID, err.Error())
@@ -273,6 +267,19 @@ func commitAcquisitions(ctx context.Context, tx pgx.Tx, sessionID string, cats *
 		log.add("success", "acquisition", planParcelID, name)
 	}
 	return out, byIdx, nil
+}
+
+// insertAcquisitionAU — хилтэй (EPSG:4326 WKT) огтлолцох баг/хороо.
+func insertAcquisitionAU(ctx context.Context, q querier, acqID, wkt string) error {
+	_, err := q.Exec(ctx, `INSERT INTO land_acquisition_au (
+			land_acquisition_id, au1_code, au1_name, au2_code, au2_name, au3_code, au3_name,
+			created_at, created_by, updated_at, updated_by)
+		SELECT $1, COALESCE(a3.au1_code,''), COALESCE(a1.name,''), COALESCE(a3.au2_code,''), COALESCE(a2.name,''),
+		       a3.code, COALESCE(a3.name,''), NOW(), $3, NOW(), $3
+		  FROM au3 a3 LEFT JOIN au1 a1 ON a1.code = a3.au1_code LEFT JOIN au2 a2 ON a2.code = a3.au2_code
+		 WHERE a3.geometry IS NOT NULL AND ST_Intersects(a3.geometry, ST_MakeValid(ST_GeomFromText($2, 4326)))
+		ON CONFLICT (land_acquisition_id, au3_code) DO NOTHING`, acqID, wkt, Actor)
+	return err
 }
 
 // ── 2. Нэгж талбар ──────────────────────────────────────────────────────────
@@ -1015,12 +1022,18 @@ func saveReportLinks(ctx context.Context, tx pgx.Tx, sessionID string, row *Repo
 		if err != nil {
 			return "", err
 		}
+		if budget == nil {
+			// Санхүүжилтийн төрөл (төсөв) тодорхойгүй — өгөгдмөл нь «Нийслэл».
+			if budget, err = decisionOption(ctx, tx, "decision_budget", defaultBudget); err != nil {
+				return "", err
+			}
+		}
 		location := firstNonEmpty(row.ProjectName, row.Address)
 		if _, err := tx.Exec(ctx, `INSERT INTO decision_draft
 				(id,proposal_no,decree_number,decision_date,location,duration_year,status,acquisition_id,
 				 confirmed_at,confirmed_by,created_by,updated_by,work_type_id,budget_id)
 			VALUES($1,$2,$3,$4::date,$5,$6,2,$7,NOW(),$8,$8,$8,$9,$10)`,
-			draftID, fmt.Sprintf("legacy/%d/%s", year, decree.number), decree.number, decree.date, location, year,
+			draftID, fmt.Sprintf("%d/%s", year, decree.number), decree.number, decree.date, location, year,
 			acqID, Actor, workType, budget); err != nil {
 			return "", err
 		}

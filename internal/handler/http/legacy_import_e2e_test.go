@@ -130,6 +130,24 @@ func TestE2ELegacyImportHTTP(t *testing.T) {
 	code, _ = do(specialist, http.MethodGet, "/legacy-import/sessions/"+id+"/progress", nil, "")
 	require.Equal(t, http.StatusForbidden, code)
 
+	// «Зөвхөн үнэлгээ» горим: JSON body-оор үүсгэнэ, хил/нэгж талбар хүлээн авахгүй, буруу горим 400.
+	code, body = do(admin, http.MethodPost, "/legacy-import/sessions", bytes.NewBufferString(`{"mode":"valuation"}`), "application/json")
+	require.Equal(t, http.StatusCreated, code, "%v", body)
+	valID := body["data"].(map[string]any)["id"].(string)
+	code, body = do(admin, http.MethodGet, "/legacy-import/sessions/"+valID, nil, "")
+	require.Equal(t, http.StatusOK, code)
+	require.Equal(t, "valuation", body["data"].(map[string]any)["session"].(map[string]any)["mode"])
+	var vbuf bytes.Buffer
+	vmw := multipart.NewWriter(&vbuf)
+	fw, _ := vmw.CreateFormFile("files", "x.shp")
+	_, _ = fw.Write([]byte("x"))
+	require.NoError(t, vmw.Close())
+	code, body = do(admin, http.MethodPost, "/legacy-import/sessions/"+valID+"/boundary", &vbuf, vmw.FormDataContentType())
+	require.Equal(t, http.StatusConflict, code, "%v", body)
+	require.Contains(t, body["error"], "Зөвхөн үнэлгээ")
+	code, _ = do(admin, http.MethodPost, "/legacy-import/sessions", bytes.NewBufferString(`{"mode":"bogus"}`), "application/json")
+	require.Equal(t, http.StatusBadRequest, code, "буруу горим")
+
 	// «Хасах»: баталгаажуулалтгүй бол 400, оруулаагүй импортыг хасахгүй (409), админ биш 403.
 	code, body = do(admin, http.MethodGet, "/legacy-import/sessions/"+id+"/rollback", nil, "")
 	require.Equal(t, http.StatusOK, code, "%v", body)

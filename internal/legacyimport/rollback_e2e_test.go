@@ -306,7 +306,7 @@ func TestE2ELegacyImportRollbackKeepsForeignParcels(t *testing.T) {
 		defer cancel()
 		sessions := `SELECT id FROM legacy_import_stage.session WHERE created_by = 'e2e-keep'`
 		for _, q := range []string{
-			`DELETE FROM decision_draft WHERE proposal_no LIKE 'legacy/%'`,
+			`DELETE FROM decision_draft WHERE created_by = 'legacy-import'`,
 			`DELETE FROM land_acquisition WHERE created_by IN ('legacy-import', 'e2e-other') OR legacy_import_id IN (` + sessions + `)`,
 			`DELETE FROM legacy_import_stage.rollback_log WHERE session_id IN (` + sessions + `)`,
 			`DELETE FROM legacy_import_stage.owned WHERE session_id IN (` + sessions + `)`,
@@ -321,7 +321,7 @@ func TestE2ELegacyImportRollbackKeepsForeignParcels(t *testing.T) {
 	})
 
 	svc := NewService(pool, GusConfig{BaseURL: gus.URL, Username: "u", Password: "p", Delay: time.Millisecond})
-	id, err := svc.Create(ctx, "e2e-keep")
+	id, err := svc.Create(ctx, "e2e-keep", "")
 	require.NoError(t, err)
 	_, err = svc.UploadBoundary(ctx, id, boundaryFiles, CategoryChoice{General: strconv.Itoa(generalID)})
 	require.NoError(t, err)

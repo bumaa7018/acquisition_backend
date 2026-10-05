@@ -20,6 +20,8 @@ import (
 //	GET    /legacy-import/sessions/:id        DELETE /legacy-import/sessions/:id
 //	POST   /legacy-import/sessions/:id/boundary|parcels|reports  (multipart: files[], category, subCategory)
 //	POST   /legacy-import/sessions/:id/commit
+//	PUT    /legacy-import/sessions/:id/projects            («Зөвхөн үнэлгээ»: ангилал, мэдээлэл)
+//	POST   /legacy-import/sessions/:id/project-boundary    DELETE …/project-boundary?project=
 type LegacyImportHandler struct {
 	svc *legacyimport.Service
 }
@@ -80,8 +82,26 @@ func (h *LegacyImportHandler) List(c *gin.Context) {
 	response.OK(c, list)
 }
 
+// Create — body (заавал биш): {"mode": "full" | "valuation"}. Хоосон бол full.
 func (h *LegacyImportHandler) Create(c *gin.Context) {
-	id, err := h.svc.Create(c.Request.Context(), contextUserDisplayName(c))
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Code: http.StatusBadRequest,
+				Error: "Хүсэлт буруу", Message: "Хүсэлт буруу"})
+			return
+		}
+	}
+	switch body.Mode {
+	case "", legacyimport.ModeFull, legacyimport.ModeValuation:
+	default:
+		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Code: http.StatusBadRequest,
+			Error: "Импортын горим буруу", Message: "Импортын горим буруу"})
+		return
+	}
+	id, err := h.svc.Create(c.Request.Context(), contextUserDisplayName(c), body.Mode)
 	if err != nil {
 		legacyImportError(c, err)
 		return
@@ -219,6 +239,59 @@ func (h *LegacyImportHandler) Upload(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusNotFound, response.Response{Code: http.StatusNotFound, Error: "Алхам олдсонгүй", Message: "Алхам олдсонгүй"})
 		return
 	}
+	if err != nil {
+		legacyImportError(c, err)
+		return
+	}
+	response.OK(c, state)
+}
+
+// UpdateProject — «Зөвхөн үнэлгээ»: төслийн ангилал ба/эсвэл чөлөөлөлтийн
+// мэдээлэл. Body: {"name", "category": {"general","sub"}?, "info": {...}?}.
+func (h *LegacyImportHandler) UpdateProject(c *gin.Context) {
+	id, ok := h.sessionID(c)
+	if !ok {
+		return
+	}
+	var body legacyimport.ProjectUpdate
+	if err := c.ShouldBindJSON(&body); err != nil || body.Name == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, response.Response{Code: http.StatusBadRequest,
+			Error: "Төслийн нэр заавал", Message: "Төслийн нэр заавал"})
+		return
+	}
+	state, err := h.svc.UpdateProject(c.Request.Context(), id, body)
+	if err != nil {
+		legacyImportError(c, err)
+		return
+	}
+	response.OK(c, state)
+}
+
+// ProjectBoundary — төслийн хилийн shapefile (multipart: project, files[]).
+func (h *LegacyImportHandler) ProjectBoundary(c *gin.Context) {
+	id, ok := h.sessionID(c)
+	if !ok {
+		return
+	}
+	files, ok := readUploads(c)
+	if !ok {
+		return
+	}
+	state, err := h.svc.UploadProjectBoundary(c.Request.Context(), id, c.PostForm("project"), files)
+	if err != nil {
+		legacyImportError(c, err)
+		return
+	}
+	response.OK(c, state)
+}
+
+// RemoveProjectBoundary — ?project=<нэр>.
+func (h *LegacyImportHandler) RemoveProjectBoundary(c *gin.Context) {
+	id, ok := h.sessionID(c)
+	if !ok {
+		return
+	}
+	state, err := h.svc.RemoveProjectBoundary(c.Request.Context(), id, c.Query("project"))
 	if err != nil {
 		legacyImportError(c, err)
 		return

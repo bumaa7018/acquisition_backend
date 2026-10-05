@@ -187,6 +187,9 @@ func NewRouter(
 				legacy.GET("/sessions/:id/progress", legacyH.Progress)
 				legacy.GET("/sessions/:id/rollback", legacyH.RollbackPreview)
 				legacy.POST("/sessions/:id/rollback", legacyH.Rollback)
+				legacy.PUT("/sessions/:id/projects", legacyH.UpdateProject)
+				legacy.POST("/sessions/:id/project-boundary", legacyH.ProjectBoundary)
+				legacy.DELETE("/sessions/:id/project-boundary", legacyH.RemoveProjectBoundary)
 				legacy.POST("/sessions/:id/:step", legacyH.Upload)
 			}
 		}

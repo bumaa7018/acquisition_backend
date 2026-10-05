@@ -19,7 +19,7 @@ import (
 // ── ГУС (дундын middleware сервис) клиент ───────────────────────────────────
 //
 // Эх систем ачааллаас хамгаалагдсан тул БҮХ хүсэлт НЭГ дараалалд орж,
-// хоорондоо Delay (анхдагч 1 секунд) завсарлагатай явна. Зэрэгцээ хүсэлт
+// хоорондоо Delay (анхдагч 300 миллисекунд) завсарлагатай явна. Зэрэгцээ хүсэлт
 // явуулахгүй. Хариуг санах ойд кэшлэнэ (олдоогүй хариуг ч) — нэг дугаарыг
 // давтан асуухгүй.
 
@@ -28,7 +28,7 @@ type GusConfig struct {
 	BaseURL  string
 	Username string
 	Password string
-	// Delay — хүсэлт хоорондын завсарлага. 0 бол 1 секунд.
+	// Delay — хүсэлт хоорондын завсарлага. 0 бол DefaultGusDelay.
 	Delay time.Duration
 }
 
@@ -89,6 +89,9 @@ type PlanProject struct {
 }
 
 // GusHit — хайлтын үр дүн: мэдээлэл ба ЯГ АЛЬ дугаараар олдсон нь.
+// DefaultGusDelay — ГУС-ын хүсэлт хоорондын анхдагч завсарлага.
+const DefaultGusDelay = 300 * time.Millisecond
+
 type GusHit struct {
 	Source SourceParcel `json:"source"`
 	UsedID string       `json:"usedID"`
@@ -113,7 +116,7 @@ type GusClient struct {
 
 func NewGusClient(cfg GusConfig) *GusClient {
 	if cfg.Delay <= 0 {
-		cfg.Delay = time.Second
+		cfg.Delay = DefaultGusDelay
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	return &GusClient{cfg: cfg, http: &http.Client{Timeout: 30 * time.Second}, cache: map[string]gusCacheEntry{}}

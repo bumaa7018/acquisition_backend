@@ -295,7 +295,7 @@ func main() {
 		return
 	}
 
-	// Хуучин мэдээллийн импорт — ГУС руу цуварсан, 1 секунд завсарлагатай.
+	// Хуучин мэдээллийн импорт — ГУС руу цуварсан, 300 мс завсарлагатай (legacyimport.DefaultGusDelay).
 	legacyImportSvc := legacyimport.NewService(mainDB, legacyimport.GusConfig{
 		BaseURL:  middlewareBaseURL,
 		Username: cfg.Middleware.Username,

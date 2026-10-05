@@ -214,6 +214,10 @@ type ReportViewRow struct {
 	Match          string   `json:"match"`
 	GusOrigin      *string  `json:"gusOrigin"`
 	Issues         []Issue  `json:"issues"`
+	// «Зөвхөн үнэлгээ» горим: төсөл (чөлөөлөлт), системд бүртгэгдэх дугаар.
+	Project    string `json:"project,omitempty"`
+	AssignedID string `json:"assignedID,omitempty"`
+	IDKind     string `json:"idKind,omitempty"` // real | duplicate | synthetic
 }
 
 type ReportStats struct {
@@ -230,6 +234,56 @@ type ReportStats struct {
 	AreaDiffs     int     `json:"areaDiffs"`
 	Balanced      int     `json:"balanced"`
 	Duplicates    int     `json:"duplicates"`
+	// «Зөвхөн үнэлгээ» горим.
+	Excel     int `json:"excel"`     // ГУС-д олдоогүй — эксэлийн мэдээллээр бүртгэнэ
+	Synthetic int `json:"synthetic"` // дугааргүй — ERR… дугаар
+	Projects  int `json:"projects"`
+}
+
+// ValuationProject — «Зөвхөн үнэлгээ» горимын нэг төсөл = нэг чөлөөлөлт (хилгүй).
+type ValuationProject struct {
+	Name             string       `json:"name"`
+	Variants         []string     `json:"variants"`
+	Rows             int          `json:"rows"`
+	Parcels          int          `json:"parcels"` // санд байхгүй — бүртгэгдэх нэгж талбар
+	Amount           float64      `json:"amount"`
+	ConstructionType string       `json:"constructionType"`
+	Category         categoryName `json:"category"`
+	CategoryMatched  bool         `json:"categoryMatched"`
+	// CategoryIDs — Category-ийн ID (сонгох талбарын анхны утга); санд алга бол nil.
+	CategoryIDs    *CategoryChoice `json:"categoryIds"`
+	CategoryChosen bool            `json:"categoryChosen"` // гараар сонгосон (төрлөөс биш)
+	HasInfo        bool            `json:"hasInfo"`        // чөлөөлөлтийн мэдээлэл бөглөсөн
+	AreaM2         *float64        `json:"areaM2"`         // хилийн shapefile-аас; хилгүй бол nil
+	Existing       bool            `json:"existing"`       // өмнө импортоор орсон чөлөөлөлт
+	Issues         []Issue         `json:"issues"`
+}
+
+// ProjectSettings — «Зөвхөн үнэлгээ»: төсөл (чөлөөлөлт) бүрийн ГАРААР
+// тохируулсан мэдээлэл. Бүгд заавал биш.
+type ProjectSettings struct {
+	Category *CategoryChoice  `json:"category,omitempty"` // ID-аар; nil бол бүтээн байгуулалтын төрлөөс
+	Info     AcquisitionInfo  `json:"info"`
+	Boundary *ProjectBoundary `json:"boundary,omitempty"`
+}
+
+// AcquisitionInfo — чөлөөлөлтийн «Төслийн мэдээлэл» (land_acquisition-ий баганууд).
+type AcquisitionInfo struct {
+	ImplementingOrg  string `json:"implementingOrg"`
+	ResponsibleOrg   string `json:"responsibleOrg"`
+	Reason           string `json:"reason"`
+	StartDate        string `json:"startDate"` // YYYY-MM-DD
+	EndDate          string `json:"endDate"`
+	NithDecreeNumber string `json:"nithDecreeNumber"`
+	GroupListNumber  string `json:"groupListNumber"`
+}
+
+// ProjectBoundary — шалгалт давсан хилийн shapefile (нэг полигон).
+type ProjectBoundary struct {
+	File   string  `json:"file"`
+	WKT    string  `json:"wkt"` // EPSG:4326
+	AreaM2 float64 `json:"areaM2"`
+	Issues []Issue `json:"issues"` // зөвхөн анхааруулга (алдаатай хил хадгалагдахгүй)
 }
 
 type ParcelRef struct {
@@ -238,14 +292,15 @@ type ParcelRef struct {
 }
 
 type ReportView struct {
-	Files                []FileInfo      `json:"files"`
-	Rows                 []ReportViewRow `json:"rows"`
-	ParcelsWithoutReport []ParcelRef     `json:"parcelsWithoutReport"`
-	Stats                ReportStats     `json:"stats"`
-	Errors               int             `json:"errors"`
-	Warnings             int             `json:"warnings"`
-	GusDone              bool            `json:"gusDone"`
-	CanProceed           bool            `json:"canProceed"`
+	Files                []FileInfo         `json:"files"`
+	Rows                 []ReportViewRow    `json:"rows"`
+	ParcelsWithoutReport []ParcelRef        `json:"parcelsWithoutReport"`
+	Projects             []ValuationProject `json:"projects,omitempty"`
+	Stats                ReportStats        `json:"stats"`
+	Errors               int                `json:"errors"`
+	Warnings             int                `json:"warnings"`
+	GusDone              bool               `json:"gusDone"`
+	CanProceed           bool               `json:"canProceed"`
 }
 
 type SummaryAcquisition struct {
@@ -337,6 +392,7 @@ type SessionInfo struct {
 	CreatedAt string          `json:"createdAt"`
 	UpdatedAt string          `json:"updatedAt"`
 	Status    string          `json:"status"`
+	Mode      string          `json:"mode"` // full | valuation
 	Category  *CategoryChoice `json:"category"`
 	Rollback  *RollbackResult `json:"rollback,omitempty"`
 }
@@ -355,6 +411,8 @@ type State struct {
 	Result   *CommitResult `json:"result"`
 	Summary  Summary       `json:"summary"`
 	Job      *Job          `json:"job"`
+	// ProjectSettings — «Зөвхөн үнэлгээ»: төслийн нэр → гараар тохируулсан мэдээлэл.
+	ProjectSettings map[string]ProjectSettings `json:"projectSettings"`
 	// RollbackLog — «Устгах»-ын түүх (устгасан/алгассан/үлдээсэн мөр бүр).
 	RollbackLog []RollbackLogEntry `json:"rollbackLog"`
 }
@@ -365,6 +423,7 @@ type SessionListItem struct {
 	CreatedAt    string `json:"createdAt"`
 	UpdatedAt    string `json:"updatedAt"`
 	Status       string `json:"status"`
+	Mode         string `json:"mode"`
 	Acquisitions int    `json:"acquisitions"`
 	Parcels      int    `json:"parcels"`
 	ReportRows   int    `json:"reportRows"`
