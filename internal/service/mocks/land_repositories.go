@@ -930,6 +930,18 @@ func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, 
 	return m.Called(ctx, ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason).Error(0)
 }
 
+func (m *MockLandAcquisitionRepository) SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error {
+	return m.Called(ctx, workflowID, documentTypeIDs).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, statusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.ParcelStatusRequirement), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error {
 	return m.Called(ctx, parcelID, acquisitionID, statusID, createdBy, reason).Error(0)
 }

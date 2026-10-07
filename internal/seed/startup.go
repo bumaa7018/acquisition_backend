@@ -301,6 +301,23 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewMainSeeder(mainDB).SeedCancelledValuationFiles(ctx)
 			},
 		},
+		{
+			// Migration 000047: шилжилтэд ЗААВАЛ байх хавсралт. Өмнө кодонд
+			// хатуу шаарддаг байсныг (… → Чөлөөлсөн: Үнэлгээний тайлан,
+			// … → Татгалзсан: баримт) өгөгдмөл тохиргоо болгоно.
+			name: "000047_parcel_workflow_required_documents",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedParcelWorkflowRequiredDocuments(ctx)
+			},
+		},
+		{
+			// Migration 000048: «Нөхөх олговор олгосон баримт» төрөл (олголтын
+			// шат 60 / 40 / бүрэн — нэгж талбарын олголтын гүйцэтгэлд тусна).
+			name: "000048_document_types_compensation_paid_receipt",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}

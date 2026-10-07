@@ -754,6 +754,8 @@ func NewRouter(
 			parcelWorkflow.GET("", parcelWorkflowH.List)
 			parcelWorkflow.POST("", middleware.RequirePermission("admin:create"), parcelWorkflowH.Create)
 			parcelWorkflow.DELETE("/:id", middleware.RequirePermission("admin:delete"), parcelWorkflowH.Delete)
+			// Шилжилтэд ЗААВАЛ байх хавсралт.
+			parcelWorkflow.PUT("/:id/required-documents", middleware.RequirePermission("admin:update"), parcelWorkflowH.SetRequiredDocuments)
 		}
 
 		// Газар чөлөөлөлтийн ажлын урсгал
@@ -836,6 +838,9 @@ func NewRouter(
 			middleware.RequirePermission("land:update"), assignedOrSenior, notLocked, fieldStage, parcelWorkflowH.UpdateParcelStatus)
 		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/status-history",
 			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.ListParcelStatusHistory)
+		// Явц солих цонх: тухайн явцад шаардлагатай хавсралт орсон эсэх.
+		protected.GET("/land-acquisitions/:id/parcels/:parcel_id/status-requirements",
+			middleware.RequirePermission("land:read"), assignedOrSenior, parcelWorkflowH.GetStatusRequirements)
 	}
 
 	return r

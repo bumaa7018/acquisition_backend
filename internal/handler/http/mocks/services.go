@@ -585,6 +585,14 @@ func (m *MockLandService) ListParcelDocuments(ctx context.Context, parcelID uuid
 	return args.Get(0).([]*domain.Document), args.Error(1)
 }
 
+func (m *MockLandService) UploadParcelDocumentWithPayment(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int, payment *service.DocumentPayment) (*domain.Document, error) {
+	args := m.Called(ctx, parcelID, filename, displayName, contentType, data, uploadedBy, documentTypeID, payment)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Document), args.Error(1)
+}
+
 func (m *MockLandService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
 	args := m.Called(ctx, parcelID, filename, displayName, contentType, data, uploadedBy, documentTypeID)
 	if args.Get(0) == nil {
@@ -760,8 +768,8 @@ func (m *MockLandService) ListParcelWorkflows(ctx context.Context) ([]*domain.Pa
 	return args.Get(0).([]*domain.ParcelWorkflow), args.Error(1)
 }
 
-func (m *MockLandService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
-	args := m.Called(ctx, fromStatusID, toStatusID, sortOrder)
+func (m *MockLandService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int, documentTypeIDs []int) (*domain.ParcelWorkflow, error) {
+	args := m.Called(ctx, fromStatusID, toStatusID, sortOrder, documentTypeIDs)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -779,6 +787,15 @@ func (m *MockLandService) GetAvailableParcelStatuses(ctx context.Context, curren
 
 func (m *MockLandService) UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange, attachment *service.ParcelStatusAttachment) error {
 	return m.Called(ctx, ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason, attachment).Error(0)
+}
+
+func (m *MockLandService) SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error {
+	return m.Called(ctx, workflowID, documentTypeIDs).Error(0)
+}
+
+func (m *MockLandService) ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, statusID)
+	return args.Get(0).([]domain.ParcelStatusRequirement), args.Error(1)
 }
 
 func (m *MockLandService) ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error) {

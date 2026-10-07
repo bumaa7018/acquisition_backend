@@ -446,6 +446,9 @@ type LandWorkflowRepository interface {
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
 	// UpdateParcelStatus — төлөв солих (түүхийн мөр хавсралттайгаа бичигдэнэ).
 	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error
+	// Шилжилтэд ЗААВАЛ байх хавсралт (тохиргоо ба нэгж талбарын төлөв).
+	SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error
+	ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error)
 	InsertParcelStatusHistory(ctx context.Context, parcelID uuid.UUID, acquisitionID uuid.UUID, statusID int, createdBy, reason string) error
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)

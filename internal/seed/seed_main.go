@@ -200,6 +200,7 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 		  ('valuation_report',       'Үнэлгээний тайлан',                                                       'parcel'),
 		  ('valuation_source',       'Үнэлгээний хүснэгт',                                                      'parcel'),
 		  ('work_photo',             'Ажлын зураг',                                                             'parcel'),
+		  ('compensation_paid_receipt', 'Нөхөх олговор олгосон баримт',                                          'parcel'),
 		  ('other',                  'БУСАД',                                                                   'both')
 		ON CONFLICT (type) DO NOTHING
 	`)

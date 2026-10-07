@@ -20,8 +20,9 @@ import (
 //
 // Эх систем ачааллаас хамгаалагдсан тул БҮХ хүсэлт НЭГ дараалалд орж,
 // хоорондоо Delay (анхдагч 300 миллисекунд) завсарлагатай явна. Зэрэгцээ хүсэлт
-// явуулахгүй. Хариуг санах ойд кэшлэнэ (олдоогүй хариуг ч) — нэг дугаарыг
-// давтан асуухгүй.
+// явуулахгүй. Хариуг санах ойд CacheTTL (анхдагч 24 цаг) хугацаагаар кэшлэнэ
+// (олдоогүй хариуг ч) — тэр хугацаанд нэг дугаарыг давтан асуухгүй, дараа нь
+// ГУС-аас шинээр татна.
 
 // GusConfig — backend-ийн MIDDLEWARE_* тохиргоо.
 type GusConfig struct {
@@ -30,6 +31,8 @@ type GusConfig struct {
 	Password string
 	// Delay — хүсэлт хоорондын завсарлага. 0 бол DefaultGusDelay.
 	Delay time.Duration
+	// CacheTTL — нэгж талбарын хариуг кэшлэх хугацаа. 0 бол DefaultGusCacheTTL.
+	CacheTTL time.Duration
 }
 
 // ErrGusAuth — нэвтрэх эрх татгалзсан; дахин оролдох нь утгагүй.
@@ -92,6 +95,9 @@ type PlanProject struct {
 // DefaultGusDelay — ГУС-ын хүсэлт хоорондын анхдагч завсарлага.
 const DefaultGusDelay = 300 * time.Millisecond
 
+// DefaultGusCacheTTL — ГУС-аас татсан нэгж талбарын мэдээллийг кэшлэх хугацаа.
+const DefaultGusCacheTTL = 24 * time.Hour
+
 type GusHit struct {
 	Source SourceParcel `json:"source"`
 	UsedID string       `json:"usedID"`
@@ -100,6 +106,7 @@ type GusHit struct {
 type gusCacheEntry struct {
 	source *SourceParcel
 	err    error
+	at     time.Time // татсан цаг — CacheTTL-ээс хуучин бол дахин татна
 }
 
 // GusClient — цуварсан, кэштэй ГУС клиент (процесс даяар нэг).
@@ -112,22 +119,32 @@ type GusClient struct {
 
 	cacheMu sync.Mutex
 	cache   map[string]gusCacheEntry
+	now     func() time.Time // тестэд цагийг орлуулна
 }
 
 func NewGusClient(cfg GusConfig) *GusClient {
 	if cfg.Delay <= 0 {
 		cfg.Delay = DefaultGusDelay
 	}
+	if cfg.CacheTTL <= 0 {
+		cfg.CacheTTL = DefaultGusCacheTTL
+	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	return &GusClient{cfg: cfg, http: &http.Client{Timeout: 30 * time.Second}, cache: map[string]gusCacheEntry{}}
+	return &GusClient{cfg: cfg, http: &http.Client{Timeout: 30 * time.Second}, cache: map[string]gusCacheEntry{}, now: time.Now}
 }
 
-// ClearFailures — өмнөх ажлын ТҮР алдааг мартана (амжилттай/олдоогүй хариу үлдэнэ).
+func (e gusCacheEntry) expired(now time.Time, ttl time.Duration) bool {
+	return now.Sub(e.at) >= ttl
+}
+
+// ClearFailures — өмнөх ажлын ТҮР алдааг мартана (амжилттай/олдоогүй хариу
+// CacheTTL хүртэл үлдэнэ). Хугацаа нь дууссан бичлэгийг ч санах ойгоос хасна.
 func (c *GusClient) ClearFailures() {
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
+	now := c.now()
 	for k, v := range c.cache {
-		if v.err != nil {
+		if v.err != nil || v.expired(now, c.cfg.CacheTTL) {
 			delete(c.cache, k)
 		}
 	}
@@ -357,8 +374,11 @@ func (c *GusClient) parcel(ctx context.Context, origin, id string, old bool) (*S
 	key := fmt.Sprintf("%s:%t:%s", origin, old, id)
 	c.cacheMu.Lock()
 	if hit, ok := c.cache[key]; ok {
-		c.cacheMu.Unlock()
-		return hit.source, hit.err
+		if !hit.expired(c.now(), c.cfg.CacheTTL) {
+			c.cacheMu.Unlock()
+			return hit.source, hit.err
+		}
+		delete(c.cache, key) // 24 цагаас хуучин — ГУС-аас шинээр
 	}
 	c.cacheMu.Unlock()
 
@@ -373,7 +393,7 @@ func (c *GusClient) parcel(ctx context.Context, origin, id string, old bool) (*S
 	}
 	if ctx.Err() == nil { // цуцлагдсан хүсэлтийг кэшлэхгүй
 		c.cacheMu.Lock()
-		c.cache[key] = gusCacheEntry{source: src, err: err}
+		c.cache[key] = gusCacheEntry{source: src, err: err, at: c.now()}
 		c.cacheMu.Unlock()
 	}
 	return src, err

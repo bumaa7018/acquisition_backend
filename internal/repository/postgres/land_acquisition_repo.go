@@ -1365,6 +1365,17 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 				       COALESCE(p.acquisition_area_m2,0),
 				       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 				       COALESCE(p.compensation_paid,false),
+				       p.compensation_paid_60, p.compensation_paid_40, p.compensation_paid_full,
+				       p.compensation_paid_60_at, p.compensation_paid_40_at, p.compensation_paid_full_at,
+				       -- Хаягийн НЭР (код биш). Дээд нэгжийн код хоосон бол (ж: хуучин
+				       -- импорт зөвхөн au2_code-той) доод нэгжийн au1_code/au2_code-оор нөхнө.
+				       COALESCE((SELECT a.name FROM au1 a WHERE a.code = COALESCE(NULLIF(p.au1_code, ''),
+				           (SELECT x.au1_code FROM au2 x WHERE x.code = p.au2_code LIMIT 1),
+				           (SELECT x.au1_code FROM au3 x WHERE x.code = p.au3_code LIMIT 1)) LIMIT 1), ''),
+				       COALESCE((SELECT a.name FROM au2 a WHERE a.code = COALESCE(NULLIF(p.au2_code, ''),
+				           (SELECT x.au2_code FROM au3 x WHERE x.code = p.au3_code LIMIT 1)) LIMIT 1), ''),
+				       COALESCE((SELECT a.name FROM au3 a WHERE a.code = p.au3_code LIMIT 1), ''),
+				       COALESCE(p.address_streetname, ''), COALESCE(p.address_khashaa, ''), COALESCE(p.landuse_name, ''),
 				       p.created_at, COALESCE(p.created_by,''),
 				       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0), 0),
 				       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
@@ -1427,6 +1438,10 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			&p.AcquisitionAreaM2,
 			&p.RightType, &p.Landuse, &p.AreaM2,
 			&p.CompensationPaid,
+			&p.CompensationPaid60, &p.CompensationPaid40, &p.CompensationPaidFull,
+			&p.CompensationPaid60At, &p.CompensationPaid40At, &p.CompensationPaidFullAt,
+			&p.AU1Name, &p.AU2Name, &p.AU3Name,
+			&p.AddressStreet, &p.AddressKhashaa, &p.LanduseName,
 			&p.CreatedAt, &p.CreatedBy,
 			&remainingAreaM2,
 			&p.DbChanged, &p.ChangedParcelID,
@@ -1545,6 +1560,8 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 				COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
 				COALESCE(p.status,0), COALESCE(ps.name,''),
 				p.independent_org_id, p.selected_valuation_type,
+				p.compensation_paid_60, p.compensation_paid_40, p.compensation_paid_full,
+				p.compensation_paid_60_at, p.compensation_paid_40_at, p.compensation_paid_full_at,
 				p.estimated_value, p.estimated_value_at, COALESCE(p.estimated_value_by,''), p.estimated_confidence_percent, p.estimated_base_fee_per_m2,
 			COALESCE(pd.right_type,0),
 			COALESCE(pd.app_no,''), pd.app_timestamps, COALESCE(pd.app_type,''), COALESCE(pd.app_status,''),
@@ -1577,6 +1594,8 @@ func (r *landAcqRepo) GetParcelDetailByID(ctx context.Context, id uuid.UUID) (*d
 		&pf.DbChanged, &pf.ChangedParcelID,
 		&pf.StatusID, &pf.StatusName,
 		&pf.IndependentOrgID, &pf.SelectedValuationType,
+		&pf.CompensationPaid60, &pf.CompensationPaid40, &pf.CompensationPaidFull,
+		&pf.CompensationPaid60At, &pf.CompensationPaid40At, &pf.CompensationPaidFullAt,
 		&pf.EstimatedValue, &pf.EstimatedValueAt, &pf.EstimatedValueBy, &pf.EstimatedConfidencePercent, &pf.EstimatedBaseFeePerM2,
 		&d.RightType,
 		&d.AppNo, &d.AppTimestamps, &d.AppType, &d.AppStatus,
@@ -3017,6 +3036,8 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       COALESCE(p.acquisition_area_m2,0),
 		       COALESCE(p.right_type,0), COALESCE(p.landuse,''), COALESCE(p.area_m2,0),
 		       COALESCE(p.compensation_paid,false),
+		       p.compensation_paid_60, p.compensation_paid_40, p.compensation_paid_full,
+		       p.compensation_paid_60_at, p.compensation_paid_40_at, p.compensation_paid_full_at,
 		       p.created_at, COALESCE(p.created_by,''),
 		       COALESCE(p.status,0), COALESCE(ps.name,''),
 		       COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,''),
@@ -3051,6 +3072,8 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			&gp.AcquisitionAreaM2,
 			&gp.RightType, &gp.Landuse, &gp.AreaM2,
 			&gp.CompensationPaid,
+			&gp.CompensationPaid60, &gp.CompensationPaid40, &gp.CompensationPaidFull,
+			&gp.CompensationPaid60At, &gp.CompensationPaid40At, &gp.CompensationPaidFullAt,
 			&gp.CreatedAt, &gp.CreatedBy,
 			&gp.StatusID, &gp.StatusName,
 			&gp.AcquisitionName, &gp.PlanCode,
@@ -3473,7 +3496,7 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 		SELECT d.id, d.name, d.file_type, d.file_url, d.size_bytes, COALESCE(d.note,''), d.uploaded_by, d.uploaded_at,
 		       COALESCE(d.document_type_id, 0),
 		       COALESCE(d.source_doc_id, ''), COALESCE(d.source_ftp_id, ''),
-		       COALESCE(d.source_doc_code, '')
+		       COALESCE(d.source_doc_code, ''), COALESCE(d.payment_stage, 0), d.payment_date
 		FROM document d
 		JOIN parcel_document pd ON pd.document_id = d.id
 		WHERE pd.parcel_id = $1
@@ -3487,7 +3510,7 @@ func (r *landAcqRepo) ListParcelDocuments(ctx context.Context, parcelID uuid.UUI
 	for rows.Next() {
 		d := &domain.Document{}
 		if err := rows.Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.Note, &d.UploadedBy, &d.UploadedAt, &d.DocumentTypeID,
-			&d.SourceDocID, &d.SourceFtpID, &d.SourceDocCode); err != nil {
+			&d.SourceDocID, &d.SourceFtpID, &d.SourceDocCode, &d.PaymentStage, &d.PaymentDate); err != nil {
 			return nil, err
 		}
 		result = append(result, d)
@@ -3503,22 +3526,61 @@ func (r *landAcqRepo) AddParcelDocument(ctx context.Context, parcelID uuid.UUID,
 	// гэхээр "баталгаажсаны дараа хавсаргана" гэж татгалздаг байв. Тайлан нь
 	// бусад баримттай ижил дүрмээр орно; хэн, хэзээ хавсаргахыг маршрутын
 	// эрх (профайлын гишүүнчлэл) ба дэлгэцийн төлөв шийднэ.
-	ct, err := r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	ct, err := tx.Exec(ctx, `
 		WITH ins AS (
-			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at, document_type_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0))
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note, uploaded_by, uploaded_at, document_type_id, payment_stage, payment_date)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($10::int, 0), NULLIF($11::int, 0), $12::date)
 			RETURNING id
 		)
 		INSERT INTO parcel_document (parcel_id, document_id)
 		SELECT $9, id FROM ins
-	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, parcelID, doc.DocumentTypeID)
+	`, doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note, doc.UploadedBy, doc.UploadedAt, parcelID, doc.DocumentTypeID, doc.PaymentStage, doc.PaymentDate)
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	if doc.PaymentStage > 0 {
+		if err := syncParcelCompensationPaid(ctx, tx, parcelID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// syncParcelCompensationPaid — нэгж талбарын олговрын олголтын гүйцэтгэлийг
+// (60 / 40 / бүрэн) түүнд холбогдсон «Нөхөх олговор олгосон баримт»-уудын
+// шатаас ДАХИН бодно. Баримт нэмэх/устгахтай НЭГ гүйлгээнд дуудна.
+func syncParcelCompensationPaid(ctx context.Context, tx pgx.Tx, parcelID uuid.UUID) error {
+	// Огноо нь тухайн шатны СҮҮЛИЙН (хамгийн хожуу) баримтынх.
+	_, err := tx.Exec(ctx, `
+		WITH st AS (
+			SELECT
+				bool_or(d.payment_stage = 60)  AS p60,
+				bool_or(d.payment_stage = 40)  AS p40,
+				bool_or(d.payment_stage = 100) AS pfull,
+				max(d.payment_date) FILTER (WHERE d.payment_stage = 60)  AS d60,
+				max(d.payment_date) FILTER (WHERE d.payment_stage = 40)  AS d40,
+				max(d.payment_date) FILTER (WHERE d.payment_stage = 100) AS dfull
+			FROM parcel_document pd JOIN document d ON d.id = pd.document_id
+			WHERE pd.parcel_id = $1 AND d.payment_stage IS NOT NULL
+		)
+		UPDATE parcel p SET
+			compensation_paid_60      = COALESCE(st.p60, false),
+			compensation_paid_40      = COALESCE(st.p40, false),
+			compensation_paid_full    = COALESCE(st.pfull, false),
+			compensation_paid_60_at   = st.d60,
+			compensation_paid_40_at   = st.d40,
+			compensation_paid_full_at = st.dfull
+		FROM st
+		WHERE p.id = $1`, parcelID)
+	return err
 }
 
 // AddSourceParcelDocuments — эх системээс татсан хавсралтуудыг бүртгэнэ.
@@ -3619,21 +3681,34 @@ func (r *landAcqRepo) DeleteAcquisitionDocument(ctx context.Context, acquisition
 }
 
 func (r *landAcqRepo) DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error {
-	ct, err := r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var stage int
+	err = tx.QueryRow(ctx, `
 		DELETE FROM document d
 		WHERE d.id = $1
 		  AND EXISTS (
 		      SELECT 1 FROM parcel_document pd
 		      WHERE pd.document_id = d.id AND pd.parcel_id = $2
 		  )
-	`, documentID, parcelID)
+		RETURNING COALESCE(d.payment_stage, 0)
+	`, documentID, parcelID).Scan(&stage)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
 	if err != nil {
 		return err
 	}
-	if ct.RowsAffected() == 0 {
-		return domain.ErrNotFound
+	// «Нөхөх олговор олгосон баримт» уствал олголтын гүйцэтгэл дагаж шинэчлэгдэнэ.
+	if stage > 0 {
+		if err := syncParcelCompensationPaid(ctx, tx, parcelID); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // GetParcelDocument — баримтыг ТУХАЙН нэгж талбарт холбогдсон эсэхийг нь
@@ -5669,7 +5744,21 @@ func (r *landAcqRepo) ListParcelWorkflows(ctx context.Context) ([]*domain.Parcel
 		}
 		list = append(list, w)
 	}
-	return list, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	docs, err := r.workflowRequiredDocs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range list {
+		w.RequiredDocuments = docs[w.ID]
+		if w.RequiredDocuments == nil {
+			w.RequiredDocuments = []domain.RequiredDocument{}
+		}
+	}
+	return list, nil
 }
 
 func (r *landAcqRepo) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
@@ -5687,6 +5776,7 @@ func (r *landAcqRepo) CreateParcelWorkflow(ctx context.Context, fromStatusID *in
 		_ = r.db.QueryRow(ctx, `SELECT name FROM parcel_status WHERE id = $1`, *w.FromStatusID).Scan(&w.FromStatusName)
 	}
 	_ = r.db.QueryRow(ctx, `SELECT name FROM parcel_status WHERE id = $1`, w.ToStatusID).Scan(&w.ToStatusName)
+	w.RequiredDocuments = []domain.RequiredDocument{}
 	return w, nil
 }
 
@@ -5726,7 +5816,9 @@ func (r *landAcqRepo) GetAvailableParcelStatuses(ctx context.Context, currentSta
 
 func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error {
 	parcelID, acquisitionID, statusID := ch.ParcelID, ch.AcquisitionID, ch.StatusID
-	// "Чөлөөлсөн" болгохын өмнө үнэлгээний тайлан байгаа эсэхийг шалгана
+	// "Чөлөөлсөн" болгохын өмнө сонгосон урсгалын олговор ЗӨВШӨӨРӨГДСӨН байх
+	// ёстой. Үнэлгээний ТАЙЛАН (хавсралт) нь «Нэгж ажлын урсгал»-ын тохиргоогоор
+	// (parcel_status_required_document) шалгагдана — service.UpdateParcelStatus.
 	var statusName string
 	_ = r.db.QueryRow(ctx, `SELECT COALESCE(name,'') FROM parcel_status WHERE id=$1`, statusID).Scan(&statusName)
 	if statusName == "Чөлөөлсөн" {
@@ -5734,11 +5826,7 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, ch domain.ParcelSt
 		if err := r.db.QueryRow(ctx, `SELECT parcel_id FROM parcel WHERE id=$1`, parcelID).Scan(&parcelCode); err != nil {
 			return domain.ErrNotFound
 		}
-		var hasReport bool
-		// Сонгосон урсгалын зөвшөөрөгдсөн олговортой БӨГӨӨД үнэлгээний тайлан
-		// хавсаргагдсан байхыг шаардана. Тайлан нь "Хөрөнгийн үнэлгээний тайлан"
-		// (valuation_report) төрлийн parcel document (шинэ флоу) эсвэл олговрын
-		// valuation_report_url (хуучин өгөгдөл) байж болно.
+		var approved bool
 		_ = r.db.QueryRow(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM compensation c
@@ -5746,22 +5834,8 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, ch domain.ParcelSt
 				WHERE c.acquisition_id=$1 AND c.parcel_id=$2
 				AND c.status='approved'
 				AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-			) AND (
-				EXISTS(
-					SELECT 1 FROM parcel_document pd
-					JOIN document d ON d.id = pd.document_id
-					JOIN document_type dt ON dt.id = d.document_type_id
-					WHERE pd.parcel_id=$3 AND dt.type='valuation_report'
-				)
-				OR EXISTS(
-					SELECT 1 FROM compensation c
-					JOIN parcel p ON p.parcel_id = c.parcel_id AND p.acquisition_id = c.acquisition_id
-					WHERE c.acquisition_id=$1 AND c.parcel_id=$2
-					AND c.status='approved' AND c.valuation_report_url<>''
-					AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')
-				)
-			)`, acquisitionID, parcelCode, parcelID).Scan(&hasReport)
-		if !hasReport {
+			)`, acquisitionID, parcelCode).Scan(&approved)
+		if !approved {
 			return domain.ErrValuationReportRequired
 		}
 	}

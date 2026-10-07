@@ -3613,12 +3613,47 @@ func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
 		return
 	}
 	// filename нь өргөтгөл тодорхойлоход, name нь дэлгэцийн нэрэнд ашиглагдана
-	doc, err := h.svc.UploadParcelDocument(c.Request.Context(), parcelID, fh.Filename, c.PostForm("name"), contentType, data, uploadedBy, documentTypeID)
+	payment, err := documentPaymentFromForm(c)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	doc, err := h.svc.UploadParcelDocumentWithPayment(c.Request.Context(), parcelID, fh.Filename, c.PostForm("name"), contentType, data, uploadedBy, documentTypeID, payment)
 	if err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.Created(c, toDocumentResponse(doc))
+}
+
+// documentPaymentFromForm — «Нөхөх олговор олгосон баримт»-ын олголтын шат
+// (payment_stage: 60 | 40 | full) ба огноо (payment_date: YYYY-MM-DD). Шатгүй
+// бол nil. Төрөлтэй нийцэх эсэхийг service шалгана.
+func documentPaymentFromForm(c *gin.Context) (*service.DocumentPayment, error) {
+	raw := strings.TrimSpace(c.PostForm("payment_stage"))
+	if raw == "" {
+		return nil, nil
+	}
+	var stage int
+	switch raw {
+	case "60":
+		stage = domain.PaymentStage60
+	case "40":
+		stage = domain.PaymentStage40
+	case "100", "full":
+		stage = domain.PaymentStageFull
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+	payment := &service.DocumentPayment{Stage: stage}
+	if d := strings.TrimSpace(c.PostForm("payment_date")); d != "" {
+		t, err := time.Parse("2006-01-02", d)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		payment.Date = &t
+	}
+	return payment, nil
 }
 
 func documentTypeIDFromForm(c *gin.Context) (int, error) {

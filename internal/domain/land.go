@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"time"
@@ -628,6 +629,8 @@ type ParcelWorkflow struct {
 	FromStatusName string `json:"from_status_name"`
 	ToStatusName   string `json:"to_status_name"`
 	SortOrder      int    `json:"sort_order"`
+	// RequiredDocuments — энэ шилжилтэд ЗААВАЛ байх хавсралт (хоосон = шаардлагагүй).
+	RequiredDocuments []RequiredDocument `json:"required_documents"`
 }
 
 // AcquisitionWorkflow — газар чөлөөлөлтийн ажлын урсгалын шилжилт
@@ -917,38 +920,50 @@ type ParcelFilter struct {
 
 // Parcel — нэгж талбар (main DB-д хадгалагдана)
 type Parcel struct {
-	ID                    uuid.UUID
-	ParcelID              string
-	OldParcelID           string
-	AcquisitionID         uuid.UUID
-	ValidFrom             *time.Time
-	ValidTill             *time.Time
-	AU1Code               string
-	AU2Code               string
-	AU3Code               string
-	GeometryWKT           string
-	AcquisitionGeomWKT    string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
-	AcquisitionAreaM2     float64 // давхцах хэсгийн талбай (м²)
-	RemainingAreaM2       *float64
-	RightType             int
-	Landuse               string
-	LanduseName           string
-	AreaM2                float64
-	AddressKhashaa        string
-	AddressStreet         string
-	PropertyNo            string
-	CompensationPaid      bool
-	DbChanged             string
-	ChangedParcelID       string
-	StatusID              int
-	StatusName            string
-	IndependentOrgID      *ID
-	IndependentOrgName    string
-	SelectedValuationType *string           // санхүү зөвшөөрсөн үндсэн үнэлгээний урсгал (asset/independent/mika)
-	ValuationStatuses     map[string]string // урсгал бүрийн илгээх төлөв: valuation_type → draft|submitted|approved|returned
-	CashAmount            float64
-	LandGrantAmount       float64
-	LandGrantCount        int
+	ID            uuid.UUID
+	ParcelID      string
+	OldParcelID   string
+	AcquisitionID uuid.UUID
+	ValidFrom     *time.Time
+	ValidTill     *time.Time
+	AU1Code       string
+	AU2Code       string
+	AU3Code       string
+	// AU1Name..AU3Name — засаг захиргааны нэгжийн НЭР (au1/au2/au3); жагсаалтын «Хаяг».
+	AU1Name            string
+	AU2Name            string
+	AU3Name            string
+	GeometryWKT        string
+	AcquisitionGeomWKT string  // чөлөөлөлтийн бүстэй давхцах хэсгийн геометр
+	AcquisitionAreaM2  float64 // давхцах хэсгийн талбай (м²)
+	RemainingAreaM2    *float64
+	RightType          int
+	Landuse            string
+	LanduseName        string
+	AreaM2             float64
+	AddressKhashaa     string
+	AddressStreet      string
+	PropertyNo         string
+	CompensationPaid   bool
+	// Нөхөх олговрын олголтын гүйцэтгэл — «Нөхөх олговор олгосон баримт»-аас.
+	CompensationPaid60   bool
+	CompensationPaid40   bool
+	CompensationPaidFull bool
+	// Тухайн шатыг олгосон огноо (сүүлийн баримтын payment_date); олгоогүй бол nil.
+	CompensationPaid60At   *time.Time
+	CompensationPaid40At   *time.Time
+	CompensationPaidFullAt *time.Time
+	DbChanged              string
+	ChangedParcelID        string
+	StatusID               int
+	StatusName             string
+	IndependentOrgID       *ID
+	IndependentOrgName     string
+	SelectedValuationType  *string           // санхүү зөвшөөрсөн үндсэн үнэлгээний урсгал (asset/independent/mika)
+	ValuationStatuses      map[string]string // урсгал бүрийн илгээх төлөв: valuation_type → draft|submitted|approved|returned
+	CashAmount             float64
+	LandGrantAmount        float64
+	LandGrantCount         int
 	// HolderName — ГАЗАР ӨМЧЛӨГЧ/ЭЗЭМШИГЧийн бүтэн нэр (овог + нэр).
 	//
 	// Нэг нэгж талбар дээр ОЛОН эзэмшигч байж болох тул энэ нь ҮНДСЭН хүсэлт
@@ -1228,6 +1243,47 @@ type Document struct {
 	// "11"=Кадастрын зураг). Хавсралтыг бүлэглэхэд ашиглана. Гараар оруулсан
 	// дээр хоосон. document_type_id-тай ХАМААРАЛГҮЙ — дугаарлалт нь өөр.
 	SourceDocCode string
+	// PaymentStage — «Нөхөх олговор олгосон баримт»-ын олголтын шат:
+	// 60 | 40 | 100 (бүрэн); бусад баримтад 0.
+	PaymentStage int
+	// PaymentDate — олговор олгосон огноо (PaymentStage-тэй хамт).
+	PaymentDate *time.Time
+}
+
+// Нөхөх олговор олгосон баримт — олголтын шат (document.payment_stage).
+const (
+	CompensationReceiptDocType = "compensation_paid_receipt"
+	PaymentStage60             = 60
+	PaymentStage40             = 40
+	PaymentStageFull           = 100
+)
+
+// ValidPaymentStage — 60 | 40 | 100 (бүрэн).
+func ValidPaymentStage(stage int) bool {
+	return stage == PaymentStage60 || stage == PaymentStage40 || stage == PaymentStageFull
+}
+
+// PaymentStageSuffix — баримтын нэрийн ард залгах тэмдэглэгээ: " /60%/", " /бүрэн/".
+func PaymentStageSuffix(stage int) string {
+	if stage == PaymentStageFull {
+		return " /бүрэн/"
+	}
+	return fmt.Sprintf(" /%d%%/", stage)
+}
+
+// CompensationPaidPercent — олгосон хувь: бүрэн бол 100, эс бөгөөс 60 + 40-ийн нийлбэр.
+func CompensationPaidPercent(paid60, paid40, full bool) int {
+	if full {
+		return 100
+	}
+	pct := 0
+	if paid60 {
+		pct += 60
+	}
+	if paid40 {
+		pct += 40
+	}
+	return pct
 }
 
 // DocumentFile — татаж/харуулахаар нээсэн файлын урсгал. Дуудагч Content-ийг

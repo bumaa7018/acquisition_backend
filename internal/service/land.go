@@ -162,6 +162,9 @@ type LandDocumentService interface {
 	ListParcelEMongoliaNotices(ctx context.Context, parcelID uuid.UUID) ([]domain.ParcelEMongoliaNotice, error)
 	ListParcelDocuments(ctx context.Context, parcelID uuid.UUID) ([]*domain.Document, error)
 	UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error)
+	// UploadParcelDocumentWithPayment — «Нөхөх олговор олгосон баримт»-д олголтын
+	// шат (60 | 40 | 100) ба огноотой; бусад төрөлд payment нь nil байна.
+	UploadParcelDocumentWithPayment(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int, payment *DocumentPayment) (*domain.Document, error)
 	DeleteParcelDocument(ctx context.Context, parcelID, documentID uuid.UUID) error
 	// SyncParcelDocuments — эх системээс хавсралт татах. ЗӨВХӨН ШИНИЙГ нэмнэ.
 	SyncParcelDocuments(ctx context.Context, acquisitionID uuid.UUID, parcelCode string, roles []string) (*domain.ParcelDocumentSyncResult, error)
@@ -200,12 +203,18 @@ type LandAssigneeService interface {
 
 type LandWorkflowService interface {
 	ListParcelWorkflows(ctx context.Context) ([]*domain.ParcelWorkflow, error)
-	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error)
+	// CreateParcelWorkflow — шилжилт ба түүнд ЗААВАЛ байх хавсралт (documentTypeIDs, заавал биш).
+	CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int, documentTypeIDs []int) (*domain.ParcelWorkflow, error)
 	DeleteParcelWorkflow(ctx context.Context, id int) error
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
-	// UpdateParcelStatus — төлөв солих. attachment нь "Татгалзсан" үед ЗААВАЛ
-	// (эрхийн төрлөөр биш ТӨЛӨВӨӨР шийдэгдэнэ), бусад төлөвт заавал биш.
+	// UpdateParcelStatus — төлөв солих. Тухайн төлөвт тохируулсан заавал
+	// хавсралт нэгж талбарт байхгүй бол шилжихгүй; attachment нь тэр дутуу
+	// хавсралтыг нөхөж болно (бусад үед заавал биш).
 	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment) error
+	// SetParcelWorkflowRequiredDocuments — шилжилтэд ЗААВАЛ байх хавсралтыг солино.
+	SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error
+	// ParcelStatusRequirements — нэгж талбарт шаардлагатай хавсралт бүр орсон эсэх.
+	ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error)
 	ListParcelStatusHistory(ctx context.Context, parcelID uuid.UUID) ([]*domain.ParcelStatusHistory, error)
 	GetValuationSubmission(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string) (*domain.ValuationSubmission, error)
 	// TransitionValuationSubmission — submit | approve | return.

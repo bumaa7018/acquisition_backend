@@ -78,6 +78,8 @@ func TestLandService_ParcelStatusNotification_SplitsRecipientSources(t *testing.
 	spy := newNotifySpy()
 	svc := service.NewLandService(landRepo, nil, nil, service.NotificationService(spy))
 
+	landRepo.On("ParcelStatusRequirements", mock.Anything, acqID, parcelPK, domain.ParcelStatusEvaluating).
+		Return([]domain.ParcelStatusRequirement{}, nil)
 	landRepo.On("UpdateParcelStatus", mock.Anything, parcelPK, acqID,
 		domain.ParcelStatusEvaluating, "41", "").Return(nil)
 	landRepo.On("GetParcelByID", mock.Anything, parcelPK).Return(&domain.Parcel{

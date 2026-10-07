@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -535,6 +536,19 @@ func (s *landService) GetDocumentType(ctx context.Context, id int) (*domain.Docu
 }
 
 func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int) (*domain.Document, error) {
+	return s.UploadParcelDocumentWithPayment(ctx, parcelID, filename, displayName, contentType, data, uploadedBy, documentTypeID, nil)
+}
+
+// DocumentPayment — «Нөхөх олговор олгосон баримт»-ын олголтын шат ба огноо.
+type DocumentPayment struct {
+	Stage int        // 60 | 40 | 100 (бүрэн)
+	Date  *time.Time // олгосон огноо; nil бол өнөөдөр
+}
+
+// paymentDateTolerance — ирээдүйн огноог хориглоно (цагийн бүсийн зөрүүнд 1 хоног).
+const paymentDateTolerance = 24 * time.Hour
+
+func (s *landService) UploadParcelDocumentWithPayment(ctx context.Context, parcelID uuid.UUID, filename, displayName, contentType string, data []byte, uploadedBy string, documentTypeID int, payment *DocumentPayment) (*domain.Document, error) {
 	// Физик нэр: <нэгж талбарын дугаар>_<төрлийн код>.<өргөтгөл>
 	var dt *domain.DocumentType
 	storedFilename := filename
@@ -557,6 +571,29 @@ func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UU
 		}
 		storedFilename = buildDocumentFileName(parcel.ParcelID, dt, filename, docs)
 	}
+	// «Нөхөх олговор олгосон баримт» — олголтын шат ЗААВАЛ (60 | 40 | бүрэн),
+	// огноо нь өгөгдөөгүй бол өнөөдөр. Бусад төрөлд шат хүлээж авахгүй.
+	isReceipt := dt != nil && dt.Type == domain.CompensationReceiptDocType
+	var stage int
+	var paidAt *time.Time
+	switch {
+	case isReceipt:
+		if payment == nil || !domain.ValidPaymentStage(payment.Stage) {
+			return nil, domain.ErrInvalidInput
+		}
+		stage = payment.Stage
+		day := time.Now()
+		if payment.Date != nil {
+			if payment.Date.After(time.Now().Add(paymentDateTolerance)) {
+				return nil, domain.ErrInvalidInput
+			}
+			day = *payment.Date
+		}
+		day = time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
+		paidAt = &day
+	case payment != nil && payment.Stage != 0:
+		return nil, domain.ErrInvalidInput
+	}
 	// Archived reports retain their object URL after the live document is removed.
 	unique := dt == nil || dt.Type == "valuation_report"
 	stored, err := s.files.Save(ctx, "parcel", parcelID.String(), storedFilename, contentType, data, unique)
@@ -565,13 +602,15 @@ func (s *landService) UploadParcelDocument(ctx context.Context, parcelID uuid.UU
 	}
 	doc := &domain.Document{
 		ID:             uuid.New(),
-		Name:           documentDisplayName(displayName, dt, stored.Name),
+		Name:           paymentDisplayName(documentDisplayName(displayName, dt, stored.Name), stage),
 		FileType:       stored.Type,
 		FileURL:        stored.URL,
 		SizeBytes:      stored.SizeBytes,
 		UploadedBy:     uploadedBy,
 		UploadedAt:     time.Now(),
 		DocumentTypeID: documentTypeID,
+		PaymentStage:   stage,
+		PaymentDate:    paidAt,
 	}
 	if err := s.landRepo.AddParcelDocument(ctx, parcelID, doc); err != nil {
 		_ = s.files.Delete(ctx, stored.URL)
@@ -609,4 +648,16 @@ func (s *landService) ensureCompensationInAcquisition(ctx context.Context, acqui
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// paymentStageSuffix — нэрийн төгсгөл дэх « /60%/», « /бүрэн/» тэмдэглэгээ.
+var paymentStageSuffix = regexp.MustCompile(`\s*/(\d{1,3}%|бүрэн)/\s*$`)
+
+// paymentDisplayName — «Нөхөх олговор олгосон баримт /60%/»: сонгосон шатыг
+// нэрийн ард залгана (хэрэглэгч гараас бичсэн хуучин тэмдэглэгээг сольж).
+func paymentDisplayName(name string, stage int) string {
+	if stage == 0 {
+		return name
+	}
+	return strings.TrimSpace(paymentStageSuffix.ReplaceAllString(name, "")) + domain.PaymentStageSuffix(stage)
 }

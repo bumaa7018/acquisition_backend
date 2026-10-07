@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -60,6 +61,8 @@ func (h *ParcelWorkflowHandler) Create(c *gin.Context) {
 		FromStatusID *int `json:"from_status_id"`
 		ToStatusID   int  `json:"to_status_id"`
 		SortOrder    int  `json:"sort_order"`
+		// DocumentTypeIDs — энэ шилжилтэд ЗААВАЛ байх хавсралт (заавал биш).
+		DocumentTypeIDs []int `json:"document_type_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -69,7 +72,7 @@ func (h *ParcelWorkflowHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "to_status_id required"})
 		return
 	}
-	w, err := h.svc.CreateParcelWorkflow(c.Request.Context(), req.FromStatusID, req.ToStatusID, req.SortOrder)
+	w, err := h.svc.CreateParcelWorkflow(c.Request.Context(), req.FromStatusID, req.ToStatusID, req.SortOrder, req.DocumentTypeIDs)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -184,8 +187,20 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 				response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 				return
 			}
+			// document_type_id — хавсралтын төрөл (заавал биш). Явцад заавал
+			// хавсралт тохируулсан бол тэр төрлөөр бүртгэгдэж шаардлагыг хангана.
+			var docTypeID int
+			if raw := strings.TrimSpace(c.PostForm("document_type_id")); raw != "" {
+				n, err := strconv.Atoi(raw)
+				if err != nil || n < 0 {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "document_type_id буруу"})
+					return
+				}
+				docTypeID = n
+			}
 			attachment = &service.ParcelStatusAttachment{
-				Filename: fh.Filename,
+				DocumentTypeID: docTypeID,
+				Filename:       fh.Filename,
 				// file_name — хэрэглэгчийн засварласан ХАРАГДАХ нэр (заавал биш).
 				DisplayName: strings.TrimSpace(c.PostForm("file_name")),
 				ContentType: contentType,
@@ -216,10 +231,80 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		Reason:        reason,
 	}, attachment)
 	if err != nil {
+		requiredDocumentsError(c, err)
+		return
+	}
+	response.OK(c, gin.H{"message": "ok"})
+}
+
+// requiredDocumentsError — дутуу заавал хавсралтыг НЭРСТЭЙ нь 422 болгоно;
+// бусад алдаа ердийн замаар.
+func requiredDocumentsError(c *gin.Context, err error) {
+	var missing *domain.RequiredDocumentsMissingError
+	if errors.As(err, &missing) {
+		msg := missing.Error()
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, response.Response{
+			Code: http.StatusUnprocessableEntity, Error: msg, Message: msg,
+		})
+		return
+	}
+	response.Error(c, err)
+}
+
+// SetRequiredDocuments — шилжилтийн заавал хавсралтыг БҮХЭЛД нь солино.
+// Body: {"document_type_ids": [1, 2]} (хоосон = шаардлагагүй).
+func (h *ParcelWorkflowHandler) SetRequiredDocuments(c *gin.Context) {
+	workflowID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || workflowID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		DocumentTypeIDs []int `json:"document_type_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.svc.SetParcelWorkflowRequiredDocuments(c.Request.Context(), workflowID, req.DocumentTypeIDs); err != nil {
 		response.Error(c, err)
 		return
 	}
 	response.OK(c, gin.H{"message": "ok"})
+}
+
+// GetStatusRequirements — нэгж талбарыг ?status_id=-д шилжүүлэхэд шаардлагатай
+// хавсралт бүр орсон эсэх (явц солих цонхонд).
+func (h *ParcelWorkflowHandler) GetStatusRequirements(c *gin.Context) {
+	parcelID, err := uuid.Parse(c.Param("parcel_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid acquisition_id"})
+		return
+	}
+	statusID, err := strconv.Atoi(c.Query("status_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status_id required"})
+		return
+	}
+	// Нэгж талбар энэ чөлөөлөлтийнх эсэхийг шалгана (GetAvailableStatuses-тэй ижил).
+	if _, err := h.svc.GetParcelDetail(c.Request.Context(), acqID, parcelID); err != nil {
+		response.Error(c, err)
+		return
+	}
+	list, err := h.svc.ParcelStatusRequirements(c.Request.Context(), acqID, parcelID, statusID)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if list == nil {
+		list = []domain.ParcelStatusRequirement{}
+	}
+	response.OK(c, list)
 }
 
 // ── Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв ────────────────────────────

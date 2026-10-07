@@ -13,8 +13,26 @@ func (s *landService) ListParcelWorkflows(ctx context.Context) ([]*domain.Parcel
 	return s.landRepo.ListParcelWorkflows(ctx)
 }
 
-func (s *landService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int) (*domain.ParcelWorkflow, error) {
-	return s.landRepo.CreateParcelWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
+func (s *landService) CreateParcelWorkflow(ctx context.Context, fromStatusID *int, toStatusID int, sortOrder int, documentTypeIDs []int) (*domain.ParcelWorkflow, error) {
+	w, err := s.landRepo.CreateParcelWorkflow(ctx, fromStatusID, toStatusID, sortOrder)
+	if err != nil || len(documentTypeIDs) == 0 {
+		return w, err
+	}
+	// Хавсралт буруу бол (төрөл байхгүй г.м.) шилжилтийг ч үлдээхгүй.
+	if err := s.landRepo.SetParcelWorkflowRequiredDocuments(ctx, w.ID, documentTypeIDs); err != nil {
+		_ = s.landRepo.DeleteParcelWorkflow(ctx, w.ID)
+		return nil, err
+	}
+	all, err := s.landRepo.ListParcelWorkflows(ctx)
+	if err != nil {
+		return w, nil
+	}
+	for _, x := range all {
+		if x.ID == w.ID {
+			return x, nil
+		}
+	}
+	return w, nil
 }
 
 func (s *landService) DeleteParcelWorkflow(ctx context.Context, id int) error {
@@ -25,13 +43,25 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
 }
 
+func (s *landService) SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error {
+	return s.landRepo.SetParcelWorkflowRequiredDocuments(ctx, workflowID, documentTypeIDs)
+}
+
+func (s *landService) ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error) {
+	return s.landRepo.ParcelStatusRequirements(ctx, acquisitionID, parcelID, statusID)
+}
+
 // UpdateParcelStatus — нэгж талбарын төлөв солих.
 //
-// ХАВСРАЛТ: "Татгалзсан" (4) төлөвт шилжихэд ЗААВАЛ. Тэр нь нэгж талбарыг
-// чөлөөлөлтөөс гаргадаг эцсийн шийдвэр бөгөөс дараа нь маргаан гарахад
-// бичвэр шалтгаан хангалтгүй — гэрчлэх баримт (өргөдөл, шүүхийн шийдвэр,
-// комиссын тэмдэглэл) шаардагдана. Шаардлагыг ЭНД (service) шалгана: handler
-// дээр л шалгавал өөр дуудагч (prof маршрут) тойрч гарна.
+// ЗААВАЛ ХАВСРАЛТ: «Нэгж ажлын урсгал»-д тухайн ШИЛЖИЛТЭД (одоогийн төлөв →
+// очих төлөв) тохируулсан хавсралтын төрөл бүр нэгж талбарт (parcel_document)
+// байх ёстой — өгөгдмөл нь «… → Татгалзсан» → «Татгалзсан тухай баримт»,
+// «… → Чөлөөлсөн» → «Үнэлгээний тайлан» (seed 000047). Шаардлагыг ЭНД (service) шалгана: handler дээр л шалгавал өөр
+// дуудагч (prof маршрут) тойрч гарна.
+//
+// attachment нь дутуу хавсралтыг НӨХӨЖ болно: төрөл заагаагүй бөгөөд яг НЭГ
+// төрөл дутуу бол тэр төрлөөр бүртгэгдэнэ (өмнөх клиент «Татгалзсан» үед
+// төрөлгүй файл илгээдэг байсантай нийцнэ).
 //
 // Файл нь НЭГЖ ТАЛБАРЫН БАРИМТ болж бүртгэгдэнэ (parcel_document) — ингэснээр
 // "Хавсралт" хэсэгт бусад баримтын хамт харагдана; түүхэн дээр зөвхөн
@@ -40,8 +70,41 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 func (s *landService) UpdateParcelStatus(
 	ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment,
 ) error {
-	if ch.StatusID == domain.ParcelStatusRejected && attachment == nil {
-		return domain.ErrStatusAttachmentRequired
+	reqs, err := s.landRepo.ParcelStatusRequirements(ctx, ch.AcquisitionID, ch.ParcelID, ch.StatusID)
+	if err != nil {
+		return err
+	}
+	var missing []domain.ParcelStatusRequirement
+	for _, r := range reqs {
+		if !r.Present {
+			missing = append(missing, r)
+		}
+	}
+	// «Нөхөх олговор олгосон баримт»-д олголтын шат (60/40/бүрэн) заавал тул
+	// төрөлгүй файлыг түүгээр автоматаар бүртгэхгүй — хавсралтын хэсгээс оруулна.
+	if attachment != nil && attachment.DocumentTypeID == 0 && len(missing) == 1 &&
+		missing[0].DocumentTypeCode != domain.CompensationReceiptDocType {
+		attachment.DocumentTypeID = missing[0].DocumentTypeID
+	}
+	var stillMissing []string
+	for _, r := range missing {
+		if attachment == nil || attachment.DocumentTypeID != r.DocumentTypeID {
+			stillMissing = append(stillMissing, r.DocumentTypeName)
+		}
+	}
+	if len(stillMissing) > 0 {
+		return &domain.RequiredDocumentsMissingError{Names: stillMissing}
+	}
+	// Тусдаа файл хавсаргаагүй бол түүхэнд ЗААВАЛ хавсралтын холбоосыг
+	// үлдээнэ — «Татгалзсан» шилжилт өмнө нь түүхэн дээрээ баримттай байдаг
+	// байсан (одоо баримтыг цонхноос урьдчилан оруулдаг).
+	if attachment == nil {
+		for _, r := range reqs {
+			if r.Present && r.DocumentURL != "" {
+				ch.AttachmentURL, ch.AttachmentName = r.DocumentURL, r.DocumentName
+				break
+			}
+		}
 	}
 	if attachment != nil {
 		if s.files == nil {
@@ -51,7 +114,7 @@ func (s *landService) UpdateParcelStatus(
 		// Физик файл нь ҮРГЭЛЖ анхны нэрээрээ (өргөтгөлтэй) хадгалагдана —
 		// өргөтгөлгүй нэр тавьбал браузер файлыг зөв нээхээ болино.
 		doc, err := s.UploadParcelDocument(ctx, ch.ParcelID,
-			attachment.Filename, attachment.DisplayName, attachment.ContentType, attachment.Data, ch.CreatedBy, 0)
+			attachment.Filename, attachment.DisplayName, attachment.ContentType, attachment.Data, ch.CreatedBy, attachment.DocumentTypeID)
 		if err != nil {
 			return err
 		}
@@ -78,7 +141,8 @@ func (s *landService) UpdateParcelStatus(
 	return nil
 }
 
-// ParcelStatusAttachment — төлөв солиход хавсаргах файл ("Татгалзсан" үед ЗААВАЛ).
+// ParcelStatusAttachment — төлөв солиход хавсаргах файл (тохируулсан заавал
+// хавсралтыг нөхөж болно).
 //
 // `committed` нь дотоод тэмдэглэгээ: төлөв амжилттай солигдсоны дараа л true
 // болно. Үүнгүй бол шилжилт унасан үед бүртгэгдсэн баримт үлдэнэ.
@@ -89,6 +153,9 @@ type ParcelStatusAttachment struct {
 	DisplayName string
 	ContentType string
 	Data        []byte
+	// DocumentTypeID — баримтын төрөл (0 = заагаагүй; яг нэг заавал хавсралт
+	// дутуу бол тэр төрлийг авна).
+	DocumentTypeID int
 
 	committed bool
 }

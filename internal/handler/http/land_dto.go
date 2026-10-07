@@ -80,11 +80,19 @@ type auResponse struct {
 }
 
 type parcelResponse struct {
-	ID                 string   `json:"id"`
-	ParcelID           string   `json:"parcel_id"`
-	AU1Code            string   `json:"au1_code"`
-	AU2Code            string   `json:"au2_code"`
-	AU3Code            string   `json:"au3_code"`
+	compensationPayment
+	ID       string `json:"id"`
+	ParcelID string `json:"parcel_id"`
+	AU1Code  string `json:"au1_code"`
+	AU2Code  string `json:"au2_code"`
+	AU3Code  string `json:"au3_code"`
+	// Засаг захиргааны нэгжийн нэр — жагсаалтын «Хаяг» (хоосон бол кодоор).
+	AU1Name string `json:"au1_name,omitempty"`
+	AU2Name string `json:"au2_name,omitempty"`
+	AU3Name string `json:"au3_name,omitempty"`
+	// Гудамж, хашаа — жагсаалтын «Хаяг»-т залгана.
+	AddressStreet      string   `json:"address_streetname,omitempty"`
+	AddressKhashaa     string   `json:"address_khashaa,omitempty"`
 	RightType          int      `json:"right_type"`
 	Landuse            string   `json:"landuse"`
 	LanduseName        string   `json:"landuse_name,omitempty"`
@@ -117,6 +125,7 @@ type parcelResponse struct {
 }
 
 type parcelFullResponse struct {
+	compensationPayment
 	ID                    string   `json:"id"`
 	ParcelID              string   `json:"parcel_id"`
 	OldParcelID           string   `json:"old_parcel_id,omitempty"`
@@ -299,10 +308,19 @@ type documentResponse struct {
 	// SourceDocCode — ГУС-ийн баримтын үүргийн код. Хавсралтыг Кадастр/
 	// Төлбөр/Мониторинг гэж бүлэглэхэд хэрэглэнэ. document_type_id-тай ХАМААРАЛГҮЙ.
 	SourceDocCode string `json:"source_doc_code,omitempty"`
+	// PaymentStage, PaymentDate — «Нөхөх олговор олгосон баримт»: 60 | 40 | 100 (бүрэн), олгосон огноо.
+	PaymentStage int     `json:"payment_stage,omitempty"`
+	PaymentDate  *string `json:"payment_date,omitempty"`
 }
 
 func toDocumentResponse(d *domain.Document) documentResponse {
+	var paymentDate *string
+	if d.PaymentDate != nil {
+		v := d.PaymentDate.Format("2006-01-02")
+		paymentDate = &v
+	}
 	return documentResponse{
+		PaymentDate:    paymentDate,
 		ID:             d.ID.String(),
 		Name:           d.Name,
 		FileType:       d.FileType,
@@ -314,6 +332,7 @@ func toDocumentResponse(d *domain.Document) documentResponse {
 		UploadedAt:     d.UploadedAt.Format(time.RFC3339),
 		SourceDocID:    d.SourceDocID,
 		SourceDocCode:  d.SourceDocCode,
+		PaymentStage:   d.PaymentStage,
 	}
 }
 
@@ -445,6 +464,7 @@ type dashboardResponse struct {
 }
 
 type globalParcelResponse struct {
+	compensationPayment
 	ID                string  `json:"id"`
 	ParcelID          string  `json:"parcel_id"`
 	AU1Code           string  `json:"au1_code"`
@@ -755,26 +775,27 @@ func toCompensationHistoryResponse(h *domain.CompensationHistory) compensationHi
 
 func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 	r := globalParcelResponse{
-		ID:                p.ID.String(),
-		ParcelID:          p.ParcelID,
-		AU1Code:           p.AU1Code,
-		AU2Code:           p.AU2Code,
-		AU3Code:           p.AU3Code,
-		RightType:         p.RightType,
-		Landuse:           p.Landuse,
-		AreaM2:            p.AreaM2,
-		AcquisitionAreaM2: p.AcquisitionAreaM2,
-		CompensationPaid:  p.CompensationPaid,
-		Status:            p.StatusID,
-		StatusID:          p.StatusID,
-		StatusName:        p.StatusName,
-		AcquisitionID:     p.AcquisitionID.String(),
-		AcquisitionName:   p.AcquisitionName,
-		PlanCode:          p.PlanCode,
-		AcquisitionStatus: p.AcquisitionStatus,
-		CashAmount:        p.CashAmount,
-		LandGrantAmount:   p.LandGrantAmount,
-		LandGrantCount:    p.LandGrantCount,
+		compensationPayment: toCompensationPayment(&p.Parcel),
+		ID:                  p.ID.String(),
+		ParcelID:            p.ParcelID,
+		AU1Code:             p.AU1Code,
+		AU2Code:             p.AU2Code,
+		AU3Code:             p.AU3Code,
+		RightType:           p.RightType,
+		Landuse:             p.Landuse,
+		AreaM2:              p.AreaM2,
+		AcquisitionAreaM2:   p.AcquisitionAreaM2,
+		CompensationPaid:    p.CompensationPaid,
+		Status:              p.StatusID,
+		StatusID:            p.StatusID,
+		StatusName:          p.StatusName,
+		AcquisitionID:       p.AcquisitionID.String(),
+		AcquisitionName:     p.AcquisitionName,
+		PlanCode:            p.PlanCode,
+		AcquisitionStatus:   p.AcquisitionStatus,
+		CashAmount:          p.CashAmount,
+		LandGrantAmount:     p.LandGrantAmount,
+		LandGrantCount:      p.LandGrantCount,
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format("2006-01-02")
@@ -873,32 +894,38 @@ func toLandAcqResponse(acq *domain.LandAcquisition) landAcquisitionResponse {
 
 func toParcelResponse(p *domain.Parcel) parcelResponse {
 	r := parcelResponse{
-		ID:                 p.ID.String(),
-		ParcelID:           p.ParcelID,
-		AU1Code:            p.AU1Code,
-		AU2Code:            p.AU2Code,
-		AU3Code:            p.AU3Code,
-		RightType:          p.RightType,
-		Landuse:            p.Landuse,
-		LanduseName:        p.LanduseName,
-		AreaM2:             p.AreaM2,
-		AcquisitionAreaM2:  p.AcquisitionAreaM2,
-		RemainingAreaM2:    p.RemainingAreaM2,
-		CompensationPaid:   p.CompensationPaid,
-		DbChanged:          p.DbChanged,
-		ChangedParcelID:    p.ChangedParcelID,
-		StatusID:           p.StatusID,
-		StatusName:         p.StatusName,
-		GeometryWKT:        p.GeometryWKT,
-		IndependentOrgName: p.IndependentOrgName,
-		HolderName:         p.HolderName,
-		HolderCount:        p.HolderCount,
-		HasOverlap:         p.HasOverlap,
-		OverlapCount:       p.OverlapCount,
-		ValuationStatuses:  p.ValuationStatuses,
-		CashAmount:         p.CashAmount,
-		LandGrantAmount:    p.LandGrantAmount,
-		LandGrantCount:     p.LandGrantCount,
+		compensationPayment: toCompensationPayment(p),
+		ID:                  p.ID.String(),
+		ParcelID:            p.ParcelID,
+		AU1Code:             p.AU1Code,
+		AU2Code:             p.AU2Code,
+		AU3Code:             p.AU3Code,
+		AU1Name:             p.AU1Name,
+		AU2Name:             p.AU2Name,
+		AU3Name:             p.AU3Name,
+		AddressStreet:       p.AddressStreet,
+		AddressKhashaa:      p.AddressKhashaa,
+		RightType:           p.RightType,
+		Landuse:             p.Landuse,
+		LanduseName:         p.LanduseName,
+		AreaM2:              p.AreaM2,
+		AcquisitionAreaM2:   p.AcquisitionAreaM2,
+		RemainingAreaM2:     p.RemainingAreaM2,
+		CompensationPaid:    p.CompensationPaid,
+		DbChanged:           p.DbChanged,
+		ChangedParcelID:     p.ChangedParcelID,
+		StatusID:            p.StatusID,
+		StatusName:          p.StatusName,
+		GeometryWKT:         p.GeometryWKT,
+		IndependentOrgName:  p.IndependentOrgName,
+		HolderName:          p.HolderName,
+		HolderCount:         p.HolderCount,
+		HasOverlap:          p.HasOverlap,
+		OverlapCount:        p.OverlapCount,
+		ValuationStatuses:   p.ValuationStatuses,
+		CashAmount:          p.CashAmount,
+		LandGrantAmount:     p.LandGrantAmount,
+		LandGrantCount:      p.LandGrantCount,
 	}
 	if p.IndependentOrgID != nil {
 		s := strconv.FormatInt(int64(*p.IndependentOrgID), 10)
@@ -909,6 +936,7 @@ func toParcelResponse(p *domain.Parcel) parcelResponse {
 
 func toParcelFullResponse(pf *domain.ParcelFull) parcelFullResponse {
 	r := parcelFullResponse{
+		compensationPayment:        toCompensationPayment(&pf.Parcel),
 		Mortgages:                  pf.Mortgages,
 		CourtDecisions:             pf.CourtDecisions,
 		Invoices:                   pf.Invoices,
@@ -1194,4 +1222,35 @@ func timePtrRFC3339(t *time.Time) *string {
 	}
 	v := t.Format(time.RFC3339)
 	return &v
+}
+
+// compensationPayment — нөхөх олговрын олголтын гүйцэтгэл (60 / 40 / бүрэн),
+// «Нөхөх олговор олгосон баримт»-аас бодогдоно.
+type compensationPayment struct {
+	CompensationPaid60      bool    `json:"compensation_paid_60"`
+	CompensationPaid40      bool    `json:"compensation_paid_40"`
+	CompensationPaidFull    bool    `json:"compensation_paid_full"`
+	CompensationPaid60At    *string `json:"compensation_paid_60_at"`
+	CompensationPaid40At    *string `json:"compensation_paid_40_at"`
+	CompensationPaidFullAt  *string `json:"compensation_paid_full_at"`
+	CompensationPaidPercent int     `json:"compensation_paid_percent"`
+}
+
+func toCompensationPayment(p *domain.Parcel) compensationPayment {
+	day := func(t *time.Time) *string {
+		if t == nil {
+			return nil
+		}
+		v := t.Format("2006-01-02")
+		return &v
+	}
+	return compensationPayment{
+		CompensationPaid60:      p.CompensationPaid60,
+		CompensationPaid40:      p.CompensationPaid40,
+		CompensationPaidFull:    p.CompensationPaidFull,
+		CompensationPaid60At:    day(p.CompensationPaid60At),
+		CompensationPaid40At:    day(p.CompensationPaid40At),
+		CompensationPaidFullAt:  day(p.CompensationPaidFullAt),
+		CompensationPaidPercent: domain.CompensationPaidPercent(p.CompensationPaid60, p.CompensationPaid40, p.CompensationPaidFull),
+	}
 }
