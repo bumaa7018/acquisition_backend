@@ -466,9 +466,17 @@ func saveDetail(ctx context.Context, q querier, parcelUUID, acqID string, s *Sou
 	return err
 }
 
-// saveStatusHistory — statusDate хоосон бол өнөөдөр.
+// saveStatusHistory — statusDate хоосон бол өнөөдөр. Эцсийн төлөвөөс ӨМНӨ анхны
+// «Хүлээгдэж буй» түүх (чөлөөлөлт үүсгэсэн өдөр, эсвэл төлөвөөс 1 секундын өмнө).
 func saveStatusHistory(ctx context.Context, q querier, parcelID, acqID string, status int, reason, statusDate string) error {
 	if _, err := q.Exec(ctx, `DELETE FROM parcel_status_history WHERE parcel_id = $1 AND created_by = $2`, parcelID, Actor); err != nil {
+		return err
+	}
+	if _, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
+		SELECT $1, la.id, ps.id, LEAST(la.created_at, COALESCE($4::timestamptz, NOW()) - interval '1 second'), $3, 'Анхны төлөв'
+		  FROM parcel_status ps, land_acquisition la
+		 WHERE ps.code = 'pending' AND la.id = $2::uuid AND ps.id <> $5`,
+		parcelID, acqID, Actor, nullStr(statusDate), status); err != nil {
 		return err
 	}
 	_, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)

@@ -3791,6 +3791,34 @@ func (h *LandHandler) FinanceDashboard(c *gin.Context) {
 	response.OK(c, summary)
 }
 
+// Chronos — «Хронос» цаг хугацааны изометр зургийн өгөгдөл. acquisition_id
+// олон удаа өгч болно; өгөөгүй бол бүх чөлөөлөлт. Гадаад (үнэлгээний
+// байгууллага, санхүү, МИКА) хэрэглэгчийн хамрах хүрээ нарийн тул ЗӨВХӨН дотоод ажилтанд.
+func (h *LandHandler) Chronos(c *gin.Context) {
+	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")
+	if !isSenior && (middleware.IsValuationOrgCaller(c) || isReviewer) {
+		response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
+		return
+	}
+	var ids []uuid.UUID
+	for _, raw := range c.QueryArray("acquisition_id") {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		ids = append(ids, id)
+	}
+	data, err := h.svc.GetChronos(c.Request.Context(), ids)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	// Геометр бүхий хариу хэдэн MB — gzip-ээр шахна.
+	response.OKCompressed(c, data)
+}
+
 func (h *LandHandler) Dashboard(c *gin.Context) {
 	filter := domain.DashboardFilter{
 		AcquisitionID:     c.Query("acquisition_id"),

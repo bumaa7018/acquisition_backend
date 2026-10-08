@@ -334,6 +334,14 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewMainSeeder(mainDB).SeedDecisionReviewUnitsFromRecipients(ctx)
 			},
 		},
+		{
+			// Бүх нэгж талбарт анхны «Хүлээгдэж буй» түүх (хуучин импорт зөвхөн
+			// эцсийн төлөвийг бичдэг байсан).
+			name: "000051_parcel_pending_history",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedParcelPendingHistory(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}

@@ -685,6 +685,14 @@ func (m *MockLandService) OpenParcelDocumentFile(ctx context.Context, parcelID, 
 	return args.Get(0).(*domain.DocumentFile), args.Error(1)
 }
 
+func (m *MockLandService) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
+	args := m.Called(ctx, acqIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ChronosData), args.Error(1)
+}
+
 func (m *MockLandService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
 	args := m.Called(ctx, filter)
 	if args.Get(0) == nil {

@@ -1,9 +1,12 @@
 package response
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/i18n"
@@ -34,6 +37,26 @@ func lang(c *gin.Context) i18n.Lang {
 
 func OK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, Response{
+		Code:    http.StatusOK,
+		Data:    data,
+		Message: i18n.T(lang(c), i18n.MsgOK),
+	})
+}
+
+// OKCompressed — том хариуг (жишээ нь «Хронос»-ын геометр, хэдэн MB) клиент
+// дэмжвэл gzip-ээр шахаж буцаана (JSON ~5-8 дахин багасна); үгүй бол OK.
+func OKCompressed(c *gin.Context, data any) {
+	if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+		OK(c, data)
+		return
+	}
+	c.Header("Content-Encoding", "gzip")
+	c.Header("Vary", "Accept-Encoding")
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	c.Status(http.StatusOK)
+	gz, _ := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+	defer gz.Close()
+	_ = json.NewEncoder(gz).Encode(Response{
 		Code:    http.StatusOK,
 		Data:    data,
 		Message: i18n.T(lang(c), i18n.MsgOK),

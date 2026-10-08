@@ -71,6 +71,7 @@ type LandAcquisitionService interface {
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
+	GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error)
 	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
 	// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт (List-ийн орлуулга).
 	// Бүх нэвтэрсэн хэрэглэгчид нээлттэй — шүүлтгүй.
@@ -2320,6 +2321,10 @@ func dedupeHoldersByRegisterNo(holders []*domain.ParcelHolder) ([]*domain.Parcel
 
 func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error) {
 	return s.landRepo.GetDashboard(ctx, filter)
+}
+
+func (s *landService) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
+	return s.landRepo.GetChronos(ctx, acqIDs)
 }
 
 func (s *landService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {

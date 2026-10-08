@@ -740,6 +740,9 @@ func NewRouter(
 			middleware.RequireAnyPermission("land:read", "compensation:read"),
 			landH.FinanceDashboard)
 
+		// «Хронос» — цаг хугацааны изометр зураг (зөвхөн дотоод ажилтан; handler шалгана).
+		protected.GET("/dashboard/chronos", middleware.RequirePermission("land:read"), landH.Chronos)
+
 		protected.GET("/dashboard",
 			middleware.AllowValuationOrgOr(
 				middleware.RequirePermissionOrRole("land:read", "mika", "finance_specialist")),

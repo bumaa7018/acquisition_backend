@@ -328,6 +328,8 @@ type LandProgressRepository interface {
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
+	// GetChronos — «Хронос» цаг хугацааны изометр зургийн өгөгдөл (acqIDs хоосон = бүгд).
+	GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error)
 }
 
 type LandAssetRepository interface {
