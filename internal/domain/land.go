@@ -773,6 +773,12 @@ type LandAcquisitionOption struct {
 }
 
 // LandAcquisitionAU — чөлөөлөлт ↔ захиргааны нэгж холбоос
+// DashboardLocation — нэг дүүрэг ба түүний хороодын нэр.
+type DashboardLocation struct {
+	District string   `json:"district"`
+	Khoroos  []string `json:"khoroos"`
+}
+
 type LandAcquisitionAU struct {
 	LandAcquisitionID uuid.UUID
 	AU1Code           string
@@ -1954,4 +1960,7 @@ type DashboardSummary struct {
 	FilteredAU1Codes  []string              `json:"filtered_au1_codes"`
 	FilteredAU2Codes  []string              `json:"filtered_au2_codes"`
 	FilteredAU3Codes  []string              `json:"filtered_au3_codes"`
+	// Locations — шүүгдсэн чөлөөлөлтүүдийн байршил: дүүрэг бүр ба түүний
+	// хороод (НЭРЭЭР; land_acquisition_au). Газрын зургийн хураангуйд.
+	Locations []DashboardLocation `json:"locations"`
 }

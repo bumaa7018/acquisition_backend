@@ -461,6 +461,7 @@ type dashboardResponse struct {
 	FilteredAU1Codes  []string                     `json:"filtered_au1_codes"`
 	FilteredAU2Codes  []string                     `json:"filtered_au2_codes"`
 	FilteredAU3Codes  []string                     `json:"filtered_au3_codes"`
+	Locations         []domain.DashboardLocation   `json:"locations"`
 }
 
 type globalParcelResponse struct {

@@ -3866,6 +3866,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		FilteredAU1Codes:  summary.FilteredAU1Codes,
 		FilteredAU2Codes:  summary.FilteredAU2Codes,
 		FilteredAU3Codes:  summary.FilteredAU3Codes,
+		Locations:         summary.Locations,
 	}
 	if isExternalDashboard {
 		res.ValuationStatuses = summary.ValuationStatuses

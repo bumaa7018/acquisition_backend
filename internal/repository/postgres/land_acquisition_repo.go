@@ -5503,8 +5503,14 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	// plan_area_m2-ийг чөлөөлөлтийн жагсаалтаас тооцно. total_orders — баталгаажсан
 	// захирамжийн тоо (захирамжийн төслөөс, чөлөөлөлтөөр хайсан).
 	var planAreaM2 float64
+	listedIDs := make([]uuid.UUID, 0, len(acqR.list))
 	for _, a := range acqR.list {
 		planAreaM2 += a.AreaM2
+		listedIDs = append(listedIDs, a.ID)
+	}
+	locations, err := r.dashboardLocations(ctx, listedIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	return &domain.DashboardSummary{
@@ -5525,7 +5531,41 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		FilteredAU1Codes:  auCodesR.au1,
 		FilteredAU2Codes:  auCodesR.au2,
 		FilteredAU3Codes:  auCodesR.au3,
+		Locations:         locations,
 	}, nil
+}
+
+// dashboardLocations — чөлөөлөлтүүдийн дүүрэг ба хороод НЭРЭЭР (кодыг
+// харуулахгүй — нэргүй мөрийг алгасна). Хороо нь кодын дарааллаар.
+func (r *landAcqRepo) dashboardLocations(ctx context.Context, acqIDs []uuid.UUID) ([]domain.DashboardLocation, error) {
+	out := []domain.DashboardLocation{}
+	if len(acqIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT btrim(au2_name), COALESCE(NULLIF(btrim(au3_name), ''), ''), MIN(au3_code)
+		  FROM land_acquisition_au
+		 WHERE land_acquisition_id = ANY($1) AND btrim(COALESCE(au2_name, '')) <> ''
+		 GROUP BY 1, 2
+		 ORDER BY 1, 3`, acqIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var district, khoroo string
+		var code *string
+		if err := rows.Scan(&district, &khoroo, &code); err != nil {
+			return nil, err
+		}
+		if n := len(out); n == 0 || out[n-1].District != district {
+			out = append(out, domain.DashboardLocation{District: district, Khoroos: []string{}})
+		}
+		if khoroo != "" {
+			out[len(out)-1].Khoroos = append(out[len(out)-1].Khoroos, khoroo)
+		}
+	}
+	return out, rows.Err()
 }
 
 // ── Assignee methods ──────────────────────────────────────────────────────────
