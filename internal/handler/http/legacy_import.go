@@ -73,6 +73,25 @@ func (h *LegacyImportHandler) Categories(c *gin.Context) {
 	response.OK(c, list)
 }
 
+// MatchAttachments — хавтсын PDF-ийн нэрийг (нэгж талбарын дугаар) тулгана.
+// Файлыг энд хүлээж авахгүй — оруулахдаа нэгж талбарын хавсралтын ердийн
+// замаар (POST /parcels/:id/documents) нэг нэгээр нь илгээнэ.
+func (h *LegacyImportHandler) MatchAttachments(c *gin.Context) {
+	var req struct {
+		Names []string `json:"names"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	list, err := h.svc.MatchAttachments(c.Request.Context(), req.Names)
+	if err != nil {
+		legacyImportError(c, err)
+		return
+	}
+	response.OK(c, list)
+}
+
 func (h *LegacyImportHandler) List(c *gin.Context) {
 	list, err := h.svc.List(c.Request.Context())
 	if err != nil {
