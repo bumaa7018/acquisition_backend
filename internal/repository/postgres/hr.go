@@ -221,7 +221,7 @@ func (r *HRRepo) ListDepartments(ctx context.Context, f domain.HRFilter) ([]*dom
 		return nil, 0, err
 	}
 	args = append(args, f.PageSize, (f.Page-1)*f.PageSize)
-	rows, err := r.db.Query(ctx, fmt.Sprintf(departmentSelectSQL+` %s ORDER BY d.name LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
+	rows, err := r.db.Query(ctx, fmt.Sprintf(departmentSelectSQL+` %s ORDER BY d.created_at DESC NULLS LAST, d.name LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -336,7 +336,7 @@ func (r *HRRepo) ListPositions(ctx context.Context, f domain.HRFilter) ([]*domai
 		return nil, 0, err
 	}
 	args = append(args, f.PageSize, (f.Page-1)*f.PageSize)
-	rows, err := r.db.Query(ctx, fmt.Sprintf(positionSelectSQL+` %s ORDER BY p.name LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
+	rows, err := r.db.Query(ctx, fmt.Sprintf(positionSelectSQL+` %s ORDER BY p.created_at DESC NULLS LAST, p.name LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
 	if err != nil {
 		return nil, 0, err
 	}

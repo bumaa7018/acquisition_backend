@@ -446,6 +446,10 @@ type LandWorkflowRepository interface {
 	GetAvailableParcelStatuses(ctx context.Context, currentStatusID int) ([]*domain.ParcelStatus, error)
 	// UpdateParcelStatus — төлөв солих (түүхийн мөр хавсралттайгаа бичигдэнэ).
 	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange) error
+	// GetParcelStatusRules — төлөвийн дүрэм (parcel_status-ийн тохиргоо).
+	GetParcelStatusRules(ctx context.Context, statusID int) (*domain.ParcelStatusRules, error)
+	// ParcelProgressLocked — нэгж талбарын ОДООГИЙН төлөв «Явц түгжинэ» эсэх.
+	ParcelProgressLocked(ctx context.Context, parcelID uuid.UUID) (bool, error)
 	// Шилжилтэд ЗААВАЛ байх хавсралт (тохиргоо ба нэгж талбарын төлөв).
 	SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error
 	ParcelStatusRequirements(ctx context.Context, acquisitionID, parcelID uuid.UUID, statusID int) ([]domain.ParcelStatusRequirement, error)

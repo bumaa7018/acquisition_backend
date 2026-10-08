@@ -185,7 +185,8 @@ func mapCategoryDeleteError(err error) error {
 }
 
 func (r *landAcqRepo) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelStatus, error) {
-	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order, COALESCE(color, '')
+	rows, err := r.db.Query(ctx, `SELECT id, code, name, sort_order, COALESCE(color, ''),
+		is_final, locks_progress, is_valuation_stage, is_released, requires_reason
 		FROM parcel_status ORDER BY sort_order`)
 	if err != nil {
 		return nil, err
@@ -194,7 +195,8 @@ func (r *landAcqRepo) ListParcelStatuses(ctx context.Context) ([]*domain.ParcelS
 	var result []*domain.ParcelStatus
 	for rows.Next() {
 		status := &domain.ParcelStatus{}
-		if err := rows.Scan(&status.ID, &status.Code, &status.Name, &status.SortOrder, &status.Color); err != nil {
+		if err := rows.Scan(&status.ID, &status.Code, &status.Name, &status.SortOrder, &status.Color,
+			&status.IsFinal, &status.LocksProgress, &status.IsValuationStage, &status.IsReleased, &status.RequiresReason); err != nil {
 			return nil, err
 		}
 		result = append(result, status)
@@ -385,10 +387,11 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			       COALESCE(la.decree_number,''),
 			       COALESCE(la.nith_decree_number,''), COALESCE(la.group_list_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
-			       -- ЯВЦ: эцсийн төлөвт (3=Нөлөөлөгдсөн гарсан, 4=Татгалзсан,
-			       -- 5=Чөлөөлсөн) шилжсэн талбар. HasNonFinalParcels-тай ижил шалгуур.
+			       -- ЯВЦ: ЭЦСИЙН төлөвт (parcel_status.is_final) шилжсэн талбар.
+			       -- HasNonFinalParcels-тай ижил шалгуур.
 			       (SELECT COUNT(*) FROM parcel
-			         WHERE acquisition_id = la.id AND COALESCE(status,0) IN (3,4,5)),
+			         WHERE acquisition_id = la.id
+			           AND COALESCE(status,0) IN (SELECT id FROM parcel_status WHERE is_final)),
 			       la.professional_org_id,
 			       COALESCE(po."name", ''),
 			       -- БАЙРШЛААР давхардсан нэгж талбарын тоо. 0-ээс их бол
@@ -405,7 +408,7 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		LIMIT $%d OFFSET $%d
 	`, where,
 		orderClause(acquisitionSortColumns, filter.SortBy, filter.SortDir,
-			"la.created_at DESC", "la.id"),
+			"la.created_at DESC", "la.start_date DESC NULLS LAST, la.plan_code DESC, la.id"),
 		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
@@ -712,10 +715,11 @@ func (r *landAcqRepo) ComputeAreaM2(ctx context.Context, geomWKT string) (float6
 // талбаруудыг тодорхойлоход хэрэглэгдэнэ.
 func (r *landAcqRepo) ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, COALESCE(parcel_id, ''), COALESCE(status, 0)
-		FROM parcel
-		WHERE acquisition_id = $1 AND deleted_at IS NULL
-		ORDER BY parcel_id
+		SELECT p.id, COALESCE(p.parcel_id, ''), COALESCE(p.status, 0), COALESCE(ps.is_released, false)
+		FROM parcel p
+		LEFT JOIN parcel_status ps ON ps.id = p.status
+		WHERE p.acquisition_id = $1 AND p.deleted_at IS NULL
+		ORDER BY p.parcel_id
 	`, acquisitionID)
 	if err != nil {
 		return nil, err
@@ -725,7 +729,7 @@ func (r *landAcqRepo) ListParcelRefs(ctx context.Context, acquisitionID uuid.UUI
 	var refs []domain.ParcelRef
 	for rows.Next() {
 		var ref domain.ParcelRef
-		if err := rows.Scan(&ref.ID, &ref.ParcelID, &ref.Status); err != nil {
+		if err := rows.Scan(&ref.ID, &ref.ParcelID, &ref.Status, &ref.Released); err != nil {
 			return nil, err
 		}
 		refs = append(refs, ref)
@@ -1313,6 +1317,9 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 		args = append(args, filter.StatusID)
 		i++
 	}
+	if filter.ValuationStageOnly {
+		where += " AND COALESCE(p.status, 0) IN (SELECT id FROM parcel_status WHERE is_valuation_stage)"
+	}
 	// БАЙРШЛЫН давхардлаар шүүх. parcel_overlap нь хоёр чиглэлээр бичигддэг
 	// тул EXISTS нь давхардалтай ХОЁУЛАНГ нь олно.
 	if filter.HasOverlap != nil {
@@ -1417,7 +1424,7 @@ func (r *landAcqRepo) GetParcels(ctx context.Context, acquisitionID uuid.UUID, f
 			LIMIT $%d OFFSET $%d
 		`, where,
 			orderClause(parcelSortColumns, filter.SortBy, filter.SortDir,
-				"p.parcel_id", "p.id"),
+				"p.created_at DESC", "p.parcel_id, p.id"),
 			i, i+1),
 		append(args, pageSize, offset)...,
 	)
@@ -1475,7 +1482,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 			       p.created_at, COALESCE(p.created_by,''),
 			       COALESCE(p.remaining_area_m2, p.area_m2 - COALESCE(p.acquisition_area_m2,0), 0),
 			       COALESCE(p.db_changed,''), COALESCE(p.changed_parcel_id,''),
-			       COALESCE(p.status,0), COALESCE(ps.name,''),
+			       COALESCE(p.status,0), COALESCE(ps.name,''), COALESCE(ps.is_valuation_stage, false),
 			       p.independent_org_id
 		FROM parcel p
 		LEFT JOIN parcel_status ps ON ps.id = p.status
@@ -1491,7 +1498,7 @@ func (r *landAcqRepo) GetParcelByID(ctx context.Context, id uuid.UUID) (*domain.
 		&p.CreatedAt, &p.CreatedBy,
 		&remainingAreaM2,
 		&p.DbChanged, &p.ChangedParcelID,
-		&p.StatusID, &p.StatusName,
+		&p.StatusID, &p.StatusName, &p.StatusIsValuationStage,
 		&p.IndependentOrgID,
 	)
 	if err == nil {
@@ -2443,9 +2450,10 @@ func (r *landAcqRepo) CheckAcquisitionDeletable(ctx context.Context, id uuid.UUI
 	res := &domain.AcquisitionDeleteCheck{ParcelStatusCounts: map[int]int{}}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT COALESCE(status, 0) AS status, count(*)::int
-		FROM parcel
-		WHERE acquisition_id = $1
+		SELECT COALESCE(p.status, 0) AS status, count(*)::int, COALESCE(bool_or(ps.is_released), false)
+		FROM parcel p
+		LEFT JOIN parcel_status ps ON ps.id = p.status
+		WHERE p.acquisition_id = $1
 		GROUP BY 1
 	`, id)
 	if err != nil {
@@ -2453,13 +2461,15 @@ func (r *landAcqRepo) CheckAcquisitionDeletable(ctx context.Context, id uuid.UUI
 	}
 	for rows.Next() {
 		var status, n int
-		if err := rows.Scan(&status, &n); err != nil {
+		var released bool
+		if err := rows.Scan(&status, &n, &released); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		res.ParcelStatusCounts[status] = n
 		res.ParcelCount += n
-		if status == domain.ParcelStatusReleased {
+		// «Захирамжид холбогдоно» (is_released) төлөвтэй нэгж талбар.
+		if released {
 			res.ReleasedParcels += n
 		}
 	}
@@ -2620,12 +2630,9 @@ func (r *landAcqRepo) HasNonFinalParcels(ctx context.Context, acquisitionID uuid
 			SELECT 1
 			FROM parcel
 			WHERE acquisition_id = $1
-			  AND COALESCE(status, 0) NOT IN ($2, $3, $4)
+			  AND COALESCE(status, 0) NOT IN (SELECT id FROM parcel_status WHERE is_final)
 		)`,
 		acquisitionID,
-		domain.ParcelStatusAffectedOut,
-		domain.ParcelStatusRejected,
-		domain.ParcelStatusReleased,
 	).Scan(&exists)
 	return exists, err
 }
@@ -2988,6 +2995,9 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, filter.StatusID)
 		i++
 	}
+	if filter.ReleasedOnly {
+		where += " AND COALESCE(p.status, 0) IN (SELECT id FROM parcel_status WHERE is_released)"
+	}
 	if filter.UnlinkedOnly {
 		where += ` AND NOT EXISTS (
 			SELECT 1
@@ -3053,7 +3063,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		LIMIT $%d OFFSET $%d
 	`, where,
 		orderClause(globalParcelSortColumns, filter.SortBy, filter.SortDir,
-			"p.created_at DESC", "p.id"),
+			"p.created_at DESC", "p.parcel_id, p.id"),
 		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
@@ -4963,6 +4973,9 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	if filter.FilterByParcelStatus {
 		acqParcelScopeCond += fmt.Sprintf(" AND p_scope.status = %d", filter.ParcelStatusID)
 	}
+	if filter.ValuationStageOnly {
+		acqParcelScopeCond += " AND COALESCE(p_scope.status, 0) IN (SELECT id FROM parcel_status WHERE is_valuation_stage)"
+	}
 	if profParam != 0 {
 		acqParcelScopeCond += fmt.Sprintf(` AND (
 			la.professional_org_id = $%d::int4 OR p_scope.independent_org_id = $%d::int4
@@ -5042,6 +5055,9 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		var extra []any
 		if filter.FilterByParcelStatus {
 			cond += fmt.Sprintf(" AND p.status = %d", filter.ParcelStatusID)
+		}
+		if filter.ValuationStageOnly {
+			cond += " AND COALESCE(p.status, 0) IN (SELECT id FROM parcel_status WHERE is_valuation_stage)"
 		}
 		if filter.ProfessionalOrgID != "" {
 			cond += fmt.Sprintf(` AND (
@@ -5819,9 +5835,11 @@ func (r *landAcqRepo) UpdateParcelStatus(ctx context.Context, ch domain.ParcelSt
 	// "Чөлөөлсөн" болгохын өмнө сонгосон урсгалын олговор ЗӨВШӨӨРӨГДСӨН байх
 	// ёстой. Үнэлгээний ТАЙЛАН (хавсралт) нь «Нэгж ажлын урсгал»-ын тохиргоогоор
 	// (parcel_status_required_document) шалгагдана — service.UpdateParcelStatus.
-	var statusName string
-	_ = r.db.QueryRow(ctx, `SELECT COALESCE(name,'') FROM parcel_status WHERE id=$1`, statusID).Scan(&statusName)
-	if statusName == "Чөлөөлсөн" {
+	// «Захирамжид холбогдоно» (is_released) төлөв — өмнө НЭРЭЭР ("Чөлөөлсөн")
+	// шалгадаг байсан тул нэр солиход дүрэм алга болдог байв.
+	var released bool
+	_ = r.db.QueryRow(ctx, `SELECT is_released FROM parcel_status WHERE id=$1`, statusID).Scan(&released)
+	if released {
 		var parcelCode string
 		if err := r.db.QueryRow(ctx, `SELECT parcel_id FROM parcel WHERE id=$1`, parcelID).Scan(&parcelCode); err != nil {
 			return domain.ErrNotFound
@@ -6688,7 +6706,7 @@ func (r *landAcqRepo) ListFundingSources(ctx context.Context, acquisitionID uuid
 		SELECT id, acquisition_id, organization_name, source_type, amount, currency, note, created_at, created_by
 		FROM funding_sources
 		WHERE acquisition_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at DESC, id
 	`, acquisitionID)
 	if err != nil {
 		return nil, err

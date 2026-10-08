@@ -253,7 +253,9 @@ func (r *DecisionDraftRepo) List(ctx context.Context, f domain.DecisionDraftFilt
 		pageSize = 20
 	}
 	listSQL := decisionDraftSelect + " WHERE " + where +
-		fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+		// Шинэ нь эхэнд. Хуучин мэдээллийн импорт бүгд ИЖИЛ created_at-тай тул
+		// захирамжийн огноо, дугаараар, эцэст нь id-аар тогтвортой эрэмбэлнэ.
+		fmt.Sprintf(" ORDER BY d.created_at DESC, d.decision_date DESC NULLS LAST, d.proposal_no DESC NULLS LAST, d.id LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	args = append(args, pageSize, (page-1)*pageSize)
 
 	rows, err := r.db.Query(ctx, listSQL, args...)
@@ -373,13 +375,20 @@ func (r *DecisionDraftRepo) AddProgressHistory(ctx context.Context, h *domain.De
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// «Хянагдаж буй газар» сонгосон бол recipient = нэгжийн нэр (түүх, тайланд).
 	err = tx.QueryRow(ctx, `
 		INSERT INTO decision_draft_progress_history
-		    (decision_draft_id, progress_type, recipient, progress_date, note, created_by)
-		VALUES ($1, $2, $3, $4::date, $5, $6)
-		RETURNING id, created_at`,
-		h.DecisionDraftID, h.ProgressType, h.Recipient, h.ProgressDate, h.Note, h.CreatedBy,
-	).Scan(&h.ID, &h.CreatedAt)
+		    (decision_draft_id, progress_type, recipient, progress_date, note, created_by, review_unit_id)
+		SELECT $1, $2, COALESCE(u.name, $3), $4::date, $5, $6, u.id
+		  FROM (SELECT 1) one
+		  LEFT JOIN decision_review_unit u ON u.id = $7
+		 WHERE $7::int IS NULL OR u.id IS NOT NULL
+		RETURNING id, created_at, recipient`,
+		h.DecisionDraftID, h.ProgressType, h.Recipient, h.ProgressDate, h.Note, h.CreatedBy, h.ReviewUnitID,
+	).Scan(&h.ID, &h.CreatedAt, &h.Recipient)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrInvalidInput // сонгосон нэгж олдсонгүй
+	}
 	if err != nil {
 		return err
 	}
@@ -404,7 +413,7 @@ func (r *DecisionDraftRepo) ListProgressHistory(ctx context.Context, draftID str
 		         WHEN 'confirming' THEN 'Баталгаажуулах'
 		         ELSE progress_type
 		       END AS progress_type_name,
-		       recipient, progress_date, note, created_at, created_by
+		       recipient, review_unit_id, progress_date, note, created_at, created_by
 		  FROM decision_draft_progress_history
 		 WHERE decision_draft_id = $1
 		 ORDER BY progress_date DESC, created_at DESC`, draftID)
@@ -418,7 +427,7 @@ func (r *DecisionDraftRepo) ListProgressHistory(ctx context.Context, draftID str
 		h := &domain.DecisionDraftProgressHistory{}
 		if err := rows.Scan(
 			&h.ID, &h.DecisionDraftID, &h.ProgressType, &h.ProgressTypeName,
-			&h.Recipient, &h.ProgressDate, &h.Note, &h.CreatedAt, &h.CreatedBy,
+			&h.Recipient, &h.ReviewUnitID, &h.ProgressDate, &h.Note, &h.CreatedAt, &h.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -577,8 +586,10 @@ func (r *DecisionDraftRepo) ListByParcel(ctx context.Context, parcelUUID string)
 func (r *DecisionDraftRepo) GetParcelInfo(ctx context.Context, parcelUUID string) (*domain.ParcelLinkInfo, error) {
 	info := &domain.ParcelLinkInfo{}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, parcel_id, status, acquisition_id FROM parcel WHERE id = $1`, parcelUUID).
-		Scan(&info.ID, &info.ParcelID, &info.Status, &info.AcquisitionID)
+		`SELECT p.id, p.parcel_id, p.status, p.acquisition_id, COALESCE(ps.is_released, false)
+		   FROM parcel p LEFT JOIN parcel_status ps ON ps.id = p.status
+		  WHERE p.id = $1`, parcelUUID).
+		Scan(&info.ID, &info.ParcelID, &info.Status, &info.AcquisitionID, &info.IsReleased)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -633,7 +644,7 @@ func (r *DecisionDraftRepo) ListDraftFundingSources(ctx context.Context, draftID
 		  JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
 		  LEFT JOIN land_acquisition la ON la.id = fs.acquisition_id
 		 WHERE ddfs.decision_draft_id = $1
-		 ORDER BY ddfs.created_at`, draftID)
+		 ORDER BY ddfs.created_at DESC, ddfs.id`, draftID)
 	if err != nil {
 		return nil, err
 	}

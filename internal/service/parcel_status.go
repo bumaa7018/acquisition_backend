@@ -34,6 +34,9 @@ type CreateParcelStatusRequest struct {
 	// нэгтгэдэг тул шалгалт тэнд байх ёстой (HTTP-ээс гадуур дуудагдсан ч
 	// ижил дүрэм үйлчилнэ). Хоёр газар шалгавал эх сурвалж хоёр болно.
 	Color string `json:"color"`
+	// Төлөвийн дүрэм (эцсийн, явц түгжих, үнэлгээний шат, чөлөөлөгдсөн,
+	// шалтгаан заавал) — илгээгээгүй бол false.
+	domain.ParcelStatusRules
 }
 
 type UpdateParcelStatusRequest struct {
@@ -50,6 +53,13 @@ type UpdateParcelStatusRequest struct {
 	// ялгагдахгүй тул өнгө арилгах гарц ОГТ байхгүй болно. Өнгийг мэддэггүй
 	// клиент талбарыг ОГТ илгээхгүй тул санамсаргүй арилгахгүй.
 	Color *string `json:"color"`
+	// Төлөвийн дүрэм — Color-той ИЖИЛ: талбар ирээгүй (nil) бол ХЭВЭЭР.
+	// Дүрмийг мэддэггүй хуучин клиент тэдгээрийг санамсаргүй арилгахгүй.
+	IsFinal          *bool `json:"is_final"`
+	LocksProgress    *bool `json:"locks_progress"`
+	IsValuationStage *bool `json:"is_valuation_stage"`
+	IsReleased       *bool `json:"is_released"`
+	RequiresReason   *bool `json:"requires_reason"`
 }
 
 type parcelStatusService struct {
@@ -74,10 +84,11 @@ func (s *parcelStatusService) Create(ctx context.Context, req CreateParcelStatus
 		return nil, err
 	}
 	ps := &domain.ParcelStatus{
-		Code:      req.Code,
-		Name:      req.Name,
-		SortOrder: req.SortOrder,
-		Color:     color,
+		Code:              req.Code,
+		Name:              req.Name,
+		SortOrder:         req.SortOrder,
+		Color:             color,
+		ParcelStatusRules: req.ParcelStatusRules,
 	}
 	if err := s.repo.Create(ctx, ps); err != nil {
 		return nil, err
@@ -105,6 +116,20 @@ func (s *parcelStatusService) Update(ctx context.Context, id int, req UpdateParc
 			return nil, err
 		}
 		ps.Color = color
+	}
+	for _, f := range []struct {
+		in  *bool
+		out *bool
+	}{
+		{req.IsFinal, &ps.IsFinal},
+		{req.LocksProgress, &ps.LocksProgress},
+		{req.IsValuationStage, &ps.IsValuationStage},
+		{req.IsReleased, &ps.IsReleased},
+		{req.RequiresReason, &ps.RequiresReason},
+	} {
+		if f.in != nil {
+			*f.out = *f.in
+		}
 	}
 	if err := s.repo.Update(ctx, ps); err != nil {
 		return nil, err

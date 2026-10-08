@@ -449,7 +449,7 @@ func TestLandService_Update_RejectsBoundaryExcludingReleasedParcel(t *testing.T)
 	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
 		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
 	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{
-		{ID: uuid.New(), ParcelID: "010101000009", Status: domain.ParcelStatusReleased},
+		{ID: uuid.New(), ParcelID: "010101000009", Status: domain.ParcelStatusReleased, Released: true},
 	}, nil)
 
 	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{

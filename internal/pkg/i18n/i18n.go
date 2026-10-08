@@ -86,6 +86,7 @@ const (
 	ErrNotAssigned                       Key = "not_assigned"
 	ErrApproved                          Key = "approved_locked"
 	ErrValuationReportRequired           Key = "valuation_report_required"
+	ErrParcelProgressLocked              Key = "parcel_progress_locked"
 	ErrStatusAttachmentRequired          Key = "status_attachment_required"
 	ErrValuationCancelAttachmentRequired Key = "valuation_cancel_attachment_required"
 	ErrAcqLocked                         Key = "acq_locked"
@@ -202,6 +203,7 @@ var messages = map[Key][2]string{
 	ErrInvalidStatus:                     {"Буруу статус", "Invalid status"},
 	ErrNotAssigned:                       {"Энэ чөлөөлөлтэд ажиллах эрх байхгүй", "You are not assigned to this acquisition"},
 	ErrApproved:                          {"Санхүүгийн мэргэжилтэн зөвшөөрсөн мэдээллийг өөрчлөх боломжгүй", "Approved record cannot be modified"},
+	ErrParcelProgressLocked:              {"Нэгж талбарын одоогийн төлөвт явц түгжигдсэн тул солих боломжгүй («Явц түгжинэ» дүрэм).", "Parcel progress is locked by its current status."},
 	ErrValuationReportRequired:           {"Үнэлгээний тайлан хавсаргаагүй байна. Чөлөөлсөн болгохын өмнө тайлан оруулах шаардлагатай.", "Valuation report required before releasing the parcel."},
 	ErrStatusAttachmentRequired:          {"Татгалзсан төлөвт шилжихэд шалтгаанаас гадна хавсралт заавал оруулна.", "An attachment is required to reject the parcel."},
 	ErrValuationCancelAttachmentRequired: {"Үнэлгээ цуцлахад тайлбар болон PDF хавсралт заавал оруулна.", "A PDF attachment is required to cancel the valuation."},
@@ -246,7 +248,7 @@ var messages = map[Key][2]string{
 	ErrDocNotFound:            {"Баримт олдсонгүй", "document not found"},
 
 	ErrDecisionConfirmed:     {"Баталгаажсан захирамжийн төсөлд өөрчлөлт оруулах боломжгүй", "confirmed decision draft cannot be modified"},
-	ErrParcelNotReleased:     {"Зөвхөн 'Чөлөөлсөн' төлөвтэй нэгж талбарыг захирамжид холбоно", "only released parcels can be linked to a decision draft"},
+	ErrParcelNotReleased:     {"Зөвхөн «Захирамжид холбогдоно» дүрэмтэй төлөвтэй (жишээ нь 'Чөлөөлсөн') нэгж талбарыг захирамжид холбоно", "only released parcels can be linked to a decision draft"},
 	ErrParcelAlreadyLinked:   {"Тухайн нэгж талбар өөр захирамжид аль хэдийн холбогдсон байна", "parcel is already linked to another decision draft"},
 	ErrDecisionAcqMismatch:   {"Захирамжид өөр чөлөөлөлтөд харьяалагдах нэгж талбар холбох боломжгүй", "parcel belongs to a different land acquisition"},
 	ErrDecreeRequired:        {"Захирамжийн дугаар болон огноог заавал бөглөнө", "decree number and date are required"},

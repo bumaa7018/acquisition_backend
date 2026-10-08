@@ -366,14 +366,16 @@ func (h *LandHandler) Create(c *gin.Context) {
 // @Failure      404  {object}  response.Response
 // @Router       /land-acquisitions/{id}/parcels [get]
 func (h *LandHandler) ListParcels(c *gin.Context) {
-	h.listParcels(c, 0)
+	h.listParcels(c, false)
 }
 
+// ListEvaluationParcels — мэргэжлийн байгууллагад зөвхөн «Үнэлгээний шат»
+// (parcel_status.is_valuation_stage) төлөвтэй нэгж талбар.
 func (h *LandHandler) ListEvaluationParcels(c *gin.Context) {
-	h.listParcels(c, domain.ParcelStatusEvaluating)
+	h.listParcels(c, true)
 }
 
-func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
+func (h *LandHandler) listParcels(c *gin.Context, valuationStageOnly bool) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
@@ -383,22 +385,24 @@ func (h *LandHandler) listParcels(c *gin.Context, forcedStatusID int) {
 	page := queryInt(c, "page", 1)
 	pageSize := queryInt(c, "page_size", 20)
 	statusID := queryInt(c, "status_id", 0)
-	if forcedStatusID != 0 {
-		statusID = forcedStatusID
+	if valuationStageOnly {
+		// Клиентийн төлөвийн шүүлтийг үл хэрэгсэнэ — өмнөх (2-оор албадах) шиг.
+		statusID = 0
 	}
 
 	filter := domain.ParcelFilter{
-		ParcelID:  c.Query("parcel_id"),
-		AU1Code:   c.Query("au1_code"),
-		AU2Code:   c.Query("au2_code"),
-		AU3Code:   c.Query("au3_code"),
-		RightType: queryInt(c, "right_type", 0),
-		Landuse:   c.Query("landuse"),
-		StatusID:  statusID,
-		SortBy:    c.Query("sort"),
-		SortDir:   c.Query("order"),
-		Page:      page,
-		PageSize:  pageSize,
+		ParcelID:           c.Query("parcel_id"),
+		AU1Code:            c.Query("au1_code"),
+		AU2Code:            c.Query("au2_code"),
+		AU3Code:            c.Query("au3_code"),
+		RightType:          queryInt(c, "right_type", 0),
+		Landuse:            c.Query("landuse"),
+		StatusID:           statusID,
+		ValuationStageOnly: valuationStageOnly,
+		SortBy:             c.Query("sort"),
+		SortDir:            c.Query("order"),
+		Page:               page,
+		PageSize:           pageSize,
 	}
 
 	// БАЙРШЛЫН давхардлын шүүлтүүр: "1"/"true" → зөвхөн давхардалтай,
@@ -1776,6 +1780,7 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		Status:          queryInt(c, "status", 0),
 		StatusID:        queryInt(c, "status_id", 0),
 		UnlinkedOnly:    strings.EqualFold(c.Query("unlinked_only"), "true") || c.Query("unlinked_only") == "1",
+		ReleasedOnly:    strings.EqualFold(c.Query("released_only"), "true") || c.Query("released_only") == "1",
 		Years:           years,
 		SortBy:          c.Query("sort"),
 		SortDir:         c.Query("order"),
@@ -3808,8 +3813,8 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")
 	isExternalDashboard := !isSenior && (isProf || isReviewer)
 	if isExternalDashboard {
-		filter.FilterByParcelStatus = true
-		filter.ParcelStatusID = domain.ParcelStatusEvaluating
+		// «Үнэлгээний шат» (is_valuation_stage) төлөвтэй нэгж талбар.
+		filter.ValuationStageOnly = true
 		if isReviewer {
 			filter.Status = domain.LandAcquisitionStatusField
 		}

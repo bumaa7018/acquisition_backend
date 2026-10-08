@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -24,7 +26,7 @@ func (r *DocumentTypeRepo) List(ctx context.Context, target string) ([]*domain.D
 		`SELECT id, type, name, target, description, created_at, updated_at, created_by, updated_by
 		 FROM document_type
 		 WHERE ($1 = '' OR target = $1 OR target = 'both')
-		 ORDER BY id`, target)
+		 ORDER BY created_at DESC NULLS LAST, id DESC`, target)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +90,40 @@ func (r *DocumentTypeRepo) Update(ctx context.Context, dt *domain.DocumentType) 
 	return nil
 }
 
+// Delete — ашиглагдаж буй (хавсралт, ажлын урсгалын шаардлага) эсвэл
+// системийн кодтой төрлийг устгахгүй — *domain.InUseError.
 func (r *DocumentTypeRepo) Delete(ctx context.Context, id int) error {
+	var code, name string
+	var docs, parcelDocs, workflowReqs int
+	err := r.db.QueryRow(ctx, `
+		SELECT dt.type, dt.name,
+		       (SELECT COUNT(*) FROM document d WHERE d.document_type_id = dt.id),
+		       (SELECT COUNT(*) FROM document d JOIN parcel_document pd ON pd.document_id = d.id
+		         WHERE d.document_type_id = dt.id),
+		       (SELECT COUNT(*) FROM parcel_workflow_required_document rd WHERE rd.document_type_id = dt.id)
+		  FROM document_type dt WHERE dt.id = $1`, id).
+		Scan(&code, &name, &docs, &parcelDocs, &workflowReqs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if domain.SystemDocumentTypeCodes[code] {
+		return &domain.InUseError{Message: fmt.Sprintf(
+			"«%s» нь системийн хавсралтын төрөл (код: %s) тул устгах боломжгүй.", name, code)}
+	}
+	if docs > 0 || workflowReqs > 0 {
+		var parts []string
+		if docs > 0 {
+			parts = append(parts, fmt.Sprintf("%d хавсралт (нэгж талбар %d, чөлөөлөлт %d)", docs, parcelDocs, docs-parcelDocs))
+		}
+		if workflowReqs > 0 {
+			parts = append(parts, fmt.Sprintf("нэгж талбарын ажлын урсгалын %d шаардлага", workflowReqs))
+		}
+		return &domain.InUseError{Message: fmt.Sprintf(
+			"«%s» хавсралтын төрлийг ашиглаж байгаа тул устгах боломжгүй: %s.", name, strings.Join(parts, ", "))}
+	}
 	res, err := r.db.Exec(ctx, `DELETE FROM document_type WHERE id = $1`, id)
 	if err != nil {
 		return err

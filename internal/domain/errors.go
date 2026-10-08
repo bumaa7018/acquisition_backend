@@ -19,6 +19,8 @@ var (
 	ErrDecreeRequired          = errors.New("decree number and date are required")
 	ErrApproved                = errors.New("approved record cannot be modified")
 	ErrValuationReportRequired = errors.New("valuation report required before releasing parcel")
+	// ErrParcelProgressLocked — одоогийн төлөв нь «Явц түгжинэ» (parcel_status.locks_progress).
+	ErrParcelProgressLocked = errors.New("parcel progress is locked by its current status")
 	// ErrStatusAttachmentRequired — "Татгалзсан" төлөвт шилжихэд хавсралт заавал.
 	ErrStatusAttachmentRequired          = errors.New("attachment required to reject parcel")
 	ErrValuationCancelAttachmentRequired = errors.New("attachment required to cancel valuation")

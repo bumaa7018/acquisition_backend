@@ -1191,7 +1191,7 @@ func approveValuation(ctx context.Context, tx pgx.Tx, parcelUUID, parcelID, acqI
 func syncAcquisitionStatuses(ctx context.Context, tx pgx.Tx, sessionID string) (*AcquisitionStatuses, error) {
 	rows, err := tx.Query(ctx, `WITH progress AS (
 			SELECT la.id, la.status AS from_status,
-			       CASE WHEN COUNT(p.id) > 0 AND COUNT(p.id) = COUNT(p.id) FILTER (WHERE COALESCE(p.status, 0) IN (3,4,5))
+			       CASE WHEN COUNT(p.id) > 0 AND COUNT(p.id) = COUNT(p.id) FILTER (WHERE COALESCE(p.status, 0) IN (SELECT id FROM parcel_status WHERE is_final))
 			            THEN 3 ELSE 2 END AS to_status
 			  FROM land_acquisition la LEFT JOIN parcel p ON p.acquisition_id = la.id
 			 WHERE la.legacy_import_id = $2 AND la.deleted_at IS NULL AND COALESCE(la.status, 0) <> 4

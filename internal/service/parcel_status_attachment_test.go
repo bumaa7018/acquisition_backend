@@ -52,6 +52,7 @@ func TestUpdateParcelStatusRequiresAttachmentWhenRejecting(t *testing.T) {
 		CreatedBy:     "user",
 		Reason:        "Иргэн татгалзсан",
 	}
+	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 
 	err := svc.UpdateParcelStatus(context.Background(), ch, nil)
@@ -71,6 +72,7 @@ func TestUpdateParcelStatusRequirementAlreadyPresent(t *testing.T) {
 		ParcelID: uuid.New(), AcquisitionID: uuid.New(),
 		StatusID: domain.ParcelStatusRejected, CreatedBy: "user", Reason: "шалтгаан",
 	}
+	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(true), nil)
 	repo.On("UpdateParcelStatus", mock.Anything, ch.ParcelID, ch.AcquisitionID, ch.StatusID, "user", "шалтгаан").Return(nil)
 
@@ -90,6 +92,7 @@ func TestUpdateParcelStatusWithoutAttachmentForOtherStatuses(t *testing.T) {
 			CreatedBy:     "user",
 			Reason:        "шалтгаан",
 		}
+		repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 		repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, statusID).Return([]domain.ParcelStatusRequirement{}, nil)
 		repo.On("UpdateParcelStatus", mock.Anything, ch.ParcelID, ch.AcquisitionID, statusID, "user", "шалтгаан").Return(nil)
 
@@ -110,6 +113,7 @@ func TestUpdateParcelStatusAttachmentNeedsFileStorage(t *testing.T) {
 		CreatedBy:     "user",
 		Reason:        "Иргэн татгалзсан",
 	}
+	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 	repo.On("GetDocumentType", mock.Anything, 34).Return(&domain.DocumentType{ID: 34, Type: "rejection_document", Name: "Татгалзсан тухай баримт"}, nil).Maybe()
 	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001"}, nil).Maybe()
@@ -134,6 +138,7 @@ func TestUpdateParcelStatusUntypedAttachmentFillsSingleMissingType(t *testing.T)
 		ParcelID: uuid.New(), AcquisitionID: uuid.New(),
 		StatusID: domain.ParcelStatusRejected, CreatedBy: "user", Reason: "Иргэн татгалзсан",
 	}
+	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 	repo.On("GetDocumentType", mock.Anything, 34).Return(&domain.DocumentType{ID: 34, Type: "rejection_document", Name: "Татгалзсан тухай баримт"}, nil)
 	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001"}, nil)
@@ -163,6 +168,7 @@ func TestUpdateParcelStatusDoesNotAutoTypePaymentReceipt(t *testing.T) {
 		ParcelID: uuid.New(), AcquisitionID: uuid.New(),
 		StatusID: 5, CreatedBy: "user", Reason: "шалтгаан",
 	}
+	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return([]domain.ParcelStatusRequirement{{
 		DocumentTypeID: 162, DocumentTypeCode: domain.CompensationReceiptDocType, DocumentTypeName: "Нөхөх олговор олгосон баримт",
 	}}, nil)
@@ -174,5 +180,26 @@ func TestUpdateParcelStatusDoesNotAutoTypePaymentReceipt(t *testing.T) {
 	require.ErrorAs(t, err, &missing)
 	require.Equal(t, []string{"Нөхөх олговор олгосон баримт"}, missing.Names)
 	require.Empty(t, files.saved, "файл хадгалагдахгүй")
+	repo.AssertNotCalled(t, "UpdateParcelStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// Одоогийн төлөв «Явц түгжинэ» бол хавсралт шалгахаас ӨМНӨ татгалзана —
+// төлөв, хавсралт ОГТ хөндөгдөхгүй.
+func TestUpdateParcelStatusRejectedWhenProgressLocked(t *testing.T) {
+	repo := &mocks.MockLandAcquisitionRepository{}
+	files := &memFiles{}
+	svc := NewLandService(repo, files, nil, nil)
+	ch := domain.ParcelStatusChange{
+		ParcelID: uuid.New(), AcquisitionID: uuid.New(),
+		StatusID: domain.ParcelStatusRejected, CreatedBy: "user", Reason: "шалтгаан",
+	}
+	repo.On("ParcelProgressLocked", mock.Anything, ch.ParcelID).Return(true, nil)
+
+	err := svc.UpdateParcelStatus(context.Background(), ch,
+		&ParcelStatusAttachment{Filename: "barimt.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.7")})
+
+	require.ErrorIs(t, err, domain.ErrParcelProgressLocked)
+	require.Empty(t, files.saved, "файл хадгалагдахгүй")
+	repo.AssertNotCalled(t, "ParcelStatusRequirements", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	repo.AssertNotCalled(t, "UpdateParcelStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }

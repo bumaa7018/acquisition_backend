@@ -1,6 +1,7 @@
 package response
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -105,6 +106,15 @@ func AbortValidation(c *gin.Context, err error) {
 }
 
 func Error(c *gin.Context, err error) {
+	// Ашиглагдаж буй бичлэгийг устгах — тайлбар нь (юунд ашиглагдсан) шууд хэрэглэгчид.
+	var inUse *domain.InUseError
+	if errors.As(err, &inUse) {
+		logError(c, http.StatusConflict, inUse.Error())
+		c.AbortWithStatusJSON(http.StatusConflict, Response{
+			Code: http.StatusConflict, Error: inUse.Error(), Message: inUse.Error(),
+		})
+		return
+	}
 	status, key := mapError(err)
 	msg := i18n.T(lang(c), key)
 	logError(c, status, err.Error())
@@ -153,6 +163,8 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusConflict, i18n.ErrApproved
 	case domain.ErrValuationReportRequired:
 		return http.StatusUnprocessableEntity, i18n.ErrValuationReportRequired
+	case domain.ErrParcelProgressLocked:
+		return http.StatusConflict, i18n.ErrParcelProgressLocked
 	case domain.ErrStatusAttachmentRequired:
 		return http.StatusUnprocessableEntity, i18n.ErrStatusAttachmentRequired
 	case domain.ErrValuationCancelAttachmentRequired:

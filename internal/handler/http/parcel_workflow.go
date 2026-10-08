@@ -216,11 +216,14 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		return
 	}
 	reason := strings.TrimSpace(req.Reason)
-	// Эцсийн СӨРӨГ хоёр төлөвт шалтгаангүй шилжихийг хориглоно — дараа нь
-	// яагаад гэдгийг тайлбарлах өгөгдөл үлдэхгүй болно.
-	if (*req.StatusID == domain.ParcelStatusAffectedOut || *req.StatusID == domain.ParcelStatusRejected) && reason == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Шалтгаан заавал бөглөнө"})
-		return
+	// «Шалтгаан заавал» (requires_reason) төлөвт шалтгаангүй шилжихийг
+	// хориглоно — дараа нь яагаад гэдгийг тайлбарлах өгөгдөл үлдэхгүй болно.
+	// Өмнө Нөлөөлөгдсөн гарсан/Татгалзсан гэж ДУГААРААР шалгадаг байв.
+	if reason == "" {
+		if st, err := h.svc.GetParcelStatusRules(c.Request.Context(), *req.StatusID); err == nil && st.RequiresReason {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Шалтгаан заавал бөглөнө"})
+			return
+		}
 	}
 	createdBy := contextUserDisplayName(c)
 	err = h.svc.UpdateParcelStatus(c.Request.Context(), domain.ParcelStatusChange{

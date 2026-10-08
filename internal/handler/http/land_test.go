@@ -438,10 +438,12 @@ func TestLandHandler_ListEvaluationParcels_ForcesEvaluatingStatus(t *testing.T) 
 	h := handler.NewLandHandler(mockSvc)
 
 	acqID := uuid.New()
+	// Клиентийн status_id=5-ыг үл хэрэгсэж, «Үнэлгээний шат» (is_valuation_stage)
+	// төлөвүүдээр албадан шүүнэ.
 	filter := domain.ParcelFilter{
-		StatusID: domain.ParcelStatusEvaluating,
-		Page:     1,
-		PageSize: 20,
+		ValuationStageOnly: true,
+		Page:               1,
+		PageSize:           20,
 	}
 	mockSvc.On("GetParcels", mock.Anything, acqID, filter).Return([]*domain.Parcel{
 		{ID: uuid.New(), ParcelID: "010101000001", StatusID: domain.ParcelStatusEvaluating},

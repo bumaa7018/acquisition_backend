@@ -318,6 +318,22 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
 			},
 		},
+		{
+			// Migration 000049: нэгж талбарын төлөвийн дүрэм (эцсийн, явц
+			// түгжих, үнэлгээний шат, чөлөөлөгдсөн, шалтгаан заавал) — өмнөх
+			// хатуу кодын дүрмийг өгөгдмөл тохиргоо болгоно.
+			name: "000049_parcel_status_flags",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedParcelStatusFlags(ctx)
+			},
+		},
+		{
+			// Migration 000050: «Хэнд» чөлөөт текстийг «Төсөл хянах нэгж» болгоно.
+			name: "000050_decision_review_units",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedDecisionReviewUnitsFromRecipients(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}

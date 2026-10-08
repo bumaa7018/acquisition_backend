@@ -78,16 +78,19 @@ func TestLandService_ParcelStatusNotification_SplitsRecipientSources(t *testing.
 	spy := newNotifySpy()
 	svc := service.NewLandService(landRepo, nil, nil, service.NotificationService(spy))
 
+	landRepo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	landRepo.On("ParcelStatusRequirements", mock.Anything, acqID, parcelPK, domain.ParcelStatusEvaluating).
 		Return([]domain.ParcelStatusRequirement{}, nil)
 	landRepo.On("UpdateParcelStatus", mock.Anything, parcelPK, acqID,
 		domain.ParcelStatusEvaluating, "41", "").Return(nil)
 	landRepo.On("GetParcelByID", mock.Anything, parcelPK).Return(&domain.Parcel{
-		ID:               parcelPK,
-		ParcelID:         "010101000001",
-		StatusID:         domain.ParcelStatusEvaluating,
-		StatusName:       "Үнэлгээ хийх",
-		IndependentOrgID: &independentOrgID,
+		ID:         parcelPK,
+		ParcelID:   "010101000001",
+		StatusID:   domain.ParcelStatusEvaluating,
+		StatusName: "Үнэлгээ хийх",
+		// «Үнэлгээний шат» (is_valuation_stage) — байгууллагад мэдэгдэл явна.
+		StatusIsValuationStage: true,
+		IndependentOrgID:       &independentOrgID,
 	}, nil)
 	landRepo.On("GetAssignees", mock.Anything, acqID).
 		Return([]domain.AcquisitionAssignee{{UserID: 41}, {UserID: 42}}, nil)

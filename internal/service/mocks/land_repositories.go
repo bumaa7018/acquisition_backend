@@ -930,6 +930,19 @@ func (m *MockLandAcquisitionRepository) UpdateParcelStatus(ctx context.Context, 
 	return m.Called(ctx, ch.ParcelID, ch.AcquisitionID, ch.StatusID, ch.CreatedBy, ch.Reason).Error(0)
 }
 
+func (m *MockLandAcquisitionRepository) ParcelProgressLocked(ctx context.Context, parcelID uuid.UUID) (bool, error) {
+	args := m.Called(ctx, parcelID)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) GetParcelStatusRules(ctx context.Context, statusID int) (*domain.ParcelStatusRules, error) {
+	args := m.Called(ctx, statusID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ParcelStatusRules), args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error {
 	return m.Called(ctx, workflowID, documentTypeIDs).Error(0)
 }

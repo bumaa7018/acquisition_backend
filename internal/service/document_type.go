@@ -67,7 +67,11 @@ func (s *documentTypeService) Update(ctx context.Context, id int, req UpdateDocu
 	if err != nil {
 		return nil, err
 	}
-	if req.Type != "" {
+	if req.Type != "" && req.Type != dt.Type {
+		// Системийн кодыг солих нь түүнийг ашигладаг үйлдлийг эвдэнэ.
+		if domain.SystemDocumentTypeCodes[dt.Type] {
+			return nil, &domain.InUseError{Message: "«" + dt.Name + "» нь системийн хавсралтын төрөл тул кодыг солих боломжгүй (нэрийг солиж болно)."}
+		}
 		dt.Type = req.Type
 	}
 	if req.Name != "" {

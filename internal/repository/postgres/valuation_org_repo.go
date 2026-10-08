@@ -90,7 +90,7 @@ func (r *ValuationOrgRepo) List(ctx context.Context, f domain.ValuationOrgFilter
 
 	args = append(args, f.PageSize, (f.Page-1)*f.PageSize)
 	rows, err := r.db.Query(ctx,
-		fmt.Sprintf(valuationOrgSelectSQL+` %s ORDER BY vp.name LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
+		fmt.Sprintf(valuationOrgSelectSQL+` %s ORDER BY vp.created_at DESC NULLS LAST, vp.name, vp.id LIMIT $%d OFFSET $%d`, where, arg, arg+1), args...)
 	if err != nil {
 		return nil, 0, err
 	}

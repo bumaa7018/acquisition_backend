@@ -142,7 +142,7 @@ func (r *RoleRepo) Delete(ctx context.Context, id domain.ID) error {
 }
 
 func (r *RoleRepo) List(ctx context.Context) ([]*domain.Role, error) {
-	rows, err := r.db.Query(ctx, roleSelectSQL+` WHERE `+roleSystemFilter+` ORDER BY r.name`)
+	rows, err := r.db.Query(ctx, roleSelectSQL+` WHERE `+roleSystemFilter+` ORDER BY r.created_at DESC NULLS LAST, r.name`)
 	if err != nil {
 		return nil, err
 	}

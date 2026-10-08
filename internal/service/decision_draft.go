@@ -17,6 +17,8 @@ type DecisionServices struct {
 	Draft    DecisionDraftService
 	WorkType DecisionOptionService
 	Budget   DecisionOptionService
+	// ReviewUnit — Төсөл хянах нэгж («Хянагдаж буй газар»)
+	ReviewUnit DecisionOptionService
 }
 
 type DecisionDraftService interface {
@@ -81,7 +83,8 @@ type ConfirmDecisionDraftRequest struct {
 
 type AddDecisionDraftProgressRequest struct {
 	ProgressType string `json:"progress_type"`
-	Recipient    string `json:"recipient"`
+	// ReviewUnitID — «Хянагдаж буй газар» (Төсөл хянах нэгж); заавал.
+	ReviewUnitID int    `json:"review_unit_id"`
 	ProgressDate string `json:"progress_date"` // YYYY-MM-DD
 	Note         string `json:"note"`
 }
@@ -197,9 +200,8 @@ func (s *decisionDraftService) AddProgress(ctx context.Context, id string, req A
 	if strings.TrimSpace(req.ProgressType) != domain.DecisionDraftProgressReviewing {
 		return nil, domain.ErrInvalidInput
 	}
-	recipient := strings.TrimSpace(req.Recipient)
 	date := strings.TrimSpace(req.ProgressDate)
-	if recipient == "" || date == "" {
+	if req.ReviewUnitID <= 0 || date == "" {
 		return nil, domain.ErrInvalidInput
 	}
 	parsed, err := time.Parse("2006-01-02", date)
@@ -216,7 +218,7 @@ func (s *decisionDraftService) AddProgress(ctx context.Context, id string, req A
 	h := &domain.DecisionDraftProgressHistory{
 		DecisionDraftID: id,
 		ProgressType:    domain.DecisionDraftProgressReviewing,
-		Recipient:       recipient,
+		ReviewUnitID:    &req.ReviewUnitID,
 		ProgressDate:    parsed,
 		Note:            strings.TrimSpace(req.Note),
 		CreatedBy:       actor,
@@ -249,7 +251,7 @@ func (s *decisionDraftService) ListByParcel(ctx context.Context, parcelUUID stri
 //
 // Дүрмүүд:
 //   - Баталгаажсан захирамжид холбохгүй
-//   - Зөвхөн "Чөлөөлсөн" (status = 5) төлөвтэй нэгж талбар холбогдоно
+//   - Зөвхөн «Захирамжид холбогдоно» (parcel_status.is_released) төлөвтэй нэгж талбар холбогдоно
 //   - Нэг нэгж талбар зөвхөн НЭГ идэвхтэй захирамжтай (DB-д partial unique
 //     index-ээр мөн баталгаажна)
 //   - Нэг захирамжид олон өөр чөлөөлөлтийн нэгж талбар холбогдож болно.
@@ -279,7 +281,8 @@ func (s *decisionDraftService) LinkParcel(ctx context.Context, draftID, parcelUU
 	if err != nil {
 		return err
 	}
-	if parcel.Status != domain.ParcelStatusReleased {
+	// «Захирамжид холбогдоно» (is_released) төлөвтэй л нэгж талбарыг холбоно.
+	if !parcel.IsReleased {
 		return domain.ErrParcelNotReleased
 	}
 

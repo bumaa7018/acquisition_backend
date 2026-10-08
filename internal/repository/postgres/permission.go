@@ -130,7 +130,7 @@ func (r *PermissionRepo) Delete(ctx context.Context, id domain.ID) error {
 }
 
 func (r *PermissionRepo) List(ctx context.Context) ([]*domain.Permission, error) {
-	rows, err := r.db.Query(ctx, permissionSelectSQL+` ORDER BY COALESCE(p.name, '')`)
+	rows, err := r.db.Query(ctx, permissionSelectSQL+` ORDER BY p.created_at DESC NULLS LAST, COALESCE(p.name, '')`)
 	if err != nil {
 		return nil, err
 	}

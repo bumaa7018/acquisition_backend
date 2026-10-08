@@ -211,6 +211,8 @@ type LandWorkflowService interface {
 	// хавсралт нэгж талбарт байхгүй бол шилжихгүй; attachment нь тэр дутуу
 	// хавсралтыг нөхөж болно (бусад үед заавал биш).
 	UpdateParcelStatus(ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment) error
+	// GetParcelStatusRules — төлөвийн дүрэм (шалтгаан заавал г.м.).
+	GetParcelStatusRules(ctx context.Context, statusID int) (*domain.ParcelStatusRules, error)
 	// SetParcelWorkflowRequiredDocuments — шилжилтэд ЗААВАЛ байх хавсралтыг солино.
 	SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error
 	// ParcelStatusRequirements — нэгж талбарт шаардлагатай хавсралт бүр орсон эсэх.
@@ -1134,7 +1136,7 @@ func (s *landService) resolveBoundaryParcels(
 		if _, ok := found[code]; ok {
 			continue // шинэ хилд хэвээр байна
 		}
-		if ref.Status == domain.ParcelStatusReleased {
+		if ref.Released {
 			released = append(released, code)
 			continue
 		}

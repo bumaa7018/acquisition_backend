@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"acquisition_backend/internal/domain"
 
@@ -16,20 +18,42 @@ import (
 type decisionOptionRepo struct {
 	db    *pgxpool.Pool
 	table string
+	// usage — сонголтыг ашигласан бүртгэлийн тоо ($1 = id) ба тайлбар.
+	// Ашиглагдаж байвал устгахгүй (өмнө FK-ийн ON DELETE SET NULL-аар
+	// захирамжаас чимээгүй арилдаг байв).
+	usage []optionUsage
+}
+
+type optionUsage struct {
+	countSQL string
+	label    string
 }
 
 // DecisionWorkTypeRepo — Ажлын төрөл
 type DecisionWorkTypeRepo struct{ decisionOptionRepo }
 
 func NewDecisionWorkTypeRepo(db *pgxpool.Pool) *DecisionWorkTypeRepo {
-	return &DecisionWorkTypeRepo{decisionOptionRepo{db: db, table: "decision_work_type"}}
+	return &DecisionWorkTypeRepo{decisionOptionRepo{db: db, table: "decision_work_type", usage: []optionUsage{
+		{`SELECT COUNT(*) FROM decision_draft WHERE work_type_id = $1`, "захирамжийн төсөл"},
+	}}}
 }
 
 // DecisionBudgetRepo — Төсөв
 type DecisionBudgetRepo struct{ decisionOptionRepo }
 
 func NewDecisionBudgetRepo(db *pgxpool.Pool) *DecisionBudgetRepo {
-	return &DecisionBudgetRepo{decisionOptionRepo{db: db, table: "decision_budget"}}
+	return &DecisionBudgetRepo{decisionOptionRepo{db: db, table: "decision_budget", usage: []optionUsage{
+		{`SELECT COUNT(*) FROM decision_draft WHERE budget_id = $1`, "захирамжийн төсөл"},
+	}}}
+}
+
+// DecisionReviewUnitRepo — Төсөл хянах нэгж («Хянагдаж буй газар»)
+type DecisionReviewUnitRepo struct{ decisionOptionRepo }
+
+func NewDecisionReviewUnitRepo(db *pgxpool.Pool) *DecisionReviewUnitRepo {
+	return &DecisionReviewUnitRepo{decisionOptionRepo{db: db, table: "decision_review_unit", usage: []optionUsage{
+		{`SELECT COUNT(*) FROM decision_draft_progress_history WHERE review_unit_id = $1`, "захирамжийн явцын бичлэг"},
+	}}}
 }
 
 func (r *decisionOptionRepo) List(ctx context.Context) ([]*domain.DecisionOption, error) {
@@ -85,6 +109,24 @@ func (r *decisionOptionRepo) Update(ctx context.Context, o *domain.DecisionOptio
 }
 
 func (r *decisionOptionRepo) Delete(ctx context.Context, id int) error {
+	o, err := r.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	var parts []string
+	for _, u := range r.usage {
+		var n int
+		if err := r.db.QueryRow(ctx, u.countSQL, id).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, u.label))
+		}
+	}
+	if len(parts) > 0 {
+		return &domain.InUseError{Message: fmt.Sprintf(
+			"«%s»-г ашиглаж байгаа тул устгах боломжгүй: %s.", o.Name, strings.Join(parts, ", "))}
+	}
 	res, err := r.db.Exec(ctx, `DELETE FROM `+r.table+` WHERE id = $1`, id)
 	if err != nil {
 		return err

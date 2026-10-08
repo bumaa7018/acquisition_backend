@@ -94,15 +94,18 @@ type DecisionDraftFundingLink struct {
 // DecisionDraftProgressHistory — захирамжийн төслийн явцын append-only түүх.
 // Захирамжийн дугаарыг энд хадгалахгүй, зөвхөн decision_draft дээр байна.
 type DecisionDraftProgressHistory struct {
-	ID               string    `json:"id"`
-	DecisionDraftID  string    `json:"decision_draft_id"`
-	ProgressType     string    `json:"progress_type"`
-	ProgressTypeName string    `json:"progress_type_name"`
-	Recipient        string    `json:"recipient"`
-	ProgressDate     time.Time `json:"progress_date"`
-	Note             string    `json:"note"`
-	CreatedAt        time.Time `json:"created_at"`
-	CreatedBy        string    `json:"created_by"`
+	ID               string `json:"id"`
+	DecisionDraftID  string `json:"decision_draft_id"`
+	ProgressType     string `json:"progress_type"`
+	ProgressTypeName string `json:"progress_type_name"`
+	Recipient        string `json:"recipient"`
+	// ReviewUnitID — «Хянагдаж буй газар» (decision_review_unit). Recipient нь
+	// түүний нэрийн хуулбар; хуучин (чөлөөт текст) бичлэгт nil байж болно.
+	ReviewUnitID *int      `json:"review_unit_id"`
+	ProgressDate time.Time `json:"progress_date"`
+	Note         string    `json:"note"`
+	CreatedAt    time.Time `json:"created_at"`
+	CreatedBy    string    `json:"created_by"`
 }
 
 // DecisionDraftParcel — захирамж ↔ нэгж талбарын холбоос. RemovedAt != nil
@@ -173,6 +176,8 @@ type ParcelLinkInfo struct {
 	ParcelID      string
 	Status        int
 	AcquisitionID string
+	// IsReleased — «Захирамжид холбогдоно» (parcel_status.is_released) төлөв.
+	IsReleased bool
 }
 
 // DecisionDraftFilter — жагсаалтын шүүлт. ParcelID нь холбогдсон нэгж

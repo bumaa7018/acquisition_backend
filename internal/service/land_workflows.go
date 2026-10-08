@@ -43,6 +43,10 @@ func (s *landService) GetAvailableParcelStatuses(ctx context.Context, currentSta
 	return s.landRepo.GetAvailableParcelStatuses(ctx, currentStatusID)
 }
 
+func (s *landService) GetParcelStatusRules(ctx context.Context, statusID int) (*domain.ParcelStatusRules, error) {
+	return s.landRepo.GetParcelStatusRules(ctx, statusID)
+}
+
 func (s *landService) SetParcelWorkflowRequiredDocuments(ctx context.Context, workflowID int, documentTypeIDs []int) error {
 	return s.landRepo.SetParcelWorkflowRequiredDocuments(ctx, workflowID, documentTypeIDs)
 }
@@ -70,6 +74,16 @@ func (s *landService) ParcelStatusRequirements(ctx context.Context, acquisitionI
 func (s *landService) UpdateParcelStatus(
 	ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment,
 ) error {
+	// Одоогийн төлөв «Явц түгжинэ» (locks_progress) бол цааш солихгүй — өмнө
+	// зөвхөн frontend товчийг нууж байсан тул API-аар (эсвэл хуучирсан
+	// хуудаснаас) шууд солигддог байв. Хавсралтын шалгалтаас ӨМНӨ — тодорхой алдаа.
+	locked, err := s.landRepo.ParcelProgressLocked(ctx, ch.ParcelID)
+	if err != nil {
+		return err
+	}
+	if locked {
+		return domain.ErrParcelProgressLocked
+	}
 	reqs, err := s.landRepo.ParcelStatusRequirements(ctx, ch.AcquisitionID, ch.ParcelID, ch.StatusID)
 	if err != nil {
 		return err

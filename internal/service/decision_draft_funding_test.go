@@ -72,6 +72,7 @@ func releasedParcel(acquisitionID string) *domain.ParcelLinkInfo {
 		ID:            "parcel-uuid",
 		ParcelID:      "010101000001",
 		Status:        domain.ParcelStatusReleased,
+		IsReleased:    true,
 		AcquisitionID: acquisitionID,
 	}
 }

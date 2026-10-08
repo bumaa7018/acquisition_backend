@@ -334,6 +334,8 @@ type ParcelRef struct {
 	ID       uuid.UUID
 	ParcelID string
 	Status   int
+	// Released — «Захирамжид холбогдоно» (parcel_status.is_released) төлөв.
+	Released bool
 }
 
 // ConstructionType — бүтээн байгуулалтын төрөл (lookup, legacy)
@@ -377,6 +379,25 @@ type ParcelStatus struct {
 	// эндээс авна. Хоосон бол дуудагч тал саарал өгөгдмөл хэрэглэнэ —
 	// шинээр нэмсэн төлөв өнгө сонгоогүй байж болно.
 	Color string `json:"color"`
+	ParcelStatusRules
+}
+
+// ParcelStatusRules — төлөвийн ДҮРЭМ («Нэгж талбарын төлөв» тохиргоо,
+// migration 000049). Өмнө кодонд нэр/дугаараар хатуу бичигдсэн байсан.
+type ParcelStatusRules struct {
+	// IsFinal — эцсийн төлөв: нэгж талбарын засвар түгжигдэнэ; чөлөөлөлтийг
+	// баталгаажуулахад бүх нэгж талбар ийм төлөвтэй байх ёстой.
+	IsFinal bool `json:"is_final"`
+	// LocksProgress — энэ төлөвөөс цааш явц солихгүй.
+	LocksProgress bool `json:"locks_progress"`
+	// IsValuationStage — үнэлгээний шат: гадаад байгууллага (мэрг./МИКА)
+	// харж, үнэлгээ засна; байгууллагад мэдэгдэл явна.
+	IsValuationStage bool `json:"is_valuation_stage"`
+	// IsReleased — «Захирамжид холбогдоно»: захирамжийн төсөлд холбогдоно,
+	// шилжихэд батлагдсан олговор шаардана, чөлөөлөлт устгах/хил өөрчлөхийг хаана.
+	IsReleased bool `json:"is_released"`
+	// RequiresReason — энэ төлөвт шилжихэд шалтгаан заавал.
+	RequiresReason bool `json:"requires_reason"`
 }
 
 // ParcelStatusHistory — нэгж талбарын статус солигдсон түүх
@@ -897,6 +918,8 @@ type ParcelFilter struct {
 	RightType int
 	Landuse   string
 	StatusID  int
+	// ValuationStageOnly — зөвхөн «Үнэлгээний шат» (is_valuation_stage) төлөвтэй.
+	ValuationStageOnly bool
 	// ProfessionalOrgID — ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН хүрээ (хоосон бол шүүлт
 	// байхгүй). Утгатай бол нэгж талбар ЗӨВХӨН дараах тохиолдолд харагдана:
 	//
@@ -957,6 +980,8 @@ type Parcel struct {
 	ChangedParcelID        string
 	StatusID               int
 	StatusName             string
+	// StatusIsValuationStage — төлөв нь «Үнэлгээний шат» (parcel_status.is_valuation_stage); GetParcelByID дээр л.
+	StatusIsValuationStage bool
 	IndependentOrgID       *ID
 	IndependentOrgName     string
 	SelectedValuationType  *string           // санхүү зөвшөөрсөн үндсэн үнэлгээний урсгал (asset/independent/mika)
@@ -1345,7 +1370,9 @@ type GlobalParcelFilter struct {
 	Status          int
 	StatusID        int
 	UnlinkedOnly    bool
-	Years           []int
+	// ReleasedOnly — зөвхөн «Захирамжид холбогдоно» (is_released) төлөвтэй.
+	ReleasedOnly bool
+	Years        []int
 	// SortBy / SortDir — хүснэгтийн баганаар эрэмбэлэх (LandAcquisitionFilter-тэй ижил).
 	SortBy   string
 	SortDir  string
@@ -1787,7 +1814,9 @@ type DashboardFilter struct {
 	AssignedUserID       string
 	ProfessionalOrgID    string
 	FilterByParcelStatus bool
-	ParcelStatusID       int
+	// ValuationStageOnly — гадаад дашбоард: зөвхөн «Үнэлгээний шат» (is_valuation_stage) нэгж талбар.
+	ValuationStageOnly bool
+	ParcelStatusID     int
 }
 
 // ParcelStatusStat — нэгж талбарын төлөвийн статистик

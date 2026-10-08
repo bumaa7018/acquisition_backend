@@ -113,6 +113,7 @@ func main() {
 	decisionDraftRepo := postgres.NewDecisionDraftRepo(mainDB)
 	decisionWorkTypeRepo := postgres.NewDecisionWorkTypeRepo(mainDB)
 	decisionBudgetRepo := postgres.NewDecisionBudgetRepo(mainDB)
+	decisionReviewUnitRepo := postgres.NewDecisionReviewUnitRepo(mainDB)
 	// Системийн тохиргоо (app_setting) — одоогоор газрын зургийн суурь зураг.
 	settingRepo := postgres.NewSettingRepo(mainDB)
 
@@ -266,9 +267,10 @@ func main() {
 	// Ажлын төрөл / Төсөв нь ижил интерфейстэй тул router-ийн type switch
 	// тэдгээрийг ялгаж чадахгүй — нэг багцаар дамжуулна.
 	decisionSvcs := service.DecisionServices{
-		Draft:    service.NewDecisionDraftService(decisionDraftRepo),
-		WorkType: service.NewDecisionOptionService(decisionWorkTypeRepo),
-		Budget:   service.NewDecisionOptionService(decisionBudgetRepo),
+		Draft:      service.NewDecisionDraftService(decisionDraftRepo),
+		WorkType:   service.NewDecisionOptionService(decisionWorkTypeRepo),
+		Budget:     service.NewDecisionOptionService(decisionBudgetRepo),
+		ReviewUnit: service.NewDecisionOptionService(decisionReviewUnitRepo),
 	}
 
 	if err := seed.RunStartup(ctx, mainDB, authDB, seed.StartupOptions{

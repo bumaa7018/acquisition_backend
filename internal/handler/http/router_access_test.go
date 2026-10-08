@@ -177,8 +177,8 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
 		return filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
-			filter.FilterByParcelStatus &&
-			filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
+			filter.ValuationStageOnly && // «Үнэлгээний шат» (is_valuation_stage)
+			!filter.FilterByParcelStatus &&
 			filter.Status == 0
 	})).Return(&domain.DashboardSummary{
 		ValuationStatuses: []domain.ValuationStatusStat{{Status: "draft", Count: 2}},
@@ -230,8 +230,8 @@ func TestRouter_Dashboard_ScopesFinanceSpecialist(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
 		return filter.ProfessionalOrgID == "" &&
-			filter.FilterByParcelStatus &&
-			filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
+			filter.ValuationStageOnly && // «Үнэлгээний шат» (is_valuation_stage)
+			!filter.FilterByParcelStatus &&
 			filter.Status == domain.LandAcquisitionStatusField
 	})).Return(&domain.DashboardSummary{
 		ValuationStatuses: []domain.ValuationStatusStat{{Status: "submitted", Count: 3}},
@@ -283,7 +283,7 @@ func TestRouter_Dashboard_AdminKeepsLegacyShape(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetDashboard", mock.Anything, mock.MatchedBy(func(filter domain.DashboardFilter) bool {
 		return !filter.FilterByParcelStatus &&
-			filter.ParcelStatusID == 0 &&
+			!filter.ValuationStageOnly &&
 			filter.Status == 0 &&
 			filter.ProfessionalOrgID == ""
 	})).Return(&domain.DashboardSummary{
@@ -409,19 +409,19 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 
 					if tc.wantProfessionalScope {
 						return filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
-							filter.FilterByParcelStatus &&
-							filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
+							filter.ValuationStageOnly && // «Үнэлгээний шат» (is_valuation_stage)
+							!filter.FilterByParcelStatus &&
 							filter.Status == 0
 					}
 					if tc.wantReviewerScope {
 						return filter.ProfessionalOrgID == "" &&
-							filter.FilterByParcelStatus &&
-							filter.ParcelStatusID == domain.ParcelStatusEvaluating &&
+							filter.ValuationStageOnly && // «Үнэлгээний шат» (is_valuation_stage)
+							!filter.FilterByParcelStatus &&
 							filter.Status == domain.LandAcquisitionStatusField
 					}
 					return filter.ProfessionalOrgID == "" &&
 						!filter.FilterByParcelStatus &&
-						filter.ParcelStatusID == 0 &&
+						!filter.ValuationStageOnly &&
 						filter.Status == 0
 				})).Return(&domain.DashboardSummary{
 					Acquisitions: []*domain.LandAcquisition{
@@ -744,7 +744,8 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatusScopedToOr
 	landSvc.On("GetParcels", mock.Anything, acqID, mock.MatchedBy(func(filter domain.ParcelFilter) bool {
 		// Байгууллагын хүрээ ЗААВАЛ тавигдана: хөндлөнгийн үнэлгээгээр нэг
 		// нэгж талбарт холбогдсон байгууллага бусдын нэгж талбарыг харахгүй.
-		return filter.StatusID == domain.ParcelStatusEvaluating &&
+		// «Үнэлгээний шат» (is_valuation_stage) төлөвөөр албадан шүүнэ.
+		return filter.ValuationStageOnly && filter.StatusID == 0 &&
 			filter.ProfessionalOrgID == strconv.Itoa(int(orgID)) &&
 			filter.Page == 1 &&
 			filter.PageSize == 20

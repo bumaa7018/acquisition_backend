@@ -687,6 +687,18 @@ func NewRouter(
 				budgets.DELETE("/:id", middleware.RequirePermission("admin:delete"), budgetH.Delete)
 			}
 		}
+		// Төсөл хянах нэгж — «Хянагдаж буй» явцын «Хянагдаж буй газар» сонголт.
+		if decisionSvcs.ReviewUnit != nil {
+			reviewUnitH := NewDecisionOptionHandler(decisionSvcs.ReviewUnit)
+			reviewUnits := protected.Group("/decision-review-units")
+			{
+				reviewUnits.GET("", reviewUnitH.List)
+				reviewUnits.GET("/:id", reviewUnitH.GetByID)
+				reviewUnits.POST("", middleware.RequirePermission("admin:create"), reviewUnitH.Create)
+				reviewUnits.PUT("/:id", middleware.RequirePermission("admin:update"), reviewUnitH.Update)
+				reviewUnits.DELETE("/:id", middleware.RequirePermission("admin:delete"), reviewUnitH.Delete)
+			}
+		}
 
 		// Баримт бичгийн төрөл
 		// Системийн тохиргоо. Суурь зургийг БҮХ хэрэглэгч уншина (газрын зураг

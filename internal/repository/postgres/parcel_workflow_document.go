@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 
 	"acquisition_backend/internal/domain"
 
@@ -127,4 +128,33 @@ func uniqueInts(in []int) []int {
 		}
 	}
 	return out
+}
+
+// ParcelProgressLocked — нэгж талбарын одоогийн төлөв «Явц түгжинэ»
+// (locks_progress) эсэх. Нэгж талбар олдохгүй бол ErrNotFound.
+func (r *landAcqRepo) ParcelProgressLocked(ctx context.Context, parcelID uuid.UUID) (bool, error) {
+	var locked bool
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(ps.locks_progress, false)
+		  FROM parcel p LEFT JOIN parcel_status ps ON ps.id = p.status
+		 WHERE p.id = $1`, parcelID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, domain.ErrNotFound
+	}
+	return locked, err
+}
+
+// GetParcelStatusRules — төлөвийн дүрэм (migration 000049). Төлөв олдохгүй бол ErrNotFound.
+func (r *landAcqRepo) GetParcelStatusRules(ctx context.Context, statusID int) (*domain.ParcelStatusRules, error) {
+	var rules domain.ParcelStatusRules
+	err := r.db.QueryRow(ctx, `SELECT is_final, locks_progress, is_valuation_stage, is_released, requires_reason
+		FROM parcel_status WHERE id = $1`, statusID).
+		Scan(&rules.IsFinal, &rules.LocksProgress, &rules.IsValuationStage, &rules.IsReleased, &rules.RequiresReason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rules, nil
 }

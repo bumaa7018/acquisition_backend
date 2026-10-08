@@ -197,9 +197,9 @@ func (s *landService) notifyParcelStatusChanged(reqCtx context.Context, acqID, p
 			ParcelID:      &parcelPK,
 		})
 
-		// 2) «Үнэлгээ хийх» төлөвт орсон бол байгууллагуудад үнэлгээ
-		//    эхлүүлэхийг хүссэн тусгай мэдэгдэл.
-		if parcel.StatusID != domain.ParcelStatusEvaluating {
+		// 2) «Үнэлгээний шат» (is_valuation_stage) төлөвт орсон бол
+		//    байгууллагуудад үнэлгээ эхлүүлэхийг хүссэн тусгай мэдэгдэл.
+		if !parcel.StatusIsValuationStage {
 			return
 		}
 		var orgs notifyTargets
