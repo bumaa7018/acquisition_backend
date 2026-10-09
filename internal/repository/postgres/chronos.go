@@ -33,7 +33,8 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 		          JOIN parcel_status rs ON rs.id = h.status_id AND rs.is_released
 		         WHERE h.parcel_id = p.parcel_id AND h.acquisition_id = p.acquisition_id),
 		       COALESCE(p.area_m2, 0),
-		       ST_AsGeoJSON(ST_SimplifyPreserveTopology(ST_Transform(p.geometry, 3857), 0.5), 1),
+		       -- Геометргүй нэгж талбар ч статистикт орно (зурагт гарахгүй) — дашбоардтай ижил тоо.
+		       COALESCE(ST_AsGeoJSON(ST_SimplifyPreserveTopology(ST_Transform(p.geometry, 3857), 0.5), 1), 'null'),
 		       la.created_at,
 		       COALESCE((
 		         SELECT TRIM(CONCAT_WS(' ', NULLIF(rh.last_name, ''), rh.name))
@@ -66,7 +67,7 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 		  LEFT JOIN decision_draft_parcel ddp ON ddp.parcel_id = p.id AND ddp.removed_at IS NULL
 		  LEFT JOIN decision_draft dd ON dd.id = ddp.decision_draft_id
 		  LEFT JOIN pay ON pay.parcel_id = p.id
-		 WHERE p.geometry IS NOT NULL AND NOT ST_IsEmpty(p.geometry) AND p.deleted_at IS NULL
+		 WHERE p.deleted_at IS NULL
 		   AND (COALESCE(cardinality($1::uuid[]), 0) = 0 OR p.acquisition_id = ANY($1)) -- nil slice → NULL
 		 ORDER BY p.parcel_id
 		 LIMIT $2`, acqIDs, domain.ChronosMaxParcels+1)

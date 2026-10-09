@@ -52,6 +52,9 @@ func TestE2EChronos(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO land_acquisition (plan_code, acquisition_name, status, created_by)
 		VALUES ('E2E-CHR2', 'E2E бусад', 2, 'e2e-chronos') RETURNING id`).Scan(&otherAcq))
 	poly := `ST_GeomFromText('POLYGON((106.9 47.9, 106.9001 47.9, 106.9001 47.9001, 106.9 47.9001, 106.9 47.9))', 4326)`
+	// Геометргүй нэгж талбар — статистикт орно (геометр нь null).
+	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by) VALUES ($1, 'E2ECHR0009', 1, 'e2e')`, otherAcq)
+	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by, geometry) VALUES
 		($1, 'E2ECHR0001', 5, 'e2e', `+poly+`),
 		($1, 'E2ECHR0002', 2, 'e2e', `+poly+`),
@@ -169,4 +172,10 @@ func TestE2EChronos(t *testing.T) {
 		codes[p.ParcelID] = true
 	}
 	require.True(t, codes["E2ECHR0003"])
+	require.True(t, codes["E2ECHR0009"], "геометргүй нэгж талбар ч орно")
+	for _, p := range all.Parcels {
+		if p.ParcelID == "E2ECHR0009" {
+			require.JSONEq(t, "null", string(p.Geometry))
+		}
+	}
 }
