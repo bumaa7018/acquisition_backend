@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"acquisition_backend/internal/domain"
@@ -37,7 +38,7 @@ func TestUpdateParcelStatusAttachmentName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			w := multipart.NewWriter(&buf)
-			_ = w.WriteField("status_id", "4")
+			_ = w.WriteField("status_id", strconv.Itoa(domain.ParcelStatusRejected))
 			_ = w.WriteField("reason", "Иргэн татгалзсан")
 			if tt.formName != "" {
 				_ = w.WriteField("file_name", tt.formName)

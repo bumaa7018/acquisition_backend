@@ -84,7 +84,7 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 				return
 			}
 			send(map[string]any{"code": "2026-04-011-9878", "parcel_id": "4932803", "name": "Тест төлөвлөгөө",
-				"gazner": "Ханын материал орчим", "geometry_wkt": "POLYGON((106.7 47.85,106.95 47.85,106.95 48,106.7 48,106.7 47.85))"})
+				"gazner": "Ханын материал орчим", "approved_date": "2025-12-05", "geometry_wkt": "POLYGON((106.7 47.85,106.95 47.85,106.95 48,106.7 48,106.7 47.85))"})
 		case strings.HasPrefix(r.URL.Path, "/parcel/info/") && geomByID[id] != "" && !missing[id]:
 			send(map[string]any{"parcel_id": id, "geometry_wkt": geomByID[id], "area_m2": 650, "right_type": 3, "app_no": "APP-" + id})
 		case strings.HasPrefix(r.URL.Path, "/parcel/ub/") && inUb[id]:
@@ -282,6 +282,8 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 		"захирамжийн дугаар legacy/ угтваргүй")
 	require.Equal(t, drafts, count(t, ctx, pool, `SELECT count(*) FROM decision_draft d JOIN decision_budget b ON b.id = d.budget_id
 		WHERE d.created_by = $1 AND b.name = 'Нийслэл'`, Actor), "санхүүжилтийн төрөл тодорхойгүй бол Нийслэл")
+	// Олгосон хувь ба эхний явц — төлөвлөгөө (ГУС) 2025-12-05-нд батлагдсан.
+	assertPaidAndInitialHistory(t, ctx, pool, ownedIDs(t, ctx, pool, id, "land_acquisition"), "2025-12-05")
 
 	_, err = svc.UploadParcels(ctx, id, parcelFiles)
 	require.ErrorIs(t, err, ErrCommitted)

@@ -217,7 +217,7 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 	// бичихгүй — зөвхөн Хроносын дүрслэлд.
 	var pending *domain.ChronosStatus
 	for i := range out.Statuses {
-		if out.Statuses[i].Code == "pending" {
+		if out.Statuses[i].ID == domain.ParcelStatusPending {
 			pending = &out.Statuses[i]
 			break
 		}

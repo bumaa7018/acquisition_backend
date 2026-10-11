@@ -82,7 +82,7 @@ func TestUpdateParcelStatusRequirementAlreadyPresent(t *testing.T) {
 
 // Тохируулсан шаардлагагүй төлөвт хавсралт ЗААВАЛ БИШ — өмнөх зан төлөв хэвээр.
 func TestUpdateParcelStatusWithoutAttachmentForOtherStatuses(t *testing.T) {
-	for _, statusID := range []int{domain.ParcelStatusAffectedOut, 2, 5} {
+	for _, statusID := range []int{domain.ParcelStatusAffectedOut, domain.ParcelStatusEvaluating, domain.ParcelStatusReleased} {
 		repo := &mocks.MockLandAcquisitionRepository{}
 		svc := NewLandService(repo, nil, nil, nil)
 		ch := domain.ParcelStatusChange{
@@ -166,7 +166,7 @@ func TestUpdateParcelStatusDoesNotAutoTypePaymentReceipt(t *testing.T) {
 	svc := NewLandService(repo, files, nil, nil)
 	ch := domain.ParcelStatusChange{
 		ParcelID: uuid.New(), AcquisitionID: uuid.New(),
-		StatusID: 5, CreatedBy: "user", Reason: "шалтгаан",
+		StatusID: domain.ParcelStatusReleased, CreatedBy: "user", Reason: "шалтгаан",
 	}
 	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return([]domain.ParcelStatusRequirement{{

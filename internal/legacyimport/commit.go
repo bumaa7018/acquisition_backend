@@ -466,18 +466,43 @@ func saveDetail(ctx context.Context, q querier, parcelUUID, acqID string, s *Sou
 	return err
 }
 
-// saveStatusHistory — statusDate хоосон бол өнөөдөр. Эцсийн төлөвөөс ӨМНӨ анхны
-// «Хүлээгдэж буй» түүх (чөлөөлөлт үүсгэсэн өдөр, эсвэл төлөвөөс 1 секундын өмнө).
+// saveStatusHistory — нэгж талбарын явцын түүх:
+//
+//  1. ЭХНИЙ явц («Анхны төлөв») — ҮРГЭЛЖ. Огноо нь төлөвлөгөө батлагдсан огноо,
+//     байхгүй бол чөлөөлөлт үүсгэсэн огноо. Эцсийн төлөв түүнээс ӨМНӨ огноотой
+//     бол (архивын он) эцсийн төлөвөөс 1 секундын өмнө — сүүлийн бичлэг нь
+//     одоогийн төлөв хэвээр байна.
+//  2. Эцсийн төлөв — анхны төлөвөөс өөр бол; statusDate хоосон бол өнөөдөр.
 func saveStatusHistory(ctx context.Context, q querier, parcelID, acqID string, status int, reason, statusDate string) error {
 	if _, err := q.Exec(ctx, `DELETE FROM parcel_status_history WHERE parcel_id = $1 AND created_by = $2`, parcelID, Actor); err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
-		SELECT $1, la.id, ps.id, LEAST(la.created_at, COALESCE($4::timestamptz, NOW()) - interval '1 second'), $3, 'Анхны төлөв'
-		  FROM parcel_status ps, land_acquisition la
-		 WHERE ps.code = 'pending' AND la.id = $2::uuid AND ps.id <> $5`,
-		parcelID, acqID, Actor, nullStr(statusDate), status); err != nil {
+	var approved *string
+	if err := q.QueryRow(ctx, `SELECT pl.approved_date FROM land_acquisition la
+		LEFT JOIN plan pl ON pl.id = la.plan_id OR (la.plan_id IS NULL AND pl.plan_code = la.plan_code)
+		WHERE la.id = $1::uuid
+		ORDER BY (pl.id = la.plan_id) DESC NULLS LAST LIMIT 1`, acqID).Scan(&approved); err != nil {
 		return err
+	}
+	planDate := ""
+	if approved != nil {
+		planDate = planApprovedDate(*approved)
+	}
+	initialReason, final := "Анхны төлөв", status != statusPending
+	if !final {
+		initialReason = joinNonEmpty("; ", initialReason, strings.TrimSpace(reason))
+	}
+	if _, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
+		SELECT $1, la.id, $5, CASE WHEN $6 THEN LEAST(start.at, COALESCE($7::timestamptz, NOW()) - interval '1 second') ELSE start.at END,
+		       $3, $8
+		  FROM land_acquisition la,
+		       LATERAL (SELECT COALESCE($4::date::timestamptz, la.created_at) AS at) start
+		 WHERE la.id = $2::uuid`,
+		parcelID, acqID, Actor, nullStr(planDate), statusPending, final, nullStr(statusDate), initialReason); err != nil {
+		return err
+	}
+	if !final {
+		return nil
 	}
 	_, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
 		VALUES ($1, $2, $3, COALESCE($6::timestamptz, NOW()), $4, NULLIF($5, ''))`,
@@ -797,6 +822,11 @@ func applyReportRow(ctx context.Context, tx pgx.Tx, sessionID string, row *Repor
 	}
 	if _, err := tx.Exec(ctx, `UPDATE parcel_detail SET right_type = COALESCE($2::integer, right_type) WHERE parcel_id = $1`,
 		parcel.id, rightType); err != nil {
+		return 0, err
+	}
+	// Олгосон хувь — хүснэгтийн дүн ÷ батлагдсан нийт олговор (архивын мөр нь
+	// «Нөхөх олговор олгосон НЗД-ын захирамж»-аар олгосон олговор).
+	if err := savePaidStage(ctx, tx, acqID, row.ParcelID, row.amount(), date); err != nil {
 		return 0, err
 	}
 	status := parcel.status

@@ -94,9 +94,8 @@ func TestParcelStatusHandler_Create_Success(t *testing.T) {
 	mockSvc := &mocks.MockParcelStatusService{}
 	h := handler.NewParcelStatusHandler(mockSvc)
 
-	ps := &domain.ParcelStatus{ID: 6, Code: "pending", Name: "Хүлээгдэж байна", SortOrder: 6}
+	ps := &domain.ParcelStatus{ID: 110, Code: "110", Name: "Хүлээгдэж байна", SortOrder: 6}
 	mockSvc.On("Create", mock.Anything, service.CreateParcelStatusRequest{
-		Code:      "pending",
 		Name:      "Хүлээгдэж байна",
 		SortOrder: 6,
 	}).Return(ps, nil)

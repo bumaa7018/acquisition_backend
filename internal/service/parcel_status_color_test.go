@@ -51,7 +51,7 @@ func TestParcelStatus_ColorNormalisedToLowercase(t *testing.T) {
 	svc := service.NewParcelStatusService(repo)
 
 	_, err := svc.Create(context.Background(), service.CreateParcelStatusRequest{
-		Code: "pending", Name: "Хүлээгдэж буй", Color: "#F97316",
+		Name: "Хүлээгдэж буй", Color: "#F97316",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "#f97316", repo.saved.Color)
@@ -64,7 +64,7 @@ func TestParcelStatus_RejectsInvalidColor(t *testing.T) {
 
 	for _, bad := range []string{"f97316", "#f9731", "#gggggg", "#f97316ff", "rgb(1,2,3)"} {
 		_, err := svc.Create(context.Background(), service.CreateParcelStatusRequest{
-			Code: "x", Name: "X", Color: bad,
+			Name: "X", Color: bad,
 		})
 		assert.ErrorIs(t, err, domain.ErrInvalidInput, "буруу өнгө: %q", bad)
 	}

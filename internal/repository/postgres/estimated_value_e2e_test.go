@@ -13,9 +13,9 @@ import (
 func floatPtr(v float64) *float64 { return &v }
 
 func TestE2E_EstimatedValueConfidenceRoundTrip(t *testing.T) {
-	f := newFixture(t, 0, 1)
+	f := newFixture(t, 0, domain.ParcelStatusProcessing)
 	ctx := context.Background()
-	parcelID := f.parcels[1]
+	parcelID := f.parcels[domain.ParcelStatusProcessing]
 	_, err := f.pool.Exec(ctx, "UPDATE parcel SET acquisition_area_m2 = 200 WHERE id = $1", parcelID)
 	require.NoError(t, err)
 	fees := []domain.ParcelFeeItem{{Area: 500, BaseFeePerM2: 10, ConfidencePercent: 1}}
@@ -47,9 +47,9 @@ func TestE2E_EstimatedValueConfidenceRoundTrip(t *testing.T) {
 }
 
 func TestE2E_EstimatedValueManualBaseFee(t *testing.T) {
-	f := newFixture(t, 0, 1)
+	f := newFixture(t, 0, domain.ParcelStatusProcessing)
 	ctx := context.Background()
-	parcelID := f.parcels[1]
+	parcelID := f.parcels[domain.ParcelStatusProcessing]
 	_, err := f.pool.Exec(ctx, "UPDATE parcel SET acquisition_area_m2 = 200 WHERE id = $1", parcelID)
 	require.NoError(t, err)
 	baseFee := 10.0

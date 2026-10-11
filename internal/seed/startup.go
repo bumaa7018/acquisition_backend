@@ -335,6 +335,18 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
+			// Migration 000053: нэгж талбарын төлөвийн id = code (0–8 → 101–109,
+			// нэгж талбар/түүх/ажлын урсгалтай нь). Төлөв, ажлын урсгал,
+			// шилжилтийн заавал хавсралтыг 103.87.255.222/appdb2-тэй тэнцүүлнэ.
+			// 000051-ээс ӨМНӨ: тэр нь анхны төлөвийг шинэ id-аар (101) хайдаг —
+			// хараахан ажиллаагүй сан дээр 101 үүсэхээс өмнө ажиллавал юу ч
+			// нэмэлгүй «дууссан» гэж тэмдэглэгдэнэ.
+			name: "000053_parcel_status_code_ids",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SyncParcelStatusWorkflow(ctx)
+			},
+		},
+		{
 			// Бүх нэгж талбарт анхны «Хүлээгдэж буй» түүх (хуучин импорт зөвхөн
 			// эцсийн төлөвийг бичдэг байсан).
 			name: "000051_parcel_pending_history",

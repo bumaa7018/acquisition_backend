@@ -61,12 +61,27 @@ func TestE2EParcelWorkflowRequiredDocuments(t *testing.T) {
 	repo := postgres.NewLandAcquisitionRepo(pool)
 	svc := service.NewLandService(repo, &psrdFiles{}, nil)
 	seeder := seed.NewMainSeeder(pool)
-	statusID := func(code string) int {
-		var id int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM parcel_status WHERE code = $1`, code).Scan(&id))
-		return id
+	processing, evaluating, rejected, released := domain.ParcelStatusProcessing, domain.ParcelStatusEvaluating, domain.ParcelStatusRejected, domain.ParcelStatusReleased
+	// Seed-ийн (000053) хавсралтын тохиргоог түр цэвэрлэж, 000047-ийн өгөгдмөлийг
+	// дангаар нь шалгана; тестийн дараа БУЦААНА.
+	var savedReqs [][2]int
+	reqRows, err := pool.Query(ctx, `SELECT workflow_id, document_type_id FROM parcel_workflow_required_document`)
+	require.NoError(t, err)
+	for reqRows.Next() {
+		var r [2]int
+		require.NoError(t, reqRows.Scan(&r[0], &r[1]))
+		savedReqs = append(savedReqs, r)
 	}
-	processing, evaluating, rejected, released := statusID("processing"), statusID("evaluating"), statusID("rejected"), statusID("released")
+	reqRows.Close()
+	_, err = pool.Exec(ctx, `DELETE FROM parcel_workflow_required_document`)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		c := context.Background()
+		_, _ = pool.Exec(c, `DELETE FROM parcel_workflow_required_document`)
+		for _, r := range savedReqs {
+			_, _ = pool.Exec(c, `INSERT INTO parcel_workflow_required_document (workflow_id, document_type_id) VALUES ($1, $2)`, r[0], r[1])
+		}
+	})
 	typeID := func(code string) int {
 		var id int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM document_type WHERE type = $1`, code).Scan(&id))

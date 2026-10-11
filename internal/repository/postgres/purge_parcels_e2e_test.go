@@ -106,7 +106,7 @@ func newPurgeFixture(t *testing.T) *purgeFixture {
 	      VALUES (uuid_generate_v4(), $1, $2, NOW())`, f.acqID, p.staleCode)
 	// parcel_status_history.id нь serial (integer) — uuid БИШ.
 	exec(`INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by)
-	      VALUES ($1, $2, 0, NOW(), 'e2e')`, p.staleCode, f.acqID)
+	      VALUES ($1, $2, $3, NOW(), 'e2e')`, p.staleCode, f.acqID, domain.ParcelStatusPending)
 
 	// Хөршийн (keep) мөр — устгалтад хөндөгдөх ЁСГҮЙ.
 	exec(`INSERT INTO compensation (id, acquisition_id, parcel_id, target_type, amount, created_at)

@@ -57,21 +57,26 @@ func (r *ParcelStatusRepo) GetByID(ctx context.Context, id int) (*domain.ParcelS
 	return ps, nil
 }
 
+// Create — id нь sequence-ээс (seeder 109 дээр тавьсан тул 110…), code нь
+// түүнтэй ИЖИЛ.
 func (r *ParcelStatusRepo) Create(ctx context.Context, ps *domain.ParcelStatus) error {
 	return r.db.QueryRow(ctx,
-		`INSERT INTO parcel_status (code, name, sort_order, color,
+		`WITH n AS (SELECT nextval('parcel_status_id_seq')::int AS id)
+		 INSERT INTO parcel_status (id, code, name, sort_order, color,
 		        is_final, locks_progress, is_valuation_stage, is_released, requires_reason)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9) RETURNING id`,
-		ps.Code, ps.Name, ps.SortOrder, ps.Color,
-		ps.IsFinal, ps.LocksProgress, ps.IsValuationStage, ps.IsReleased, ps.RequiresReason).Scan(&ps.ID)
+		 SELECT n.id, n.id::text, $1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8 FROM n
+		 RETURNING id, code`,
+		ps.Name, ps.SortOrder, ps.Color,
+		ps.IsFinal, ps.LocksProgress, ps.IsValuationStage, ps.IsReleased, ps.RequiresReason).Scan(&ps.ID, &ps.Code)
 }
 
+// Update — code-г хөндөхгүй (id-тай ижил хэвээр).
 func (r *ParcelStatusRepo) Update(ctx context.Context, ps *domain.ParcelStatus) error {
 	res, err := r.db.Exec(ctx,
-		`UPDATE parcel_status SET code=$1, name=$2, sort_order=$3, color=NULLIF($4, ''),
-		        is_final=$6, locks_progress=$7, is_valuation_stage=$8, is_released=$9, requires_reason=$10
-		  WHERE id=$5`,
-		ps.Code, ps.Name, ps.SortOrder, ps.Color, ps.ID,
+		`UPDATE parcel_status SET name=$1, sort_order=$2, color=NULLIF($3, ''),
+		        is_final=$5, locks_progress=$6, is_valuation_stage=$7, is_released=$8, requires_reason=$9
+		  WHERE id=$4`,
+		ps.Name, ps.SortOrder, ps.Color, ps.ID,
 		ps.IsFinal, ps.LocksProgress, ps.IsValuationStage, ps.IsReleased, ps.RequiresReason)
 	if err != nil {
 		return err

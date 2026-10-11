@@ -25,14 +25,18 @@ const (
 	LandAcquisitionStatusCancelled = 4 // Цуцлагдсан
 )
 
-// Parcel статус (main DB)
+// Parcel статус (main DB) — parcel_status.id нь code-той ИЖИЛ (101–109, seeder).
+// Админы нэмсэн шинэ төлөв 110-аас үргэлжилнэ.
 const (
-	ParcelStatusPending     = 0 // Хүлээгдэж буй
-	ParcelStatusProcessing  = 1 // Зөвшилцөх шатандаа
-	ParcelStatusEvaluating  = 2 // Үнэлгээ хийх
-	ParcelStatusAffectedOut = 3 // Нөлөөлөгдсөн гарсан
-	ParcelStatusRejected    = 4 // Татгалзсан
-	ParcelStatusReleased    = 5 // Чөлөөлсөн
+	ParcelStatusPending       = 101 // Нөлөөлөлд өртсөн нэгж талбар (анхны төлөв, parcel.status-ийн DEFAULT)
+	ParcelStatusSurvey        = 102 // Суурин болон хээрийн судалгаа
+	ParcelStatusAffectedOut   = 103 // Нөлөөллөөс гаргасан
+	ParcelStatusEvaluating    = 104 // Үнэлгээ хийгдсэн
+	ParcelStatusProcessing    = 105 // Зөвшилцөх шатанд
+	ParcelStatusRejected      = 106 // Татгалзсан
+	ParcelStatusDecisionDraft = 107 // Захирамжийн төсөлд
+	ParcelStatusPayment       = 108 // Төлбөрийн гүйцэтгэл
+	ParcelStatusReleased      = 109 // Чөлөөлсөн
 )
 
 // AcquisitionStatusLabels — статусын монгол нэрс

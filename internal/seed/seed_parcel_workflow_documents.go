@@ -3,6 +3,8 @@ package seed
 import (
 	"context"
 	"log/slog"
+
+	"acquisition_backend/internal/domain"
 )
 
 // rejectionDocumentType — «Татгалзсан» явцад шилжихэд заавал хавсаргах баримт.
@@ -18,8 +20,8 @@ const rejectionDocumentType = "rejection_document"
 //	… → Чөлөөлсөн (released) — Үнэлгээний тайлан (valuation_report)
 //	… → Татгалзсан (rejected) — Татгалзсан тухай баримт (rejection_document)
 //
-// Төлөв/төрлийг КОДООР нь олно (орчин бүрт id өөр байж болно). Тохиргоо аль
-// хэдийн байвал хөндөхгүй (ON CONFLICT DO NOTHING) — seed_history-гаар НЭГ л
+// Төлөвийг domain.ParcelStatus*-аар (id = code, 000053-аас хойш бүх орчинд
+// ижил), төрлийг кодоор нь олно. Тохиргоо аль хэдийн байвал хөндөхгүй (ON CONFLICT DO NOTHING) — seed_history-гаар НЭГ л
 // удаа ажиллах тул дараа нь админ хассан бол дахин нэмэгдэхгүй.
 //
 // Мөн өмнө «Татгалзсан» шилжилтэд хавсаргасан ТӨРӨЛГҮЙ баримтуудыг (түүхийн
@@ -35,11 +37,10 @@ func (s *MainSeeder) SeedParcelWorkflowRequiredDocuments(ctx context.Context) er
 	if _, err := s.db.Exec(ctx, `
 		INSERT INTO parcel_workflow_required_document (workflow_id, document_type_id)
 		SELECT pw.id, dt.id
-		FROM (VALUES ('released', 'valuation_report'), ('rejected', $1)) AS req(status_code, doc_type)
-		JOIN parcel_status ps ON ps.code = req.status_code
-		JOIN parcel_workflow pw ON pw.to_status_id = ps.id
+		FROM (VALUES ($2::int, 'valuation_report'), ($3::int, $1)) AS req(status_id, doc_type)
+		JOIN parcel_workflow pw ON pw.to_status_id = req.status_id
 		JOIN document_type dt ON dt.type = req.doc_type
-		ON CONFLICT DO NOTHING`, rejectionDocumentType); err != nil {
+		ON CONFLICT DO NOTHING`, rejectionDocumentType, domain.ParcelStatusReleased, domain.ParcelStatusRejected); err != nil {
 		return err
 	}
 	tag, err := s.db.Exec(ctx, `
@@ -50,11 +51,10 @@ func (s *MainSeeder) SeedParcelWorkflowRequiredDocuments(ctx context.Context) er
 		  AND d.file_url <> ''
 		  AND EXISTS (
 			SELECT 1 FROM parcel_status_history h
-			JOIN parcel_status ps ON ps.id = h.status_id AND ps.code = 'rejected'
 			JOIN parcel p ON p.parcel_id = h.parcel_id AND p.acquisition_id = h.acquisition_id
 			JOIN parcel_document pd ON pd.parcel_id = p.id AND pd.document_id = d.id
-			WHERE h.attachment_url = d.file_url
-		  )`, rejectionDocumentType)
+			WHERE h.status_id = $2 AND h.attachment_url = d.file_url
+		  )`, rejectionDocumentType, domain.ParcelStatusRejected)
 	if err != nil {
 		return err
 	}

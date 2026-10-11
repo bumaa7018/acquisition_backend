@@ -6,18 +6,20 @@ import (
 	"math"
 	"regexp"
 	"strings"
+
+	"acquisition_backend/internal/domain"
 )
 
 // ── Нэгж талбарын төлөв ─────────────────────────────────────────────────────
 
-// Системийн parcel_status.id (domain.ParcelStatus*-тэй ижил).
+// Системийн parcel_status.id (= code, 101–109).
 const (
-	statusPending     = 0
-	statusProcessing  = 1
-	statusEvaluating  = 2
-	statusAffectedOut = 3
-	statusRejected    = 4
-	statusReleased    = 5
+	statusPending     = domain.ParcelStatusPending
+	statusProcessing  = domain.ParcelStatusProcessing
+	statusEvaluating  = domain.ParcelStatusEvaluating
+	statusAffectedOut = domain.ParcelStatusAffectedOut
+	statusRejected    = domain.ParcelStatusRejected
+	statusReleased    = domain.ParcelStatusReleased
 )
 
 // statusCodeMap — shp-ийн `code` → систем. Эх системийн ДАРААЛАЛ ӨӨР (1↔3, 4↔5).

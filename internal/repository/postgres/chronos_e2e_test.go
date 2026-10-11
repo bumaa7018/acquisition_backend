@@ -53,19 +53,19 @@ func TestE2EChronos(t *testing.T) {
 		VALUES ('E2E-CHR2', 'E2E бусад', 2, 'e2e-chronos') RETURNING id`).Scan(&otherAcq))
 	poly := `ST_GeomFromText('POLYGON((106.9 47.9, 106.9001 47.9, 106.9001 47.9001, 106.9 47.9001, 106.9 47.9))', 4326)`
 	// Геометргүй нэгж талбар — статистикт орно (геометр нь null).
-	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by) VALUES ($1, 'E2ECHR0009', 1, 'e2e')`, otherAcq)
+	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by) VALUES ($1, 'E2ECHR0009', 105, 'e2e')`, otherAcq)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by, geometry) VALUES
-		($1, 'E2ECHR0001', 5, 'e2e', `+poly+`),
-		($1, 'E2ECHR0002', 2, 'e2e', `+poly+`),
-		($2, 'E2ECHR0003', 5, 'e2e', `+poly+`)`, acqID, otherAcq)
+		($1, 'E2ECHR0001', 109, 'e2e', `+poly+`),
+		($1, 'E2ECHR0002', 104, 'e2e', `+poly+`),
+		($2, 'E2ECHR0003', 109, 'e2e', `+poly+`)`, acqID, otherAcq)
 	require.NoError(t, err)
 	// 0001: 2021-03 үнэлгээ → 2021-07 чөлөөлсөн → 2022-01 татгалзсан → 2022-05 дахин чөлөөлсөн.
 	_, err = pool.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date) VALUES
-		('E2ECHR0001', $1, 2, '2021-03-10'), ('E2ECHR0001', $1, 5, '2021-07-15'),
-		('E2ECHR0001', $1, 4, '2022-01-05'), ('E2ECHR0001', $1, 5, '2022-05-01'),
-		('E2ECHR0002', $1, 2, '2021-04-01'),
-		('E2ECHR0003', $2, 5, '2023-02-02')`, acqID, otherAcq)
+		('E2ECHR0001', $1, 104, '2021-03-10'), ('E2ECHR0001', $1, 109, '2021-07-15'),
+		('E2ECHR0001', $1, 106, '2022-01-05'), ('E2ECHR0001', $1, 109, '2022-05-01'),
+		('E2ECHR0002', $1, 104, '2021-04-01'),
+		('E2ECHR0003', $2, 109, '2023-02-02')`, acqID, otherAcq)
 	require.NoError(t, err)
 
 	// Нөхөх олговор: 0001 — бүгд батлагдсан (сүүлийнх 2021-06-15), 0002 — илгээсэн.
@@ -115,9 +115,9 @@ func TestE2EChronos(t *testing.T) {
 	require.NotNil(t, p1.ReleasedAt)
 	require.Equal(t, "2021-07", p1.ReleasedAt.Format("2006-01"), "АНХ чөлөөлсөн огноо")
 	require.Len(t, p1.Events, 5, "эхэнд «Хүлээгдэж буй» нэмэгдэнэ")
-	require.Equal(t, 0, p1.Events[0].StatusID, "Хүлээгдэж буй")
+	require.Equal(t, 101, p1.Events[0].StatusID, "Хүлээгдэж буй")
 	require.Equal(t, "2021-03-10", p1.Events[0].Date.Format("2006-01-02"), "чөлөөлөлт үүсгэснээс өмнө түүх эхэлсэн тул эхний түүхийн өдөр")
-	require.Equal(t, 2, p1.Events[1].StatusID, "огноогоор эрэмбэлсэн")
+	require.Equal(t, 104, p1.Events[1].StatusID, "огноогоор эрэмбэлсэн")
 	require.Equal(t, 1750.0, p1.CompAmount)
 	require.Equal(t, [3]float64{1500, 200, 50}, [3]float64{p1.CompLand, p1.CompRealState, p1.CompProperty}, "газар / үл хөдлөх / эд хөрөнгө")
 	require.Equal(t, "Бат Дорж", p1.HolderName)
@@ -158,7 +158,7 @@ func TestE2EChronos(t *testing.T) {
 	require.NotEmpty(t, data.Statuses)
 	var released bool
 	for _, s := range data.Statuses {
-		if s.ID == 5 {
+		if s.ID == 109 {
 			released = s.IsReleased
 		}
 	}

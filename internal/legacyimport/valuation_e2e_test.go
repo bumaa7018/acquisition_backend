@@ -318,8 +318,10 @@ func TestE2ELegacyImportValuationOnly(t *testing.T) {
 	require.Equal(t, 4, count(t, ctx, pool, `SELECT count(*) FROM parcel_status_history WHERE acquisition_id = ANY($1::uuid[])
 		AND status_date::date = '2015-12-31'`, acqs), "«2015» sheet-ийн мөрүүд тухайн оны огноотой")
 	require.Zero(t, count(t, ctx, pool, `SELECT count(*) FROM parcel p WHERE p.acquisition_id = ANY($1::uuid[])
-		AND p.status <> 5 AND EXISTS (SELECT 1 FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.amount > 0)`, acqs),
+		AND p.status <> 109 AND EXISTS (SELECT 1 FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.amount > 0)`, acqs),
 		"олговортой нэгж талбар «Чөлөөлсөн»")
+	// Олгосон хувь ба эхний явц — «зөвхөн үнэлгээ»-нд төлөвлөгөөгүй тул чөлөөлөлт үүсгэсэн огноо.
+	assertPaidAndInitialHistory(t, ctx, pool, acqs, "")
 	require.Equal(t, 1, count(t, ctx, pool, `SELECT count(*) FROM parcel WHERE id = $1 AND acquisition_id = $2`, ctrlParcel, ctrlAcq),
 		"санд байсан нэгж талбар хөндөгдөхгүй")
 

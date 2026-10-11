@@ -1,7 +1,8 @@
 //go:build e2e
 
-// Нэгж талбарын төлөвийн ДҮРЭМ (migration 000049) — өгөгдмөл тохиргоо нь
-// өмнөх хатуу кодын дүрмийг ЯГ давтана; тохиргоог өөрчлөхөд дүрэм дагана.
+// Нэгж талбарын төлөвийн ДҮРЭМ (migration 000049) — seeder-ийн тохиргоо
+// (appdb2-ийн 101–109 төлөв) уншигдана; тохиргоог өөрчлөхөд дүрэм дагана.
+// Төлөвийг id-аар танина (код нь орчин бүрт өөр байж болно).
 // БОДИТ PostgreSQL дээр. Зөвхөн ӨӨРИЙН үүсгэсэн мөрийг цэвэрлэж, өөрчилсөн
 // тохиргоог буцаана.
 //
@@ -43,47 +44,41 @@ func TestE2EParcelStatusRules(t *testing.T) {
 	statusRepo := postgres.NewParcelStatusRepo(pool)
 	svc := service.NewLandService(repo, &psrdFiles{}, nil)
 
-	// Тохиргоог тестийн дараа БУЦААНА.
-	type snap struct {
-		id                                        int
-		final, locks, valuation, released, reason bool
-	}
-	var before []snap
-	rows, err := pool.Query(ctx, `SELECT id, is_final, locks_progress, is_valuation_stage, is_released, requires_reason FROM parcel_status`)
-	require.NoError(t, err)
-	for rows.Next() {
-		var s snap
-		require.NoError(t, rows.Scan(&s.id, &s.final, &s.locks, &s.valuation, &s.released, &s.reason))
-		before = append(before, s)
-	}
-	rows.Close()
+	// Тохиргоог тестийн дараа seeder-ийн утга руу БУЦААНА (хуулбар авбал id
+	// шилжүүлгээс өмнөх 0–8 id-тай үлдэж сэргээгдэхгүй).
 	t.Cleanup(func() {
-		for _, s := range before {
-			_, _ = pool.Exec(context.Background(), `UPDATE parcel_status SET is_final=$2, locks_progress=$3, is_valuation_stage=$4,
-				is_released=$5, requires_reason=$6 WHERE id=$1`, s.id, s.final, s.locks, s.valuation, s.released, s.reason)
-		}
+		_ = seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(context.Background())
 	})
 
-	// ── Seed — өмнөх хатуу кодын дүрэм ────────────────────────────────────
-	require.NoError(t, seed.NewMainSeeder(pool).SeedParcelStatusFlags(ctx))
-	rules := func(code string) domain.ParcelStatusRules {
-		var id int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM parcel_status WHERE code = $1`, code).Scan(&id))
+	// ── Seed — appdb2-ийн төлөв, ажлын урсгал ────────────────────────────
+	require.NoError(t, seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(ctx))
+	require.NoError(t, seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(ctx), "давтан ажиллахад алдаагүй")
+	rules := func(id int) domain.ParcelStatusRules {
 		r, err := repo.GetParcelStatusRules(ctx, id)
 		require.NoError(t, err)
 		return *r
 	}
-	require.Equal(t, domain.ParcelStatusRules{IsFinal: true, LocksProgress: true, RequiresReason: true}, rules("affected_out"))
-	require.Equal(t, domain.ParcelStatusRules{IsFinal: true, RequiresReason: true}, rules("rejected"))
-	require.Equal(t, domain.ParcelStatusRules{IsFinal: true, LocksProgress: true, IsReleased: true}, rules("released"))
-	require.Equal(t, domain.ParcelStatusRules{IsValuationStage: true}, rules("evaluating"))
-	require.Equal(t, domain.ParcelStatusRules{}, rules("pending"))
-	require.Equal(t, domain.ParcelStatusRules{}, rules("processing"))
+	const draft, payment = domain.ParcelStatusDecisionDraft, domain.ParcelStatusPayment
+	require.Equal(t, domain.ParcelStatusRules{IsFinal: true, LocksProgress: true, RequiresReason: true}, rules(domain.ParcelStatusAffectedOut))
+	require.Equal(t, domain.ParcelStatusRules{RequiresReason: true}, rules(domain.ParcelStatusRejected))
+	require.Equal(t, domain.ParcelStatusRules{IsFinal: true, LocksProgress: true, IsReleased: true}, rules(domain.ParcelStatusReleased))
+	require.Equal(t, domain.ParcelStatusRules{IsValuationStage: true}, rules(domain.ParcelStatusEvaluating))
+	require.Equal(t, domain.ParcelStatusRules{IsReleased: true}, rules(draft))
+	require.Equal(t, domain.ParcelStatusRules{IsReleased: true}, rules(payment))
+	require.Equal(t, domain.ParcelStatusRules{}, rules(domain.ParcelStatusPending))
+	require.Equal(t, domain.ParcelStatusRules{}, rules(domain.ParcelStatusProcessing))
+	// Ажлын урсгал — 17 шилжилт, 131 заавал хавсралт.
+	var transitions, required int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT (SELECT COUNT(*) FROM parcel_workflow),
+		(SELECT COUNT(*) FROM parcel_workflow_required_document)`).Scan(&transitions, &required))
+	require.Equal(t, 17, transitions)
+	require.Equal(t, 131, required)
 	// Төлөвийн CRUD-ийн жагсаалтад дүрэм ирнэ.
 	list, err := statusRepo.List(ctx)
 	require.NoError(t, err)
 	for _, s := range list {
-		if s.Code == "released" {
+		if s.ID == domain.ParcelStatusReleased {
+			require.Equal(t, "109", s.Code)
 			require.True(t, s.IsReleased && s.IsFinal)
 		}
 	}
@@ -158,17 +153,18 @@ func TestE2EParcelStatusRules(t *testing.T) {
 	}, nil), domain.ErrValuationReportRequired)
 
 	// ── Тохиргоог өөрчилбөл дүрэм ДАГАНА ──────────────────────────────────
-	setRule := func(code, col string, v bool) {
-		_, err := pool.Exec(ctx, `UPDATE parcel_status SET `+col+` = $2 WHERE code = $1`, code, v)
+	setRule := func(id int, col string, v bool) {
+		_, err := pool.Exec(ctx, `UPDATE parcel_status SET `+col+` = $2 WHERE id = $1`, id, v)
 		require.NoError(t, err)
 	}
-	// «Үнэлгээ хийх»-ийг эцсийн болговол чөлөөлөлтийн бүх нэгж талбар эцсийн.
-	setRule("evaluating", "is_final", true)
+	// «Үнэлгээ хийх», «Татгалзсан»-ыг эцсийн болговол чөлөөлөлтийн бүх нэгж талбар эцсийн.
+	setRule(domain.ParcelStatusEvaluating, "is_final", true)
+	setRule(domain.ParcelStatusRejected, "is_final", true)
 	nonFinal, err = repo.HasNonFinalParcels(ctx, acqID)
 	require.NoError(t, err)
 	require.False(t, nonFinal)
 	// «Чөлөөлсөн»-ийг чөлөөлөгдсөн биш болговол устгах хаалт, хилийн хамгаалалт алга.
-	setRule("released", "is_released", false)
+	setRule(domain.ParcelStatusReleased, "is_released", false)
 	check, err = repo.CheckAcquisitionDeletable(ctx, acqID)
 	require.NoError(t, err)
 	require.Zero(t, check.ReleasedParcels)
@@ -176,17 +172,17 @@ func TestE2EParcelStatusRules(t *testing.T) {
 	require.Empty(t, linkable())
 	require.False(t, canLink(released))
 	// «Татгалзсан»-д асаавал захирамжид холбогдоно.
-	setRule("rejected", "is_released", true)
+	setRule(domain.ParcelStatusRejected, "is_released", true)
 	require.Equal(t, []string{"E2ERULES0003"}, linkable())
 	require.True(t, canLink(rejected))
-	setRule("rejected", "is_released", false)
+	setRule(domain.ParcelStatusRejected, "is_released", false)
 	// Тэгвэл чөлөөлөхөд олговор шаардахгүй (нэрээр биш тохиргоогоор).
 	require.NoError(t, svc.UpdateParcelStatus(ctx, domain.ParcelStatusChange{
 		ParcelID: evaluating, AcquisitionID: acqID, StatusID: domain.ParcelStatusReleased, CreatedBy: "e2e-rules",
 	}, nil))
 	// «Зөвшилцөх»-ийг үнэлгээний шат болговол гадаад жагсаалтад орно.
-	setRule("processing", "is_valuation_stage", true)
-	setRule("released", "is_valuation_stage", true)
+	setRule(domain.ParcelStatusProcessing, "is_valuation_stage", true)
+	setRule(domain.ParcelStatusReleased, "is_valuation_stage", true)
 	evalList, _, err = repo.GetParcels(ctx, acqID, domain.ParcelFilter{ValuationStageOnly: true})
 	require.NoError(t, err)
 	require.Len(t, evalList, 2, "Чөлөөлсөн (одоо үнэлгээний шат) 2 нэгж талбар")
@@ -194,15 +190,15 @@ func TestE2EParcelStatusRules(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, p.StatusIsValuationStage)
 	// «Явц түгжинэ»: «Чөлөөлсөн» (өгөгдмөл түгжээтэй) төлөвөөс явц солихгүй.
-	toProcessing := domain.ParcelStatusChange{ParcelID: released, AcquisitionID: acqID, StatusID: 1, CreatedBy: "e2e-rules"}
+	toProcessing := domain.ParcelStatusChange{ParcelID: released, AcquisitionID: acqID, StatusID: domain.ParcelStatusProcessing, CreatedBy: "e2e-rules"}
 	require.ErrorIs(t, svc.UpdateParcelStatus(ctx, toProcessing, nil), domain.ErrParcelProgressLocked)
 	p, err = repo.GetParcelByID(ctx, released)
 	require.NoError(t, err)
 	require.Equal(t, domain.ParcelStatusReleased, p.StatusID, "төлөв солигдоогүй")
 	// Түгжээг унтраавал солигдоно.
-	setRule("released", "locks_progress", false)
+	setRule(domain.ParcelStatusReleased, "locks_progress", false)
 	require.NoError(t, svc.UpdateParcelStatus(ctx, toProcessing, nil))
 	// Шалтгаан заавлын тохиргоо уншигдана.
-	setRule("pending", "requires_reason", true)
-	require.True(t, rules("pending").RequiresReason)
+	setRule(domain.ParcelStatusPending, "requires_reason", true)
+	require.True(t, rules(domain.ParcelStatusPending).RequiresReason)
 }

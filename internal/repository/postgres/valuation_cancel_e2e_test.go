@@ -210,7 +210,7 @@ func TestE2E_ValuationCancelGuardsPreserveApprovedData(t *testing.T) {
 				_, err := f.pool.Exec(ctx, `UPDATE compensation SET valuation_report_url='' WHERE acquisition_id=$1`, f.acqID)
 				require.NoError(t, err)
 			case "missing selected type":
-				_, err := f.pool.Exec(ctx, `UPDATE parcel SET selected_valuation_type=NULL, status=1 WHERE id=$1`, cancel.ParcelID)
+				_, err := f.pool.Exec(ctx, `UPDATE parcel SET selected_valuation_type=NULL, status=105 WHERE id=$1`, cancel.ParcelID)
 				require.NoError(t, err)
 			}
 			_, err := f.repo.TransitionValuationSubmission(ctx, cancel)

@@ -5151,8 +5151,8 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 		rows, err := r.db.Query(ctx, fmt.Sprintf(`
 			SELECT la.id, COALESCE(la.acquisition_name, ''), la.plan_code, la.status,
 			       COALESCE(la.area_m2, 0), COALESCE(la.decree_number, ''), COUNT(p.id),
-			       -- ЯВЦ: жагсаалттай ИЖИЛ шалгуур (эцсийн 3 төлөв).
-			       COUNT(p.id) FILTER (WHERE COALESCE(p.status,0) IN (3,4,5))
+			       -- ЯВЦ: жагсаалттай ИЖИЛ шалгуур (эцсийн төлөв — is_final).
+			       COUNT(p.id) FILTER (WHERE p.status IN (SELECT id FROM parcel_status WHERE is_final))
 			FROM land_acquisition la
 			LEFT JOIN parcel p ON p.acquisition_id = la.id%s
 			WHERE la.id %s
@@ -5162,7 +5162,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			-- Ижил хувьтай үед шинэ нь дээр (created_at DESC).
 			ORDER BY
 			  CASE WHEN COUNT(p.id) = 0 THEN 0
-			       ELSE COUNT(p.id) FILTER (WHERE COALESCE(p.status,0) IN (3,4,5))::numeric
+			       ELSE COUNT(p.id) FILTER (WHERE p.status IN (SELECT id FROM parcel_status WHERE is_final))::numeric
 			            / COUNT(p.id) END ASC,
 			  la.created_at DESC
 			LIMIT 1000

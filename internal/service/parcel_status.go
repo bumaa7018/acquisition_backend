@@ -23,8 +23,9 @@ type ParcelStatusService interface {
 // `validator.New()` ХЭРЭГЛЭДЭГГҮЙ (бусад handler-уудаас ялгаатай). gin нь
 // зөвхөн `binding:` тагийг уншдаг тул `validate:` таг бичвэл шалгалт ОГТ
 // ажиллахгүй — таг нь зөвхөн чимэг болно.
+// Код хүлээж авахгүй: шинэ төлөвийн code нь өөрийн id (sequence, 110…) —
+// нэгж талбарын төлөвийг кодоор нь тогтвортой танина (domain.ParcelStatus*).
 type CreateParcelStatusRequest struct {
-	Code      string `json:"code"       binding:"required"`
 	Name      string `json:"name"       binding:"required"`
 	SortOrder int    `json:"sort_order"`
 	// Color — `#rrggbb`. Хоосон зөвшөөрнө: өнгө сонгоогүй төлөв нь дуудагч
@@ -39,8 +40,8 @@ type CreateParcelStatusRequest struct {
 	domain.ParcelStatusRules
 }
 
+// Код засагдахгүй (id-тай ижил байх ёстой) — CreateParcelStatusRequest-ийг үз.
 type UpdateParcelStatusRequest struct {
-	Code      string `json:"code"`
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
 	// Color — ЗААВАЛ заагч. Гурван утга ЯЛГАГДАНА:
@@ -84,7 +85,6 @@ func (s *parcelStatusService) Create(ctx context.Context, req CreateParcelStatus
 		return nil, err
 	}
 	ps := &domain.ParcelStatus{
-		Code:              req.Code,
 		Name:              req.Name,
 		SortOrder:         req.SortOrder,
 		Color:             color,
@@ -100,9 +100,6 @@ func (s *parcelStatusService) Update(ctx context.Context, id int, req UpdateParc
 	ps, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-	if req.Code != "" {
-		ps.Code = req.Code
 	}
 	if req.Name != "" {
 		ps.Name = req.Name

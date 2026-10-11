@@ -96,8 +96,6 @@ const acquisitionCategorySeedSQL = `
 
 // referenceRows — хүснэгт тус бүрийн лавлах мөрүүд, эх нь архивласан миграцууд:
 //
-//	parcel_status      ← 000020 / 000030
-//	parcel_workflow    ← 103.87.255.222/appdb2
 //	acquisition_category
 //	construction_type  ← 000017
 //	asset_spec_type    ← 000041
@@ -106,39 +104,6 @@ var referenceRows = []struct {
 	name string
 	sql  string
 }{
-	// ӨНГӨ нь заавал хамт орно: төлөвийн өнгөний ЭХ СУРВАЛЖ нь энэ бүртгэл
-	// (дашбоард, жагсаалт, газрын зургийн давхарга бүгд эндээс авна). Өнгөгүй
-	// үүсгэвэл `reset-db` хийсний дараа бүх төлөв саарал өгөгдмөлөөр харагдана.
-	// Утгууд нь frontend-ийн хуучин хатуу хүснэгттэй (PARCEL_STATUS_STYLES) ижил.
-	//
-	// ON CONFLICT нь ЗӨВХӨН өнгөгүй (NULL) мөрийг бөглөнө — өмнө нь үүссэн
-	// сангуудыг зассан ч гараар сонгосон өнгийг ДАРЖ БИЧИХГҮЙ.
-	{"parcel_status", `
-		INSERT INTO parcel_status (id, code, name, sort_order, color) VALUES
-			(0, 'pending',      'Хүлээгдэж буй',        0, '#64748b'),
-			(1, 'processing',   'Зөвшилцөх шатандаа',   1, '#facc15'),
-			(2, 'evaluating',   'Үнэлгээ хийх',         2, '#f97316'),
-			(3, 'affected_out', 'Нөлөөлөгдсөн гарсан',  3, '#3b82f6'),
-			(4, 'rejected',     'Татгалзсан',           4, '#ef4444'),
-			(5, 'released',     'Чөлөөлсөн',            5, '#22c55e')
-			ON CONFLICT (id) DO UPDATE SET color = EXCLUDED.color
-			WHERE parcel_status.color IS NULL`},
-
-	// Нэгж талбарын ажлын урсгал — 103.87.255.222/appdb2-т тохируулсан
-	// шилжилтүүд (2026-09-28). parcel_status-ийн ДАРАА орох ёстой (FK).
-	// Байгаа шилжилтийг хөндөхгүй, дутуугаа л нэмнэ.
-	{"parcel_workflow", `
-		INSERT INTO parcel_workflow (from_status_id, to_status_id, sort_order) VALUES
-			(0, 2, 1), -- Хүлээгдэж буй      → Үнэлгээ хийх
-			(2, 3, 2), -- Үнэлгээ хийх       → Нөлөөлөгдсөн гарсан
-			(2, 1, 3), -- Үнэлгээ хийх       → Зөвшилцөх шатандаа
-			(1, 2, 4), -- Зөвшилцөх шатандаа → Үнэлгээ хийх
-			(1, 4, 5), -- Зөвшилцөх шатандаа → Татгалзсан
-			(4, 1, 6), -- Татгалзсан         → Зөвшилцөх шатандаа
-			(1, 5, 7), -- Зөвшилцөх шатандаа → Чөлөөлсөн
-			(5, 4, 8)  -- Чөлөөлсөн          → Татгалзсан
-		ON CONFLICT (from_status_id, to_status_id) DO NOTHING`},
-
 	{"acquisition_category", acquisitionCategorySeedSQL},
 
 	{"construction_type", `
@@ -179,8 +144,12 @@ var referenceRows = []struct {
 		ON CONFLICT (code) DO NOTHING`},
 }
 
-// Seed — лавлах бүрийг байхгүй бол нэмнэ.
+// Seed — лавлах бүрийг байхгүй бол нэмнэ. Нэгж талбарын төлөв ба ажлын урсгал
+// (parcel_status, parcel_workflow) — seed_parcel_status_workflow.go.
 func (s *ReferenceSeeder) Seed(ctx context.Context) error {
+	if err := seedParcelStatusWorkflow(ctx, s.db, false); err != nil {
+		return err
+	}
 	for _, r := range referenceRows {
 		tag, err := s.db.Exec(ctx, r.sql)
 		if err != nil {

@@ -52,7 +52,7 @@ func TestE2ECompensationPaymentStages(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO land_acquisition (plan_code, acquisition_name, status, created_by)
 		VALUES ('E2E-PAY', 'E2E олговрын гүйцэтгэл', 2, 'e2e-pay') RETURNING id`).Scan(&acqID))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by)
-		VALUES ($1, 'E2EPAY000001', 2, 'e2e-pay') RETURNING id`, acqID).Scan(&parcelID))
+		VALUES ($1, 'E2EPAY000001', 104, 'e2e-pay') RETURNING id`, acqID).Scan(&parcelID))
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

@@ -49,7 +49,7 @@ func TestE2EMatchAttachments(t *testing.T) {
 	newParcel := func(acq, code string) string {
 		var id string
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by)
-			VALUES ($1, $2, 5, 'e2e-att') RETURNING id::text`, acq, code).Scan(&id))
+			VALUES ($1, $2, 109, 'e2e-att') RETURNING id::text`, acq, code).Scan(&id))
 		return id
 	}
 	single := newParcel(acqA, "E2EATT00001")

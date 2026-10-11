@@ -3,9 +3,11 @@ package seed
 import (
 	"context"
 	"log/slog"
+
+	"acquisition_backend/internal/domain"
 )
 
-// SeedParcelPendingHistory — «Хүлээгдэж буй» (code=pending) түүхгүй бүх нэгж
+// SeedParcelPendingHistory — анхны төлөвийн (domain.ParcelStatusPending) түүхгүй бүх нэгж
 // талбарт АНХНЫ төлөвийн түүх нэмнэ. Огноо нь чөлөөлөлт үүсгэсэн өдөр; түүх
 // түүнээс өмнө эхэлсэн (хуучин мэдээлэл) бол эхний бичлэгээс 1 секундын өмнө —
 // дараалал эвдэрэхгүй. Хуучин импорт зөвхөн эцсийн төлөвийг бичдэг байсныг нөхнө.
@@ -17,7 +19,7 @@ func (s *MainSeeder) SeedParcelPendingHistory(ctx context.Context) error {
 		       'system', 'Анхны төлөв'
 		  FROM parcel p
 		  JOIN land_acquisition la ON la.id = p.acquisition_id
-		  JOIN parcel_status ps ON ps.code = 'pending'
+		  JOIN parcel_status ps ON ps.id = $1
 		  LEFT JOIN LATERAL (
 		        SELECT MIN(h.status_date) AS at FROM parcel_status_history h
 		         WHERE h.parcel_id = p.parcel_id AND h.acquisition_id = p.acquisition_id
@@ -25,7 +27,7 @@ func (s *MainSeeder) SeedParcelPendingHistory(ctx context.Context) error {
 		 WHERE NOT EXISTS (
 		        SELECT 1 FROM parcel_status_history h
 		         WHERE h.parcel_id = p.parcel_id AND h.acquisition_id = p.acquisition_id
-		           AND h.status_id = ps.id)`)
+		           AND h.status_id = ps.id)`, domain.ParcelStatusPending)
 	if err != nil {
 		return err
 	}
