@@ -98,11 +98,10 @@ func TestE2EChronos(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO decision_draft_parcel (decision_draft_id, parcel_id, linked_at)
 		SELECT $1, id, '2021-12-01' FROM parcel WHERE parcel_id = 'E2ECHR0001'`, draftID)
 	require.NoError(t, err)
-	// Олголт: 60% — 2022-03-01.
-	_, err = pool.Exec(ctx, `WITH d AS (
-		INSERT INTO document (name, file_type, file_url, payment_stage, payment_date)
-		VALUES ('e2e-chronos-receipt', 'application/pdf', '/api/files/e2e.pdf', 60, '2022-03-01') RETURNING id)
-		INSERT INTO parcel_document (parcel_id, document_id) SELECT p.id, d.id FROM parcel p, d WHERE p.parcel_id = 'E2ECHR0001'`)
+	// Олголт: 60% — 2022-03-01. Нэгж талбарын олголтын шатаас (хавсралтаас биш —
+	// шат нь баримт хавсаргах эсвэл хуучин мэдээллийн импортоор бөглөгдөнө).
+	_, err = pool.Exec(ctx, `UPDATE parcel SET compensation_paid_60 = true, compensation_paid_60_at = '2022-03-01'
+		WHERE parcel_id = 'E2ECHR0001'`)
 	require.NoError(t, err)
 
 	repo := postgres.NewLandAcquisitionRepo(pool)
@@ -178,4 +177,80 @@ func TestE2EChronos(t *testing.T) {
 			require.JSONEq(t, "null", string(p.Geometry))
 		}
 	}
+}
+
+// Хуучин мэдээллийн импорт: олговор/захирамжийг ИМПОРТЫН өдрөөр бүртгэж,
+// баталдаг ч архивын огноо нь compensation_date / decision_date-д байна.
+// Хронос архивын (эрт) огноог авна — эс бөгөөс сар сонгоход бүх дүн 0 байж
+// байгаад импортын сард л гарч ирдэг байв.
+func TestE2EChronosArchiveDates(t *testing.T) {
+	dsn := os.Getenv("E2E_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("E2E_DATABASE_URL тохируулаагүй")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	var dbName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT current_database()`).Scan(&dbName))
+	if dbName == "appdb" {
+		t.Skip("ажлын appdb дээр ажиллуулахгүй — хуулбар DB (appdb_e2e) ашиглана уу")
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(c, `DELETE FROM decision_draft WHERE created_by = 'e2e-chronos-arch'`)
+		_, _ = pool.Exec(c, `DELETE FROM compensation WHERE parcel_id LIKE 'E2ECHA%'`)
+		_, _ = pool.Exec(c, `DELETE FROM parcel WHERE parcel_id LIKE 'E2ECHA%'`)
+		_, _ = pool.Exec(c, `DELETE FROM land_acquisition WHERE created_by = 'e2e-chronos-arch'`)
+	})
+	var acqID uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO land_acquisition (plan_code, acquisition_name, status, created_by)
+		VALUES ('E2E-CHA', 'E2E архив', 2, 'e2e-chronos-arch') RETURNING id`).Scan(&acqID))
+	_, err = pool.Exec(ctx, `INSERT INTO parcel (acquisition_id, parcel_id, status, created_by) VALUES
+		($1, 'E2ECHA0001', 109, 'e2e'), ($1, 'E2ECHA0002', 105, 'e2e')`, acqID)
+	require.NoError(t, err)
+	// 0001 — архивын олговор (2025-01-24), импортын өдөр (2026-10-05) бүртгэж баталсан.
+	// 0002 — энгийн урсгал: огноогүй олговор, бүртгэсэн цаг нь өөрөө үнэн.
+	_, err = pool.Exec(ctx, `INSERT INTO compensation (acquisition_id, parcel_id, amount, status, compensation_date, reviewed_at, created_at) VALUES
+		($1, 'E2ECHA0001', 1000, 'approved', '2025-01-24', '2026-10-05', '2026-10-05'),
+		($1, 'E2ECHA0002', 500, 'approved', NULL, '2026-03-02', '2026-03-01')`, acqID)
+	require.NoError(t, err)
+	// Захирамж 2025-01-24-нд гарсан, импортын өдөр бүртгэж баталсан; батлагдаагүй төсөл огноотой ч батлагдаагүй хэвээр.
+	var archDraft, openDraft uuid.UUID
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO decision_draft (proposal_no, created_by, status, decision_date, confirmed_at, created_at)
+		VALUES ('E2E-CHA-1', 'e2e-chronos-arch', 2, '2025-01-24', '2026-10-05', '2026-10-05') RETURNING id`).Scan(&archDraft))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO decision_draft (proposal_no, created_by, status, decision_date, created_at)
+		VALUES ('E2E-CHA-2', 'e2e-chronos-arch', 1, '2025-01-24', '2026-03-05') RETURNING id`).Scan(&openDraft))
+	_, err = pool.Exec(ctx, `INSERT INTO decision_draft_parcel (decision_draft_id, parcel_id, linked_at)
+		SELECT $1::uuid, id, '2026-10-05'::timestamptz FROM parcel WHERE parcel_id = 'E2ECHA0001'
+		UNION ALL SELECT $2::uuid, id, '2026-03-06'::timestamptz FROM parcel WHERE parcel_id = 'E2ECHA0002'`, archDraft, openDraft)
+	require.NoError(t, err)
+
+	data, err := postgres.NewLandAcquisitionRepo(pool).GetChronos(ctx, []uuid.UUID{acqID})
+	require.NoError(t, err)
+	require.Len(t, data.Parcels, 2)
+	day := func(tm *time.Time) string {
+		require.NotNil(t, tm)
+		return tm.Format("2006-01-02")
+	}
+	arch, plain := data.Parcels[0], data.Parcels[1]
+	require.Equal(t, "2025-01-24", day(arch.CompAt), "олговор — архивын огноо")
+	require.Equal(t, "2025-01-24", day(arch.CompApprovedAt), "баталсан — архивын огноо")
+	require.Equal(t, "2025-01-24", day(arch.DecisionLinkedAt), "захирамжид холбогдсон — захирамжийн огноо")
+	require.Equal(t, "2025-01-24", day(arch.DecisionConfirmedAt), "захирамж батлагдсан — захирамжийн огноо")
+	require.Equal(t, "2026-03-01", day(plain.CompAt), "огноогүй олговор — бүртгэсэн цаг")
+	require.Equal(t, "2026-03-02", day(plain.CompApprovedAt))
+	require.Nil(t, plain.DecisionConfirmedAt, "батлагдаагүй захирамж — огноотой ч батлагдаагүй")
+	decisions := map[uuid.UUID]string{}
+	for _, d := range data.Decisions {
+		confirmed := "-"
+		if d.ConfirmedAt != nil {
+			confirmed = d.ConfirmedAt.Format("2006-01-02")
+		}
+		decisions[d.ID] = d.CreatedAt.Format("2006-01-02") + "/" + confirmed
+	}
+	require.Equal(t, "2025-01-24/2025-01-24", decisions[archDraft], "архивын захирамж — захирамжийн огноогоор")
+	require.Equal(t, "2025-01-24/-", decisions[openDraft], "батлагдаагүй төсөл батлагдсанд тооцогдохгүй")
 }

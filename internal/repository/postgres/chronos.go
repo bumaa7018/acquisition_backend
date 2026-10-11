@@ -16,17 +16,6 @@ import (
 // бол бүх чөлөөлөлт. Дээд тал нь domain.ChronosMaxParcels.
 func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
 	rows, err := r.db.Query(ctx, `
-		WITH pay AS (
-		        -- Олголтын баримт — НЭГ удаа нэгтгэнэ (нэгж талбар бүрт document-ыг
-		        -- дахин уншвал «нэгж талбар × баримт» болж квадратаар өснө).
-		        SELECT pd.parcel_id,
-		               json_agg(json_build_object('date', to_char(d.payment_date, 'YYYY-MM-DD'), 'stage', d.payment_stage)
-		                        ORDER BY d.payment_date)::text AS items
-		          FROM document d
-		          JOIN parcel_document pd ON pd.document_id = d.id
-		         WHERE d.payment_stage > 0 AND d.payment_date IS NOT NULL
-		         GROUP BY pd.parcel_id
-		)
 		SELECT p.id, p.parcel_id, p.acquisition_id, COALESCE(la.acquisition_name, ''),
 		       COALESCE(p.status, 0), COALESCE(ps.name, ''), COALESCE(ps.color, ''),
 		       (SELECT MIN(h.status_date) FROM parcel_status_history h
@@ -46,14 +35,32 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 		       COALESCE(NULLIF(p.landuse_name, ''), p.landuse, ''), COALESCE(p.right_type, 0),
 		       COALESCE(comp.land, 0), COALESCE(comp.real_state, 0), COALESCE(comp.property, 0),
 		       COALESCE(comp.amount, 0), comp.first_at, comp.approved_at,
-		       dd.id, ddp.linked_at, CASE WHEN dd.id IS NOT NULL THEN dd.confirmed_at END,
-		       COALESCE(pay.items, '[]')
+		       -- Захирамжийн огноо (decision_date) нь бүртгэсэн цагаас ЭРТ бол түүнийг —
+		       -- хуучин мэдээллийн импортын холбоос/баталгаажуулалт импортын өдрөөр
+		       -- бүртгэгддэг. Батлагдаагүй бол (confirmed_at NULL) хоосон хэвээр.
+		       dd.id, LEAST(ddp.linked_at, dd.decision_date),
+		       CASE WHEN dd.confirmed_at IS NOT NULL THEN LEAST(dd.confirmed_at, dd.decision_date) END,
+		       -- Олголт — нэгж талбарын олголтын шат (60 / 40 / бүрэн, огноотой).
+		       -- Хавсралтаас ШУУД биш: шат нь баримт хавсаргахад (syncParcelCompensationPaid)
+		       -- ба хуучин мэдээллийн импортод (хүснэгтийн дүнгээр) бөглөгдөнө.
+		       -- Огноогүй шат — нэгж талбар сүүлд шинэчлэгдсэн өдөр.
+		       COALESCE((
+		         SELECT json_agg(json_build_object('date', to_char(x.at, 'YYYY-MM-DD'), 'stage', x.stage) ORDER BY x.at)::text
+		           FROM (VALUES (p.compensation_paid_60,   COALESCE(p.compensation_paid_60_at,   p.updated_at::date), 60),
+		                        (p.compensation_paid_40,   COALESCE(p.compensation_paid_40_at,   p.updated_at::date), 40),
+		                        (p.compensation_paid_full, COALESCE(p.compensation_paid_full_at, p.updated_at::date), 100)
+		                ) AS x(paid, at, stage)
+		          WHERE x.paid AND x.at IS NOT NULL), '[]')
 		  FROM parcel p
 		  JOIN land_acquisition la ON la.id = p.acquisition_id AND la.deleted_at IS NULL
 		  LEFT JOIN parcel_status ps ON ps.id = p.status
 		  LEFT JOIN LATERAL (
-		        SELECT SUM(c.amount) AS amount, MIN(c.created_at) AS first_at,
-		               CASE WHEN bool_and(c.status = 'approved') THEN MAX(c.reviewed_at) END AS approved_at,
+		        -- Олговрын огноо (compensation_date) нь бүртгэсэн / баталсан цагаас
+		        -- ЭРТ бол түүнийг — хуучин мэдээллийн импорт архивын олговрыг
+		        -- импортын өдрөөр бүртгэж, баталдаг (эс бөгөөс бүх дүн импортын
+		        -- сард л гарч ирнэ).
+		        SELECT SUM(c.amount) AS amount, MIN(LEAST(c.created_at, c.compensation_date)) AS first_at,
+		               CASE WHEN bool_and(c.status = 'approved') THEN MAX(LEAST(c.reviewed_at, c.compensation_date)) END AS approved_at,
 		               SUM(c.amount) FILTER (WHERE c.asset_id IS NULL) AS land,
 		               SUM(c.amount) FILTER (WHERE c.asset_id IS NOT NULL AND a.asset_type = 'real_state') AS real_state,
 		               SUM(c.amount) FILTER (WHERE c.asset_id IS NOT NULL AND COALESCE(a.asset_type, '') <> 'real_state') AS property
@@ -66,7 +73,6 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 		  -- LATERAL/ORDER BY шаардлагагүй, хүснэгт бүр нэг л удаа hash join-оор.
 		  LEFT JOIN decision_draft_parcel ddp ON ddp.parcel_id = p.id AND ddp.removed_at IS NULL
 		  LEFT JOIN decision_draft dd ON dd.id = ddp.decision_draft_id
-		  LEFT JOIN pay ON pay.parcel_id = p.id
 		 WHERE p.deleted_at IS NULL
 		   AND (COALESCE(cardinality($1::uuid[]), 0) = 0 OR p.acquisition_id = ANY($1)) -- nil slice → NULL
 		 ORDER BY p.parcel_id
@@ -187,7 +193,8 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 				  JOIN parcel p ON p.id = ddp.parcel_id
 				 WHERE p.acquisition_id = ANY($1) AND ddp.removed_at IS NULL
 			)
-			SELECT d.id, d.created_at, CASE WHEN d.status = $2 THEN COALESCE(d.confirmed_at, d.updated_at) END,
+			SELECT d.id, LEAST(d.created_at, d.decision_date),
+			       CASE WHEN d.status = $2 THEN LEAST(COALESCE(d.confirmed_at, d.updated_at), d.decision_date) END,
 			       COALESCE((SELECT json_agg(json_build_object('type', h.progress_type,
 			                    'date', to_char(h.progress_date, 'YYYY-MM-DD"T"00:00:00Z')) ORDER BY h.progress_date, h.created_at)
 			                   FROM decision_draft_progress_history h WHERE h.decision_draft_id = d.id), '[]')::text
