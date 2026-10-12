@@ -28,11 +28,14 @@ const valuationNote = "Хуучин мэдээллийн импорт: үнэл�
 
 // importedParcel — «Оруулах» явцад бүртгэгдсэн (эсвэл санд байсан) нэгж талбар.
 type importedParcel struct {
-	id                string
-	parcelID          string
-	acquisitionID     string
-	status            int
-	statusMapped      bool
+	id            string
+	parcelID      string
+	acquisitionID string
+	status        int
+	statusMapped  bool
+	// statusUnmatched — SHP-ийн код системд таараагүй: эхний төлөвт үлдэнэ
+	// (эксэлийн тайлбараас таамаглахгүй).
+	statusUnmatched   bool
 	acquisitionAreaM2 float64
 }
 
@@ -327,6 +330,10 @@ func commitParcels(ctx context.Context, tx pgx.Tx, sessionID string, acqByIdx ma
 	if err != nil {
 		return nil, nil, err
 	}
+	statuses, err := loadStatusCatalog(ctx, tx)
+	if err != nil {
+		return nil, nil, err
+	}
 	parcels := map[string]*importedParcel{}
 	stats := &CommitParcels{}
 	for _, it := range items {
@@ -358,7 +365,7 @@ func commitParcels(ctx context.Context, tx pgx.Tx, sessionID string, acqByIdx ma
 		if it.outside {
 			stats.Nearest++
 		}
-		mapping := mapStatusCode(it.row.SourceCode)
+		mapping := statuses.mapCode(it.row.SourceCode)
 		row := it.row
 		row.ParcelID = it.parcelID
 		var saved *importedParcel
@@ -380,7 +387,11 @@ func commitParcels(ctx context.Context, tx pgx.Tx, sessionID string, acqByIdx ma
 			log.add("failed", "parcel", it.parcelID, "нэгж талбар хадгалахад алдаа: "+err.Error())
 			continue
 		}
-		saved.statusMapped = mapping.mapped
+		saved.statusMapped, saved.statusUnmatched = mapping.mapped, mapping.unmatched
+		if mapping.unmatched {
+			stats.StatusUnmatched++
+			log.add("warning", "parcel", it.parcelID, fmt.Sprintf("төлөвийн код %d системд байхгүй — эхний төлөв «%s»-д орлоо", *it.row.SourceCode, mapping.label))
+		}
 		parcels[it.parcelID] = saved
 		stats.Imported++
 		log.add("success", "parcel", it.parcelID, "")
@@ -488,7 +499,11 @@ func saveStatusHistory(ctx context.Context, q querier, parcelID, acqID string, s
 	if approved != nil {
 		planDate = planApprovedDate(*approved)
 	}
-	initialReason, final := "Анхны төлөв", status != statusPending
+	initial, err := initialStatusID(ctx, q)
+	if err != nil {
+		return err
+	}
+	initialReason, final := "Анхны төлөв", status != initial
 	if !final {
 		initialReason = joinNonEmpty("; ", initialReason, strings.TrimSpace(reason))
 	}
@@ -498,13 +513,13 @@ func saveStatusHistory(ctx context.Context, q querier, parcelID, acqID string, s
 		  FROM land_acquisition la,
 		       LATERAL (SELECT COALESCE($4::date::timestamptz, la.created_at) AS at) start
 		 WHERE la.id = $2::uuid`,
-		parcelID, acqID, Actor, nullStr(planDate), statusPending, final, nullStr(statusDate), initialReason); err != nil {
+		parcelID, acqID, Actor, nullStr(planDate), initial, final, nullStr(statusDate), initialReason); err != nil {
 		return err
 	}
 	if !final {
 		return nil
 	}
-	_, err := q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
+	_, err = q.Exec(ctx, `INSERT INTO parcel_status_history (parcel_id, acquisition_id, status_id, status_date, created_by, reason)
 		VALUES ($1, $2, $3, COALESCE($6::timestamptz, NOW()), $4, NULLIF($5, ''))`,
 		parcelID, acqID, status, Actor, strings.TrimSpace(reason), nullStr(statusDate))
 	return err
@@ -638,11 +653,15 @@ func importReportParcel(ctx context.Context, tx pgx.Tx, sessionID string, acqIDs
 		FROM land_acquisition WHERE id=$1`, acqID, src.GeometryWKT).Scan(&affected); err != nil {
 		return nil, err
 	}
+	initial, err := initialStatusID(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	pr := ParcelRow{ParcelID: row.ParcelID, OldParcelID: row.OldParcelID, AreaM2: row.AreaM2, Note: row.Note}
 	var saved *importedParcel
 	err = inSavepoint(ctx, tx, func() error {
 		var e error
-		if saved, e = upsertParcel(ctx, tx, acqID, pr, src, affected, src.GeometryWKT, statusPending); e != nil {
+		if saved, e = upsertParcel(ctx, tx, acqID, pr, src, affected, src.GeometryWKT, initial); e != nil {
 			return e
 		}
 		if e := own(ctx, tx, sessionID, "parcel", saved.id, saved.parcelID); e != nil {
@@ -651,7 +670,7 @@ func importReportParcel(ctx context.Context, tx pgx.Tx, sessionID string, acqIDs
 		if e := saveDetail(ctx, tx, saved.id, acqID, src); e != nil {
 			return e
 		}
-		return saveStatusHistory(ctx, tx, row.ParcelID, acqID, statusPending, row.Note, "")
+		return saveStatusHistory(ctx, tx, row.ParcelID, acqID, initial, row.Note, "")
 	})
 	if err != nil {
 		return nil, err
@@ -830,7 +849,7 @@ func applyReportRow(ctx context.Context, tx pgx.Tx, sessionID string, row *Repor
 		return 0, err
 	}
 	status := parcel.status
-	if !parcel.statusMapped {
+	if !parcel.statusMapped && !parcel.statusUnmatched {
 		guessed, ok := statusFromNote(row.Note)
 		if !ok {
 			guessed, ok = statusFromNote(row.Decree)

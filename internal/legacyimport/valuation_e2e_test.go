@@ -3,6 +3,7 @@
 package legacyimport
 
 import (
+	"acquisition_backend/internal/seed"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -127,8 +128,8 @@ func TestE2ELegacyImportValuationOnly(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO acquisition_category(name, parent_id, sort_order) VALUES ($1, NULL, 90) RETURNING id`, name).Scan(&id))
 		catIDs = append(catIDs, id)
 	}
-	_, _ = pool.Exec(ctx, `INSERT INTO parcel_status(id,code,name) VALUES(0,'e2e0','Хүлээгдэж буй'),(1,'e2e1','Зөвшилцөх'),
-		(2,'e2e2','Үнэлгээ'),(3,'e2e3','Нөлөөлөгдсөн гарсан'),(4,'e2e4','Татгалзсан'),(5,'e2e5','Чөлөөлсөн') ON CONFLICT DO NOTHING`)
+	// Системийн төлөв (101–109) — импорт кодыг эдгээртэй тулгана.
+	require.NoError(t, seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(ctx))
 	const dbParcel = "1802300711" // Хана-2-ын 2-р мөр — санд ӨӨР чөлөөлөлтөд
 	var ctrlAcq, ctrlParcel string
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO land_acquisition(plan_code, acquisition_name, created_by)

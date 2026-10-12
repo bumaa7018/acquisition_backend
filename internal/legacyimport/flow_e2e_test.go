@@ -3,6 +3,7 @@
 package legacyimport
 
 import (
+	"acquisition_backend/internal/seed"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -101,8 +102,8 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 		VALUES('E2E импорт', NULL, 99) RETURNING id`).Scan(&generalID))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO acquisition_category(name,parent_id,sort_order)
 		VALUES('E2E дэд', $1, 1) RETURNING id`, generalID).Scan(&subID))
-	_, _ = pool.Exec(ctx, `INSERT INTO parcel_status(id,code,name) VALUES(0,'e2e0','Хүлээгдэж буй'),(1,'e2e1','Зөвшилцөх'),
-		(2,'e2e2','Үнэлгээ'),(3,'e2e3','Нөлөөлөгдсөн гарсан'),(4,'e2e4','Татгалзсан'),(5,'e2e5','Чөлөөлсөн') ON CONFLICT DO NOTHING`)
+	// Системийн төлөв (101–109) — импорт кодыг эдгээртэй тулгана.
+	require.NoError(t, seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(ctx))
 	t.Cleanup(func() {
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

@@ -1,10 +1,12 @@
 package legacyimport
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"acquisition_backend/internal/domain"
@@ -12,9 +14,8 @@ import (
 
 // ── Нэгж талбарын төлөв ─────────────────────────────────────────────────────
 
-// Системийн parcel_status.id (= code, 101–109).
+// Системийн parcel_status.id (= code) — зөвхөн эксэлийн тайлбараас таамаглахад.
 const (
-	statusPending     = domain.ParcelStatusPending
 	statusProcessing  = domain.ParcelStatusProcessing
 	statusEvaluating  = domain.ParcelStatusEvaluating
 	statusAffectedOut = domain.ParcelStatusAffectedOut
@@ -22,33 +23,72 @@ const (
 	statusReleased    = domain.ParcelStatusReleased
 )
 
-// statusCodeMap — shp-ийн `code` → систем. Эх системийн ДАРААЛАЛ ӨӨР (1↔3, 4↔5).
-var statusCodeMap = map[int]struct {
-	status int
-	label  string
-}{
-	0: {statusPending, "Хүлээгдэж байгаа"},
-	1: {statusAffectedOut, "Нөлөөллөөс гарсан"},
-	2: {statusEvaluating, "Үнэлгээ хийх"},
-	3: {statusProcessing, "Зөвшилцөх шатандаа"},
-	4: {statusReleased, "Чөлөөлсөн"},
-	5: {statusRejected, "Татгалзсан"},
+// statusCatalog — системийн нэгж талбарын төлөвүүд (parcel_status). SHP-ийн
+// төлөвийн кодыг СИСТЕМИЙН кодтой (101, 102 … админы нэмсэн 110 …) тулгана.
+// Таараагүй / кодгүй нэгж талбар хамгийн ЭХНИЙ төлөвт (sort_order) орно.
+type statusCatalog struct {
+	first  statusEntry
+	byCode map[string]statusEntry
+}
+
+type statusEntry struct {
+	id   int
+	name string
+}
+
+func loadStatusCatalog(ctx context.Context, q querier) (*statusCatalog, error) {
+	rows, err := q.Query(ctx, `SELECT id, TRIM(code), name FROM parcel_status ORDER BY sort_order, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	c := &statusCatalog{byCode: map[string]statusEntry{}}
+	n := 0
+	for rows.Next() {
+		var e statusEntry
+		var code string
+		if err := rows.Scan(&e.id, &code, &e.name); err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			c.first = e
+		}
+		n++
+		c.byCode[code] = e
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, errors.New("системд нэгж талбарын төлөв (parcel_status) бүртгэгдээгүй байна")
+	}
+	return c, nil
 }
 
 type statusMapping struct {
 	status int
+	// mapped — SHP-ийн код системийн төлөвтэй таарсан.
 	mapped bool
-	label  string
+	// unmatched — код байгаа ч системд таарах төлөвгүй (эхний төлөвт орно).
+	unmatched bool
+	label     string
 }
 
-func mapStatusCode(code *int) statusMapping {
+func (c *statusCatalog) mapCode(code *int) statusMapping {
 	if code == nil {
-		return statusMapping{status: statusPending}
+		return statusMapping{status: c.first.id, label: c.first.name}
 	}
-	if hit, ok := statusCodeMap[*code]; ok {
-		return statusMapping{status: hit.status, mapped: true, label: hit.label}
+	if hit, ok := c.byCode[strconv.Itoa(*code)]; ok {
+		return statusMapping{status: hit.id, mapped: true, label: hit.name}
 	}
-	return statusMapping{status: statusPending}
+	return statusMapping{status: c.first.id, unmatched: true, label: c.first.name}
+}
+
+// initialStatusID — хамгийн эхний төлөв (импортын анхны түүх, кодгүй нэгж талбар).
+func initialStatusID(ctx context.Context, q querier) (int, error) {
+	var id int
+	err := q.QueryRow(ctx, `SELECT id FROM parcel_status ORDER BY sort_order, id LIMIT 1`).Scan(&id)
+	return id, err
 }
 
 var noteStatusRules = []struct {

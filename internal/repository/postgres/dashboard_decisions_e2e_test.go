@@ -6,6 +6,7 @@
 package postgres_test
 
 import (
+	"acquisition_backend/internal/seed"
 	"context"
 	"os"
 	"testing"
@@ -38,7 +39,7 @@ func TestDashboardDecisionsAndCompensation(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, sql, args...).Scan(&id), sql)
 		return id
 	}
-	exec(`INSERT INTO parcel_status(id, code, name) VALUES (0,'e2e0','Хүлээгдэж буй') ON CONFLICT DO NOTHING`)
+	require.NoError(t, seed.NewMainSeeder(pool).SyncParcelStatusWorkflow(ctx))
 
 	acqA := one(`INSERT INTO land_acquisition(plan_code, acquisition_name, created_by) VALUES ('E2E-DASH-A', 'E2E dash A', 'e2e-dash') RETURNING id`)
 	acqB := one(`INSERT INTO land_acquisition(plan_code, acquisition_name, created_by) VALUES ('E2E-DASH-B', 'E2E dash B', 'e2e-dash') RETURNING id`)
@@ -52,14 +53,14 @@ func TestDashboardDecisionsAndCompensation(t *testing.T) {
 	// Нэгж талбар бүр НЭГ олговортой: p1..p5 = 100..500₮ (A), pb = 9000₮ (B).
 	parcels := map[string]string{}
 	for i, code := range []string{"E2E-DASH-P1", "E2E-DASH-P2", "E2E-DASH-P3", "E2E-DASH-P4", "E2E-DASH-P5"} {
-		parcels[code] = one(`INSERT INTO parcel(acquisition_id, parcel_id, status, created_by) VALUES ($1, $2, 0, 'e2e-dash') RETURNING id`, acqA, code)
+		parcels[code] = one(`INSERT INTO parcel(acquisition_id, parcel_id, status, created_by) VALUES ($1, $2, 101, 'e2e-dash') RETURNING id`, acqA, code)
 		exec(`INSERT INTO compensation(acquisition_id, parcel_id, amount, valuation_type, created_by) VALUES ($1, $2, $3, 'asset', 'e2e-dash')`,
 			acqA, code, float64((i+1)*100))
-		exec(`INSERT INTO parcel_status_history(parcel_id, acquisition_id, status_id, status_date, created_by) VALUES ($1, $2, 0, '2025-06-01', 'e2e-dash')`, code, acqA)
+		exec(`INSERT INTO parcel_status_history(parcel_id, acquisition_id, status_id, status_date, created_by) VALUES ($1, $2, 101, '2025-06-01', 'e2e-dash')`, code, acqA)
 	}
 	// Өөр үнэлгээний төрлийн олговор — сонгосон төрөл (asset) биш тул тоологдохгүй.
 	exec(`INSERT INTO compensation(acquisition_id, parcel_id, amount, valuation_type, created_by) VALUES ($1, 'E2E-DASH-P5', 77777, 'land', 'e2e-dash')`, acqA)
-	pb := one(`INSERT INTO parcel(acquisition_id, parcel_id, status, created_by) VALUES ($1, 'E2E-DASH-PB', 0, 'e2e-dash') RETURNING id`, acqB)
+	pb := one(`INSERT INTO parcel(acquisition_id, parcel_id, status, created_by) VALUES ($1, 'E2E-DASH-PB', 101, 'e2e-dash') RETURNING id`, acqB)
 	exec(`INSERT INTO compensation(acquisition_id, parcel_id, amount, valuation_type, created_by) VALUES ($1, 'E2E-DASH-PB', 9000, 'asset', 'e2e-dash')`, acqB)
 
 	draft := func(no string, status int, acq *string) string {

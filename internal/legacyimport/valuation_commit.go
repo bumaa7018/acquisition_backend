@@ -172,7 +172,10 @@ func (s *Service) commitValuationSession(ctx context.Context, sessionID string) 
 		err := inSavepoint(ctx, tx, func() error {
 			src := valuationSource(&row, it.source, it.assigned)
 			released := row.amount() > 0 || row.LandAmount > 0
-			status := statusPending
+			status, err := initialStatusID(ctx, tx)
+			if err != nil {
+				return err
+			}
 			if released {
 				// Архивын адил: олговор олгосон мөр — «Чөлөөлсөн».
 				status = statusReleased

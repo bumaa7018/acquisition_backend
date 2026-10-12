@@ -152,14 +152,17 @@ type BoundaryView struct {
 }
 
 type ParcelViewRow struct {
-	Idx              int      `json:"idx"`
-	File             string   `json:"file"`
-	ParcelID         string   `json:"parcelID"`
-	OldParcelID      string   `json:"oldParcelID"`
-	Synthetic        bool     `json:"synthetic"`
-	SourceCode       *int     `json:"sourceCode"`
-	Status           int      `json:"status"`
-	StatusMapped     bool     `json:"statusMapped"`
+	Idx          int    `json:"idx"`
+	File         string `json:"file"`
+	ParcelID     string `json:"parcelID"`
+	OldParcelID  string `json:"oldParcelID"`
+	Synthetic    bool   `json:"synthetic"`
+	SourceCode   *int   `json:"sourceCode"`
+	Status       int    `json:"status"`
+	StatusName   string `json:"statusName"`
+	StatusMapped bool   `json:"statusMapped"`
+	// StatusUnmatched — SHP-ийн код системийн төлөвтэй таараагүй (эхний төлөвт орно).
+	StatusUnmatched  bool     `json:"statusUnmatched"`
 	AreaM2           *float64 `json:"areaM2"`
 	BoundaryIdx      *int     `json:"boundaryIdx"`
 	InsidePct        *float64 `json:"insidePct"`
@@ -171,15 +174,19 @@ type ParcelViewRow struct {
 }
 
 type ParcelStats struct {
-	Total           int            `json:"total"`
-	Synthetic       int            `json:"synthetic"`
-	Duplicates      int            `json:"duplicates"`
-	NoGeometry      int            `json:"noGeometry"`
-	UnmappedCodes   map[string]int `json:"unmappedCodes"`
-	AlreadyImported int            `json:"alreadyImported"`
-	Outside         int            `json:"outside"`
-	PartlyOutside   int            `json:"partlyOutside"`
-	Gus             map[string]int `json:"gus"`
+	Total         int            `json:"total"`
+	Synthetic     int            `json:"synthetic"`
+	Duplicates    int            `json:"duplicates"`
+	NoGeometry    int            `json:"noGeometry"`
+	UnmappedCodes map[string]int `json:"unmappedCodes"`
+	// StatusUnmatched — төлөвийн код таараагүй нэгж талбарын тоо.
+	StatusUnmatched int `json:"statusUnmatched"`
+	// InitialStatusName — таараагүй / кодгүй нэгж талбар орох эхний төлөв.
+	InitialStatusName string         `json:"initialStatusName"`
+	AlreadyImported   int            `json:"alreadyImported"`
+	Outside           int            `json:"outside"`
+	PartlyOutside     int            `json:"partlyOutside"`
+	Gus               map[string]int `json:"gus"`
 }
 
 type ParcelMap struct {
@@ -347,6 +354,8 @@ type CommitParcels struct {
 	GusMissing      int `json:"gusMissing"`
 	FromUb          int `json:"fromUb"`
 	Nearest         int `json:"nearest"`
+	// StatusUnmatched — төлөвийн код системд таараагүй, эхний төлөвт орсон.
+	StatusUnmatched int `json:"statusUnmatched"`
 }
 
 type CommitCompensations struct {

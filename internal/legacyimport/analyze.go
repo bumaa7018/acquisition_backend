@@ -297,13 +297,17 @@ func (s *Service) stageParcels(ctx context.Context, q querier, sessionID string,
 	if len(infos) == 0 {
 		return []FileInfo{{Issues: []Issue{errIssue("no_shp", "Нэгж талбарын .shp файл сонгогдоогүй байна")}}}, nil
 	}
+	statuses, err := loadStatusCatalog(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	seen := map[string]int{}
 	idx := 0
 	for fi, features := range sets {
 		info := &infos[fi]
 		if features != nil && !hasAttr(features, statusCodeFields...) {
 			info.Issues = append(info.Issues, warnIssue("no_status_code",
-				info.Name+": төлөвийн код (code) атрибут байхгүй — бүх нэгж талбар «Хүлээгдэж буй» төлөвтэй орно"))
+				fmt.Sprintf("%s: төлөвийн код (code) атрибут байхгүй — бүх нэгж талбар эхний төлөв «%s»-д орно", info.Name, statuses.first.name)))
 		}
 		for _, f := range features {
 			idx++
@@ -345,8 +349,8 @@ func (s *Service) stageParcels(ctx context.Context, q querier, sessionID string,
 					issues = append(issues, warnIssue("no_geometry", parcelID+": хил (геометр) байхгүй — чөлөөлөлтөд хуваарилагдахгүй"))
 				}
 			}
-			if m := mapStatusCode(row.SourceCode); !m.mapped && row.SourceCode != nil {
-				issues = append(issues, warnIssue("unmapped_code", fmt.Sprintf("%s: төлөвийн код %d тохируулгад байхгүй — «Хүлээгдэж буй» болно", parcelID, *row.SourceCode)))
+			if m := statuses.mapCode(row.SourceCode); m.unmatched {
+				issues = append(issues, warnIssue("unmapped_code", fmt.Sprintf("%s: төлөвийн код %d системд байхгүй — эхний төлөв «%s»-д орно", parcelID, *row.SourceCode, m.label)))
 			}
 			if _, err := q.Exec(ctx, `UPDATE `+stage+`.parcel SET parcel_id=$3, issues=$4 WHERE session_id=$1 AND idx=$2`,
 				sessionID, idx, parcelID, nonNilIssues(issues)); err != nil {
@@ -446,8 +450,12 @@ func (s *Service) buildParcelView(ctx context.Context, q querier, sessionID stri
 		return nil, err
 	}
 	defer rows.Close()
+	statuses, err := loadStatusCatalog(ctx, q)
+	if err != nil {
+		return nil, err
+	}
 	view := &ParcelView{Files: files, Rows: []ParcelViewRow{}, Map: []ParcelMap{},
-		Stats: ParcelStats{UnmappedCodes: map[string]int{},
+		Stats: ParcelStats{UnmappedCodes: map[string]int{}, InitialStatusName: statuses.first.name,
 			Gus: map[string]int{"info": 0, "ub": 0, "missing": 0, "failed": 0, "skip": 0, "pending": 0}}}
 	for rows.Next() {
 		var r ParcelViewRow
@@ -459,8 +467,9 @@ func (s *Service) buildParcelView(ctx context.Context, q querier, sessionID stri
 			return nil, err
 		}
 		base := append([]Issue(nil), r.Issues...)
-		m := mapStatusCode(row.SourceCode)
+		m := statuses.mapCode(row.SourceCode)
 		r.OldParcelID, r.SourceCode, r.Status, r.StatusMapped = row.OldParcelID, row.SourceCode, m.status, m.mapped
+		r.StatusName, r.StatusUnmatched = m.label, m.unmatched
 		r.Synthetic = hasCode(base, "synthetic")
 		r.Gus = "pending"
 		if gus != nil {
@@ -505,8 +514,9 @@ func (s *Service) buildParcelView(ctx context.Context, q querier, sessionID stri
 		if hasCode(base, "no_geometry") {
 			view.Stats.NoGeometry++
 		}
-		if !m.mapped && row.SourceCode != nil {
+		if m.unmatched {
 			view.Stats.UnmappedCodes[fmt.Sprint(*row.SourceCode)]++
+			view.Stats.StatusUnmatched++
 		}
 		view.Stats.Gus[r.Gus]++
 		r.Issues = nonNilIssues(r.Issues)
