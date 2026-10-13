@@ -101,9 +101,13 @@ func (r *RoleRepo) GetByID(ctx context.Context, id domain.ID) (*domain.Role, err
 	return role, nil
 }
 
+// GetByName — ЗӨВХӨН систем 10-ийн ролиос нэрээр хайна. sd_role нь бусад
+// системтэй хуваалцсан тул "admin" г.м. нэр өөр системд ч байж болно — шүүлтгүй
+// хайвал seeder тэр ролийг өөрийнх гэж үзээд систем 10-д холбож, эрх олгодог.
 func (r *RoleRepo) GetByName(ctx context.Context, name string) (*domain.Role, error) {
 	role := &domain.Role{}
-	err := scanRole(r.db.QueryRow(ctx, roleSelectSQL+` WHERE r.name = $1`, name), role)
+	err := scanRole(r.db.QueryRow(ctx, roleSelectSQL+` WHERE r.name = $1 AND `+roleSystemFilter+`
+		ORDER BY r.role_id LIMIT 1`, name), role)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound

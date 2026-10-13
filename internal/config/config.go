@@ -12,21 +12,19 @@ import (
 )
 
 type Config struct {
-	App             AppConfig
-	DB              DBConfig `envPrefix:"DB_"`
-	AuthDB          DBConfig `envPrefix:"AUTH_DB_"`
-	JWT             JWTConfig
-	Admin           AdminConfig
-	Employee        EmployeeConfig
-	Finance         FinanceConfig
-	ProfessionalOrg ProfessionalOrgConfig
-	Email           EmailConfig
-	FileServer      FileServerConfig
-	GeoServer       GeoServerConfig
-	Middleware      MiddlewareConfig
-	XYP             XYPConfig
-	ExternalAPI     ExternalAPIConfig
-	SourceFile      SourceFileConfig
+	App         AppConfig
+	DB          DBConfig `envPrefix:"DB_"`
+	AuthDB      DBConfig `envPrefix:"AUTH_DB_"`
+	JWT         JWTConfig
+	Admin       AdminConfig
+	Finance     FinanceConfig
+	Email       EmailConfig
+	FileServer  FileServerConfig
+	GeoServer   GeoServerConfig
+	Middleware  MiddlewareConfig
+	XYP         XYPConfig
+	ExternalAPI ExternalAPIConfig
+	SourceFile  SourceFileConfig
 }
 
 type AppConfig struct {
@@ -54,29 +52,20 @@ type JWTConfig struct {
 	RefreshTTL    time.Duration `env:"JWT_REFRESH_TTL" envDefault:"168h"`
 }
 
+// AdminConfig — систем 10-ийн СИСТЕМИЙН админ бүртгэл (хүн биш). Систем 10-д
+// нэвтэрч чадах хэрэглэгч нэг ч байхгүй үед sd_user-д үүснэ.
 type AdminConfig struct {
+	Username string `env:"ADMIN_USERNAME" envDefault:"admin"`
 	Email    string `env:"ADMIN_EMAIL" envDefault:"admin@example.com"`
 	Password string `env:"ADMIN_PASSWORD" envDefault:"Admin123!"`
 }
 
-type EmployeeConfig struct {
-	Username string `env:"EMPLOYEE_USERNAME" envDefault:"employee"`
-	Email    string `env:"EMPLOYEE_EMAIL" envDefault:"employee@example.com"`
-	Password string `env:"EMPLOYEE_PASSWORD" envDefault:"Employee123!"`
-}
-
-// FinanceConfig — санхүүгийн мэргэжилтэн хэрэглэгчийн seed мэдээлэл.
+// FinanceConfig — санхүүгийн мэргэжилтэн хэрэглэгчийн seed мэдээлэл (зөвхөн
+// хоосон authdb дээр үүснэ).
 type FinanceConfig struct {
 	Username string `env:"FINANCE_USERNAME" envDefault:"finance"`
 	Email    string `env:"FINANCE_EMAIL" envDefault:"finance@example.com"`
 	Password string `env:"FINANCE_PASSWORD" envDefault:"Finance123!"`
-}
-
-// ProfessionalOrgConfig — мэргэжлийн байгууллагын хэрэглэгчийн seed мэдээлэл.
-type ProfessionalOrgConfig struct {
-	Username string `env:"PROF_ORG_USERNAME" envDefault:"prof_org"`
-	Email    string `env:"PROF_ORG_EMAIL" envDefault:"prof_org@example.com"`
-	Password string `env:"PROF_ORG_PASSWORD" envDefault:"ProfOrg123!"`
 }
 
 type EmailConfig struct {

@@ -2,23 +2,19 @@ package seed
 
 import (
 	"context"
+	"fmt"
 
 	"acquisition_backend/internal/config"
 	"acquisition_backend/internal/pkg/filestorage"
-	"acquisition_backend/internal/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type StartupOptions struct {
-	Admin           config.AdminConfig
-	Employee        config.EmployeeConfig
-	Finance         config.FinanceConfig
-	ProfessionalOrg config.ProfessionalOrgConfig
-
-	UserRepo repository.UserRepository
-	RoleRepo repository.RoleRepository
-	PermRepo repository.PermissionRepository
+	// Admin, Finance — ЗӨВХӨН хоосон authdb (sd_user мөргүй) дээр үүсэх анхны
+	// админ ба санхүүгийн мэргэжилтэн.
+	Admin   config.AdminConfig
+	Finance config.FinanceConfig
 
 	// Файлын системд шилжүүлэх алхамд хэрэглэгдэнэ. Legacy нь хуучин локал
 	// хадгалалт, Files нь шинэ (MinIO). Хоёулаа nil байж болно — тэр үед
@@ -32,31 +28,30 @@ type StartupOptions struct {
 }
 
 func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupOptions) error {
+	// authdb (бусад системтэй хуваалцсан sdplatform сан) — startup БҮРТ
+	// шаардлагатай мөр байгаа эсэхийг шалгаж, дутууг л нэмнэ. EnsureAuthDB-г үз.
+	//
+	// Өмнө нь authdb-ийн 17 нэг удаагийн алхам (000000_auth_lookups,
+	// 000001_auth, 000007, 000008, 000012–000015, 000018, 000020, 000022,
+	// 000024–000027, 000029, 000032) appdb-ийн seed_history-д бүртгэгддэг байв.
+	// Тэдгээр нь давхардсан, өөр системийн мөрийг өөрчилдөг, жишээ хэрэглэгч
+	// нэмдэг байсан тул бүгдийг энэ нэг шалгалтаар сольсон.
+	if err := NewSeeder(authDB).EnsureAuthDB(ctx, opts.Admin, opts.Finance); err != nil {
+		return fmt.Errorf("ensure authdb: %w", err)
+	}
+
 	if err := ensureSeedHistory(ctx, mainDB); err != nil {
 		return err
 	}
 
+	// Доорх алхмууд ЗӨВХӨН аппын өөрийн сан (appdb)-д ажиллана.
 	if err := runSeedSteps(ctx, mainDB, []seedStep{
-		{
-			// Лавлахууд эхэлж — bs_person.type нь cl_person_type-аас хамаардаг.
-			name: "000000_auth_lookups",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedAuthLookups(ctx)
-			},
-		},
 		{
 			// appdb-ийн лавлахууд (parcel_status г.м.) — бусад seed эдгээрийн
 			// FK-д хамаардаг тул эхэнд.
 			name: "000000_main_reference",
 			run: func(ctx context.Context) error {
 				return NewReferenceSeeder(mainDB).Seed(ctx)
-			},
-		},
-		{
-			name:    "000001_auth",
-			aliases: []string{"auth_seeder"},
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).Seed(ctx, opts.Admin, opts.Employee)
 			},
 		},
 		// 000002_main, 000003_assets_backfill, 000005_compensations УСТСАН:
@@ -66,18 +61,6 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000006_document_types",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
-			},
-		},
-		{
-			name: "000007_auth_access_users",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).Seed(ctx, opts.Admin, opts.Employee)
-			},
-		},
-		{
-			name: "000008_compensation_access",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedCompensationAccess(ctx)
 			},
 		},
 		{
@@ -111,39 +94,6 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
-			// Эрхийн нэршлийн зөрчлүүд: admin:*, users:read→senior, орфон цэвэрлэгээ.
-			name: "000012_permission_fixes",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedPermissionFixes(ctx)
-			},
-		},
-		{
-			// Санхүүгийн мэргэжилтэн, мэргэжлийн байгууллагын анхны хэрэглэгчид
-			// (роль нь 000008_compensation_access-д үүссэн байх ёстой).
-			name: "000013_external_users",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedExternalUsers(ctx, opts.Finance, opts.ProfessionalOrg)
-			},
-		},
-		{
-			name: "000014_audit_permission",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedAuditPermission(ctx)
-			},
-		},
-		{
-			// admin роль-д БҮХ эрхийг олгоно. compensation:* нь admin роль
-			// үүссэний дараа нэмэгдсэн тул түүнд олгогдоогүй үлдэж, эрх
-			// нэмэгдүүлэлтийн шалгалт админд гадаад роль олгохыг хориглож байсан.
-			name: "000015_admin_all_permissions",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedAdminAllPermissions(ctx)
-			},
-		},
-		{
 			// Хуучин ЛОКАЛ файлуудыг файлын систем (MinIO) руу зөөж, DB дахь
 			// URL-уудыг шинэчилнэ. API нь файлыг өөр дээрээ хадгалахаа больсон.
 			name:     "000016_file_storage_migration",
@@ -164,37 +114,11 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			},
 		},
 		{
-			name: "000018_hr_permissions",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRPermissions(ctx)
-			},
-		},
-		// 000019_hr_backfill УСТСАН: sdplatform.sd_organization рүү default
-		// байгууллага insert хийдэг байсан. Startup seeder sd_organization-д
-		// дата нэмэх ёсгүй.
-		{
-			// 000019 нь ажилтныг department_id=NULL-тай үүсгэсэн тул "Алба,
-			// хэлтэс" лавлах хоосон, "Ажилтан" дээр хэлтэс харагдахгүй байв.
-			name: "000020_hr_departments",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedHRDepartments(ctx)
-			},
-		},
-		{
 			// Захирамжийн төслийн "Ажлын төрөл" / "Төсөв" сонголтын анхны
 			// утгууд. Цаашид Тохиргоо цэснээс удирдагдана.
 			name: "000021_decision_draft_options",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedDecisionOptions(ctx)
-			},
-		},
-		{
-			// Захирамжийн төслийн маршрутууд land:*-аас decision:* руу шилжсэн.
-			// Админ роль-д decision:* бүрийг олгоно, мөн land:<action> эрхтэй
-			// ролиудад харгалзах decision:<action>-ийг тусгана.
-			name: "000022_decision_permissions",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedDecisionPermissions(ctx)
 			},
 		},
 		{
@@ -204,54 +128,6 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000023_plan_backfill",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).SeedPlanBackfill(ctx)
-			},
-		},
-		{
-			name: "000024_system10_access_policy",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedSystem10AccessPolicy(ctx)
-			},
-		},
-		{
-			// 000025_external_valuation_users УСТСАН: үнэлгээний байгууллагын
-			// ажилтанд sdplatform.sd_user мөр үүсгэдэг байсан. Тэдний нэвтрэх
-			// эрх appdb-д шилжсэн (000024 миграц) — 000031-ийг үз.
-			//
-			// mika / finance_specialist ролиудын ЭРХ нь энэ алхмаар синк
-			// болдог байсан тул түүнийг шууд дуудна (хэрэглэгч үүсгэхгүй).
-			name: "000025_compensation_access_resync",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedCompensationAccess(ctx)
-			},
-		},
-		{
-			name: "000026_legacy_sdplatform_system10_seed",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedLegacySDPlatformSystem10(ctx)
-			},
-		},
-		{
-			name: "000027_system10_role_matrix",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedSystemRoles(ctx)
-			},
-		},
-		// 000028_valuation_org_registry УСТСАН: professional_org хэрэглэгчдэд
-		// sdplatform.sd_organization дээр байгууллага автоматаар үүсгэдэг байсан.
-		{
-			// ensureAction нь "structure:create" мэт цэгтэй үйлдлийг олж чаддаггүй
-			// байсан тул seed алхам бүр шинэ sd_permission мөр үүсгэж, шинэ сан
-			// дээр 5 хувь давхардаж байв (мөн sd_form_permission /
-			// sd_role_permission олширсон). Шалтгаан нь ensureAction дотор
-			// зассан — энэ алхам үүссэн давхардлыг нэгтгэнэ.
-			name: "000029_permission_dedupe",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).
-					SeedPermissionDedupe(ctx)
 			},
 		},
 		{
@@ -266,18 +142,6 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000031_valuation_org_employees",
 			run: func(ctx context.Context) error {
 				return SeedValuationOrgEmployees(ctx, mainDB)
-			},
-		},
-		{
-			// codelists.cl_person_type-ийн код 10..100-г дахин синк хийнэ.
-			// 000000_auth_lookups нь эрт орчинд ажиллаж дуусаад seed_history-д
-			// бүртгэгдсэн тул шинэ кодыг аваагүй authdb-нүүд үлдсэн: тэдгээрт
-			// bs_person."type"=10 (иргэн) бичихэд FK зөрчлөөр (ErrInvalidInput)
-			// хүн үүсгэх боломжгүй байв. seedPersonTypes нь код/тайлбар давхцвал
-			// огт хөндөхгүй тул дахин ажиллуулах аюулгүй.
-			name: "000032_person_types_resync",
-			run: func(ctx context.Context) error {
-				return NewSeeder(authDB, opts.UserRepo, opts.RoleRepo, opts.PermRepo).SeedAuthLookups(ctx)
 			},
 		},
 		{

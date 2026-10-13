@@ -462,6 +462,12 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(la.decree_number,''), la.decree_date,
 			       COALESCE(la.nith_decree_number,''), COALESCE(la.group_list_number,''),
 			       (SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id),
+			       -- ЯВЦ: жагсаалттай (List) ИЖИЛ шалгуур — эцсийн төлөвт
+			       -- (parcel_status.is_final) шилжсэн талбар. Үүнгүйгээр
+			       -- progress_percent дэлгэрэнгүй/ажлын зураг дээр үргэлж 0 гардаг байв.
+			       (SELECT COUNT(*) FROM parcel
+			         WHERE acquisition_id = la.id
+			           AND COALESCE(status,0) IN (SELECT id FROM parcel_status WHERE is_final)),
 			       la.professional_org_id,
 			       COALESCE(po."name", ''),
 			       -- Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ: ГУС-аас татагдаад plan хүснэгтэд
@@ -491,7 +497,7 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 		&acq.SubCategoryID, &acq.SubCategoryName,
 		&acq.DecreeNumber, &acq.DecreeDate,
 		&acq.NithDecreeNumber, &acq.GroupListNumber,
-		&acq.ParcelCount,
+		&acq.ParcelCount, &acq.FinalParcelCount,
 		&acq.ProfessionalOrgID, &acq.ProfessionalOrgName,
 		&acq.PlanParcelID, &acq.PlanTypeName, &acq.PlanGazner,
 		&acq.PlanStartDate, &acq.PlanEndDate, &acq.PlanApprovedDate,

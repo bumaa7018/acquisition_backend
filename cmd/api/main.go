@@ -274,13 +274,8 @@ func main() {
 	}
 
 	if err := seed.RunStartup(ctx, mainDB, authDB, seed.StartupOptions{
-		Admin:           cfg.Admin,
-		Employee:        cfg.Employee,
-		Finance:         cfg.Finance,
-		ProfessionalOrg: cfg.ProfessionalOrg,
-		UserRepo:        userRepo,
-		RoleRepo:        roleRepo,
-		PermRepo:        permRepo,
+		Admin:   cfg.Admin,
+		Finance: cfg.Finance,
 		// Хуучин локал файлуудыг файлын систем руу зөөх алхамд
 		LegacyFiles:  filestorage.NewMockStorage(legacyFileBaseURL(cfg), cfg.FileServer.LocalDir),
 		Files:        s3Storage,

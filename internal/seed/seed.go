@@ -2,14 +2,13 @@ package seed
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"acquisition_backend/internal/config"
 	"acquisition_backend/internal/domain"
 	"acquisition_backend/internal/pkg/hash"
-	"acquisition_backend/internal/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -183,104 +182,29 @@ func (s *Seeder) seedPersonTypes(ctx context.Context) error {
 	return nil
 }
 
-func (s *Seeder) SeedHRPermissions(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", []string{"hr:read", "hr:create", "hr:update", "hr:delete"}); err != nil {
-		return err
-	}
-	slog.Info("hr permissions granted", "level", "admin")
-	return nil
+// systemRolePermissions — системийн 4 үндсэн ролийн анхны эрх. ЗӨВХӨН роль
+// ШИНЭЭР үүсэх үед олгогдоно (ensureRole-ийг үз).
+var systemRolePermissions = map[string][]string{
+	"admin":                 defaultPermissions,
+	"senior_specialist":     seniorSpecialistPermissions,
+	"employee":              employeePermissions,
+	"decision_registration": decisionRegistrationPermissions,
 }
 
-// SeedHRBackfill — ажилтны бүртгэлгүй хэрэглэгч бүрт хүн/ажилтныг үүсгэж,
-// hr_employee.user_id-аар холбоно (sdplatform-д хэрэглэгч↔ажилтны холбоос
-// яг энэ багана дээр байдаг).
-//
-// bs_person.person_register нь varchar(10) тул регистрийг хэрэглэгчийн
-// дугаараас богиноор («U<user_id>») үүсгэнэ.
-func (s *Seeder) SeedHRBackfill(ctx context.Context) error {
-	slog.Info("hr backfill skipped: startup seeder must not insert sd_organization data")
-	return nil
-}
-
-// hrSeedDepartment — seeder-ийн НЭГ хэлтэс. ГУС-ийн бодит код/нэр.
-//
-// Өмнө нь 7 жишээ хэлтэс (ADM/GCH/…) үүсгэдэг байсан — тэдгээр нь бодит
-// бүтэцтэй тохирдоггүй тул хасав. Одоо ЗӨВХӨН энэ мөрийг, ЗӨВХӨН код нь
-// байхгүй үед нэмнэ.
-var hrSeedDepartment = struct {
-	code string
-	name string
-}{
-	code: "10311",
-	name: "Нийслэлийн газар зохион байгуулалтын алба",
-}
-
-// SeedHRDepartments — "Алба, хэлтэс" лавлахад ГУС-ийн хэлтсийг (код 10311)
-// байхгүй бол нэмнэ. Идемпотент: хэлтсийг КОДООР шалгана.
-//
-// АЖИЛТНЫГ ХЭЛТЭСТ ХОЛБОХГҮЙ. Урьд нь энэ алхам department_id нь NULL байгаа
-// БҮХ идэвхтэй ажилтныг энэ хэлтэс рүү бөөнөөр UPDATE хийдэг байсан. authdb нь
-// ажиллаж байгаа ГУС-ийн сан тул тэнд хэлтэс нь зориуд NULL байгаа ажилтан
-// байж болно — тэднийг seeder дураараа хуваарилах ёсгүй. Ажилтан ↔ хэлтсийн
-// холбоосыг ЗӨВХӨН гараар (API/дэлгэцээс) тохируулна.
-func (s *Seeder) SeedHRDepartments(ctx context.Context) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	const orgName = "Нийслэлийн Газрын алба"
-	var orgID domain.ID
-	if err := tx.QueryRow(ctx,
-		`SELECT id FROM sdplatform.sd_organization WHERE name = $1 LIMIT 1`, orgName).Scan(&orgID); err != nil {
-		slog.Warn("hr departments skipped: base organization not found", "error", err)
-		return nil
-	}
-
-	// Хэлтэс — ЗӨВХӨН код нь байхгүй үед нэмнэ.
-	var deptID domain.ID
-	if err := tx.QueryRow(ctx, `
-		WITH ins AS (
-			INSERT INTO sdplatform.hr_department (organization, code, name, created_at, updated_at)
-			SELECT $1, LEFT($2, 45), LEFT($3, 250), NOW(), NOW()
-			WHERE NOT EXISTS (
-				SELECT 1 FROM sdplatform.hr_department WHERE code = LEFT($2, 45)
-			)
-			RETURNING department_id
-		)
-		SELECT department_id FROM ins
-		UNION ALL
-		SELECT department_id FROM sdplatform.hr_department WHERE code = LEFT($2, 45)
-		LIMIT 1`, orgID, hrSeedDepartment.code, hrSeedDepartment.name).Scan(&deptID); err != nil {
-		return err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	slog.Info("hr departments seeded", "code", hrSeedDepartment.code, "department_id", deptID)
-	return nil
-}
-
-// Гадаад ролиудын permission багц — ЗӨВХӨН compensation:* (өөр эрх олгогдохгүй).
+// externalRoles — гадаад ролиуд, ЗӨВХӨН compensation:* эрхтэй. Роль нь
+// "compensation_<level>" нэртэй, эрх нь цэсгүй (menu_id NULL) холбогдоно.
 //
 // professional_org ЭНД БАЙХГҮЙ: үнэлгээний байгууллага системийн үндсэн
 // хэрэглэгчээс тусдаа явдаг тул роль/эрх ОГТ хэрэглэхээ больсон. Тэдний
 // хандалт нь appdb-ийн valuation_org_employee (токены `valuation_org` тэмдэг)
 // ба аппын маршрутын allowlist-ээр шийдэгддэг — internal/middleware/
 // valuation_org.go-г үз.
-//
-// Хуучин сан дээр үүссэн compensation_professional_org роль болон түүний эрх
-// хэвээр үлдэнэ (seeder өгөгдөл УСТГАХГҮЙ) — гэхдээ тэр нь ямар ч хандалт
-// НЭМЭХГҮЙ: /prof ба дашбоард `valuation_org` тэмдэг шаардана, бусад бүх зам
-// allowlist-ээр хаагдана.
-var externalRolePermissions = map[string]struct {
-	description string
-	perms       []string
+var externalRoles = []struct {
+	level string
+	perms []string
 }{
-	"mika":               {"МИКА", []string{"compensation:read", "compensation:create", "compensation:update"}},
-	"finance_specialist": {"Санхүүгийн мэргэжилтэн", []string{"compensation:read", "compensation:update"}},
+	{"mika", []string{"compensation:read", "compensation:create", "compensation:update"}},
+	{"finance_specialist", []string{"compensation:read", "compensation:update"}},
 }
 
 var system10RoleNames = []string{
@@ -328,83 +252,90 @@ func menuScopedPermissions(perms []string) []string {
 	return out
 }
 
-func (s *Seeder) SeedSystem10AccessPolicy(ctx context.Context) error {
-	if err := s.SeedSystemRoles(ctx); err != nil {
-		return err
+// EnsureAuthDB — authdb-д ЭНЭ СИСТЕМД (system_id=10) шаардлагатай мөрүүд
+// байгаа эсэхийг шалгаж, ДУТУУГ Л нэмнэ. Startup БҮРТ ажиллана.
+//
+// authdb нь бусад системтэй хуваалцсан, аль хэдийн ажиллаж байгаа сан
+// (sdplatform). Иймд:
+//   - Байгаа мөрийг UPDATE / DELETE хийхгүй.
+//   - Өөр системийн роль, хэрэглэгч, цэс, эрхийн холбоосод хүрэхгүй: ролийг
+//     ЗӨВХӨН систем 10 дотроос нэрээр нь хайна.
+//   - Роль байхгүй үед л анхны эрх/цэстэй нь үүсгэнэ. Байгаа ролийн эрхийг
+//     дахин нөхөхгүй — админ UI-аас зориуд хассан эрх буцаж ирэхгүй.
+//   - Хэрэглэгч: систем 10-д нэвтэрч чадах хэрэглэгч байхгүй бол системийн
+//     админ; sd_user БҮРЭН ХООСОН (шинэ сан) бол мөн санхүүгийн мэргэжилтэн.
+//
+// Яагаад appdb-ийн seed_history-гүй вэ: authdb-ийг өөр сан руу солиход
+// түүх нь appdb-д "хийгдсэн" хэвээр үлдэж, шинэ санд систем 10-ийн роль/цэс
+// огт үүсэхгүй байв. Шалгалт нь өөрөө идемпотент тул түүх шаардлагагүй.
+//
+// Шинэ эрх нэмбэл: шинэ санд роль үүсэхдээ автоматаар авна; БАЙГАА санд
+// олгох бол startup.go-д нэг удаагийн (seed_history-тэй) алхам нэмнэ.
+func (s *Seeder) EnsureAuthDB(ctx context.Context, adminCfg config.AdminConfig, financeCfg config.FinanceConfig) error {
+	if err := s.SeedAuthLookups(ctx); err != nil {
+		return fmt.Errorf("auth lookups: %w", err)
 	}
-	return s.SeedLegacySDPlatformSystem10(ctx)
-}
-
-// SeedSystemRoles — system_id=10 дээр харагдах үндсэн 4 дүрийг шинэ
-// role->menu->permission бүтцээр яг тохируулна.
-func (s *Seeder) SeedSystemRoles(ctx context.Context) error {
-	matrix := map[string][]string{
-		"admin":                 defaultPermissions,
-		"senior_specialist":     seniorSpecialistPermissions,
-		"employee":              employeePermissions,
-		"decision_registration": decisionRegistrationPermissions,
+	if err := s.ensureSystem10Structure(ctx); err != nil {
+		return fmt.Errorf("system 10 menus/forms: %w", err)
 	}
 	for _, level := range system10RoleNames {
-		if err := s.syncSystemLevel(ctx, level, matrix[level]); err != nil {
-			return err
+		desc := roleDescriptions[level]
+		if desc == "" {
+			desc = level
+		}
+		if err := s.ensureRole(ctx, roleSpec{
+			name:        level,
+			code:        systemRoleCode(level),
+			resource:    "system",
+			description: desc,
+			menuScoped:  true,
+			perms:       systemRolePermissions[level],
+		}); err != nil {
+			return fmt.Errorf("role %s: %w", level, err)
 		}
 	}
-	if err := s.hideGeneratedInternalResourceRoles(ctx); err != nil {
-		return err
-	}
-	slog.Info("system 10 roles synced", "roles", system10RoleNames)
-	return nil
-}
-
-func (s *Seeder) hideGeneratedInternalResourceRoles(ctx context.Context) error {
-	names := make([]string, 0, len(system10MenuSeeds)*len(system10RoleNames))
-	for _, menu := range system10MenuSeeds {
-		for _, level := range system10RoleNames {
-			names = append(names, roleName(domain.MenuResource(menu.code), level))
+	for _, r := range externalRoles {
+		desc := roleDescriptions[r.level]
+		if desc == "" {
+			desc = r.level
+		}
+		if err := s.ensureRole(ctx, roleSpec{
+			name:        roleName("compensation", r.level),
+			resource:    "compensation",
+			description: desc + " — compensation",
+			perms:       r.perms,
+		}); err != nil {
+			return fmt.Errorf("role %s: %w", r.level, err)
 		}
 	}
-	// Seeder нь байгаа өгөгдлийг УСТГАХГҮЙ. Хуучин үүсмэл ролиудыг system 10-оос
-	// хасах ажил нь миграц 000018-д (нэг удаагийн цэвэрлэгээ) — энд зөвхөн
-	// үлдсэн эсэхийг мэдээлнэ.
-	var stale int
-	if err := s.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM sdplatform.sd_system_role sr
-		JOIN sdplatform.sd_role r ON r.role_id = sr.role_id
-		WHERE sr.system_id = 10 AND r.name = ANY($1)`, names).Scan(&stale); err != nil {
-		return err
-	}
-	if stale > 0 {
-		slog.Warn("хуучин үүсмэл роль system 10-д хэвээр байна (seeder устгахгүй)", "roles", stale)
-	}
-	return nil
+	return s.ensureInitialUsers(ctx, adminCfg, financeCfg)
 }
 
-// SeedLegacySDPlatformSystem10 — систем (system_id=10), цэсний мод болон
-// маягтуудыг sdplatform-д бүртгэж, энэ системийн БҮХ роль дээр цэсийг холбоно.
+// ensureSystem10Structure — систем (system_id=10), цэс, маягт, маягтын эрх.
+// Бүгд ЗӨВХӨН байхгүй үед нэмэгдэнэ; байгаа мөрийн нэр/холбоосыг хөндөхгүй.
 //
 // Эрхийн загварын 1-р давхарга нь ЦЭС (sd_menu / sd_menu_role): хэрэглэгчид
 // эхлээд цэс харагдах эсэх шийдэгдэж, дараа нь роль (нөөц) ба эрх (үйлдэл)
-// шалгагдана. Роль/эрх нь grantLevel()-ээр удирдагдана — энд зөвхөн цэс.
-func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
+// шалгагдана. Роль ↔ цэс/эрхийн холбоос нь ensureRole-д.
+func (s *Seeder) ensureSystem10Structure(ctx context.Context) error {
+	// Үйлдлүүд (sd_permission) эхэлж — маягтын эрх тэдэн рүү холбогдоно.
+	seen := map[string]bool{}
+	for _, key := range defaultPermissions {
+		_, action := domain.SplitPermissionKey(key)
+		if action == "" || seen[action] {
+			continue
+		}
+		seen[action] = true
+		if _, err := s.ensureAction(ctx, action); err != nil {
+			return err
+		}
+	}
+
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	var legacyTablesExist bool
-	if err := tx.QueryRow(ctx, `
-		SELECT to_regclass('sdplatform.sd_system') IS NOT NULL
-		   AND to_regclass('sdplatform.sd_menu') IS NOT NULL
-		   AND to_regclass('sdplatform.sd_menu_role') IS NOT NULL
-	`).Scan(&legacyTablesExist); err != nil {
-		return err
-	}
-	if !legacyTablesExist {
-		slog.Info("sdplatform menu tables are absent; skipping menu sync")
-		return nil
-	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO sdplatform.sd_system (system_id, "name", description)
@@ -414,6 +345,7 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		return err
 	}
 
+	// Цэсүүд бүгд үндсэн түвшний (parent_code хоосон).
 	for _, m := range system10MenuSeeds {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO sdplatform.sd_menu (code, "name", menu_url, sort_order, created_at, parent_code)
@@ -423,20 +355,9 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 			return err
 		}
 	}
-	// parent_id-г ЗӨВХӨН хоосон үед бөглөнө — байгаа утгыг дарж бичихгүй.
-	if _, err := tx.Exec(ctx, `
-		UPDATE sdplatform.sd_menu child
-		SET parent_id = parent.menu_id
-		FROM sdplatform.sd_menu parent
-		WHERE child.parent_code = parent.code
-		  AND child.parent_id IS NULL
-		  AND child.code = ANY($1)`, system10MenuCodes()); err != nil {
-		return err
-	}
 
 	// Маягтууд (sd_form) — цэс бүрт нэг. Нэр нь КОДЧИЛСОН латин нэр
 	// (land_acquisition г.м.) — system10MenuSeeds.formName-ыг үз.
-	// Хүснэгтийн бүтэц миграцад (000008 / 000011) — seed зөвхөн мөр нэмнэ.
 	formCodes, formNames := system10FormNames()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO sdplatform.sd_form (form_name, code, created_at)
@@ -444,18 +365,6 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		FROM UNNEST($1::text[], $2::text[]) AS w(code, form_name)
 		JOIN sdplatform.sd_menu m ON m.code = w.code
 		WHERE NOT EXISTS (SELECT 1 FROM sdplatform.sd_form f WHERE f.code = w.code)`,
-		formCodes, formNames); err != nil {
-		return err
-	}
-	// Өмнөх seed нь маягтын нэрэнд ЦЭСНИЙ кирилл нэрийг бичдэг байсан —
-	// ЗӨВХӨН тэр тохиолдолд кодчилсон нэрээр нөхнө (гараар зассаныг хөндөхгүй).
-	if _, err := tx.Exec(ctx, `
-		UPDATE sdplatform.sd_form f
-		SET form_name = w.form_name
-		FROM UNNEST($1::text[], $2::text[]) AS w(code, form_name)
-		JOIN sdplatform.sd_menu m ON m.code = w.code
-		WHERE f.code = w.code
-		  AND COALESCE(f.form_name, '') IN ('', m."name")`,
 		formCodes, formNames); err != nil {
 		return err
 	}
@@ -502,46 +411,7 @@ func (s *Seeder) SeedLegacySDPlatformSystem10(ctx context.Context) error {
 		menuScopedPermissions(defaultPermissions)); err != nil {
 		return err
 	}
-
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO sdplatform.sd_role_permission (role_id, permission_id, menu_id, created_at, updated_at)
-		SELECT rp.role_id, rp.permission_id, m.menu_id, COALESCE(rp.created_at, NOW()), NOW()
-		FROM sdplatform.sd_role_permission rp
-		JOIN sdplatform.sd_role r ON r.role_id = rp.role_id
-		JOIN sdplatform.sd_menu m ON m.code = r.role_type_code
-		WHERE rp.menu_id IS NULL
-		  AND NOT EXISTS (
-			SELECT 1 FROM sdplatform.sd_role_permission existing
-			WHERE existing.role_id = rp.role_id
-			  AND existing.permission_id = rp.permission_id
-			  AND existing.menu_id = m.menu_id
-		  )`); err != nil {
-		return err
-	}
-	// ЖИЧ: Энд урьд нь menu_id IS NULL мөрүүдийг устгадаг байсан. Seeder нь
-	// байгаа өгөгдлийг УСТГАХГҮЙ (зөвхөн байхгүйг нэмнэ) тул хассан —
-	// жинхэнэ sdplatform DB-д тэдгээр мөр өөр системийнх байж болно.
-
-	// Энэ системийн бүх роль дээр цэсийг холбоно.
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO sdplatform.sd_menu_role (menu_id, role_id, created_at)
-		SELECT m.menu_id, r.role_id, NOW()
-		FROM sdplatform.sd_menu m
-		CROSS JOIN sdplatform.sd_role r
-		WHERE m.code = ANY($1)
-		  AND EXISTS (
-			SELECT 1 FROM sdplatform.sd_system_role sr
-			WHERE sr.role_id = r.role_id AND sr.system_id = 10
-		  )
-		ON CONFLICT DO NOTHING`, system10MenuCodes())
-	if err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	slog.Info("sdplatform system 10 menus synced", "menus", len(system10MenuSeeds), "menu_role_links", tag.RowsAffected())
-	return nil
+	return tx.Commit(ctx)
 }
 
 // system10FormNames — маягтын код ба КОДЧИЛСОН нэрийн хос массив.
@@ -563,359 +433,127 @@ func system10MenuCodes() []string {
 	return out
 }
 
-// SeedPermissionFixes — эрхийн нэршлийн зөрчлүүдийг засна:
-//  1. admin:* permission үүсгэж admin роль-д олгоно (лавлах CRUD + Тохиргоо цэс)
-//  2. users:read-ийг senior_specialist-д олгоно (ажилтан/байгууллага сонгох UI)
-//  3. Орфон permission-уудыг устгана (acquisition.create, valuation:create/update)
-//
-// SeedPermissionFixes — лавлах CRUD (admin:*), аудит, мөн ахлах мэргэжилтний
-// users:read эрхийг баталгаажуулна.
-func (s *Seeder) SeedPermissionFixes(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", []string{"admin:read", "admin:create", "admin:update", "admin:delete", "audit:read"}); err != nil {
-		return err
-	}
-	if err := s.grantLevel(ctx, "senior_specialist", []string{"users:read"}); err != nil {
-		return err
-	}
-	slog.Info("permission fixes applied")
-	return nil
-}
-
-// seededMultiPartActions — үйлдэл нь өөрөө цэг агуулсан эрхүүдийн үйлдлийн нэр
-// ("hr:structure:create" → "structure:create").
-//
-// ЗӨВХӨН ийм нэрс давхардах боломжтой байсан: ensureAction-ы хуучин хайлт нэрийг
-// цэгээр дахин таслдаг тул "structure:create"-ийг "create"-ээр хайж, олдохгүй
-// гээд алхам бүрд шинэ мөр үүсгэдэг байв. Нэг хэсэгтэй нэрс ("read", "create")
-// зөв олддог тул хэзээ ч давхардаагүй. Цэвэрлэгээг үүгээр хязгаарлаж, өөр
-// системийн sd_permission мөрүүдэд хүрэхээс сэргийлнэ.
-func seededMultiPartActions() []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, key := range defaultPermissions {
-		_, action := domain.SplitPermissionKey(key)
-		if !strings.Contains(action, ":") || seen[action] {
-			continue
-		}
-		seen[action] = true
-		out = append(out, action)
-	}
-	return out
-}
-
-// SeedPermissionDedupe — давхардсан sd_permission мөрүүдийг ЗӨВХӨН МЭДЭЭЛНЭ.
-//
-// Урьд нь энэ алхам давхардлыг нэгтгээд илүү мөрүүдийг УСТГАДАГ байсан
-// (sd_permission, sd_role_permission, sd_form_permission дээр DELETE). authdb нь
-// ажиллаж байгаа ГУС-ийн сан тул seeder тэндээс мөр устгах, эсвэл эрхийн
-// лавлагааг өөр мөр рүү шилжүүлэх ЭРХГҮЙ: нэг ч мөр өөр системийнх байвал тэр
-// системийн эрх чимээгүй алдагдана. Иймд одоо зөвхөн анхааруулга бичнэ —
-// цэвэрлэгээг шаардлагатай бол ГУС-ийн зүгээс гараар хийнэ.
-//
-// Давхардал үүсэх ҮНДСЭН шалтгаан нь ensureAction дотор аль хэдийн зассан тул
-// шинэ мөр нэмэгдэхээ больсон (тэнд яг нэрээр нь атомаар хайж/нэмдэг болсон).
-func (s *Seeder) SeedPermissionDedupe(ctx context.Context) error {
-	actions := seededMultiPartActions()
-	if len(actions) == 0 {
-		return nil
-	}
-
-	rows, err := s.db.Query(ctx, `
-		SELECT name, COUNT(*)
-		FROM sdplatform.sd_permission
-		WHERE name = ANY($1::text[])
-		GROUP BY name
-		HAVING COUNT(*) > 1
-		ORDER BY name`, actions)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var name string
-		var count int
-		if err := rows.Scan(&name, &count); err != nil {
-			return err
-		}
-		slog.Warn("sd_permission давхардсан мөртэй байна (seeder устгахгүй)",
-			"name", name, "rows", count)
-	}
-	return rows.Err()
-}
-
-// SeedAdminAllPermissions — admin роль-д defaultPermissions-ийн БҮХ эрхийг
-// олгоно (идемпотент).
-//
-// Яагаад: compensation:* эрхүүд admin роль үүссэний ДАРАА нэмэгдсэн тул
-// (000008_compensation_access) admin-д олгогдоогүй үлдсэн. Үүнээс болж
-// "эрх нэмэгдүүлэлтээс сэргийлэх" шалгалт (роль/эрх олгохдоо дуудагч өөрөө
-// тухайн эрхийг эзэмшсэн байх ёстой) админд МИКА / мэргэжлийн байгууллага /
-// санхүүгийн роль олгохыг хориглож байсан. admin бол "full access" роль тул
-// шинэ эрх нэмэгдэх бүрд түүнд олгогдох ёстой.
-// SeedAdminAllPermissions — admin түвшинд БҮХ эрхийг олгоно (идемпотент).
-// Шинэ эрх нэмэгдэх бүрд админ түүнийг эзэмших ёстой, эс тэгвээс "эрх
-// нэмэгдүүлэлтээс сэргийлэх" шалгалт админд тухайн роль олгохыг хориглоно.
-func (s *Seeder) SeedAdminAllPermissions(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", defaultPermissions); err != nil {
-		return err
-	}
-	slog.Info("admin level granted all permissions", "count", len(defaultPermissions))
-	return nil
-}
-
-func (s *Seeder) SeedAuditPermission(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", []string{"audit:read"}); err != nil {
-		return err
-	}
-	slog.Info("audit permission granted", "level", "admin")
-	return nil
-}
-
-// SeedDecisionPermissions — decision:* эрхүүдийг үүсгэж олгоно.
-//
-// Захирамжийн төслийн маршрутууд land:*-аас decision:* руу шилжсэн тул:
-//  1. admin роль-д БҮХ decision:* эрхийг олгоно (админ бол full access роль,
-//     мөн эрх нэмэгдүүлэлтийн шалгалт нь өөрт байхгүй эрхийг бусдад олгуулдаггүй).
-//  2. Одоо land:<action> эрхтэй БҮХ роль-д харгалзах decision:<action>-ийг
-//     олгоно — өмнө нь захирамжийн төсөлтэй ажиллаж байсан мэргэжилтнүүд
-//     (ахлах мэргэжилтэн, UI-аас үүсгэсэн ролиуд) эрхээ алдахгүй.
-//
-// Гадаад ролиуд (мэрг. байгууллага, МИКА, санхүү) land:* эрхгүй тул (зөвхөн
-// compensation:*) энэ алхмаар decision:* авахгүй.
-// SeedDecisionPermissions — захирамжийн төслийн эрхүүд.
-// Админд бүгдийг, land:<action> эрхтэй түвшингүүдэд харгалзах
-// decision:<action>-ийг олгоно (өмнөх зан төлөв хэвээр).
-func (s *Seeder) SeedDecisionPermissions(ctx context.Context) error {
-	if err := s.grantLevel(ctx, "admin", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
-		return err
-	}
-	if err := s.grantLevel(ctx, "senior_specialist", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
-		return err
-	}
-	if err := s.grantLevel(ctx, "employee", []string{"decision:read"}); err != nil {
-		return err
-	}
-	if err := s.grantLevel(ctx, "decision_registration", []string{"decision:read", "decision:create", "decision:update", "decision:delete"}); err != nil {
-		return err
-	}
-	slog.Info("decision permissions granted")
-	return nil
-}
-
-// SeedCompensationAccess — compensation:* permission-уудыг үүсгэж, гадаад
-// ролиудад ЗӨВХӨН тэдгээрийг олгоно (бусад permission-уудыг нь хураана).
-// SeedCompensationAccess — гадаад түвшингүүдэд ЗӨВХӨН compensation:* эрхийг
-// олгоно (бусад нөөцийн ролийг нь хоослоно).
-func (s *Seeder) SeedCompensationAccess(ctx context.Context) error {
-	allowed := map[string]bool{"compensation": true}
-	for level, cfg := range externalRolePermissions {
-		if err := s.grantLevel(ctx, level, cfg.perms); err != nil {
-			return err
-		}
-		if err := s.revokeOtherResources(ctx, level, allowed); err != nil {
-			return err
-		}
-		slog.Info("external level permissions synced", "level", level, "perms", cfg.perms)
-	}
-	return nil
-}
-
+// Seeder — authdb (sdplatform / base / codelists схемүүд) дээр ажиллана.
 type Seeder struct {
-	// db — authdb (sdplatform / base / codelists схемүүд ЗӨВХӨН энд байна).
 	db *pgxpool.Pool
-	// appDB — аппын өөрийн сан (appdb). Аппын хүснэгтэд бичихэд л хэрэглэнэ.
-	// sdplatform-ын хүснэгтүүд appdb-д ҮҮСЭХГҮЙ тул тэднийг db-ээр л хөндөнө.
-	appDB    *pgxpool.Pool
-	userRepo repository.UserRepository
-	roleRepo repository.RoleRepository
-	permRepo repository.PermissionRepository
 }
 
-func NewSeeder(db *pgxpool.Pool, userRepo repository.UserRepository, roleRepo repository.RoleRepository, permRepo repository.PermissionRepository) *Seeder {
-	return &Seeder{db: db, appDB: db, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
+func NewSeeder(db *pgxpool.Pool) *Seeder {
+	return &Seeder{db: db}
 }
 
-// NewSeederFor — authdb (db) болон аппын сан (appDB)-г тусад нь өгнө. Хоёр
-// санд зэрэг бичих шаардлагатай seed-д хэрэглэнэ.
-func NewSeederFor(db, appDB *pgxpool.Pool, userRepo repository.UserRepository, roleRepo repository.RoleRepository, permRepo repository.PermissionRepository) *Seeder {
-	return &Seeder{db: db, appDB: appDB, userRepo: userRepo, roleRepo: roleRepo, permRepo: permRepo}
+// initialUser — хоосон authdb дээр үүсэх нэг хэрэглэгч ба түүний систем 10-ийн
+// роль.
+type initialUser struct {
+	username, email, password string
+	firstName, lastName       string
+	roleName                  string
 }
 
-// Seed — систем 10-ийн роль/эрх + ХЭРЭГЛЭГЧИЙН seed.
+// systemAdminFirstName — системийн админ бүртгэлийн нэр. Бүртгэл нь ХҮН БИШ
+// (системийн дүр) тул овог хоосон, нэрэнд хүний мэдээлэл бичихгүй; ажилтан
+// (hr_employee) / хүн (bs_person)-тэй холбогдохгүй.
+const systemAdminFirstName = "Системийн админ"
+
+// ensureInitialUsers — анхны хэрэглэгчид:
 //
-// ХЭРЭГЛЭГЧ (sd_user), АЖИЛТАН (hr_employee), ХҮН (bs_person) нь ЗӨВХӨН
-// sd_user хүснэгт БҮРЭН ХООСОН үед үүснэ: жинхэнэ санд хэрэглэгч аль хэдийн
-// бүртгэлтэй байвал апп нь тест/жишээ хэрэглэгч нэмэх ёсгүй.
+//  1. СИСТЕМИЙН АДМИН (ADMIN_USERNAME / ADMIN_EMAIL / ADMIN_PASSWORD) — систем
+//     10-д нэвтэрч чадах (систем 10-ийн ролтой) хэрэглэгч НЭГ Ч БАЙХГҮЙ үед.
+//     Ажиллаж байгаа sdplatform санд холбогдоход ч үүснэ: тэнд хэрэглэгчид бий
+//     ч хэн нь ч энэ системийн рольгүй тул өөрөөр нэвтэрч эрх олгох хүн байхгүй.
+//     Нэр/имэйл нь өөр хүнд бүртгэлтэй бол тэр бүртгэлийг БУЛААХГҮЙ (роль
+//     олгохгүй), шинээр ч үүсгэхгүй — нэвтрэх нэр давхцаж, аль бүртгэлээр
+//     нэвтрэх нь тодорхойгүй болно. Оронд нь ERROR лог бичнэ.
+//  2. САНХҮҮГИЙН МЭРГЭЖИЛТЭН — ЗӨВХӨН sd_user БҮРЭН ХООСОН (шинэ сан) үед.
 //
-// Роль / эрх / цэс / маягт нь ҮҮНЭЭС ҮЛ ХАМААРАН өөрсдийн шалгуураар
-// нэмэгдсээр байна (SeedSystemRoles).
-func (s *Seeder) Seed(ctx context.Context, adminCfg config.AdminConfig, employeeCfg config.EmployeeConfig) error {
-	if err := s.SeedSystemRoles(ctx); err != nil {
-		return err
-	}
-
-	empty, err := s.usersEmpty(ctx)
+// Бусад жишээ хэрэглэгч (employee, prof_org) үүсгэхгүй — админ API-аар үүсгэнэ.
+func (s *Seeder) ensureInitialUsers(ctx context.Context, adminCfg config.AdminConfig, financeCfg config.FinanceConfig) error {
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if !empty {
-		slog.Info("хэрэглэгчийн seed алгасагдав: sd_user хоосон биш")
-		return nil
-	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.seedAdminUser(ctx, adminCfg, "admin"); err != nil {
+	// Олон instance зэрэг асахад хэрэглэгч давхар үүсэхээс сэргийлнэ.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('acquisition_backend:seed_admin'))`); err != nil {
 		return err
 	}
-	return s.seedEmployeeUser(ctx, employeeCfg, "employee")
-}
-
-// usersEmpty — sd_user хүснэгтэд мөр БАЙХГҮЙ эсэх (soft delete-тэй мөрийг ч
-// тооцно: устгасан хэрэглэгч байгаа гэдэг нь систем аль хэдийн хэрэглэгдсэн
-// гэсэн үг).
-func (s *Seeder) usersEmpty(ctx context.Context) (bool, error) {
-	var any bool
-	if err := s.db.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM sdplatform.sd_user)`).Scan(&any); err != nil {
-		return false, err
+	var anyUser, anySystemUser bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM sdplatform.sd_user),
+		       EXISTS (
+				SELECT 1
+				FROM sdplatform.sd_user u
+				JOIN sdplatform.sd_user_role ur ON ur.user_id = u.user_id
+				JOIN sdplatform.sd_system_role sr ON sr.role_id = ur.role_id AND sr.system_id = 10
+				WHERE u.deleted_at IS NULL
+		       )`).Scan(&anyUser, &anySystemUser); err != nil {
+		return err
 	}
-	return !any, nil
-}
 
-func (s *Seeder) seedAdminUser(ctx context.Context, cfg config.AdminConfig, levels ...string) error {
-	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
-	if err == nil {
-		if err := s.assignLevelToUser(ctx, existing.ID, levels...); err != nil {
+	var users []initialUser
+	if !anySystemUser {
+		adminUsername := strings.TrimSpace(adminCfg.Username)
+		if adminUsername == "" {
+			adminUsername = "admin"
+		}
+		var taken bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM sdplatform.sd_user
+				WHERE deleted_at IS NULL
+				  AND (lower(username) IN (lower($1), lower($2))
+				       OR lower(email) IN (lower($1), lower($2)))
+			)`, adminUsername, strings.TrimSpace(adminCfg.Email)).Scan(&taken); err != nil {
 			return err
 		}
-		if existing.Position == "" {
-			existing.Position = "Ахлах мэргэжилтэн"
-			existing.UpdatedAt = time.Now()
-			_ = s.userRepo.Update(ctx, existing)
+		if taken {
+			slog.Error("системийн админ үүссэнгүй: ADMIN_USERNAME эсвэл ADMIN_EMAIL өөр хэрэглэгчид бүртгэлтэй байна. "+
+				"Систем 10-д нэвтэрч чадах хэрэглэгч алга — .env-д давхцахгүй ADMIN_USERNAME / ADMIN_EMAIL тохируулаад дахин асаана уу",
+				"username", adminUsername, "email", adminCfg.Email)
+		} else {
+			users = append(users, initialUser{adminUsername, adminCfg.Email, adminCfg.Password,
+				systemAdminFirstName, "", "admin"})
 		}
+	}
+	if !anyUser {
+		users = append(users, initialUser{financeCfg.Username, financeCfg.Email, financeCfg.Password,
+			"Санхүүгийн", "мэргэжилтэн", roleName("compensation", "finance_specialist")})
+	}
+	if len(users) == 0 {
 		return nil
 	}
 
-	hashed, err := hash.Password(cfg.Password)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now()
-	user := &domain.User{
-		Username:  "admin",
-		Email:     cfg.Email,
-		Password:  hashed,
-		FirstName: "Admin",
-		LastName:  "User",
-		Position:  "Ахлах мэргэжилтэн",
-		IsActive:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return err
-	}
-	if err := s.assignLevelToUser(ctx, user.ID, levels...); err != nil {
-		return err
-	}
-	slog.Info("admin user created", "email", cfg.Email)
-	return nil
-}
-
-func (s *Seeder) seedEmployeeUser(ctx context.Context, cfg config.EmployeeConfig, level string) error {
-	existing, err := s.userRepo.GetByEmail(ctx, cfg.Email)
-	if err == nil {
-		if err := s.assignLevelToUser(ctx, existing.ID, level); err != nil {
+	for _, u := range users {
+		hashed, err := hash.Password(u.password)
+		if err != nil {
 			return err
 		}
-		if existing.Position == "" {
-			existing.Position = "Мэргэжилтэн"
-			existing.UpdatedAt = time.Now()
-			_ = s.userRepo.Update(ctx, existing)
+		var userID domain.ID
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO sdplatform.sd_user (username, email, password, firstname, lastname, created_at, updated_at, is_active)
+			VALUES (LEFT($1, 50), LEFT(NULLIF(BTRIM($2::text), ''), 250), LEFT($3, 150), LEFT($4, 50), LEFT(NULLIF($5, ''), 50), NOW()::date, NOW(), true)
+			RETURNING user_id`, u.username, u.email, hashed, u.firstName, u.lastName).Scan(&userID); err != nil {
+			return err
 		}
-		return nil
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO sdplatform.sd_user_role (user_id, role_id, created_at, updated_at)
+			SELECT $1, r.role_id, NOW(), NOW()
+			FROM sdplatform.sd_role r
+			WHERE r.name = $2
+			  AND EXISTS (
+				SELECT 1 FROM sdplatform.sd_system_role sr
+				WHERE sr.role_id = r.role_id AND sr.system_id = 10
+			  )
+			ON CONFLICT DO NOTHING`, userID, u.roleName); err != nil {
+			return err
+		}
 	}
-
-	hashed, err := hash.Password(cfg.Password)
-	if err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-
-	now := time.Now()
-	user := &domain.User{
-		Username:  cfg.Username,
-		Email:     cfg.Email,
-		Password:  hashed,
-		FirstName: "Мэргэжилтэн",
-		LastName:  "Хэрэглэгч",
-		Position:  "Мэргэжилтэн",
-		IsActive:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
+	for _, u := range users {
+		slog.Info("initial user created", "username", u.username, "email", u.email, "role", u.roleName)
 	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return err
-	}
-	if err := s.assignLevelToUser(ctx, user.ID, level); err != nil {
-		return err
-	}
-	slog.Info("employee user created", "email", cfg.Email)
-	return nil
-}
-
-// SeedExternalUsers — санхүүгийн мэргэжилтэн болон мэргэжлийн байгууллагын
-// анхны хэрэглэгчийг үүсгэнэ. Роль (finance_specialist, professional_org) нь
-// SeedCompensationAccess-ээр аль хэдийн үүссэн байх ёстой.
-func (s *Seeder) SeedExternalUsers(ctx context.Context, finCfg config.FinanceConfig, profCfg config.ProfessionalOrgConfig) error {
-	if err := s.seedRoleUser(ctx, "finance_specialist",
-		finCfg.Username, finCfg.Email, finCfg.Password,
-		"Санхүүгийн", "мэргэжилтэн", "Санхүүгийн мэргэжилтэн"); err != nil {
-		return err
-	}
-	return s.seedRoleUser(ctx, "professional_org",
-		profCfg.Username, profCfg.Email, profCfg.Password,
-		"Мэргэжлийн", "байгууллага", "Мэргэжлийн байгууллага")
-}
-
-// seedRoleUser — өгсөн роль-той нэг хэрэглэгчийг idempotent байдлаар үүсгэнэ.
-// Роль байхгүй бол чимээгүй алгасна (seed дараалал буруу тохиолдолд ч эвдрэхгүй).
-func (s *Seeder) seedRoleUser(ctx context.Context, level, username, email, password, firstName, lastName, position string) error {
-	roles, err := s.rolesForLevel(ctx, level)
-	if err != nil {
-		return err
-	}
-	if len(roles) == 0 {
-		slog.Warn("external level has no roles, skipping user seed", "level", level)
-		return nil
-	}
-
-	if existing, err := s.userRepo.GetByEmail(ctx, email); err == nil {
-		return s.assignLevelToUser(ctx, existing.ID, level)
-	}
-
-	hashed, err := hash.Password(password)
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	user := &domain.User{
-		Username:  username,
-		Email:     email,
-		Password:  hashed,
-		FirstName: firstName,
-		LastName:  lastName,
-		Position:  position,
-		IsActive:  true,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if err := s.userRepo.Create(ctx, user); err != nil {
-		return err
-	}
-	if err := s.assignLevelToUser(ctx, user.ID, level); err != nil {
-		return err
-	}
-	slog.Info("external user created", "email", email, "level", level)
 	return nil
 }

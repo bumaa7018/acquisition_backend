@@ -2,9 +2,8 @@
 
 // authdb-ийн seeder-ийн E2E шалгалт — БОДИТ authdb дээр.
 //
-// Гол шаардлага: код/нэрийг кодчилсны ДАРАА ч ХЭРЭГЛЭГЧИЙН ЭРХ (эцсийн үр дүн)
-// ЯГ ХЭВЭЭР гарах ёстой. Эрхийн шалгалт sd_permission-ыг permission_id / name-
-// ээр холбодог тул code баганыг A001 болгосон нь үр дүнд нөлөөлөх ёсгүй.
+// Гол шаардлага: seeder нь authdb-д БАЙГАА мөрийг өөрчлөхгүй, зөвхөн
+// өөрт дутуу мөрийг нэмнэ. ХЭРЭГЛЭГЧИЙН ЭРХ (эцсийн үр дүн) ЯГ ХЭВЭЭР гарна.
 //
 // Ажиллуулах: make test-e2e
 package seed
@@ -12,7 +11,8 @@ package seed
 import (
 	"context"
 	"testing"
-	"time"
+
+	"acquisition_backend/internal/config"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +56,7 @@ func effectivePermissions(t *testing.T, pool *pgxpool.Pool, username string) []s
 	return out
 }
 
-// Кодыг A001 хэлбэрт хөрвүүлсний дараа ч эрх ХЭВЭЭР гарна.
+// ensureAction-ы дараа эрх ХЭВЭЭР гарна.
 func TestE2E_PermissionCode_DoesNotChangeEffectivePermissions(t *testing.T) {
 	pool := openAuthPool(t)
 	ctx := context.Background()
@@ -73,7 +73,6 @@ func TestE2E_PermissionCode_DoesNotChangeEffectivePermissions(t *testing.T) {
 	before := effectivePermissions(t, pool, username)
 	require.NotEmpty(t, before, "шалгалт нь хоосон эрх дээр ач холбогдолгүй")
 
-	// Кодыг seeder-ийн шинэ дүрмээр нөхнө.
 	s := newTestSeeder(pool)
 	for action := range permissionCodes {
 		_, err := s.ensureAction(ctx, action)
@@ -84,13 +83,20 @@ func TestE2E_PermissionCode_DoesNotChangeEffectivePermissions(t *testing.T) {
 	assert.Equal(t, before, after, "эрхийн үр дүн ӨӨРЧЛӨГДӨХ ёсгүй")
 }
 
-// code баганад A001… хэлбэрийн утга бичигдэнэ, name нь үйлдлийн нэр хэвээр.
-func TestE2E_PermissionCode_UsesNumericCode(t *testing.T) {
+// Байгаа sd_permission мөрийн code-ийг ХӨНДӨХГҮЙ; A001… код зөвхөн ШИНЭ мөрөнд.
+func TestE2E_PermissionCode_ExistingRowsUntouched(t *testing.T) {
 	pool := openAuthPool(t)
 	ctx := context.Background()
 
 	s := newTestSeeder(pool)
 	for action, wantCode := range permissionCodes {
+		var existed bool
+		var codeBefore string
+		err := pool.QueryRow(ctx, `
+			SELECT COALESCE(code,'') FROM sdplatform.sd_permission
+			WHERE name = $1 ORDER BY permission_id LIMIT 1`, action).Scan(&codeBefore)
+		existed = err == nil
+
 		perm, err := s.ensureAction(ctx, action)
 		require.NoError(t, err, "action %s", action)
 
@@ -98,16 +104,19 @@ func TestE2E_PermissionCode_UsesNumericCode(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx,
 			`SELECT COALESCE(code,''), COALESCE(name,'') FROM sdplatform.sd_permission WHERE permission_id = $1`,
 			perm.ID).Scan(&code, &name))
-		assert.Equal(t, wantCode, code, "%s-ийн код", action)
+		if existed {
+			assert.Equal(t, codeBefore, code, "%s-ийн байгаа код ӨӨРЧЛӨГДӨХ ёсгүй", action)
+		} else {
+			assert.Equal(t, wantCode, code, "%s-ийн шинэ мөрийн код", action)
+		}
 		assert.Equal(t, action, name, "нэр нь үйлдлийн нэр хэвээр байх ёстой")
 	}
 }
 
-// ── 2. sd_form.form_name — латин кодчилсон нэр ───────────────
+// ── 2. sd_form.form_name — байгаа нэрийг хөндөхгүй ───────────
 
-// Маягтын нэр латин кодоор бичигдэнэ; ХОЛБООС нь code-оор хийгддэг тул
-// эрхийн үр дүн хөндөгдөхгүй.
-func TestE2E_FormName_UsesLatinCode(t *testing.T) {
+// Байгаа маягтын нэр ХЭВЭЭР; дутуу маягт латин кодчилсон нэрээр нэмэгдэнэ.
+func TestE2E_FormName_ExistingRowsUntouched(t *testing.T) {
 	pool := openAuthPool(t)
 	ctx := context.Background()
 
@@ -119,105 +128,58 @@ func TestE2E_FormName_UsesLatinCode(t *testing.T) {
 	}
 
 	codes, names := system10FormNames()
-	require.NoError(t, newTestSeeder(pool).SeedLegacySDPlatformSystem10(ctx))
+	before := map[string]string{}
+	for _, code := range codes {
+		var formName string
+		if err := pool.QueryRow(ctx,
+			`SELECT COALESCE(form_name,'') FROM sdplatform.sd_form WHERE code = $1`, code).Scan(&formName); err == nil {
+			before[code] = formName
+		}
+	}
+
+	require.NoError(t, newTestSeeder(pool).ensureSystem10Structure(ctx))
 
 	for i, code := range codes {
 		var formName string
 		err := pool.QueryRow(ctx,
 			`SELECT COALESCE(form_name,'') FROM sdplatform.sd_form WHERE code = $1`, code).Scan(&formName)
 		require.NoError(t, err, "маягт %s байхгүй", code)
-		assert.Equal(t, names[i], formName, "%s-ийн маягтын нэр", code)
+		if prev, ok := before[code]; ok {
+			assert.Equal(t, prev, formName, "%s-ийн байгаа нэр ӨӨРЧЛӨГДӨХ ёсгүй", code)
+		} else {
+			assert.Equal(t, names[i], formName, "%s-ийн шинэ маягтын нэр", code)
+		}
 	}
 }
 
-// ── 3. hr_department — зөвхөн 10311 ──────────────────────────
+// ── 3. Хэрэглэгчийн seed — систем 10-д хэрэглэгч байвал алгасна ─
 
-// Код 10311 байхгүй бол нэмнэ; байвал хөндөхгүй.
-func TestE2E_HRDepartment_OnlySeeds10311(t *testing.T) {
+// Систем 10-ийн ролтой хэрэглэгч аль хэдийн байвал хэрэглэгч/ажилтан/хүн
+// нэмэгдэхгүй (системийн админ ч, санхүүгийн ажилтан ч).
+func TestE2E_UserSeed_SkippedWhenSystemUsersExist(t *testing.T) {
 	pool := openAuthPool(t)
 	ctx := context.Background()
 
-	var orgID int
-	if err := pool.QueryRow(ctx,
-		`SELECT id FROM sdplatform.sd_organization WHERE name = 'Нийслэлийн Газрын алба' LIMIT 1`).Scan(&orgID); err != nil {
-		t.Skip("үндсэн байгууллага байхгүй — seeder алгасдаг")
+	var hasSystemUser bool
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sdplatform.sd_user u
+			JOIN sdplatform.sd_user_role ur ON ur.user_id = u.user_id
+			JOIN sdplatform.sd_system_role sr ON sr.role_id = ur.role_id AND sr.system_id = 10
+			WHERE u.deleted_at IS NULL
+		)`).Scan(&hasSystemUser))
+	if !hasSystemUser {
+		t.Skip("систем 10-ийн ролтой хэрэглэгч байхгүй — энэ тест тийм санд ажиллана")
 	}
-
-	// Байгаа мөрийг хадгалж, тест дараа эгүүлнэ.
-	var existed bool
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM sdplatform.hr_department WHERE code = $1)`,
-		hrSeedDepartment.code).Scan(&existed))
-	if !existed {
-		t.Cleanup(func() {
-			cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_, _ = pool.Exec(cctx, `
-				UPDATE sdplatform.hr_employee SET department_id = NULL
-				WHERE department_id IN (SELECT department_id FROM sdplatform.hr_department WHERE code = $1)`,
-				hrSeedDepartment.code)
-			if _, err := pool.Exec(cctx,
-				`DELETE FROM sdplatform.hr_department WHERE code = $1`, hrSeedDepartment.code); err != nil {
-				t.Errorf("хэлтэс цэвэрлэгдсэнгүй: %v", err)
-			}
-		})
-	}
-
-	// Хуучин жишээ хэлтсүүд (ADM/GCH/…) нь ӨМНӨХ seed-ээс үлдсэн байж болно —
-	// seeder тэднийг ШИНЭЭР нэмэхгүй байгааг тоогоор нь шалгана.
-	legacyCodes := []string{"ADM", "GCH", "UNO", "GZZ", "SHO", "HSH", "MTH"}
-	var legacyBefore, totalBefore int
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM sdplatform.hr_department WHERE code = ANY($1)`, legacyCodes).Scan(&legacyBefore))
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM sdplatform.hr_department`).Scan(&totalBefore))
-
-	require.NoError(t, newTestSeeder(pool).SeedHRDepartments(ctx))
-
-	var name string
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT COALESCE(name,'') FROM sdplatform.hr_department WHERE code = $1`,
-		hrSeedDepartment.code).Scan(&name))
-	assert.Equal(t, hrSeedDepartment.name, name)
-
-	var legacyAfter int
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM sdplatform.hr_department WHERE code = ANY($1)`, legacyCodes).Scan(&legacyAfter))
-	assert.Equal(t, legacyBefore, legacyAfter, "хуучин жишээ хэлтэс ШИНЭЭР үүсэх ёсгүй")
-
-	// Нийт нэмэгдэл нь ХАМГИЙН ИХ 1 (зөвхөн 10311).
-	var totalAfter int
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM sdplatform.hr_department`).Scan(&totalAfter))
-	assert.LessOrEqual(t, totalAfter-totalBefore, 1, "seeder ЗӨВХӨН нэг хэлтэс нэмэх ёстой")
-
-	// Дахин ажиллуулахад давхардахгүй.
-	require.NoError(t, newTestSeeder(pool).SeedHRDepartments(ctx))
-	var n int
-	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM sdplatform.hr_department WHERE code = $1`,
-		hrSeedDepartment.code).Scan(&n))
-	assert.Equal(t, 1, n)
-}
-
-// ── 4. Хэрэглэгчийн seed — зөвхөн sd_user хоосон үед ─────────
-
-// sd_user хоосон БИШ бол хэрэглэгч/ажилтан/хүн нэмэгдэхгүй.
-func TestE2E_UserSeed_SkippedWhenUsersExist(t *testing.T) {
-	pool := openAuthPool(t)
-	ctx := context.Background()
 
 	var users, employees, persons int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM sdplatform.sd_user`).Scan(&users))
-	if users == 0 {
-		t.Skip("sd_user хоосон — энэ тест мөртэй санд ажиллана")
-	}
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM sdplatform.hr_employee`).Scan(&employees))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM base.bs_person`).Scan(&persons))
 
-	empty, err := newTestSeeder(pool).usersEmpty(ctx)
-	require.NoError(t, err)
-	assert.False(t, empty, "sd_user мөртэй үед usersEmpty=false байх ёстой")
+	require.NoError(t, newTestSeeder(pool).ensureInitialUsers(ctx,
+		config.AdminConfig{Username: "e2e_admin", Email: "e2e_admin@example.com", Password: "x"},
+		config.FinanceConfig{Username: "e2e_finance", Email: "e2e_finance@example.com", Password: "x"}))
 
 	// Тоо ӨӨРЧЛӨГДӨХГҮЙ байх (seed нь алгасах).
 	var users2, employees2, persons2 int

@@ -28,8 +28,6 @@ var seedValuationOrgs = []struct {
 	firstName string
 }{
 	{"Үнэлгээний Байгууллага 1", "valuation_org_1", "valuation.org1@example.mn", "Үнэлгээний", "Байгууллага 1"},
-	{"Үнэлгээний Байгууллага 2", "valuation_org_2", "valuation.org2@example.mn", "Үнэлгээний", "Байгууллага 2"},
-	{"Үнэлгээний Байгууллага 3", "valuation_org_3", "valuation.org3@example.mn", "Үнэлгээний", "Байгууллага 3"},
 }
 
 // SeedValuationOrgEmployees — үнэлгээний байгууллагын ЖИШЭЭ бүртгэл (байгууллага

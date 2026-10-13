@@ -124,7 +124,7 @@ func snapshotPersonTypes(t *testing.T, pool *pgxpool.Pool) {
 
 // newTestSeeder — зөвхөн cl_person_type-д хүрэх seeder (repo-ууд шаардлагагүй).
 func newTestSeeder(pool *pgxpool.Pool) *Seeder {
-	return &Seeder{db: pool, appDB: pool}
+	return NewSeeder(pool)
 }
 
 // Хоосон лавлах — 10 мөр бүгд нэмэгдэнэ.
