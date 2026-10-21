@@ -124,7 +124,7 @@ func decisionRouter(t *testing.T, stub *stubDecisionDraftService) (*gin.Engine, 
 	gin.SetMode(gin.TestMode)
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	router := handler.NewRouter(
-		nil, jwtManager, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, jwtManager, nil, nil, nil, nil, nil, nil, nil, nil,
 		service.DecisionServices{Draft: stub},
 	)
 	return router, jwtManager

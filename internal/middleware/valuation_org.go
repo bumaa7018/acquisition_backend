@@ -113,7 +113,6 @@ var valuationOrgAllowlist = []valuationOrgRoute{
 	{path: "/land-acquisitions/districts", methods: []string{"GET"}},
 	{path: "/acquisition-categories", methods: []string{"GET"}},
 	{path: "/parcel-statuses", prefix: true, methods: []string{"GET"}},
-	{path: "/acquisition-progress-statuses", prefix: true, methods: []string{"GET"}},
 	{path: "/document-types", prefix: true, methods: []string{"GET"}},
 	{path: "/parcel-workflow", prefix: true, methods: []string{"GET"}},
 	{path: "/acquisition-workflow", prefix: true, methods: []string{"GET"}},

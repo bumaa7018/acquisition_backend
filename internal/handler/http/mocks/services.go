@@ -1122,44 +1122,6 @@ func (m *MockPermissionService) Delete(ctx context.Context, id domain.ID) error 
 	return m.Called(ctx, id).Error(0)
 }
 
-type MockAcquisitionProgressStatusService struct{ mock.Mock }
-
-func (m *MockAcquisitionProgressStatusService) List(ctx context.Context) ([]*domain.AcquisitionProgressStatus, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*domain.AcquisitionProgressStatus), args.Error(1)
-}
-
-func (m *MockAcquisitionProgressStatusService) GetByID(ctx context.Context, id int) (*domain.AcquisitionProgressStatus, error) {
-	args := m.Called(ctx, id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
-}
-
-func (m *MockAcquisitionProgressStatusService) Create(ctx context.Context, req service.CreateAcquisitionProgressStatusRequest) (*domain.AcquisitionProgressStatus, error) {
-	args := m.Called(ctx, req)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
-}
-
-func (m *MockAcquisitionProgressStatusService) Update(ctx context.Context, id int, req service.UpdateAcquisitionProgressStatusRequest) (*domain.AcquisitionProgressStatus, error) {
-	args := m.Called(ctx, id, req)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.AcquisitionProgressStatus), args.Error(1)
-}
-
-func (m *MockAcquisitionProgressStatusService) Delete(ctx context.Context, id int) error {
-	return m.Called(ctx, id).Error(0)
-}
-
 type MockParcelStatusService struct{ mock.Mock }
 
 func (m *MockParcelStatusService) List(ctx context.Context) ([]*domain.ParcelStatus, error) {

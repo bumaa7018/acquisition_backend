@@ -125,7 +125,7 @@ NPOS=$(val 'd["data"]["id"]')
 chk "PUT  /positions/:id (админ hr:update-тэй → 200)" 200 "$(req -X PUT "${H[@]}" $BASE/positions/$NPOS -d "{\"name\":\"$PN засав\"}")"
 
 echo "═══ 6. ГАЗАР ЧӨЛӨӨЛӨЛТ ═══"
-for ep in land-acquisitions parcels compensations acquisition-categories document-types parcel-statuses acquisition-progress-statuses funding-sources construction-types; do
+for ep in land-acquisitions parcels compensations acquisition-categories document-types parcel-statuses funding-sources construction-types; do
   chk "GET  /$ep" 200 "$(req "${H[@]}" "$BASE/$ep?page=1&page_size=3")"
 done
 chk "GET  /plans/suggest" 200 "$(req "${H[@]}" "$BASE/plans/suggest?q=LA")"

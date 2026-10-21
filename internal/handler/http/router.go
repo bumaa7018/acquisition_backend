@@ -26,7 +26,6 @@ func NewRouter(
 	permSvc service.PermissionService,
 	landSvc service.LandService,
 	planSvc service.PlanService,
-	acquisitionProgressStatusSvc service.AcquisitionProgressStatusService,
 	parcelStatusSvc service.ParcelStatusService,
 	documentTypeSvc service.DocumentTypeService,
 	// notificationSvc — заавал бус (variadic) тул хуучин дуудалтууд өөрчлөгдөхгүй;
@@ -64,7 +63,6 @@ func NewRouter(
 	permH := NewPermissionHandler(permSvc)
 	landH := NewLandHandler(landSvc)
 	planH := NewPlanHandler(planSvc)
-	acquisitionProgressStatusH := NewAcquisitionProgressStatusHandler(acquisitionProgressStatusSvc)
 	parcelStatusH := NewParcelStatusHandler(parcelStatusSvc)
 	documentTypeH := NewDocumentTypeHandler(documentTypeSvc)
 	parcelWorkflowH := NewParcelWorkflowHandler(landSvc)
@@ -610,16 +608,6 @@ func NewRouter(
 				middleware.RequireAnyPermission("land:read", "compensation:read"))
 			plans.GET("/search", planLookup, planH.Search)
 			plans.GET("/suggest", planLookup, planH.Suggest)
-		}
-
-		// Чөлөөлөлтийн явцын статус
-		acquisitionProgressStatuses := protected.Group("/acquisition-progress-statuses")
-		{
-			acquisitionProgressStatuses.GET("", acquisitionProgressStatusH.List)
-			acquisitionProgressStatuses.GET("/:id", acquisitionProgressStatusH.GetByID)
-			acquisitionProgressStatuses.POST("", middleware.RequirePermission("admin:create"), acquisitionProgressStatusH.Create)
-			acquisitionProgressStatuses.PUT("/:id", middleware.RequirePermission("admin:update"), acquisitionProgressStatusH.Update)
-			acquisitionProgressStatuses.DELETE("/:id", middleware.RequirePermission("admin:delete"), acquisitionProgressStatusH.Delete)
 		}
 
 		// Нэгж талбарын статус

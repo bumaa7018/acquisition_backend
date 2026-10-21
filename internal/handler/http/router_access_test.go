@@ -48,7 +48,6 @@ func TestRouter_AcquisitionCategoriesList_AllowsAuthenticatedUserWithoutPermissi
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/acquisition-categories", nil)
@@ -102,7 +101,6 @@ func TestRouter_ProfLandAcquisitions_AllowsProfessionalOrg(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/prof/land-acquisitions?page=1&page_size=20", nil)
@@ -142,7 +140,6 @@ func TestRouter_ProfLandAcquisitions_DeniesLegacyProfessionalOrgRoleOnly(t *test
 		nil,
 		nil,
 		landSvc,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -193,7 +190,6 @@ func TestRouter_Dashboard_ScopesProfessionalOrg(t *testing.T) {
 		nil,
 		nil,
 		landSvc,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -249,7 +245,6 @@ func TestRouter_Dashboard_ScopesFinanceSpecialist(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
@@ -299,7 +294,6 @@ func TestRouter_Dashboard_AdminKeepsLegacyShape(t *testing.T) {
 		nil,
 		nil,
 		landSvc,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -464,7 +458,6 @@ func TestRouter_Dashboard_ScopesEachUserRole(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				nil,
 			)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard?plan_code=PLAN-2024&year=2024&year=bad&year=2025&general_category_id=10&sub_category_id=20&assigned_user_id=assignee-1", nil)
@@ -576,7 +569,6 @@ func TestRouter_ProfLandAcquisitions_DeniesAdmin(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/prof/land-acquisitions", nil)
@@ -620,7 +612,6 @@ func TestRouter_GeneralLandAcquisition_DeniesValuationOrg(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/"+acqID.String(), nil)
@@ -657,7 +648,6 @@ func TestRouter_GeneralLandAcquisitionList_DeniesProfessionalOrg(t *testing.T) {
 		nil,
 		nil,
 		landSvc,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -702,7 +692,6 @@ func TestRouter_ProfParcelDocuments_DeniesProfessionalOrgWhenParcelNotMember(t *
 		nil,
 		nil,
 		landSvc,
-		nil,
 		nil,
 		nil,
 		nil,
@@ -764,7 +753,6 @@ func TestRouter_ProfLandAcquisitionParcels_ReturnsOnlyEvaluationStatusScopedToOr
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/prof/land-acquisitions/"+acqID.String()+"/parcels?status_id=5", nil)
@@ -803,7 +791,6 @@ func TestRouter_ParcelStatuses_AllowsProfessionalOrgRead(t *testing.T) {
 		nil,
 		nil,
 		&mocks.MockLandService{},
-		nil,
 		nil,
 		parcelStatusSvc,
 		nil,
@@ -845,7 +832,6 @@ func TestRouter_ParcelStatuses_AllowsAuthenticatedUserWithoutPermissions(t *test
 		nil,
 		&mocks.MockLandService{},
 		nil,
-		nil,
 		parcelStatusSvc,
 		nil,
 	)
@@ -885,7 +871,6 @@ func TestRouter_DocumentTypes_AllowsAuthenticatedUserWithoutPermissions(t *testi
 		nil,
 		nil,
 		&mocks.MockLandService{},
-		nil,
 		nil,
 		nil,
 		documentTypeSvc,
@@ -929,7 +914,6 @@ func TestRouter_AssetSpecTypes_AllowsAuthenticatedUserWithoutPermissions(t *test
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/asset-spec-types", nil)
@@ -970,7 +954,6 @@ func TestRouter_AssetCalcTypes_AllowsAuthenticatedUserWithoutPermissions(t *test
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/asset-calc-types", nil)
@@ -1004,7 +987,6 @@ func TestRouter_ParcelStatuses_DeniesProfessionalOrgWrite(t *testing.T) {
 		nil,
 		&mocks.MockLandService{},
 		nil,
-		nil,
 		parcelStatusSvc,
 		nil,
 	)
@@ -1037,7 +1019,6 @@ func TestRouter_Register_NotExposed(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
 	)
 
 	body := `{"username":"intruder","password":"Password123!","first_name":"In","last_name":"Truder"}`
@@ -1064,7 +1045,6 @@ func TestRouter_UsersCreate_RequiresToken(t *testing.T) {
 		nil,
 		nil,
 		&mocks.MockLandService{},
-		nil,
 		nil,
 		nil,
 		nil,
@@ -1115,7 +1095,7 @@ func TestRouter_FilterOptions_OpenToAnyAuthenticatedUser(t *testing.T) {
 					PlanCode:        "PLAN-1",
 				}}, nil)
 
-			router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil, nil)
+			router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
 			req.Header.Set("Authorization", "Bearer "+tokenPair.AccessToken)
@@ -1136,7 +1116,7 @@ func TestRouter_FilterOptions_StillRequiresAuth(t *testing.T) {
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
 	landSvc := &mocks.MockLandService{}
 
-	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil, nil)
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
 	w := httptest.NewRecorder()
@@ -1188,7 +1168,7 @@ func TestRouter_ValuationOrg_MenusMe_ReturnsAppOwnedMenus(t *testing.T) {
 	token := valuationOrgToken(t, jwtManager, domain.ID(9001))
 
 	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
-		&mocks.MockLandService{}, nil, nil, nil, nil, stubMenuService{t: t})
+		&mocks.MockLandService{}, nil, nil, nil, stubMenuService{t: t})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/menus/me", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1217,7 +1197,7 @@ func TestRouter_ValuationOrg_DeniesRoutesOutsideAllowlist(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
-		landSvc, nil, nil, nil, nil, stubMenuService{t: t})
+		landSvc, nil, nil, nil, stubMenuService{t: t})
 
 	// Дотоод хэрэглэгчийн бүх хэсэг, тайлан, лавлахын БИЧИХ үйлдэл, мөн
 	// байгууллага даяарх шүүлтүүрийн жагсаалт.
@@ -1258,7 +1238,7 @@ func TestRouter_ValuationOrg_AllowsFilterOptions(t *testing.T) {
 		Return([]*domain.LandAcquisitionOption{{PlanCode: "LA-2024-001"}}, nil)
 
 	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
-		landSvc, nil, nil, nil, nil)
+		landSvc, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/filter-options", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -1292,7 +1272,7 @@ func TestRouter_ValuationOrg_AllowsLookupRoutes(t *testing.T) {
 		Return([]*domain.Plan{{PlanCode: "PLAN-2024-001"}}, nil)
 
 	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil,
-		landSvc, planSvc, nil, nil, nil)
+		landSvc, planSvc, nil, nil)
 
 	for _, path := range []string{
 		"/api/v1/acquisition-categories",

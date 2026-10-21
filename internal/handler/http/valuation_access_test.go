@@ -70,7 +70,7 @@ func TestRouter_ValuationCancelAccess(t *testing.T) {
 						return file != nil && file.Filename == "cancel.pdf"
 					})).Return(sampleSubmission(acqID, domain.ValuationStatusDraft, "asset"), nil).Once()
 			}
-			router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil, nil)
+			router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil)
 			var body bytes.Buffer
 			writer := multipart.NewWriter(&body)
 			require.NoError(t, writer.WriteField("action", "cancel"))
@@ -104,7 +104,7 @@ func TestRouter_AdminReadsValuationStatusWithoutPermissionClaims(t *testing.T) {
 	svc := &mocks.MockLandService{}
 	svc.On("GetValuationSubmission", mock.Anything, acqID, parcelID, "asset").
 		Return(sampleSubmission(acqID, domain.ValuationStatusApproved, "asset"), nil).Once()
-	router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil, nil)
+	router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/"+acqID.String()+"/parcels/"+parcelID.String()+"/valuation-status?valuation_type=asset", nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	w := httptest.NewRecorder()
@@ -125,7 +125,7 @@ func TestRouter_AcquisitionDetailIncludesAssignedUsers(t *testing.T) {
 		ID: acqID, AssignedUsers: []domain.AcquisitionAssignee{{UserID: 77, UserName: "Assigned Employee", AssignedBy: 1}},
 	}, nil).Once()
 	svc.On("ListFundingSources", mock.Anything, acqID).Return([]*domain.FundingSource{}, nil).Once()
-	router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil, nil)
+	router := handler.NewRouter(nil, manager, nil, nil, nil, nil, svc, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/land-acquisitions/"+acqID.String(), nil)
 	req.Header.Set("Authorization", "Bearer "+pair.AccessToken)
 	w := httptest.NewRecorder()

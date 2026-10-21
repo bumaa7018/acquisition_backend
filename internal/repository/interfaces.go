@@ -505,14 +505,6 @@ type LandAcquisitionRepository interface {
 	LandAuthorizedRepresentativeRepository
 }
 
-type AcquisitionProgressStatusRepository interface {
-	List(ctx context.Context) ([]*domain.AcquisitionProgressStatus, error)
-	GetByID(ctx context.Context, id int) (*domain.AcquisitionProgressStatus, error)
-	Create(ctx context.Context, aps *domain.AcquisitionProgressStatus) error
-	Update(ctx context.Context, aps *domain.AcquisitionProgressStatus) error
-	Delete(ctx context.Context, id int) error
-}
-
 type ParcelStatusRepository interface {
 	List(ctx context.Context) ([]*domain.ParcelStatus, error)
 	GetByID(ctx context.Context, id int) (*domain.ParcelStatus, error)

@@ -26,7 +26,7 @@ func authzRouter(t *testing.T, landSvc *mocks.MockLandService) (*gin.Engine, *jw
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	jwtManager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil, nil)
+	router := handler.NewRouter(nil, jwtManager, nil, nil, nil, nil, landSvc, nil, nil, nil)
 	return router, jwtManager
 }
 

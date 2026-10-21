@@ -107,7 +107,6 @@ func main() {
 	// татсан мэдээллээр. Уншилт ч эндээс явна — authdb-д plan хайхгүй.
 	planStoreRepo := postgres.NewPlanStoreRepo(mainDB)
 	landAcqRepo := postgres.NewLandAcquisitionRepo(mainDB)
-	acquisitionProgressStatusRepo := postgres.NewAcquisitionProgressStatusRepo(mainDB)
 	parcelStatusRepo := postgres.NewParcelStatusRepo(mainDB)
 	documentTypeRepo := postgres.NewDocumentTypeRepo(mainDB)
 	decisionDraftRepo := postgres.NewDecisionDraftRepo(mainDB)
@@ -244,7 +243,6 @@ func main() {
 
 	landSvc := service.NewLandService(landAcqRepo, fileStorage, userRepo, notificationSvc, auditSvc, parcelInfoClient, droneStorage, planStoreRepo, sourceFileClient, ownershipInfoClient, emailSender, emongoliaClient)
 	planSvc := service.NewPlanService(planStoreRepo, parcelInfoClient)
-	acquisitionProgressStatusSvc := service.NewAcquisitionProgressStatusService(acquisitionProgressStatusRepo)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	settingSvc := service.NewSettingService(settingRepo)
 
@@ -299,7 +297,7 @@ func main() {
 		Password: cfg.Middleware.Password,
 	}).WithCleanup(fileStorage, droneStorage) // «Хасах» үед файл ба дроны давхарга
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, acquisitionProgressStatusSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, legacyImportSvc, externalAPIKeys)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, legacyImportSvc, externalAPIKeys)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
