@@ -439,6 +439,8 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 		PlanName:          plan.Name,
 		PlanGeomWKT:       plan.BoundaryWKT,
 		PlanAreaM2:        plan.AreaM2,
+		PlanParcelID:      plan.ParcelID,
+		PlanGazner:        plan.Gazner,
 		GeometryWKT:       acqWKT,
 		AreaM2:            acqAreaM2,
 		Status:            domain.LandAcquisitionStatusNew,
@@ -587,6 +589,8 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 			acq.PlanName = newPlan.Name
 			acq.PlanGeomWKT = newPlan.BoundaryWKT
 			acq.PlanAreaM2 = newPlan.AreaM2
+			acq.PlanParcelID = newPlan.ParcelID
+			acq.PlanGazner = newPlan.Gazner
 		}
 		acq.GeometryWKT = newWKT
 		// Шинэ хилийн талбайг автоматаар тооцно (гараас оруулсныг үл хэрэгсэнэ).
@@ -1086,6 +1090,11 @@ func (s *landService) resolvePlan(ctx context.Context, planCode string) (*domain
 	if err != nil {
 		return nil, domain.ErrInternalServer
 	}
+	// plan мөр нь төслийнх (plan_code) — нэгж талбар, бүтээн байгуулалт нь
+	// ЭНЭ хайлтынх байх ёстой. Upsert нь хоосон gazner-ийг төслийн өөр нэгж
+	// талбарынхаар нөхдөг тул ГУС-ын хариунаас шууд авна.
+	saved.ParcelID = plan.ParcelID
+	saved.Gazner = plan.Gazner
 	return saved, nil
 }
 

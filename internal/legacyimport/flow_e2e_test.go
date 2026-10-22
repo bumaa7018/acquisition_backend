@@ -262,6 +262,13 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 			(SELECT count(*) FROM legacy_import_stage.parcel WHERE session_id=$2)`, Actor, id).
 		Scan(&acq, &parcels, &noBase, &amount, &staged))
 	require.Equal(t, 1, acq)
+	// Төлөвлөгөөний нэгж талбар ба бүтээн байгуулалт чөлөөлөлт дээрээ (plan мөр
+	// нь төслийнх — олон нэгж талбарын аль нэгнийх).
+	var planParcel, planGazner string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(plan_parcel_id,''), COALESCE(plan_gazner,'')
+		FROM land_acquisition WHERE created_by=$1`, Actor).Scan(&planParcel, &planGazner))
+	require.Equal(t, "4932803", planParcel)
+	require.Equal(t, "Ханын материал орчим", planGazner)
 	require.Equal(t, 175, parcels)
 	require.Equal(t, len(missing)-len(inUb), noBase, "ГУС-д олдоогүй нэгж талбар үндсэн хилгүй")
 	for _, e := range st.Result.Log.Entries {

@@ -730,6 +730,10 @@ type LandAcquisition struct {
 	// ЗӨВХӨН GetByID дээр дүүрнэ: жагсаалтад хэрэггүй бөгөөд мөр тутам join
 	// хийх нь илүү. Төлөвлөгөө нь ГУС-аас татагдан plan хүснэгтэд хадгалагдсан
 	// байдаг тул дахин ГУС руу хандах шаардлагагүй.
+	//
+	// PlanParcelID, PlanGazner нь ЧӨЛӨӨЛӨЛТ тус бүрийнх (land_acquisition-д
+	// хадгалагдана): нэг төсөлд (plan_code) олон төлөвлөгөөний нэгж талбар
+	// байдаг тул plan хүснэгтийн parcel_id/gazner нь зөвхөн аль нэгнийх.
 	PlanParcelID     string
 	PlanTypeName     string
 	PlanGazner       string

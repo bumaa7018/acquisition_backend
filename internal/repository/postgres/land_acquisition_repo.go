@@ -214,7 +214,8 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 			created_at, created_by, updated_at, updated_by,
 			acquisition_name, implementing_org, reason, responsible_org, funding_source,
 			general_category_id, sub_category_id,
-			nith_decree_number, group_list_number
+			nith_decree_number, group_list_number,
+			plan_parcel_id, plan_gazner
 			) VALUES (
 				$1, $2, $3, $4,
 				ST_GeomFromText(NULLIF($5, ''), 4326)::geometry(Polygon, 4326), $6,
@@ -223,7 +224,8 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 				$12, $13, $14, $15,
 				$16, $17, $18, $19, $20,
 				$21, $22,
-				$23, $24
+				$23, $24,
+				NULLIF($25, ''), NULLIF($26, '')
 			)
 	`,
 		acq.ID, acq.PlanID, acq.PlanCode, acq.PlanName,
@@ -234,6 +236,7 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.AcquisitionName, acq.ImplementingOrg, acq.Reason, acq.ResponsibleOrg, acq.FundingSource,
 		acq.GeneralCategoryID, acq.SubCategoryID,
 		acq.NithDecreeNumber, acq.GroupListNumber,
+		acq.PlanParcelID, acq.PlanGazner,
 	)
 	return err
 }
@@ -472,7 +475,12 @@ func (r *landAcqRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAc
 			       COALESCE(po."name", ''),
 			       -- Төлөвлөгөөний ДЭЛГЭРЭНГҮЙ: ГУС-аас татагдаад plan хүснэгтэд
 			       -- хадгалагдсан утгууд (дахин ГУС руу хандах шаардлагагүй).
-			       COALESCE(pl.parcel_id,''), COALESCE(pl.plan_type_name,''), COALESCE(pl.gazner,''),
+			       -- Нэгж талбар/бүтээн байгуулалт нь ЧӨЛӨӨЛӨЛТИЙНХ: plan мөр нь
+			       -- төслийн (plan_code) олон нэгж талбарын утгыг холимог агуулдаг
+			       -- (upsert parcel_id, gazner-ийг тус тусад нь нөхдөг) тул түүн рүү
+			       -- БҮҮ унага. Update энэ утгыг буцааж бичдэг — буруу утга бэхжинэ.
+			       COALESCE(la.plan_parcel_id, ''), COALESCE(pl.plan_type_name,''),
+			       COALESCE(la.plan_gazner, ''),
 			       pl.start_data, pl.end_data, pl.approved_date
 		FROM land_acquisition la
 		LEFT JOIN acquisition_category gc ON gc.id = la.general_category_id
@@ -2397,6 +2405,8 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 				sub_category_id      = $16,
 				nith_decree_number   = $17,
 				group_list_number    = $18,
+				plan_parcel_id       = NULLIF($20, ''),
+				plan_gazner          = NULLIF($21, ''),
 				updated_at           = NOW(),
 				updated_by           = $19
 		WHERE id = $1
@@ -2409,6 +2419,7 @@ func (r *landAcqRepo) Update(ctx context.Context, acq *domain.LandAcquisition) e
 		acq.GeneralCategoryID, acq.SubCategoryID,
 		acq.NithDecreeNumber, acq.GroupListNumber,
 		acq.UpdatedBy,
+		acq.PlanParcelID, acq.PlanGazner,
 	)
 	return err
 }
@@ -3115,11 +3126,11 @@ func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 		args = append(args, filter.ParcelID)
 		i++
 	}
-	// Төлөвлөгөөний нэгж талбарын дугаар — чөлөөлөлт нь plan_id-гаар
-	// төлөвлөгөөтэй холбогддог тул дэд query-гээр шүүнэ (эдгээр query-ийн
-	// FROM хэсэгт plan хүснэгт байхгүй).
+	// Төлөвлөгөөний нэгж талбарын дугаар — чөлөөлөлт бүр өөрийнхийгөө
+	// хадгалдаг (plan.parcel_id нь төслийн олон нэгж талбарын аль НЭГнийх тул
+	// түүгээр шүүвэл төслийн бүх чөлөөлөлт эсвэл огт юу ч гарахгүй).
 	if filter.PlanParcelID != "" {
-		where += fmt.Sprintf(" AND la.plan_id IN (SELECT pl.id FROM plan pl WHERE pl.parcel_id = $%d)", i)
+		where += fmt.Sprintf(" AND la.plan_parcel_id = $%d", i)
 		args = append(args, filter.PlanParcelID)
 		i++
 	}

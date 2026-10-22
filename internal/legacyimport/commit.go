@@ -241,14 +241,16 @@ func commitAcquisitions(ctx context.Context, tx pgx.Tx, sessionID string, cats *
 					status, start_date, end_date, acquisition_name,
 					implementing_org, reason, responsible_org, funding_source,
 					decree_number, decree_date, general_category_id, sub_category_id,
-					created_at, created_by, updated_at, updated_by, legacy_import_id)
+					created_at, created_by, updated_at, updated_by, legacy_import_id,
+					plan_parcel_id, plan_gazner)
 				VALUES ($1, $2, $3, $4,
 					CASE WHEN NULLIF($5,'') IS NULL THEN NULL ELSE ST_GeomFromText($5, 4326) END,
 					CASE WHEN NULLIF($5,'') IS NULL THEN NULL ELSE public.calculate_area_utm(ST_GeomFromText($5, 4326)) END,
 					ST_GeomFromText($6, 4326), public.calculate_area_utm(ST_GeomFromText($6, 4326)),
-					1, $7, $8, $9, '', '', '', '', '', NULL, $11, $12, NOW(), $10, NOW(), $10, $13)`,
+					1, $7, $8, $9, '', '', '', '', '', NULL, $11, $12, NOW(), $10, NOW(), $10, $13,
+					NULLIF($14,''), NULLIF($15,''))`,
 				acqID, planID, plan.Code, plan.Name, plan.BoundaryWKT, it.row.WKT, start, end, name, Actor,
-				cats.General.ID, subID, sessionID); err != nil {
+				cats.General.ID, subID, sessionID, planParcelID, strings.TrimSpace(plan.Gazner)); err != nil {
 				return fmt.Errorf("чөлөөлөлт үүсгэх: %w", err)
 			}
 			if err := own(ctx, tx, sessionID, "land_acquisition", acqID, name); err != nil {
