@@ -241,6 +241,8 @@ type ReportStats struct {
 	AreaDiffs     int     `json:"areaDiffs"`
 	Balanced      int     `json:"balanced"`
 	Duplicates    int     `json:"duplicates"`
+	// OwnerIssues — өмчлөгчийн овог нэр/регистр дутуу эсвэл зөрүүтэй мөр.
+	OwnerIssues int `json:"ownerIssues"`
 	// «Зөвхөн үнэлгээ» горим.
 	Excel     int `json:"excel"`     // ГУС-д олдоогүй — эксэлийн мэдээллээр бүртгэнэ
 	Synthetic int `json:"synthetic"` // дугааргүй — ERR… дугаар
@@ -434,8 +436,10 @@ type SessionListItem struct {
 	Status       string `json:"status"`
 	Mode         string `json:"mode"`
 	Acquisitions int    `json:"acquisitions"`
-	Parcels      int    `json:"parcels"`
-	ReportRows   int    `json:"reportRows"`
+	// AcquisitionNames — оруулсан чөлөөлөлтийн нэрс (оруулаагүй бол хилийн мөрийнх).
+	AcquisitionNames []string `json:"acquisitionNames"`
+	Parcels          int      `json:"parcels"`
+	ReportRows       int      `json:"reportRows"`
 	// Deletable — оруулсан бөгөөд импортын бүртгэл (устгах жагсаалт) нь байгаа эсэх.
 	Deletable bool            `json:"deletable"`
 	Rollback  *RollbackResult `json:"rollback,omitempty"`

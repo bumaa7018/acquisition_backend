@@ -137,18 +137,6 @@ func parseParcelIDs(value string) (parcelID, oldParcelID string, err error) {
 	return ids[0], ids[1], nil
 }
 
-// splitPersonName — "Сүрэнхорлоогийн Саранчимэг" → овог, нэр.
-func splitPersonName(full string) (lastName, name string) {
-	parts := strings.Fields(normalize(full))
-	switch len(parts) {
-	case 0:
-		return "", ""
-	case 1:
-		return "", parts[0]
-	}
-	return strings.Join(parts[:len(parts)-1], " "), parts[len(parts)-1]
-}
-
 // cleanRegisterNo — "/ХЛ56072067/" → "ХЛ56072067".
 func cleanRegisterNo(value string) string {
 	return strings.TrimSpace(strings.TrimRight(strings.TrimLeft(normalize(value), `/\(`), `/\)`))

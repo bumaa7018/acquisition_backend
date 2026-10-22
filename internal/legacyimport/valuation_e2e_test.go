@@ -333,6 +333,7 @@ func TestE2ELegacyImportValuationOnly(t *testing.T) {
 		if it.ID == id {
 			require.Equal(t, ModeValuation, it.Mode)
 			require.Equal(t, 2, it.Acquisitions)
+			require.Len(t, it.AcquisitionNames, 2, "оруулсан чөлөөлөлтийн нэрс")
 			require.True(t, it.Deletable)
 		}
 	}

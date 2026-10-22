@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"acquisition_backend/internal/domain"
 )
@@ -138,8 +139,11 @@ type owner struct {
 }
 
 var (
-	reRegister   = regexp.MustCompile(`[А-ЯӨҮЁA-Z]{1,2}\s*\d{8,10}|\b\d{7,12}\b`)
-	reOwnerSplit = regexp.MustCompile(`[,;\n]+`)
+	reRegister = regexp.MustCompile(`[А-ЯӨҮЁA-Z]{1,2}\s*\d{8,10}|\b\d{7,12}\b`)
+	// reOwnerSegment — «,» «;» нь ХҮН тусгаарлана (зай, мөр шилжилт нь үг).
+	reOwnerSegment = regexp.MustCompile(`[,;]+`)
+	// reCamelBoundary — наалдсан овог нэрийн зааг: «АнарынЦэцэг» → «Анарын|Цэцэг».
+	reCamelBoundary = regexp.MustCompile(`\p{Ll}\p{Lu}`)
 )
 
 // splitOwners — нэр, регистрийг хос болгоно. Тоо зөрвөл БУРУУ ХҮНТЭЙ холбохын
@@ -149,39 +153,147 @@ func splitOwners(fullName, registerText string) ([]owner, error) {
 	for _, r := range reRegister.FindAllString(strings.ToUpper(registerText), -1) {
 		registers = append(registers, strings.Join(strings.Fields(r), ""))
 	}
-	var delimited []string
-	for _, part := range reOwnerSplit.Split(fullName, -1) {
-		if n := normalize(part); n != "" {
-			delimited = append(delimited, n)
-		}
+	owners, err := parseOwnerNames(fullName)
+	if err != nil {
+		return nil, err
 	}
-	tokens := strings.Fields(normalize(fullName))
-	names := delimited
-	if len(registers) > 1 && len(delimited) != len(registers) {
-		if len(tokens) != len(registers)*2 {
-			return nil, fmt.Errorf("өмчлөгчийн нэр (%d үг), регистр (%d) зөрүүтэй: мөрийг шалгана уу", len(tokens), len(registers))
-		}
-		names = nil
-		for i := range registers {
-			names = append(names, strings.Join(tokens[i*2:i*2+2], " "))
-		}
-	}
-	if len(registers) > 0 && len(names) != len(registers) {
-		return nil, errors.New("өмчлөгчийн нэр ба регистрийн тоо зөрүүтэй")
-	}
-	if len(names) == 0 && len(registers) > 0 {
+	if len(owners) == 0 && len(registers) > 0 {
 		return nil, errors.New("регистртэй боловч өмчлөгчийн нэр хоосон")
 	}
-	out := make([]owner, 0, len(names))
-	for i, full := range names {
-		last, first := splitPersonName(full)
-		o := owner{full: full, lastName: last, name: first}
+	if len(registers) > 0 && len(owners) != len(registers) {
+		return nil, fmt.Errorf("өмчлөгч %d (%s), регистр %d — тоо зөрүүтэй", len(owners), ownerNames(owners), len(registers))
+	}
+	for i := range owners {
 		if i < len(registers) {
-			o.registerNo = registers[i]
+			owners[i].registerNo = registers[i]
 		}
-		out = append(out, o)
+	}
+	return owners, nil
+}
+
+// parseOwnerNames — өмчлөгчдийн овог, нэр. «,» «;» нь ХҮН тусгаарлана; хэсэг
+// бүрийн дотор зай, мөр шилжилт нь ҮГ тусгаарлана («Б⏎Бат» нэг хүн), хүн
+// бүр = овог + нэр:
+//
+//	«Б.Бат»       — цэгээр: овог «Б», нэр «Бат» («Б.» бол нэр нь дараагийн үг)
+//	«АнарынЦэцэг» — жижиг→том үсгийн заагаар: овог «Анарын», нэр «Цэцэг»
+//	«Б Бат»       — бусад үгс дарааллаараа хос хосоороо (овог, нэр)
+//
+// Хуулийн этгээд (ХХК …) агуулсан хэсэг бүтнээрээ нэг өмчлөгч. Хэсэгт ганц үг
+// бол нэр (овоггүй). Хосгүй үлдсэн үг — хэн болохыг таах боломжгүй тул алдаа.
+func parseOwnerNames(text string) ([]owner, error) {
+	var out []owner
+	push := func(last, name string) {
+		out = append(out, owner{full: strings.TrimSpace(last + " " + name), lastName: last, name: name})
+	}
+	unpaired := func(word string) error {
+		return fmt.Errorf("«%s» — овог/нэрийн хосгүй үг: өмчлөгчдийг шалгана уу", word)
+	}
+	for _, seg := range reOwnerSegment.Split(text, -1) {
+		seg = normalize(seg)
+		if seg == "" {
+			continue
+		}
+		if reLegalEntity.MatchString(seg) {
+			out = append(out, owner{full: seg, name: seg})
+			continue
+		}
+		before := len(out)
+		pending := "" // нэрээ хүлээж буй овог — хүн тусгаарлагчийг давахгүй
+		for _, word := range strings.Fields(seg) {
+			if pending != "" {
+				// Хүлээж буй овгийн нэр — бүтэн үгээрээ («Б. БатЭрдэнэ»), гэхдээ
+				// өөрөө бүтэн хос («Б А.Цэцэг») бол хэнийх нь тодорхойгүй.
+				if i := strings.LastIndex(word, "."); i > 0 && i < len(word)-1 {
+					return nil, unpaired(pending)
+				}
+				push(pending, strings.Trim(word, "."))
+				pending = ""
+				continue
+			}
+			if i := strings.LastIndex(word, "."); i >= 0 {
+				last, name := word[:i], word[i+1:]
+				switch {
+				case last != "" && name != "":
+					push(last, name)
+				case last != "":
+					pending = last
+				case name != "":
+					pending = name
+				}
+				continue
+			}
+			if loc := reCamelBoundary.FindStringIndex(word); loc != nil {
+				// Зааг = эхний жижиг үсгийн дараа (кирилл үсэг олон байт).
+				_, size := utf8.DecodeRuneInString(word[loc[0]:])
+				cut := loc[0] + size
+				push(word[:cut], word[cut:])
+				continue
+			}
+			pending = word
+		}
+		if pending != "" {
+			if len(out) > before {
+				return nil, unpaired(pending)
+			}
+			push("", pending) // «Саранчимэг» — овоггүй нэг хүн
+		}
 	}
 	return out, nil
+}
+
+// ownerNames — «Б Бат · А Цэцэг» (анхааруулгын текстэд).
+func ownerNames(owners []owner) string {
+	names := make([]string, len(owners))
+	for i, o := range owners {
+		names[i] = o.full
+	}
+	return strings.Join(names, " · ")
+}
+
+// ownerIssues — өмчлөгчийн овог нэр/регистр дутуу эсвэл зөрүүтэйг шалгалтын
+// шатанд анхааруулна (эс бөгөөс зөвхөн «Оруулах»-ын логт гардаг байв).
+// Мөр бүртгэгдэнэ — зөвхөн эзэмшигч нь дутуу/огт орохгүй.
+func ownerIssues(label string, row *ReportRow) []Issue {
+	name, reg := normalize(row.HolderName), normalize(row.HolderRegisterNo)
+	switch {
+	case name == "" && reg == "":
+		return []Issue{warnIssue("owner_missing", label+": өмчлөгчийн овог нэр, регистр хоосон — эзэмшигч бүртгэгдэхгүй")}
+	case name == "":
+		return []Issue{warnIssue("owner_missing", fmt.Sprintf("%s: өмчлөгчийн овог нэр хоосон (регистр %s) — эзэмшигч бүртгэгдэхгүй", label, reg))}
+	}
+	owners, err := splitOwners(row.HolderName, row.HolderRegisterNo)
+	if err != nil {
+		return []Issue{warnIssue("owner_mismatch", fmt.Sprintf("%s: «%s» / регистр «%s» — %s — эзэмшигч бүртгэгдэхгүй", label, name, reg, err.Error()))}
+	}
+	var out []Issue
+	if len(owners) > 1 {
+		// Задалсан үр дүнг харуулна — хүмүүс зөв салсныг нүдээр шалгана.
+		parts := make([]string, len(owners))
+		for i, o := range owners {
+			parts[i] = fmt.Sprintf("овог «%s» нэр «%s»", o.lastName, o.name)
+			if o.registerNo != "" {
+				parts[i] += " " + o.registerNo
+			}
+		}
+		out = append(out, infoIssue("owners_parsed", fmt.Sprintf("%s: %d өмчлөгч — %s", label, len(owners), strings.Join(parts, "; "))))
+	}
+	if reg == "" {
+		out = append(out, warnIssue("owner_no_register", fmt.Sprintf("%s: «%s» регистргүй — эзэмшигч регистргүй бүртгэгдэнэ", label, name)))
+	}
+	return out
+}
+
+func ownerCaution(n int) string {
+	return fmt.Sprintf("%d мөрийн өмчлөгчийн овог нэр/регистр дутуу эсвэл зөрүүтэй — эзэмшигч бүртгэгдэхгүй эсвэл регистргүй орно (үнэлгээний алхмын «Өмчлөгч» шүүлтүүрээс харна уу)", n)
+}
+
+// countOwnerIssues — өмчлөгчийн анхааруулгатай мөрийн тоо.
+func countOwnerIssues(issues []Issue) int {
+	if hasCode(issues, "owner_missing") || hasCode(issues, "owner_mismatch") || hasCode(issues, "owner_no_register") {
+		return 1
+	}
+	return 0
 }
 
 // ── Хаяг ────────────────────────────────────────────────────────────────────

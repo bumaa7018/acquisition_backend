@@ -604,6 +604,7 @@ func (s *Service) stageReports(ctx context.Context, q querier, sessionID string,
 		if row.ParcelID == "" {
 			issues = append(issues, warnIssue("no_parcel_id", fmt.Sprintf("%s мөр %d: нэгж талбарын дугааргүй", row.SourceSheet, row.ExcelRow)))
 		}
+		issues = append(issues, ownerIssues(rowLabel(row), row)...)
 		if _, err := q.Exec(ctx, `INSERT INTO `+stage+`.report_row (session_id, idx, file_name, parcel_id, row, issues) VALUES ($1,$2,$3,$4,$5,$6)`,
 			sessionID, i+1, row.SourceFile, row.ParcelID, row, nonNilIssues(issues)); err != nil {
 			return nil, fmt.Errorf("үнэлгээний мөр хадгалах: %w", err)
@@ -732,6 +733,7 @@ func (s *Service) buildReportView(ctx context.Context, q querier, sessionID stri
 		if hasCode(v.Issues, "duplicate") {
 			st.Duplicates++
 		}
+		st.OwnerIssues += countOwnerIssues(v.Issues)
 		v.Match, v.Sheet, v.ExcelRow = kind, row.SourceSheet, row.ExcelRow
 		v.OldParcelID, v.HolderName, v.TotalAmount, v.AffectedAreaM2 = row.OldParcelID, row.HolderName, amount, row.AffectedAreaM2
 		v.Issues = nonNilIssues(v.Issues)

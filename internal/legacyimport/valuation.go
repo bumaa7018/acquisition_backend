@@ -85,6 +85,7 @@ func (s *Service) stageValuationReports(ctx context.Context, q querier, sessionI
 			}
 			issues = append(issues, warnIssue("balanced", fmt.Sprintf("%s: %s — газрын үнэд %s₮ нэмж «Нийт нөхөх олговор»-той тэнцүүлнэ", rowLabel(row), kind, fmtInt(b.adjustment))))
 		}
+		issues = append(issues, ownerIssues(rowLabel(row), row)...)
 		project := resolve[strings.TrimSpace(row.ProjectName)]
 		var match, assigned, kind *string
 		set := func(m, a, k string) { match, assigned, kind = &m, &a, &k }
@@ -278,6 +279,7 @@ func (s *Service) buildValuationView(ctx context.Context, q querier, sessionID s
 		if hasCode(v.Issues, "balanced") {
 			st.Balanced++
 		}
+		st.OwnerIssues += countOwnerIssues(v.Issues)
 		if v.Project != "" {
 			a := projects[v.Project]
 			if a == nil {
@@ -512,6 +514,9 @@ func valuationSummary(ss *session) *Summary {
 	}
 	if st.Duplicates > 0 {
 		out.Cautions = append(out.Cautions, fmt.Sprintf("%d мөрийн дугаар файлд дахин тохиолдсон — D<n>… дугаараар тусад нь бүртгэгдэнэ", st.Duplicates))
+	}
+	if st.OwnerIssues > 0 {
+		out.Cautions = append(out.Cautions, ownerCaution(st.OwnerIssues))
 	}
 	unmatched := 0
 	for i, p := range r.Projects {

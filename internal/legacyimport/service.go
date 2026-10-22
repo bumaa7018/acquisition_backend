@@ -167,25 +167,63 @@ func (s *Service) Categories(ctx context.Context) ([]Category, error) {
 	})
 }
 
+// List — оруулсан/амжилтгүй/устгасан импортууд. Ноорог (оруулаагүй) жагсаалтад
+// харагдахгүй — удаан хөндөгдөөгүйг нь энд цэвэрлэнэ (purgeDrafts).
 func (s *Service) List(ctx context.Context) ([]SessionListItem, error) {
+	if err := s.purgeDrafts(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Query(ctx, `SELECT id::text, created_by, created_at, updated_at, status, mode,
 			CASE WHEN mode = 'valuation' THEN COALESCE((reports->'stats'->>'projects')::int, 0)
 			     ELSE jsonb_array_length(COALESCE(boundary->'rows','[]')) END,
+			-- Оруулсан чөлөөлөлтийн нэрс; оруулж амжаагүй (амжилтгүй) бол үүсэх байсных.
+			CASE WHEN jsonb_array_length(COALESCE(result->'acquisitions'->'names', '[]')) > 0 THEN result->'acquisitions'->'names'
+			     WHEN mode = 'valuation' THEN jsonb_path_query_array(COALESCE(reports, '{}'), '$.projects[*].name')
+			     ELSE jsonb_path_query_array(COALESCE(boundary, '{}'), '$.rows[*].name') END,
 			COALESCE((parcels->'stats'->>'total')::int, 0),
 			COALESCE((reports->'stats'->>'rows')::int, 0),
 			s.status = 'committed' AND EXISTS (SELECT 1 FROM `+stage+`.owned o WHERE o.session_id = s.id AND o.kind = 'land_acquisition'),
 			rollback
-		FROM `+stage+`.session s ORDER BY updated_at DESC LIMIT 50`)
+		FROM `+stage+`.session s WHERE s.status <> 'draft' ORDER BY updated_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (SessionListItem, error) {
 		var it SessionListItem
 		var created, updated time.Time
-		err := r.Scan(&it.ID, &it.CreatedBy, &created, &updated, &it.Status, &it.Mode, &it.Acquisitions, &it.Parcels, &it.ReportRows, &it.Deletable, &it.Rollback)
+		err := r.Scan(&it.ID, &it.CreatedBy, &created, &updated, &it.Status, &it.Mode, &it.Acquisitions, &it.AcquisitionNames,
+			&it.Parcels, &it.ReportRows, &it.Deletable, &it.Rollback)
+		if it.AcquisitionNames == nil {
+			it.AcquisitionNames = []string{}
+		}
 		it.CreatedAt, it.UpdatedAt = created.Format(time.RFC3339), updated.Format(time.RFC3339)
 		return it, err
 	})
+}
+
+// draftIdleTTL — ноорог импорт ингэж удаан хөндөгдөөгүй бол устгагдана. Шууд
+// (0) биш: өөр хэрэглэгч яг одоо ажиллаж буй нооргийг жагсаалт нээхэд устгахгүй.
+// Өөрийн нооргоос «Бүх импорт» руу гарахад дэлгэц тэр даруй устгадаг.
+const draftIdleTTL = time.Hour
+
+// purgeDrafts — удаан хөндөгдөөгүй, арын ажилгүй нооргийг устгана (түр
+// хүснэгтийн мөрүүд нь CASCADE-аар хамт устана).
+func (s *Service) purgeDrafts(ctx context.Context) error {
+	rows, err := s.db.Query(ctx, `SELECT id::text FROM `+stage+`.session
+		WHERE status = 'draft' AND updated_at < now() - make_interval(secs => $1)`, draftIdleTTL.Seconds())
+	if err != nil {
+		return err
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.Delete(ctx, id); err != nil && !errors.Is(err, ErrBusy) && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Create — шинэ импорт. mode: full (хил + нэгж талбар + үнэлгээ) | valuation (зөвхөн үнэлгээ).
@@ -220,6 +258,10 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	case "committed", "rolled_back":
 		return ErrCommitted
 	case "committing":
+		return ErrBusy
+	}
+	// ГУС-ын шалгалт явж байхад устгавал ажил устсан импорт руу бичнэ.
+	if j := s.job(id); j != nil && j.State == "running" {
 		return ErrBusy
 	}
 	// Шалгалт ба устгалын хооронд төлөв өөрчлөгдөхөөс хамгаалж нөхцөлтэй устгана.
@@ -501,6 +543,9 @@ func (s *Service) summary(ctx context.Context, ss *session) (*Summary, error) {
 		}
 		if r.Stats.WithoutReport > 0 {
 			out.Cautions = append(out.Cautions, fmt.Sprintf("%d нэгж талбарт үнэлгээний мөр байхгүй", r.Stats.WithoutReport))
+		}
+		if r.Stats.OwnerIssues > 0 {
+			out.Cautions = append(out.Cautions, ownerCaution(r.Stats.OwnerIssues))
 		}
 		st := r.Stats
 		out.Reports = &st
