@@ -3571,28 +3571,38 @@ func documentRoleQuery(c *gin.Context) []string {
 }
 
 func (h *LandHandler) UploadParcelDocument(c *gin.Context) {
+	h.uploadParcelDocument(c, maxDocumentUploadSize, i18n.ErrFileTooLarge)
+}
+
+// UploadLegacyParcelDocument — хуучин мэдээлэл оруулах хэсгийн хавсралт. Түүхэн
+// скан PDF том байдаг тул ердийн хавсралтаас өндөр хязгаартай.
+func (h *LandHandler) UploadLegacyParcelDocument(c *gin.Context) {
+	h.uploadParcelDocument(c, maxLegacyDocumentUploadSize, i18n.ErrLegacyFileTooLarge)
+}
+
+func (h *LandHandler) uploadParcelDocument(c *gin.Context, maxSize int64, tooLarge i18n.Key) {
 	parcelID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
 		if isBodyTooLarge(err) {
-			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			response.Abort(c, http.StatusBadRequest, tooLarge)
 			return
 		}
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileRequired)
 		return
 	}
-	if fh.Size > maxDocumentUploadSize {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+	if fh.Size > maxSize {
+		response.Abort(c, http.StatusBadRequest, tooLarge)
 		return
 	}
-	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	data, err := readMultipartFile(fh, maxSize)
 	if err == errUploadTooLarge {
-		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		response.Abort(c, http.StatusBadRequest, tooLarge)
 		return
 	}
 	if err != nil {

@@ -121,6 +121,7 @@ const (
 	// Document / file errors
 	ErrFileRequired           Key = "file_required"
 	ErrFileTooLarge           Key = "file_too_large"
+	ErrLegacyFileTooLarge     Key = "legacy_file_too_large"
 	ErrDroneFileType          Key = "drone_file_type"
 	ErrDroneUploadIncomplete  Key = "drone_upload_incomplete"
 	ErrDroneAlreadyRegistered Key = "drone_already_registered"
@@ -238,6 +239,7 @@ var messages = map[Key][2]string{
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge:           {"Файл 20MB-аас хэтэрсэн байна", "file exceeds 20MB limit"}, // upload_validation.go лимиттэй ижил
+	ErrLegacyFileTooLarge:     {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // maxLegacyDocumentUploadSize-тай ижил
 	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
 	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},
 	ErrDroneAlreadyRegistered: {"Зураг аль хэдийн бүртгэгдсэн байна", "image is already registered"},

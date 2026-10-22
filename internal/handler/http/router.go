@@ -181,7 +181,8 @@ func NewRouter(
 				// Хуучин хавсралтыг нэгж талбарт хуулах — ердийн /parcels/:id/documents-ийн
 				// ИЖИЛ handler, гэхдээ notParcelLocked-гүй: хуучин чөлөөлөлтүүд ихэвчлэн
 				// баталгаажсан (түгжээтэй) тул түүхэн баримтыг зөвхөн админ энэ замаар нөхнө.
-				legacy.POST("/attachments/parcels/:id/documents", landH.UploadParcelDocument)
+				// Түүхэн скан PDF том байдаг тул хязгаар нь 50MB (ердийнх 20MB).
+				legacy.POST("/attachments/parcels/:id/documents", landH.UploadLegacyParcelDocument)
 				legacy.GET("/sessions", legacyH.List)
 				legacy.POST("/sessions", legacyH.Create)
 				legacy.GET("/sessions/:id", legacyH.Get)
