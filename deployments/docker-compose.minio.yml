@@ -55,7 +55,10 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
-    restart: on-failure
+    # on-failure БИШ: MinIO code 0-оор зогсвол (жишээ нь Docker/машин дахин
+    # асахад) on-failure нь дахин асаадаггүй тул API "bucket check failed"
+    # гэж унадаг. unless-stopped нь postgres-тэй адил автоматаар асна.
+    restart: unless-stopped
     logging: *default-logging
     networks:
       - gov_network

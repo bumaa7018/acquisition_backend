@@ -138,8 +138,11 @@ func NewRouter(
 		var menuSvc service.MenuService
 		var settingSvc service.SettingService
 		var legacyImportSvc *legacyimport.Service
+		var parcelSurveySvc service.ParcelSurveyService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
+			case service.ParcelSurveyService:
+				parcelSurveySvc = v
 			case service.DecisionServices:
 				decisionSvcs = v
 			case service.ValuationOrgService:
@@ -181,7 +184,7 @@ func NewRouter(
 				// Хуучин хавсралтыг нэгж талбарт хуулах — ердийн /parcels/:id/documents-ийн
 				// ИЖИЛ handler, гэхдээ notParcelLocked-гүй: хуучин чөлөөлөлтүүд ихэвчлэн
 				// баталгаажсан (түгжээтэй) тул түүхэн баримтыг зөвхөн админ энэ замаар нөхнө.
-				// Түүхэн скан PDF том байдаг тул хязгаар нь 50MB (ердийнх 20MB).
+				// Түүхэн скан PDF том байдаг тул хязгаар нь 100MB (ердийнх 20MB).
 				legacy.POST("/attachments/parcels/:id/documents", landH.UploadLegacyParcelDocument)
 				legacy.GET("/sessions", legacyH.List)
 				legacy.POST("/sessions", legacyH.Create)
@@ -833,6 +836,19 @@ func NewRouter(
 			// E-Mongolia-гаар мэдэгдэл хүргүүлэх (2.8.5). Гадаад холболт МОК.
 			parcels.GET("/:id/emongolia-notices", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:read"), parcelAssignedOrSenior, landH.ListParcelEMongoliaNotices)
 			parcels.POST("/:id/emongolia-notices", middleware.RequireAnyRole("admin"), middleware.RequirePermission("land:update"), parcelAssignedOrSenior, landH.SendParcelEMongoliaNotice)
+		}
+
+		// Чөлөөлөгдсөн газрын судалгаа. Нөхөх олговор олгосны ДАРАА авдаг тул
+		// баталгаажсан чөлөөлөлтөд ч бичнэ — `parcels` бүлгийн notParcelLocked-д
+		// зориуд оруулаагүй. Хуваарилалтын хаалт (parcelAssignedOrSenior) хэвээр.
+		if parcelSurveySvc != nil {
+			surveyH := NewParcelSurveyHandler(parcelSurveySvc)
+			protected.GET("/parcels/:id/survey", middleware.RequirePermission("land:read"), parcelAssignedOrSenior, surveyH.Get)
+			protected.PUT("/parcels/:id/survey", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, surveyH.Save)
+			protected.DELETE("/parcels/:id/survey", middleware.RequirePermission("land:update"), parcelAssignedOrSenior, surveyH.Clear)
+			// Бүх чөлөөлөлтийн судалгаа — нэгж талбарын глобал жагсаалттай ижил land:read.
+			protected.GET("/parcel-surveys", middleware.RequirePermission("land:read"), surveyH.List)
+			protected.GET("/parcel-surveys/summary", middleware.RequirePermission("land:read"), surveyH.Summary)
 		}
 
 		// Нэгж талбарын статус солих + боломжтой статусууд + түүх

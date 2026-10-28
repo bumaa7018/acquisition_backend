@@ -14,7 +14,7 @@ import (
 const (
 	maxDocumentUploadSize = 20 * 1024 * 1024
 	// Хуучин мэдээлэл оруулах хэсгийн хавсралт (/legacy-import/attachments/...).
-	maxLegacyDocumentUploadSize = 50 * 1024 * 1024
+	maxLegacyDocumentUploadSize = 100 * 1024 * 1024
 	maxAssetPhotoSize           = 20 * 1024 * 1024
 	maxShapefileSize            = 20 * 1024 * 1024
 	maxShapefileFormSize        = maxShapefileSize + 1024*1024

@@ -239,7 +239,7 @@ var messages = map[Key][2]string{
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
 	ErrFileTooLarge:           {"Файл 20MB-аас хэтэрсэн байна", "file exceeds 20MB limit"}, // upload_validation.go лимиттэй ижил
-	ErrLegacyFileTooLarge:     {"Файл 50MB-аас хэтэрсэн байна", "file exceeds 50MB limit"}, // maxLegacyDocumentUploadSize-тай ижил
+	ErrLegacyFileTooLarge:     {"Файл 100MB-аас хэтэрсэн байна", "file exceeds 100MB limit"}, // maxLegacyDocumentUploadSize-тай ижил
 	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
 	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},
 	ErrDroneAlreadyRegistered: {"Зураг аль хэдийн бүртгэгдсэн байна", "image is already registered"},

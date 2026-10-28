@@ -245,6 +245,7 @@ func main() {
 	planSvc := service.NewPlanService(planStoreRepo, parcelInfoClient)
 	parcelStatusSvc := service.NewParcelStatusService(parcelStatusRepo)
 	settingSvc := service.NewSettingService(settingRepo)
+	parcelSurveySvc := service.NewParcelSurveyService(postgres.NewParcelSurveyRepo(mainDB), auditSvc)
 
 	// ГАДААД системийн API-ийн түлхүүрүүд (.env: EXTERNAL_API_KEYS).
 	// Хоосон бол /api/v1/external/* гарцууд ХААЛТТАЙ.
@@ -297,7 +298,7 @@ func main() {
 		Password: cfg.Middleware.Password,
 	}).WithCleanup(fileStorage, droneStorage) // «Хасах» үед файл ба дроны давхарга
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, legacyImportSvc, externalAPIKeys)
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, parcelSurveySvc, legacyImportSvc, externalAPIKeys)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,

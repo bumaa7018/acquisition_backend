@@ -554,6 +554,19 @@ type DecisionDraftRepository interface {
 	BindFundingSourceToAcquisition(ctx context.Context, fundingLinkID, acquisitionID string) error
 }
 
+// ParcelSurveyRepository — чөлөөлөгдсөн газрын судалгаа (parcel_survey).
+// Нэгж талбарт НЭГ бүртгэл (нэгж талбар үүсэхэд trigger-ээр үүснэ); байхгүй
+// үед GetByParcel / ClearByParcel нь ErrNotFound буцаана.
+type ParcelSurveyRepository interface {
+	ParcelExists(ctx context.Context, parcelID uuid.UUID) (bool, error)
+	GetByParcel(ctx context.Context, parcelID uuid.UUID) (*domain.ParcelSurvey, error)
+	Upsert(ctx context.Context, s *domain.ParcelSurvey) error
+	// ClearByParcel — хариултыг хоосолно; мөр нь нэгж талбартайгаа үлдэнэ.
+	ClearByParcel(ctx context.Context, parcelID uuid.UUID, clearedBy string) error
+	List(ctx context.Context, filter domain.ParcelSurveyFilter) ([]*domain.ParcelSurveyRow, int64, error)
+	Summary(ctx context.Context, filter domain.ParcelSurveyFilter) (*domain.ParcelSurveySummary, error)
+}
+
 // SettingRepository — системийн тохиргоо (app_setting): key → JSON текст.
 // Мөр байхгүй бол Get нь domain.ErrNotFound буцаана ("тохируулаагүй").
 type SettingRepository interface {
