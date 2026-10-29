@@ -322,20 +322,14 @@ type ParcelDiscoveryResult struct {
 	OverlappingParcels int `json:"overlapping_parcels"`
 }
 
-// BoundaryChange — чөлөөлөх ХИЛ солигдсон үр дүн. Хил хөндөгдөөгүй үед nil
+// BoundaryChange — чөлөөлөх ХИЛ солигдсоны тэмдэг. Хил хөндөгдөөгүй үед nil
 // (Update-ийн хариултад geometry_changed-ийн үүрэг хийнэ).
 //
-// Хил солиход нэгж талбарт ЗӨВХӨН нөлөөлөлд өртсөн хил/талбай, үлдэх талбай
-// дахин бодогдоно (татах/бүртгэх/устгах үгүй). Шинэ хилээс гарах нэгж
-// талбарыг хадгалахаас ӨМНӨ boundary-preview / boundary-outside-parcels
-// харуулна.
-type BoundaryChange struct {
-	// AffectedAreaUpdated — нөлөөлөлд өртсөн талбай нь шинэ хилээр дахин
-	// бодогдсон нэгж талбарын тоо.
-	AffectedAreaUpdated int `json:"affected_area_updated"`
-	// AffectedAreaSkipped — геометргүй тул бодогдоогүй нэгж талбарын тоо.
-	AffectedAreaSkipped int `json:"affected_area_skipped"`
-}
+// Хил солиход нэгж талбарт ЮУ Ч хийгдэхгүй (татах/бүртгэх/устгах, нөлөөлөлд
+// өртсөн хил/талбайг дахин бодох үгүй) тул нэгж талбарын мэдээлэл агуулахгүй.
+// Шинэ хилээс гарах нэгж талбарыг хадгалахаас ӨМНӨ boundary-preview /
+// boundary-outside-parcels харуулна.
+type BoundaryChange struct{}
 
 // BoundaryOutsideParcel — хил солихын ӨМНӨ (урьдчилан харах) шинэ хилтэй ОГТ
 // давхцахгүй болох нэгж талбар. Газрын зураг дээр ялгаж харуулахад.

@@ -497,12 +497,11 @@ func (s *landService) Create(ctx context.Context, req CreateLandAcquisitionReque
 // Update — газар чөлөөлөлтийн мэдээлэл шинэчлэх.
 // Хоёрдахь буцах утга нь хил солигдсон үед л nil биш.
 //
-// Хил солиход чөлөөлөлтийн хил (ба түүнээс хамаарах талбай, сум/баг, хилийн
-// түүх) өөрчлөгдөж, БҮХ нэгж талбарын НӨЛӨӨЛӨЛД ӨРТСӨН хил/талбай, үлдэх
-// талбай шинэ хилээр хадгалсан геометрээс дахин бодогдоно. Үүнээс өөр нэгж
-// талбарт юу ч хийгдэхгүй: нэгж талбарын мэдээллийг ГУС-аас татахгүй,
-// бүртгэхгүй, устгахгүй. (Төлөвлөгөөний дугаараар солиход төлөвлөгөөний
-// хилийг дундын сервисээс/ГУС-аас татна; файлаар солиход ГУС дуудагдахгүй.)
+// Хил солиход ЗӨВХӨН чөлөөлөлтийн хил (ба түүнээс хамаарах талбай, сум/баг,
+// хилийн түүх) өөрчлөгдөнө. НЭГЖ ТАЛБАРТ ЮУ Ч ХИЙГДЭХГҮЙ: ГУС-аас татахгүй,
+// бүртгэхгүй, устгахгүй, нөлөөлөлд өртсөн хил/талбайг дахин бодохгүй.
+// (Төлөвлөгөөний дугаараар солиход төлөвлөгөөний хилийг дундын сервисээс/
+// ГУС-аас татна; файлаар солиход ГУС дуудагдахгүй.)
 // Шинэ хилээс гарах нэгж талбарыг хэрэглэгч хадгалахаас ӨМНӨ
 // (boundary-preview / boundary-outside-parcels) анхааруулгаар харна.
 func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAcquisitionRequest) (*domain.LandAcquisition, *domain.BoundaryChange, error) {
@@ -637,34 +636,13 @@ func (s *landService) Update(ctx context.Context, id uuid.UUID, req UpdateLandAc
 		}
 		acq.AUs = s.saveIntersectingAUs(ctx, acq.ID, acq.GeometryWKT)
 
-		// Бүх нэгж талбарын нөлөөлөлд өртсөн талбайг ШИНЭ хилээр дахин бодно.
-		// Бүтэлгүйтвэл алдаа буцаана: хил хадгалагдсан ч талбай хуучирсан
-		// үлдэхийг чимээгүй өнгөрүүлэхгүй (ижил хилээр дахин хадгалахад
-		// давтан бодогдоно).
-		updated, noGeom, err := s.landRepo.RecomputeAcquisitionAreas(ctx, acq.ID, acq.GeometryWKT)
-		if err != nil {
-			slog.Error("нэгж талбарын нөлөөлөлд өртсөн талбайг шинэчлэхэд алдаа",
-				"acquisition_id", acq.ID, "error", err)
-			return nil, nil, domain.ErrInternalServer
-		}
-		if noGeom > 0 {
-			slog.Warn("геометргүй нэгж талбарын нөлөөлөлд өртсөн талбай шинэчлэгдсэнгүй",
-				"acquisition_id", acq.ID, "count", noGeom)
-		}
-		boundaryChange = &domain.BoundaryChange{
-			AffectedAreaUpdated: updated,
-			AffectedAreaSkipped: noGeom,
-		}
+		boundaryChange = &domain.BoundaryChange{}
 	}
 
 	audit := map[string]any{
 		"name":             acq.AcquisitionName,
 		"plan_code":        acq.PlanCode,
 		"geometry_changed": geometryChanged,
-	}
-	if boundaryChange != nil {
-		audit["affected_area_updated"] = boundaryChange.AffectedAreaUpdated
-		audit["affected_area_skipped"] = boundaryChange.AffectedAreaSkipped
 	}
 	s.auditLog(ctx, "updated", domain.AuditResourceAcquisition, acq.ID.String(), uuidPtr(acq.ID), nil, audit)
 	return acq, boundaryChange, nil

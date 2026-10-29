@@ -580,7 +580,7 @@ func (h *LandHandler) BoundaryOutsideParcels(c *gin.Context) {
 // @Description  ХИЛ солих ХОЁР зам (хоёуланг зэрэг өгвөл 400):
 // @Description  1) plan_parcel_id — тэр дугаараар төлөвлөгөөг дахин хайж, олдсон ТӨЛӨВЛӨГӨӨНИЙ хилийг шинэ хил болгоно.
 // @Description  2) shapefile — гараас (.shp) оруулсан хилээр солино. Талбайн зөрүү нь төлөвлөгөөний хилийн талбайгаас 30%-иас БАГА байх ёстой (үгүй бол 422). Төлөвлөгөөний мэдээлэл хөндөгдөхгүй.
-// @Description  Хил солиход чөлөөлөлтийн хил (талбай, сум/баг, хилийн түүх) өөрчлөгдөж, БҮХ нэгж талбарын нөлөөлөлд өртсөн хил/талбай, үлдэх талбай шинэ хилээр дахин бодогдоно (affected_area_updated / affected_area_skipped). Нэгж талбарын мэдээллийг ГУС-аас татахгүй, бүртгэхгүй, устгахгүй. Шинэ хилээс гарах нэгж талбарыг хадгалахаас өмнө boundary-preview / boundary-outside-parcels-аар харна.
+// @Description  Хил солиход ЗӨВХӨН чөлөөлөлтийн хил (талбай, сум/баг, хилийн түүх) өөрчлөгдөнө — нэгж талбарт юу ч хийгдэхгүй (ГУС-аас татахгүй, бүртгэхгүй, устгахгүй, нөлөөлөлд өртсөн хил/талбайг дахин бодохгүй). Шинэ хилээс гарах нэгж талбарыг хадгалахаас өмнө boundary-preview / boundary-outside-parcels-аар харна.
 // @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
@@ -695,16 +695,10 @@ func (h *LandHandler) Update(c *gin.Context) {
 	type updateResp struct {
 		landAcquisitionResponse
 		Warning string `json:"warning,omitempty"`
-		// Хил солиход нөлөөлөлд өртсөн талбай нь дахин бодогдсон / геометргүй
-		// тул бодогдоогүй нэгж талбарын тоо. Хил хөндөөгүй үед ирэхгүй.
-		AffectedAreaUpdated *int `json:"affected_area_updated,omitempty"`
-		AffectedAreaSkipped *int `json:"affected_area_skipped,omitempty"`
 	}
 	r := updateResp{landAcquisitionResponse: toLandAcqResponse(acq)}
 	if boundaryChange != nil {
 		r.Warning = i18n.T(l, i18n.WarnGeomChanged)
-		r.AffectedAreaUpdated = &boundaryChange.AffectedAreaUpdated
-		r.AffectedAreaSkipped = &boundaryChange.AffectedAreaSkipped
 	}
 	response.OK(c, r)
 }

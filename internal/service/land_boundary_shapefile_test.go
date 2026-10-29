@@ -109,8 +109,6 @@ func shapefileUpdateSvc(t *testing.T, id uuid.UUID, planAreaM2, newAreaM2 float6
 	landRepo.On("DeleteAUs", ctx, id).Return(nil).Maybe()
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).
 		Return([]domain.LandAcquisitionAU{}, nil).Maybe()
-	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.AnythingOfType("string")).
-		Return(0, 0, nil).Maybe()
 	return svc, landRepo, parcelInfo, pm
 }
 
@@ -301,9 +299,8 @@ func TestLandService_Update_ShapefileRejectsAU2Crossing(t *testing.T) {
 }
 
 // Файлаар хил солиход ГУС дуудагдахгүй (төлөвлөгөө ч хайгдахгүй); нэгж
-// талбарын нөлөөлөлд өртсөн талбай ФАЙЛЫН хилээр дахин бодогдоно, өөр юу ч
-// хийгдэхгүй.
-func TestLandService_Update_ShapefileRecomputesAffectedAreasOnly(t *testing.T) {
+// талбарт юу ч хийгдэхгүй (нөлөөлөлд өртсөн хил/талбай ч дахин бодогдохгүй).
+func TestLandService_Update_ShapefileTouchesNoParcels(t *testing.T) {
 	id := uuid.New()
 	svc, landRepo, parcelInfo, pm := shapefileUpdateSvc(t, id, 1_000_000, 800_000)
 
@@ -316,7 +313,6 @@ func TestLandService_Update_ShapefileRecomputesAffectedAreasOnly(t *testing.T) {
 	require.NotNil(t, change)
 	assert.NotEqual(t, planReferenceWKT, acq.GeometryWKT, "хил шинэчлэгдээгүй")
 	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.Anything)
-	landRepo.AssertCalled(t, "RecomputeAcquisitionAreas", ctx, id, acq.GeometryWKT)
 	pm.projects.AssertNotCalled(t, "GetPlanProject", mock.Anything, mock.Anything)
 	assertNoParcelSideEffects(t, landRepo, parcelInfo)
 }

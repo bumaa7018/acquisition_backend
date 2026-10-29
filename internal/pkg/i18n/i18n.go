@@ -195,7 +195,7 @@ var messages = map[Key][2]string{
 	ErrHasReleasedParcels:      {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
 	ErrCategoryInUse:           {"Энэ ангилалд (эсвэл дэд ангилалд нь) чөлөөлөлт холбогдсон тул устгах боломжгүй. Устгасан чөлөөлөлт ч холбоосоо хадгалдаг. Эхлээд тэдгээрийн ангилалыг өөрчилнө үү.", "The category (or one of its sub-categories) is used by acquisitions and cannot be deleted; deleted acquisitions still hold the reference. Reassign them first."},
 	ErrConfirmedDecisionLinked: {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
-	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдэж, нэгж талбаруудын нөлөөлөлд өртсөн талбай шинэ хилээр дахин бодогдлоо", "The acquisition boundary was updated and parcels' affected areas were recalculated for the new boundary"},
+	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдлээ. Нэгж талбарт өөрчлөлт ороогүй", "The acquisition boundary was updated. Parcels were not changed"},
 	ErrCodeRequired:            {"code параметр шаардлагатай", "code parameter is required"},
 
 	ErrStatusRequired:                    {"to_status шаардлагатай", "to_status is required"},

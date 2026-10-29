@@ -365,14 +365,13 @@ func updateGeomSvc(t *testing.T, id uuid.UUID) (
 	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.AnythingOfType("string")).Return(3, 1, nil).Maybe()
 	return svc, landRepo, parcelInfo
 }
 
-// assertNoParcelSideEffects — хил солиход нэгж талбарт нөлөөлөлд өртсөн
-// талбайг дахин бодохоос (RecomputeAcquisitionAreas) ӨӨР ямар ч дуудалт
-// (ГУС-аас татах, бүртгэх, устгах, мета засах) хийгдээгүйг батална.
-// Аргументын тооноос үл хамааран дуудалтын нэрээр шалгана.
+// assertNoParcelSideEffects — хил солиход нэгж талбарт хамаарах ЯМАР Ч дуудалт
+// (ГУС-аас татах, бүртгэх, устгах, нөлөөлөлд өртсөн хил/талбайг дахин бодох,
+// мета засах, хилээс гарсныг тооцох) хийгдээгүйг батална. Аргументын тооноос
+// үл хамааран дуудалтын нэрээр шалгана.
 func assertNoParcelSideEffects(t *testing.T, landRepo *mocks.MockLandAcquisitionRepository, parcelInfo *mocks.MockParcelInfoClient) {
 	t.Helper()
 	for _, call := range parcelInfo.Calls {
@@ -389,10 +388,10 @@ func assertNoParcelSideEffects(t *testing.T, landRepo *mocks.MockLandAcquisition
 	}
 }
 
-// Хил солиход чөлөөлөлтийн хил өөрчлөгдөж, БҮХ нэгж талбарын нөлөөлөлд
-// өртсөн талбай ШИНЭ хилээр дахин бодогдоно. Үүнээс өөр нэгж талбарт юу ч
-// хийгдэхгүй (ГУС руу хандахгүй, бүртгэхгүй, устгахгүй).
-func TestLandService_Update_BoundaryChangeRecomputesAffectedAreasOnly(t *testing.T) {
+// Хил солиход ЗӨВХӨН чөлөөлөлтийн хил өөрчлөгдөнө — нэгж талбарт юу ч
+// хийгдэхгүй (ГУС руу хандахгүй, бүртгэхгүй, устгахгүй, нөлөөлөлд өртсөн
+// хил/талбайг дахин бодохгүй).
+func TestLandService_Update_BoundaryChangeTouchesNoParcels(t *testing.T) {
 	id := uuid.New()
 	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
 
@@ -403,43 +402,9 @@ func TestLandService_Update_BoundaryChangeRecomputesAffectedAreasOnly(t *testing
 	require.NoError(t, err)
 	require.NotNil(t, change, "хил солигдсоныг хариултад тэмдэглэнэ")
 	assert.Equal(t, testPlan().BoundaryWKT, acq.GeometryWKT, "хил шинэчлэгдээгүй")
-	assert.Equal(t, 3, change.AffectedAreaUpdated)
-	assert.Equal(t, 1, change.AffectedAreaSkipped)
 	landRepo.AssertCalled(t, "Update", ctx, mock.Anything)
 	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.Anything)
-	// ШИНЭ хилээр бодогдоно (хуучнаар биш).
-	landRepo.AssertCalled(t, "RecomputeAcquisitionAreas", ctx, id, testPlan().BoundaryWKT)
 	assertNoParcelSideEffects(t, landRepo, parcelInfo)
-}
-
-// Нөлөөлөлд өртсөн талбайг шинэчилж чадаагүй бол чимээгүй өнгөрөхгүй — 500.
-func TestLandService_Update_FailsWhenAffectedAreaRecomputeFails(t *testing.T) {
-	id := uuid.New()
-	landRepo := &mocks.MockLandAcquisitionRepository{}
-	parcelInfo := &mocks.MockParcelInfoClient{}
-	pm := planMocks{
-		projects: &mocks.MockPlanProjectClient{},
-		store:    &mocks.MockPlanStoreRepository{},
-	}
-	svc := service.NewLandService(landRepo, nil, nil, parcelInfo, pm.projects, pm.store)
-	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{
-		ID: id, PlanCode: testPlanCode,
-		GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))",
-		Status:      domain.LandAcquisitionStatusField,
-	}, nil)
-	pm.expectPlan(testPlanCode, testPlan())
-	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
-	expectBoundaryOK(landRepo)
-	landRepo.On("Update", ctx, mock.Anything).Return(nil)
-	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
-	landRepo.On("DeleteAUs", ctx, id).Return(nil)
-	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.Anything).Return(0, 0, errors.New("db down"))
-
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{PlanCode: testPlanCode})
-
-	assert.ErrorIs(t, err, domain.ErrInternalServer)
-	assert.Nil(t, change)
 }
 
 func TestLandService_AdvanceStatus_ConfirmedRequiresFinalParcelStatuses(t *testing.T) {
@@ -581,7 +546,6 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	})).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	landRepo.On("RecomputeAcquisitionAreas", ctx, id, plan.BoundaryWKT).Return(0, 0, nil)
 	acq, boundaryChange, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
 		PlanCode: testPlanCode,
 	})

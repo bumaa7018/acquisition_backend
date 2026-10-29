@@ -260,11 +260,6 @@ func (m *MockLandAcquisitionRepository) ListParcelsOutsideBoundary(ctx context.C
 	return args.Get(0).([]domain.BoundaryOutsideParcel), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) RecomputeAcquisitionAreas(ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string) (int, int, error) {
-	args := m.Called(ctx, acquisitionID, boundaryWKT)
-	return args.Int(0), args.Int(1), args.Error(2)
-}
-
 func (m *MockLandAcquisitionRepository) CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error {
 	return m.Called(ctx, history).Error(0)
 }

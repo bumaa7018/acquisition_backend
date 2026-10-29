@@ -553,7 +553,7 @@ func TestLandHandler_Update_WithPlanParcelID(t *testing.T) {
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
 		return r.PlanCode == "PLAN-2025-002"
-	})).Return(acq, &domain.BoundaryChange{AffectedAreaUpdated: 3, AffectedAreaSkipped: 1}, nil)
+	})).Return(acq, &domain.BoundaryChange{}, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"acquisition_name": "Test Project",
@@ -573,11 +573,9 @@ func TestLandHandler_Update_WithPlanParcelID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	data := resp["data"].(map[string]any)
 	assert.NotEmpty(t, data["warning"]) // геометр өөрчлөгдсөн тул анхааруулга гарна
-	// Нөлөөлөлд өртсөн талбай дахин бодогдсон тоо ирнэ; нэгж талбар
-	// нэмэх/хасах мэдээлэл байхгүй.
-	assert.Equal(t, float64(3), data["affected_area_updated"])
-	assert.Equal(t, float64(1), data["affected_area_skipped"])
-	for _, k := range []string{"added_parcels", "removed_parcels", "outside_parcel_ids", "released_outside_parcel_ids"} {
+	// Хил солиход нэгж талбарт юу ч хийгдэхгүй тул нэгж талбарын мэдээлэл
+	// хариултад байхгүй.
+	for _, k := range []string{"added_parcels", "removed_parcels", "outside_parcel_ids", "released_outside_parcel_ids", "affected_area_updated", "affected_area_skipped"} {
 		assert.NotContains(t, data, k)
 	}
 }

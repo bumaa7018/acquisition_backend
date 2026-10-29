@@ -232,10 +232,6 @@ type LandAcquisitionWriteRepository interface {
 	// ListParcelsOutsideBoundary — чөлөөлөлтийн нэгж талбаруудаас boundaryWKT-тэй
 	// ОГТ давхцахгүйг (геометртэйг нь) буцаана. Хил солихын өмнө харуулахад.
 	ListParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string) ([]domain.BoundaryOutsideParcel, error)
-	// RecomputeAcquisitionAreas — БҮХ нэгж талбарын нөлөөлөлд өртсөн хил/талбай,
-	// үлдэх талбайг өгсөн хилээр хадгалсан геометрээс дахин бодно. Шинэчилсэн
-	// болон геометргүй (алгассан) мөрийн тоог буцаана.
-	RecomputeAcquisitionAreas(ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string) (updated int, noGeometry int, err error)
 	CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)
