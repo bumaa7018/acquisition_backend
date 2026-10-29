@@ -406,6 +406,9 @@ func NewRouter(
 			// Хил солих нь буцаах боломжгүй тул хадгалахаас өмнөх урьдчилсан
 			// харагдац — хамгаалалт нь PUT-тэй ЯГ ижил байх ёстой.
 			land.POST("/:id/boundary-preview", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.PreviewBoundary)
+			// Төлөвлөгөөний дугаараар хил солихын өмнө шинэ хилээс гарах нэгж
+			// талбарыг харуулна (ХАДГАЛАЛГҮЙ) — хамгаалалт PUT-тэй ижил.
+			land.POST("/:id/boundary-outside-parcels", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.BoundaryOutsideParcels)
 			// POST/PUT-ийн адил ролийн хаалт: `land:delete`-тэй custom роль
 			// хуваарилалтгүйгээр аль ч чөлөөлөлтийг устгах боломжтой байв.
 			land.DELETE("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:delete"), assignedOrSenior, landH.Delete)

@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -552,7 +553,7 @@ func TestLandHandler_Update_WithPlanParcelID(t *testing.T) {
 	acq := sampleAcquisition()
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
 		return r.PlanCode == "PLAN-2025-002"
-	})).Return(acq, &domain.BoundaryChange{Added: 3, Removed: 2}, nil)
+	})).Return(acq, &domain.BoundaryChange{AffectedAreaUpdated: 3, AffectedAreaSkipped: 1}, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"acquisition_name": "Test Project",
@@ -572,10 +573,63 @@ func TestLandHandler_Update_WithPlanParcelID(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	data := resp["data"].(map[string]any)
 	assert.NotEmpty(t, data["warning"]) // геометр өөрчлөгдсөн тул анхааруулга гарна
-	// Хил солиход нэмэгдсэн/хасагдсан нэгж талбарын тоо хариултад гарна —
-	// хасалт нь БУЦААХ БОЛОМЖГҮЙ тул хэрэглэгчид харагдах ёстой.
-	assert.Equal(t, float64(3), data["added_parcels"])
-	assert.Equal(t, float64(2), data["removed_parcels"])
+	// Нөлөөлөлд өртсөн талбай дахин бодогдсон тоо ирнэ; нэгж талбар
+	// нэмэх/хасах мэдээлэл байхгүй.
+	assert.Equal(t, float64(3), data["affected_area_updated"])
+	assert.Equal(t, float64(1), data["affected_area_skipped"])
+	for _, k := range []string{"added_parcels", "removed_parcels", "outside_parcel_ids", "released_outside_parcel_ids"} {
+		assert.NotContains(t, data, k)
+	}
+}
+
+// Шинэ хилээс гарах нэгж талбар (ХАДГАЛАЛГҮЙ) — өгсөн WKT service рүү дамжиж,
+// жагсаалт outside_parcels-д буцна.
+func TestLandHandler_BoundaryOutsideParcels(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+	id := uuid.New()
+	wkt := "POLYGON((106.9 47.9,107 47.9,107 48,106.9 47.9))"
+	mockSvc.On("ListParcelsOutsideBoundary", mock.Anything, id, wkt).
+		Return([]domain.BoundaryOutsideParcel{{ParcelID: "010101000009", Released: true, GeometryWKT: wkt}}, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+id.String()+"/boundary-outside-parcels",
+		strings.NewReader(`{"geometry_wkt":"`+wkt+`"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: id.String()}}
+
+	h.BoundaryOutsideParcels(c)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var resp struct {
+		Data struct {
+			OutsideParcels []domain.BoundaryOutsideParcel `json:"outside_parcels"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.OutsideParcels, 1)
+	assert.Equal(t, "010101000009", resp.Data.OutsideParcels[0].ParcelID)
+	assert.True(t, resp.Data.OutsideParcels[0].Released)
+}
+
+// Хоосон WKT — 400, service дуудагдахгүй.
+func TestLandHandler_BoundaryOutsideParcels_RequiresWKT(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+	id := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/land-acquisitions/"+id.String()+"/boundary-outside-parcels",
+		strings.NewReader(`{"geometry_wkt":"  "}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{{Key: "id", Value: id.String()}}
+
+	h.BoundaryOutsideParcels(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	mockSvc.AssertNotCalled(t, "ListParcelsOutsideBoundary", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // Төлөвлөгөөнд хил байхгүй бол хил солигдохгүй — 422.

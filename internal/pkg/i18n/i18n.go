@@ -75,7 +75,6 @@ const (
 	ErrHasReleasedParcels      Key = "has_released_parcels"
 	ErrCategoryInUse           Key = "category_in_use"
 	ErrConfirmedDecisionLinked Key = "confirmed_decision_linked"
-	ErrReleasedParcelOutside   Key = "released_parcel_outside_boundary"
 	ErrDeleteNotNew            Key = "delete_not_new"
 	WarnGeomChanged            Key = "geom_changed"
 	ErrCodeRequired            Key = "code_required"
@@ -196,8 +195,7 @@ var messages = map[Key][2]string{
 	ErrHasReleasedParcels:      {"Чөлөөлсөн төлөвтэй нэгж талбар байгаа тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition has released parcels and cannot be deleted."},
 	ErrCategoryInUse:           {"Энэ ангилалд (эсвэл дэд ангилалд нь) чөлөөлөлт холбогдсон тул устгах боломжгүй. Устгасан чөлөөлөлт ч холбоосоо хадгалдаг. Эхлээд тэдгээрийн ангилалыг өөрчилнө үү.", "The category (or one of its sub-categories) is used by acquisitions and cannot be deleted; deleted acquisitions still hold the reference. Reassign them first."},
 	ErrConfirmedDecisionLinked: {"Баталгаажсан захирамжтай холбогдсон тул чөлөөлөлтийг устгах боломжгүй.", "The acquisition is linked to a confirmed decision and cannot be deleted."},
-	ErrReleasedParcelOutside:   {"Шинэ хил нь \"Чөлөөлсөн\" төлөвтэй нэгж талбарыг гадна орхиж байна. Чөлөөлсөн нэгж талбарууд бүгд шинэ хилд багтсан байх шаардлагатай.", "The new boundary excludes parcels that are already released. All released parcels must fall inside the new boundary."},
-	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдлээ. Шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нэгж талбарууд хасагдлаа", "The acquisition boundary was updated. Parcels intersecting the new boundary were added, and parcels no longer intersecting it were removed"},
+	WarnGeomChanged:            {"Чөлөөлөлтийн хил шинэчлэгдэж, нэгж талбаруудын нөлөөлөлд өртсөн талбай шинэ хилээр дахин бодогдлоо", "The acquisition boundary was updated and parcels' affected areas were recalculated for the new boundary"},
 	ErrCodeRequired:            {"code параметр шаардлагатай", "code parameter is required"},
 
 	ErrStatusRequired:                    {"to_status шаардлагатай", "to_status is required"},
@@ -238,7 +236,7 @@ var messages = map[Key][2]string{
 	ErrBasemapExtent:                     {"Зургийн хүрээг (minLon, minLat, maxLon, maxLat) зөв оруулна уу.", "Provide a valid image extent (minLon, minLat, maxLon, maxLat)."},
 
 	ErrFileRequired:           {"file талбар шаардлагатай", "file field is required"},
-	ErrFileTooLarge:           {"Файл 20MB-аас хэтэрсэн байна", "file exceeds 20MB limit"}, // upload_validation.go лимиттэй ижил
+	ErrFileTooLarge:           {"Файл 20MB-аас хэтэрсэн байна", "file exceeds 20MB limit"},   // upload_validation.go лимиттэй ижил
 	ErrLegacyFileTooLarge:     {"Файл 100MB-аас хэтэрсэн байна", "file exceeds 100MB limit"}, // maxLegacyDocumentUploadSize-тай ижил
 	ErrDroneFileType:          {"Зөвхөн GeoTIFF (.tif / .tiff) файл зөвшөөрөгдөнө", "only GeoTIFF (.tif/.tiff) files are allowed"},
 	ErrDroneUploadIncomplete:  {"Зураг файлын системд бүрэн ороогүй байна. Дахин байршуулна уу", "uploaded image was not found in file storage"},

@@ -225,10 +225,17 @@ type LandAcquisitionWriteRepository interface {
 	InsertParcelCodes(ctx context.Context, acquisitionID uuid.UUID, parcels []*domain.SourceParcel, acqWKT string) (*domain.ParcelDiscoveryResult, error)
 	// ListParcelRefs — чөлөөлөлтийн нэгж талбаруудын id/дугаар/төлөв.
 	ListParcelRefs(ctx context.Context, acquisitionID uuid.UUID) ([]domain.ParcelRef, error)
-	// PurgeParcels — нэгж талбаруудыг хүү мөрүүдтэйгээ БҮРМӨСӨН устгана
-	// (шинэ хилд ороогүй болсон талбарууд). Устгасан мөрийн тоо болон
-	// хадгалалтаас устгах файлын URL-уудыг буцаана.
+	// PurgeParcels — нэгж талбаруудыг хүү мөрүүдтэйгээ БҮРМӨСӨН устгана.
+	// Устгасан мөрийн тоо болон хадгалалтаас устгах файлын URL-уудыг буцаана.
+	// Хил солиход АВТОМАТААР ДУУДАГДАХГҮЙ (хилээс гарсан талбар хэвээр үлдэнэ).
 	PurgeParcels(ctx context.Context, acquisitionID uuid.UUID, parcelIDs []uuid.UUID, parcelCodes []string) (int, []string, error)
+	// ListParcelsOutsideBoundary — чөлөөлөлтийн нэгж талбаруудаас boundaryWKT-тэй
+	// ОГТ давхцахгүйг (геометртэйг нь) буцаана. Хил солихын өмнө харуулахад.
+	ListParcelsOutsideBoundary(ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string) ([]domain.BoundaryOutsideParcel, error)
+	// RecomputeAcquisitionAreas — БҮХ нэгж талбарын нөлөөлөлд өртсөн хил/талбай,
+	// үлдэх талбайг өгсөн хилээр хадгалсан геометрээс дахин бодно. Шинэчилсэн
+	// болон геометргүй (алгассан) мөрийн тоог буцаана.
+	RecomputeAcquisitionAreas(ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string) (updated int, noGeometry int, err error)
 	CreateBoundaryHistory(ctx context.Context, history *domain.LandAcquisitionBoundaryHistory) error
 	ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error)
 	GetParcels(ctx context.Context, acquisitionID uuid.UUID, filter domain.ParcelFilter) ([]*domain.Parcel, int64, error)

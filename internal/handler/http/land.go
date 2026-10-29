@@ -517,6 +517,10 @@ func (h *LandHandler) PreviewBoundary(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	outside := check.OutsideParcels
+	if outside == nil {
+		outside = []domain.BoundaryOutsideParcel{}
+	}
 	response.OK(c, boundaryPreviewResponse{
 		GeometryWKT:         check.GeometryWKT,
 		AreaM2:              check.AreaM2,
@@ -524,7 +528,51 @@ func (h *LandHandler) PreviewBoundary(c *gin.Context) {
 		DeviationPercent:    check.DeviationRatio * 100,
 		MaxDeviationPercent: check.MaxDeviationRatio * 100,
 		Accepted:            check.Accepted,
+		OutsideParcels:      outside,
 	})
+}
+
+// maxBoundaryWKTBodySize — хилийн WKT илгээх JSON-ийн дээд хэмжээ.
+const maxBoundaryWKTBodySize = 5 << 20
+
+// BoundaryOutsideParcels godoc
+// @Summary      Шинэ хилээс гарах нэгж талбар (ХАДГАЛАЛГҮЙ)
+// @Description  Өгсөн хилтэй ОГТ давхцахгүй болох бүртгэлтэй нэгж талбаруудыг (дугаар, төлөв, геометр) буцаана.
+// @Description  Төлөвлөгөөний дугаараар хил солихын өмнө анхааруулга харуулахад. Юу ч хадгалахгүй, өөрчлөхгүй.
+// @Tags         land-acquisitions
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id    path  string  true  "LandAcquisition UUID"
+// @Param        body  body  object  true  "{\"geometry_wkt\": \"POLYGON(...)\"}"
+// @Success      200  {object}  response.Response
+// @Failure      400  {object}  response.Response
+// @Failure      404  {object}  response.Response
+// @Router       /land-acquisitions/{id}/boundary-outside-parcels [post]
+func (h *LandHandler) BoundaryOutsideParcels(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBoundaryWKTBodySize)
+	var body struct {
+		GeometryWKT string `json:"geometry_wkt"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.GeometryWKT) == "" {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+		return
+	}
+
+	outside, err := h.svc.ListParcelsOutsideBoundary(c.Request.Context(), id, body.GeometryWKT)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	if outside == nil {
+		outside = []domain.BoundaryOutsideParcel{}
+	}
+	response.OK(c, gin.H{"outside_parcels": outside})
 }
 
 // Update godoc
@@ -532,7 +580,7 @@ func (h *LandHandler) PreviewBoundary(c *gin.Context) {
 // @Description  ХИЛ солих ХОЁР зам (хоёуланг зэрэг өгвөл 400):
 // @Description  1) plan_parcel_id — тэр дугаараар төлөвлөгөөг дахин хайж, олдсон ТӨЛӨВЛӨГӨӨНИЙ хилийг шинэ хил болгоно.
 // @Description  2) shapefile — гараас (.shp) оруулсан хилээр солино. Талбайн зөрүү нь төлөвлөгөөний хилийн талбайгаас 30%-иас БАГА байх ёстой (үгүй бол 422). Төлөвлөгөөний мэдээлэл хөндөгдөхгүй.
-// @Description  Хил өөрчлөгдвөл шинэ хилтэй давхцах нэгж талбарууд нэмэгдэж, давхцахаа больсон нь устана.
+// @Description  Хил солиход чөлөөлөлтийн хил (талбай, сум/баг, хилийн түүх) өөрчлөгдөж, БҮХ нэгж талбарын нөлөөлөлд өртсөн хил/талбай, үлдэх талбай шинэ хилээр дахин бодогдоно (affected_area_updated / affected_area_skipped). Нэгж талбарын мэдээллийг ГУС-аас татахгүй, бүртгэхгүй, устгахгүй. Шинэ хилээс гарах нэгж талбарыг хадгалахаас өмнө boundary-preview / boundary-outside-parcels-аар харна.
 // @Description  Шинэ хил дээр Create-тай ИЖИЛ шалгалт хийгдэнэ: нэг сум/дүүрэгт багтах.
 // @Tags         land-acquisitions
 // @Accept       multipart/form-data
@@ -647,16 +695,16 @@ func (h *LandHandler) Update(c *gin.Context) {
 	type updateResp struct {
 		landAcquisitionResponse
 		Warning string `json:"warning,omitempty"`
-		// Хил солиход нэгж талбарт гарсан өөрчлөлт. RemovedParcels нь
-		// БҮРМӨСӨН устгагдсан (шинэ хилд ороогүй) талбарын тоо.
-		AddedParcels   int `json:"added_parcels,omitempty"`
-		RemovedParcels int `json:"removed_parcels,omitempty"`
+		// Хил солиход нөлөөлөлд өртсөн талбай нь дахин бодогдсон / геометргүй
+		// тул бодогдоогүй нэгж талбарын тоо. Хил хөндөөгүй үед ирэхгүй.
+		AffectedAreaUpdated *int `json:"affected_area_updated,omitempty"`
+		AffectedAreaSkipped *int `json:"affected_area_skipped,omitempty"`
 	}
 	r := updateResp{landAcquisitionResponse: toLandAcqResponse(acq)}
 	if boundaryChange != nil {
 		r.Warning = i18n.T(l, i18n.WarnGeomChanged)
-		r.AddedParcels = boundaryChange.Added
-		r.RemovedParcels = boundaryChange.Removed
+		r.AffectedAreaUpdated = &boundaryChange.AffectedAreaUpdated
+		r.AffectedAreaSkipped = &boundaryChange.AffectedAreaSkipped
 	}
 	response.OK(c, r)
 }

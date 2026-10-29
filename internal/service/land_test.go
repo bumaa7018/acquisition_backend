@@ -335,9 +335,9 @@ func TestLandService_Update_RejectsAU2Crossing(t *testing.T) {
 	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
 }
 
-// updateGeomSvc — ХИЛ ШИНЭЧЛЭХ (Update) урсгалын нэгж талбар татах хэсгийг
-// шалгах бэлтгэл. Чөлөөлөлт үүсгэх үед нэгж талбар татагддаггүй тул нэгж
-// талбарын логик Update дээр шалгагдана.
+// updateGeomSvc — ХИЛ ШИНЭЧЛЭХ (Update) урсгалын нэгж талбартай холбоотой
+// хэсгийг шалгах бэлтгэл. parcelInfo (ГУС) нь ямар ч хүлээлтгүй — хил солиход
+// дуудагдвал mock panic хийж тест унана.
 func updateGeomSvc(t *testing.T, id uuid.UUID) (
 	service.LandService,
 	*mocks.MockLandAcquisitionRepository,
@@ -365,121 +365,81 @@ func updateGeomSvc(t *testing.T, id uuid.UUID) (
 	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
+	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.AnythingOfType("string")).Return(3, 1, nil).Maybe()
 	return svc, landRepo, parcelInfo
 }
 
-// Хил солиход нэгж талбар нь ЭХ СУРВАЛЖИЙН нэг дуудалтаас (БАГЦААР) бүртгэгдэнэ:
-// дугаар тус бүрээр /parcel/info дуудахаа больсон (N+1 арилсан).
-func TestLandService_Update_RegistersParcelsFromBatchWithoutParcelInfo(t *testing.T) {
+// assertNoParcelSideEffects — хил солиход нэгж талбарт нөлөөлөлд өртсөн
+// талбайг дахин бодохоос (RecomputeAcquisitionAreas) ӨӨР ямар ч дуудалт
+// (ГУС-аас татах, бүртгэх, устгах, мета засах) хийгдээгүйг батална.
+// Аргументын тооноос үл хамааран дуудалтын нэрээр шалгана.
+func assertNoParcelSideEffects(t *testing.T, landRepo *mocks.MockLandAcquisitionRepository, parcelInfo *mocks.MockParcelInfoClient) {
+	t.Helper()
+	for _, call := range parcelInfo.Calls {
+		t.Errorf("хил солиход ГУС-ын %s дуудагдав", call.Method)
+	}
+	forbidden := map[string]bool{
+		"InsertParcelCodes": true, "PurgeParcels": true, "ListParcelRefs": true,
+		"ListParcelsOutsideBoundary": true, "DeleteParcelsOutsideBoundary": true,
+		"DeleteParcelsAndAUs": true, "UpdateParcelMeta": true,
+		"UpdateParcelAcquisitionGeom": true, "ApplyParcelGeometry": true,
+	}
+	for _, call := range landRepo.Calls {
+		assert.False(t, forbidden[call.Method], "хил солиход нэгж талбарын %s дуудагдав", call.Method)
+	}
+}
+
+// Хил солиход чөлөөлөлтийн хил өөрчлөгдөж, БҮХ нэгж талбарын нөлөөлөлд
+// өртсөн талбай ШИНЭ хилээр дахин бодогдоно. Үүнээс өөр нэгж талбарт юу ч
+// хийгдэхгүй (ГУС руу хандахгүй, бүртгэхгүй, устгахгүй).
+func TestLandService_Update_BoundaryChangeRecomputesAffectedAreasOnly(t *testing.T) {
 	id := uuid.New()
 	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
 
-	// Багц нь дугаар + бүртгэлийн баганыг (геометр, талбай) агуулна.
-	// Нэг мөр дугааргүй, нэг мөр давхардсан.
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{
-			{ParcelID: "010101000001", AreaM2: 500, GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))", Landuse: "2201"},
-			{ParcelID: " "},
-			{ParcelID: "010101000002", AreaM2: 700},
-			{ParcelID: "010101000001", AreaM2: 500},
-		}, nil)
-
-	var saved []*domain.SourceParcel
-	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, mock.AnythingOfType("string")).
-		Run(func(args mock.Arguments) {
-			saved = args.Get(2).([]*domain.SourceParcel)
-		}).Return(&domain.ParcelDiscoveryResult{Total: 2, Created: 2}, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{}, nil)
-
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
+	acq, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
 		PlanCode: testPlanCode,
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, change, "хил солигдсоныг хариултад тэмдэглэнэ")
-	assert.Equal(t, 2, change.Added)
-	assert.Equal(t, 0, change.Removed)
-	require.Len(t, saved, 2, "хоосон дугаар алгасагдаж, давхардсан нь нэг л удаа бүртгэгдэнэ")
-	assert.Equal(t, "010101000001", saved[0].ParcelID)
-	assert.Equal(t, "010101000002", saved[1].ParcelID)
-	// Бүртгэлийн баганууд ХАДГАЛАГДАХ мөрөнд дамжина.
-	assert.Equal(t, "POLYGON((1 1,2 1,2 2,1 2,1 1))", saved[0].GeometryWKT)
-	assert.Equal(t, "2201", saved[0].Landuse)
-	assert.Equal(t, 500.0, saved[0].AreaM2)
-	// Дугаар тус бүрийн дэлгэрэнгүй ЭНД татагдахгүй; байгаа мөрийг дарж бичихгүй.
-	parcelInfo.AssertNotCalled(t, "GetParcelInfo", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "ReplaceParcelDetail", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "UpsertHolder", mock.Anything, mock.Anything)
-	parcelInfo.AssertExpectations(t)
+	assert.Equal(t, testPlan().BoundaryWKT, acq.GeometryWKT, "хил шинэчлэгдээгүй")
+	assert.Equal(t, 3, change.AffectedAreaUpdated)
+	assert.Equal(t, 1, change.AffectedAreaSkipped)
+	landRepo.AssertCalled(t, "Update", ctx, mock.Anything)
+	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.Anything)
+	// ШИНЭ хилээр бодогдоно (хуучнаар биш).
+	landRepo.AssertCalled(t, "RecomputeAcquisitionAreas", ctx, id, testPlan().BoundaryWKT)
+	assertNoParcelSideEffects(t, landRepo, parcelInfo)
 }
 
-// Шинэ хилд ОРООГҮЙ болсон нэгж талбарууд БҮРМӨСӨН устгагдана.
-func TestLandService_Update_PurgesParcelsOutsideNewBoundary(t *testing.T) {
+// Нөлөөлөлд өртсөн талбайг шинэчилж чадаагүй бол чимээгүй өнгөрөхгүй — 500.
+func TestLandService_Update_FailsWhenAffectedAreaRecomputeFails(t *testing.T) {
 	id := uuid.New()
-	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
-
-	staleID := uuid.New()
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{
-		{ID: uuid.New(), ParcelID: "010101000001", Status: domain.ParcelStatusPending},
-		{ID: staleID, ParcelID: "010101000009", Status: domain.ParcelStatusPending},
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	parcelInfo := &mocks.MockParcelInfoClient{}
+	pm := planMocks{
+		projects: &mocks.MockPlanProjectClient{},
+		store:    &mocks.MockPlanStoreRepository{},
+	}
+	svc := service.NewLandService(landRepo, nil, nil, parcelInfo, pm.projects, pm.store)
+	landRepo.On("GetByID", ctx, id).Return(&domain.LandAcquisition{
+		ID: id, PlanCode: testPlanCode,
+		GeometryWKT: "POLYGON((1 1,2 1,2 2,1 2,1 1))",
+		Status:      domain.LandAcquisitionStatusField,
 	}, nil)
-	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, mock.AnythingOfType("string")).
-		Return(&domain.ParcelDiscoveryResult{Total: 1}, nil)
-	landRepo.On("PurgeParcels", ctx, id, []uuid.UUID{staleID}, []string{"010101000009"}).
-		Return(1, []string(nil), nil)
+	pm.expectPlan(testPlanCode, testPlan())
+	landRepo.On("ComputeAreaM2", ctx, mock.AnythingOfType("string")).Return(41_250_000.0, nil)
+	expectBoundaryOK(landRepo)
+	landRepo.On("Update", ctx, mock.Anything).Return(nil)
+	landRepo.On("CreateBoundaryHistory", ctx, mock.Anything).Return(nil)
+	landRepo.On("DeleteAUs", ctx, id).Return(nil)
+	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
+	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.Anything).Return(0, 0, errors.New("db down"))
 
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
-		PlanCode: testPlanCode,
-	})
-
-	require.NoError(t, err)
-	require.NotNil(t, change)
-	assert.Equal(t, 1, change.Removed)
-	landRepo.AssertExpectations(t)
-}
-
-// "Чөлөөлсөн" төлөвтэй нэгж талбар шинэ хилээс гарч байвал ХИЛ ХҮЛЭЭГДЭХГҮЙ:
-// чөлөөлөгдсөн (олговор төлөгдсөн) бүртгэлийг устгах боломжгүй.
-func TestLandService_Update_RejectsBoundaryExcludingReleasedParcel(t *testing.T) {
-	id := uuid.New()
-	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
-
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{
-		{ID: uuid.New(), ParcelID: "010101000009", Status: domain.ParcelStatusReleased, Released: true},
-	}, nil)
-
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
-		PlanCode: testPlanCode,
-	})
-
-	assert.ErrorIs(t, err, domain.ErrReleasedParcelOutsideBoundary)
-	assert.Nil(t, change)
-	// Хил, түүх, нэгж талбар — юу ч хөндөгдөхгүй.
-	landRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "PurgeParcels", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "InsertParcelCodes", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-}
-
-// ГУС-аас татах явц унавал зөрүүг тодорхойлох боломжгүй тул ХИЛ хадгалагдахгүй.
-func TestLandService_Update_RejectsBoundaryWhenDiscoveryFails(t *testing.T) {
-	id := uuid.New()
-	svc, landRepo, parcelInfo := updateGeomSvc(t, id)
-
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return(nil, errors.New("dial tcp: refused"))
-
-	_, _, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
-		PlanCode: testPlanCode,
-	})
+	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{PlanCode: testPlanCode})
 
 	assert.ErrorIs(t, err, domain.ErrInternalServer)
-	landRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
+	assert.Nil(t, change)
 }
 
 func TestLandService_AdvanceStatus_ConfirmedRequiresFinalParcelStatuses(t *testing.T) {
@@ -621,24 +581,19 @@ func TestLandService_Update_GeometryChange(t *testing.T) {
 	})).Return(nil)
 	landRepo.On("DeleteAUs", ctx, id).Return(nil)
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).Return([]domain.LandAcquisitionAU{}, nil)
-	srcParcels := []*domain.SourceParcel{{ParcelID: "123456789012"}}
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return(srcParcels, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{}, nil)
-	landRepo.On("InsertParcelCodes", ctx, id, srcParcels, mock.AnythingOfType("string")).
-		Return(&domain.ParcelDiscoveryResult{Total: 1, Created: 1}, nil)
-
+	landRepo.On("RecomputeAcquisitionAreas", ctx, id, plan.BoundaryWKT).Return(0, 0, nil)
 	acq, boundaryChange, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
 		PlanCode: testPlanCode,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, boundaryChange)
-	assert.Equal(t, 1, boundaryChange.Added)
 	assert.NotEmpty(t, acq.GeometryWKT)
 	assert.Equal(t, 41_250_000.0, acq.AreaM2, "шинэ хилээр талбай автоматаар шинэчлэгдэх ёстой")
 	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.AnythingOfType("*domain.LandAcquisitionBoundaryHistory"))
 	landRepo.AssertCalled(t, "DeleteAUs", ctx, id)
-	landRepo.AssertCalled(t, "InsertParcelCodes", ctx, id, srcParcels, mock.AnythingOfType("string"))
+	// Нэгж талбар ГУС-аас ЭНД татагдахгүй ("Нэгж талбар татах" товчоор).
+	parcelInfo.AssertNotCalled(t, "ListParcelsByAcquisition", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertNotCalled(t, "InsertParcelCodes", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	landRepo.AssertNotCalled(t, "DeleteParcelsAndAUs")
 	// Эрх зүйн дэлгэрэнгүйг ЭНЭ зам хөндөхгүй (өмнө нь ReplaceParcelDetail-аар
 	// хоосон дэлгэрэнгүйгээр дарж бичих эрсдэлтэй байсан).

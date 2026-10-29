@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"testing"
 
@@ -22,8 +23,8 @@ import (
 //   - Талбайн зөрүү 30%-иас бага үед л хүлээж авна (яг 30% ч татгалзана).
 //   - Зөрүү нь ТӨЛӨВЛӨГӨӨНИЙ хилээс хэмжигдэнэ (жишиг нүүхгүй).
 //   - Төлөвлөгөөний мэдээлэл хөндөгдөхгүй, дундын сервис ч дуудагдахгүй.
-//   - Хуучин шалгалтууд (нэг сум/дүүрэг, "Чөлөөлсөн" талбар гадна үлдэх)
-//     энэ зам дээр мөн ажиллана.
+//   - Хуучин шалгалт (нэг сум/дүүрэг) энэ зам дээр мөн ажиллана.
+//   - Шинэ хилээс гарсан нэгж талбар УСТГАГДАХГҮЙ, зөвхөн анхааруулна.
 
 // planReferenceWKT — жишиг (төлөвлөгөөний) хил. Талбайн зөрүү үүнээс хэмжигдэнэ.
 const planReferenceWKT = "POLYGON((106.70 47.60,106.90 47.60,106.90 47.80,106.70 47.80,106.70 47.60))"
@@ -108,16 +109,14 @@ func shapefileUpdateSvc(t *testing.T, id uuid.UUID, planAreaM2, newAreaM2 float6
 	landRepo.On("DeleteAUs", ctx, id).Return(nil).Maybe()
 	landRepo.On("FindIntersectingAU3", ctx, mock.AnythingOfType("string")).
 		Return([]domain.LandAcquisitionAU{}, nil).Maybe()
+	landRepo.On("RecomputeAcquisitionAreas", ctx, id, mock.AnythingOfType("string")).
+		Return(0, 0, nil).Maybe()
 	return svc, landRepo, parcelInfo, pm
 }
 
-// expectNoParcelChange — шинэ хилээр нэгж талбар татагдаж, зөрүү нь тэг.
-func expectNoParcelChange(landRepo *mocks.MockLandAcquisitionRepository, parcelInfo *mocks.MockParcelInfoClient, id uuid.UUID) {
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil).Maybe()
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{}, nil).Maybe()
-	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, mock.AnythingOfType("string")).
-		Return(&domain.ParcelDiscoveryResult{Total: 1, Created: 1}, nil).Maybe()
+// expectNoParcelChange — хил солиход нэгж талбарт юу ч хийгдэхгүй тул
+// хүлээлт ТАВИХГҮЙ: ГУС эсвэл нэгж талбарын repo дуудагдвал mock panic хийнэ.
+func expectNoParcelChange(*mocks.MockLandAcquisitionRepository, *mocks.MockParcelInfoClient, uuid.UUID) {
 }
 
 // Талбайн зөрүү хязгаарт багтсан үед хил ФАЙЛААС солигдоно.
@@ -301,56 +300,25 @@ func TestLandService_Update_ShapefileRejectsAU2Crossing(t *testing.T) {
 	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
 }
 
-// ХУУЧИН шалгалт: "Чөлөөлсөн" төлөвтэй нэгж талбар шинэ хилээс гарч байвал
-// файлаар оруулсан хил ч ХҮЛЭЭГДЭХГҮЙ.
-func TestLandService_Update_ShapefileRejectsBoundaryExcludingReleasedParcel(t *testing.T) {
+// Файлаар хил солиход ГУС дуудагдахгүй (төлөвлөгөө ч хайгдахгүй); нэгж
+// талбарын нөлөөлөлд өртсөн талбай ФАЙЛЫН хилээр дахин бодогдоно, өөр юу ч
+// хийгдэхгүй.
+func TestLandService_Update_ShapefileRecomputesAffectedAreasOnly(t *testing.T) {
 	id := uuid.New()
-	svc, landRepo, parcelInfo, _ := shapefileUpdateSvc(t, id, 1_000_000, 1_050_000)
+	svc, landRepo, parcelInfo, pm := shapefileUpdateSvc(t, id, 1_000_000, 800_000)
 
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{
-		{ID: uuid.New(), ParcelID: "010101000009", Status: domain.ParcelStatusReleased, Released: true},
-	}, nil)
-
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
-		AcquisitionName: "Тест",
-		ShapefileData:   testBoundaryShp(),
-	})
-
-	assert.ErrorIs(t, err, domain.ErrReleasedParcelOutsideBoundary)
-	assert.Nil(t, change)
-	landRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
-	landRepo.AssertNotCalled(t, "PurgeParcels", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-}
-
-// ХУУЧИН шалгалт: шинэ хилд ороогүй нэгж талбар файлын замаар ч устгагдана.
-func TestLandService_Update_ShapefilePurgesParcelsOutsideNewBoundary(t *testing.T) {
-	id := uuid.New()
-	svc, landRepo, parcelInfo, _ := shapefileUpdateSvc(t, id, 1_000_000, 800_000)
-
-	staleID := uuid.New()
-	parcelInfo.On("ListParcelsByAcquisition", ctx, mock.AnythingOfType("string"), "", 100).
-		Return([]*domain.SourceParcel{{ParcelID: "010101000001"}}, nil)
-	landRepo.On("ListParcelRefs", ctx, id).Return([]domain.ParcelRef{
-		{ID: uuid.New(), ParcelID: "010101000001", Status: domain.ParcelStatusPending},
-		{ID: staleID, ParcelID: "010101000009", Status: domain.ParcelStatusPending},
-	}, nil)
-	landRepo.On("InsertParcelCodes", ctx, id, mock.Anything, mock.AnythingOfType("string")).
-		Return(&domain.ParcelDiscoveryResult{Total: 1}, nil)
-	landRepo.On("PurgeParcels", ctx, id, []uuid.UUID{staleID}, []string{"010101000009"}).
-		Return(1, []string(nil), nil)
-
-	_, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
+	acq, change, err := svc.Update(ctx, id, service.UpdateLandAcquisitionRequest{
 		AcquisitionName: "Тест",
 		ShapefileData:   testBoundaryShp(),
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, change)
-	assert.Equal(t, 1, change.Removed)
-	landRepo.AssertCalled(t, "PurgeParcels", ctx, id, []uuid.UUID{staleID}, []string{"010101000009"})
+	assert.NotEqual(t, planReferenceWKT, acq.GeometryWKT, "хил шинэчлэгдээгүй")
+	landRepo.AssertCalled(t, "CreateBoundaryHistory", ctx, mock.Anything)
+	landRepo.AssertCalled(t, "RecomputeAcquisitionAreas", ctx, id, acq.GeometryWKT)
+	pm.projects.AssertNotCalled(t, "GetPlanProject", mock.Anything, mock.Anything)
+	assertNoParcelSideEffects(t, landRepo, parcelInfo)
 }
 
 // Урьдчилан харах нь ХАДГАЛАХГҮЙ: зөрүүг тоогоор буцаана, хязгаараас хэтэрсэн
@@ -359,6 +327,17 @@ func TestLandService_PreviewBoundaryShapefile(t *testing.T) {
 	t.Run("зөрүү хязгаарт багтсан", func(t *testing.T) {
 		id := uuid.New()
 		svc, landRepo, _, _ := shapefileUpdateSvc(t, id, 1_000_000, 1_100_000)
+		outside := []domain.BoundaryOutsideParcel{{
+			ParcelID:    "010101000009",
+			StatusName:  "Чөлөөлсөн",
+			Released:    true,
+			GeometryWKT: "POLYGON((106.95 47.60,106.96 47.60,106.96 47.61,106.95 47.60))",
+		}}
+		// Хилээс гарах талбарыг ФАЙЛЫН (шинэ) хилээр тодорхойлно — хуучин
+		// хилээр биш.
+		landRepo.On("ListParcelsOutsideBoundary", ctx, id, mock.MatchedBy(func(wkt string) bool {
+			return wkt != planReferenceWKT && wkt != ""
+		})).Return(outside, nil)
 
 		check, err := svc.PreviewBoundaryShapefile(ctx, id, testBoundaryShp())
 
@@ -369,14 +348,30 @@ func TestLandService_PreviewBoundaryShapefile(t *testing.T) {
 		assert.InDelta(t, 0.10, check.DeviationRatio, 1e-9)
 		assert.InDelta(t, 0.30, check.MaxDeviationRatio, 1e-9)
 		assert.NotEmpty(t, check.GeometryWKT)
-		// Урьдчилан харах нь юу ч хадгалахгүй.
+		assert.Equal(t, outside, check.OutsideParcels)
+		landRepo.AssertCalled(t, "ListParcelsOutsideBoundary", ctx, id, check.GeometryWKT)
+		// Урьдчилан харах нь юу ч хадгалахгүй, устгахгүй.
 		landRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
 		landRepo.AssertNotCalled(t, "CreateBoundaryHistory", mock.Anything, mock.Anything)
+		landRepo.AssertNotCalled(t, "PurgeParcels", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("хилээс гарах талбар тодорхойлж чадахгүй бол алдаа", func(t *testing.T) {
+		id := uuid.New()
+		svc, landRepo, _, _ := shapefileUpdateSvc(t, id, 1_000_000, 1_100_000)
+		landRepo.On("ListParcelsOutsideBoundary", ctx, id, mock.Anything).
+			Return(nil, errors.New("db down"))
+
+		_, err := svc.PreviewBoundaryShapefile(ctx, id, testBoundaryShp())
+
+		assert.ErrorIs(t, err, domain.ErrInternalServer)
 	})
 
 	t.Run("зөрүү хэтэрсэн ч алдаа биш", func(t *testing.T) {
 		id := uuid.New()
-		svc, _, _, _ := shapefileUpdateSvc(t, id, 1_000_000, 1_500_000)
+		svc, landRepo, _, _ := shapefileUpdateSvc(t, id, 1_000_000, 1_500_000)
+		landRepo.On("ListParcelsOutsideBoundary", ctx, id, mock.Anything).
+			Return([]domain.BoundaryOutsideParcel{}, nil)
 
 		check, err := svc.PreviewBoundaryShapefile(ctx, id, testBoundaryShp())
 

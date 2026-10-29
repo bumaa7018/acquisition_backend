@@ -28,7 +28,7 @@ func TestLandHandler_Update_PassesShapefileToService(t *testing.T) {
 	mockSvc.On("Update", mock.Anything, acq.ID, mock.MatchedBy(func(r service.UpdateLandAcquisitionRequest) bool {
 		// Файл дамжсан, төлөвлөгөөний дугаар хоосон (хоёр зам зэрэг явахгүй).
 		return len(r.ShapefileData) == len(shp) && r.PlanCode == ""
-	})).Return(acq, &domain.BoundaryChange{Added: 1}, nil)
+	})).Return(acq, &domain.BoundaryChange{}, nil)
 
 	body, ct := buildMultipartForm(t, map[string]string{
 		"acquisition_name": "Test Project",

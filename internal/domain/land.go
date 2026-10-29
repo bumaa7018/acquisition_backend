@@ -322,14 +322,28 @@ type ParcelDiscoveryResult struct {
 	OverlappingParcels int `json:"overlapping_parcels"`
 }
 
-// BoundaryChange — чөлөөлөх ХИЛ солигдоход нэгж талбарт гарсан өөрчлөлт.
-// Хил хөндөгдөөгүй үед nil (Update-ийн хариултад geometry_changed-ийн үүрэг
-// хийнэ).
+// BoundaryChange — чөлөөлөх ХИЛ солигдсон үр дүн. Хил хөндөгдөөгүй үед nil
+// (Update-ийн хариултад geometry_changed-ийн үүрэг хийнэ).
+//
+// Хил солиход нэгж талбарт ЗӨВХӨН нөлөөлөлд өртсөн хил/талбай, үлдэх талбай
+// дахин бодогдоно (татах/бүртгэх/устгах үгүй). Шинэ хилээс гарах нэгж
+// талбарыг хадгалахаас ӨМНӨ boundary-preview / boundary-outside-parcels
+// харуулна.
 type BoundaryChange struct {
-	// Added — шинэ хилээр НЭМЭГДСЭН (шинээр бүртгэгдсэн) нэгж талбар
-	Added int `json:"added"`
-	// Removed — шинэ хилд ороогүй тул БҮРМӨСӨН устгагдсан нэгж талбар
-	Removed int `json:"removed"`
+	// AffectedAreaUpdated — нөлөөлөлд өртсөн талбай нь шинэ хилээр дахин
+	// бодогдсон нэгж талбарын тоо.
+	AffectedAreaUpdated int `json:"affected_area_updated"`
+	// AffectedAreaSkipped — геометргүй тул бодогдоогүй нэгж талбарын тоо.
+	AffectedAreaSkipped int `json:"affected_area_skipped"`
+}
+
+// BoundaryOutsideParcel — хил солихын ӨМНӨ (урьдчилан харах) шинэ хилтэй ОГТ
+// давхцахгүй болох нэгж талбар. Газрын зураг дээр ялгаж харуулахад.
+type BoundaryOutsideParcel struct {
+	ParcelID    string `json:"parcel_id"`
+	StatusName  string `json:"status_name"`
+	Released    bool   `json:"released"`
+	GeometryWKT string `json:"geometry_wkt"`
 }
 
 // ParcelRef — нэгж талбарын хөнгөн лавлагаа (хил солиход ГУС-аас олдсон

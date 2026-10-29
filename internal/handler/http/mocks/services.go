@@ -132,6 +132,14 @@ func (m *MockLandService) PreviewBoundaryShapefile(ctx context.Context, id uuid.
 	return args.Get(0).(*service.BoundaryAreaCheck), args.Error(1)
 }
 
+func (m *MockLandService) ListParcelsOutsideBoundary(ctx context.Context, id uuid.UUID, boundaryWKT string) ([]domain.BoundaryOutsideParcel, error) {
+	args := m.Called(ctx, id, boundaryWKT)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]domain.BoundaryOutsideParcel), args.Error(1)
+}
+
 func (m *MockLandService) ListBoundaryHistory(ctx context.Context, acquisitionID uuid.UUID) ([]*domain.LandAcquisitionBoundaryHistory, error) {
 	args := m.Called(ctx, acquisitionID)
 	if args.Get(0) == nil {

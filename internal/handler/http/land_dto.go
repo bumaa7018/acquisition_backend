@@ -290,6 +290,9 @@ type boundaryPreviewResponse struct {
 	MaxDeviationPercent float64 `json:"max_deviation_percent"`
 	// Accepted — false бол хадгалах үед татгалзана.
 	Accepted bool `json:"accepted"`
+	// OutsideParcels — шинэ хилтэй ОГТ давхцахгүй болох нэгж талбарууд
+	// (устгагдахгүй — газрын зураг дээр ялгаж харуулна). Хоосон бол [].
+	OutsideParcels []domain.BoundaryOutsideParcel `json:"outside_parcels"`
 }
 
 type documentResponse struct {

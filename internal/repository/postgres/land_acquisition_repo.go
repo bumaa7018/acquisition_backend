@@ -751,8 +751,50 @@ func (r *landAcqRepo) ListParcelRefs(ctx context.Context, acquisitionID uuid.UUI
 	return refs, rows.Err()
 }
 
-// PurgeParcels — нэгж талбаруудыг өгөгдлийн сангаас БҮРМӨСӨН устгана (шинэ
-// чөлөөлөх хилд ороогүй болсон талбарууд).
+// ListParcelsOutsideBoundary — чөлөөлөлтийн нэгж талбаруудаас boundaryWKT-тэй
+// ОГТ огтлолцохгүйг буцаана (DeleteParcelsOutsideBoundary-тай ИЖИЛ предикат:
+// ST_Intersects). Хил солихын ӨМНӨ "аль талбар хилээс гарах вэ" гэдгийг
+// газрын зураг дээр харуулахад хэрэглэгдэнэ — юу ч устгахгүй.
+//
+// Геометргүй мөр ОРОХГҮЙ: тэр нь хилээс гарсны баталгаа биш.
+func (r *landAcqRepo) ListParcelsOutsideBoundary(
+	ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string,
+) ([]domain.BoundaryOutsideParcel, error) {
+	if strings.TrimSpace(boundaryWKT) == "" {
+		return nil, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		WITH b AS (SELECT ST_MakeValid(ST_GeomFromText($2, 4326)) AS geom)
+		SELECT COALESCE(p.parcel_id, ''), COALESCE(ps.name, ''),
+		       COALESCE(ps.is_released, false), ST_AsText(p.geometry)
+		FROM parcel p
+		CROSS JOIN b
+		LEFT JOIN parcel_status ps ON ps.id = p.status
+		WHERE p.acquisition_id = $1
+		  AND p.deleted_at IS NULL
+		  AND p.geometry IS NOT NULL
+		  AND NOT ST_Intersects(b.geom, ST_MakeValid(p.geometry))
+		ORDER BY p.parcel_id
+	`, acquisitionID, boundaryWKT)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]domain.BoundaryOutsideParcel, 0)
+	for rows.Next() {
+		var o domain.BoundaryOutsideParcel
+		if err := rows.Scan(&o.ParcelID, &o.StatusName, &o.Released, &o.GeometryWKT); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// PurgeParcels — нэгж талбаруудыг өгөгдлийн сангаас БҮРМӨСӨН устгана.
+// Хил солиход АВТОМАТААР ДУУДАГДАХГҮЙ — шинэ хилээс гарсан талбар хэвээр
+// үлдэж, зөвхөн анхааруулга өгнө.
 //
 // Хүү хүснэгтүүдийг CASCADE-д НАЙДАЛГҮЙ, нэг бүрчлэн ДАРААЛУУЛЖ устгана:
 //
@@ -1692,6 +1734,67 @@ func (r *landAcqRepo) SetParcelDetailHolder(ctx context.Context, parcelID, holde
 		WHERE parcel_id = $1
 	`, parcelID, holderID)
 	return err
+}
+
+// RecomputeAcquisitionAreas — чөлөөлөлтийн БҮХ нэгж талбарын НӨЛӨӨЛӨЛД ӨРТСӨН
+// хэсгийг (acquisition_geom / acquisition_area_m2 / remaining_area_m2) өгсөн
+// хилээр ХАДГАЛСАН геометрээс дахин бодно. Чөлөөлөлтийн хил солигдоход
+// дуудагдана.
+//
+// Тооцоо нь бусад замтай (ApplyParcelGeometry, insertParcelRow) ИЖИЛ:
+// давхцлын эхний полигон, талбай нь public.calculate_area_utm. Шинэ хилтэй
+// давхцахгүй болсон талбарт нөлөөлөлд өртсөн хил NULL, талбай 0, үлдэх талбай
+// бүтэн талбайтай тэнцэнэ.
+//
+// Геометргүй мөрийг ХӨНДӨХГҮЙ (тооцох боломжгүй) — тоог нь буцаана. Бусад
+// багана (төлөв, үнэлгээ, геометр, AU ...) хөндөгдөхгүй.
+func (r *landAcqRepo) RecomputeAcquisitionAreas(
+	ctx context.Context, acquisitionID uuid.UUID, boundaryWKT string,
+) (updated int, noGeometry int, err error) {
+	if strings.TrimSpace(boundaryWKT) == "" {
+		return 0, 0, domain.ErrInvalidInput
+	}
+	tag, err := r.db.Exec(ctx, `
+		WITH b AS (SELECT ST_MakeValid(ST_GeomFromText($2, 4326)) AS geom),
+		calc AS (
+			SELECT p.id,
+			       ST_GeometryN(
+			           ST_CollectionExtract(
+			               ST_Intersection(ST_MakeValid(p.geometry), b.geom), 3
+			           ), 1
+			       )::geometry(Polygon, 4326) AS overlap_geom
+			FROM parcel p CROSS JOIN b
+			WHERE p.acquisition_id = $1
+			  AND p.deleted_at IS NULL
+			  AND p.geometry IS NOT NULL
+		),
+		final AS (
+			SELECT id,
+			       CASE WHEN overlap_geom IS NOT NULL AND NOT ST_IsEmpty(overlap_geom)
+			            THEN overlap_geom END AS overlap_geom
+			FROM calc
+		)
+		UPDATE parcel p SET
+			acquisition_geom    = f.overlap_geom,
+			acquisition_area_m2 = COALESCE(public.calculate_area_utm(f.overlap_geom), 0),
+			remaining_area_m2   = GREATEST(
+				COALESCE(NULLIF(p.area_m2, 0), public.calculate_area_utm(p.geometry))
+				- COALESCE(public.calculate_area_utm(f.overlap_geom), 0), 0),
+			updated_at          = NOW(),
+			updated_by          = 'system'
+		FROM final f
+		WHERE p.id = f.id
+	`, acquisitionID, boundaryWKT)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := r.db.QueryRow(ctx, `
+		SELECT count(*)::int FROM parcel
+		WHERE acquisition_id = $1 AND deleted_at IS NULL AND geometry IS NULL
+	`, acquisitionID).Scan(&noGeometry); err != nil {
+		return int(tag.RowsAffected()), 0, err
+	}
+	return int(tag.RowsAffected()), noGeometry, nil
 }
 
 func (r *landAcqRepo) UpdateParcelAcquisitionGeom(ctx context.Context, parcelID uuid.UUID, acqWKT string) error {
