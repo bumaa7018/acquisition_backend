@@ -71,6 +71,25 @@ type DecisionDraft struct {
 	CurrentProgressRecipient string     `json:"current_progress_recipient"`
 	CurrentProgressDate      *time.Time `json:"current_progress_date,omitempty"`
 	CurrentProgressNote      string     `json:"current_progress_note"`
+
+	// Document — баталгаажуулахад хавсаргасан захирамжийн эх баримт
+	// (decision_draft.document_id). Зөвхөн дэлгэрэнгүйд бөглөгдөнө.
+	Document *DecisionDraftDocument `json:"document,omitempty"`
+}
+
+// DecreeDocumentType — баталгаажсан захирамжийн хавсралтын төрөл
+// (document_type.type = 'decree', «Захирамж»). Seeder нэмнэ.
+const DecreeDocumentType = "decree"
+
+// DecisionDraftDocument — захирамжийн хавсралт файл.
+type DecisionDraftDocument struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	FileType   string    `json:"file_type"`
+	FileURL    string    `json:"file_url"`
+	SizeBytes  int64     `json:"size_bytes"`
+	UploadedBy string    `json:"uploaded_by"`
+	UploadedAt time.Time `json:"uploaded_at"`
 }
 
 // DecisionDraftFundingLink — захирамж ↔ санхүүгийн эх үүсвэрийн холбоос.

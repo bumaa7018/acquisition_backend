@@ -1378,6 +1378,12 @@ type GlobalParcel struct {
 	CashAmount        float64
 	LandGrantAmount   float64
 	LandGrantCount    int
+	// Linked* — нэгж талбарын ИДЭВХТЭЙ захирамжийн холбоос (removed_at IS NULL).
+	// Холбоогүй бол хоосон. Захирамжийн төсөл үүсгэх попап холбогдсоныг
+	// саарал харуулахад хэрэглэнэ.
+	LinkedDecisionID     string
+	LinkedDecisionNo     string
+	LinkedDecisionStatus int
 }
 
 // GlobalParcelFilter — глобал нэгж талбарын жагсаалт шүүх болон хуудаслах параметр

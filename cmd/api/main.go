@@ -266,7 +266,7 @@ func main() {
 	// Ажлын төрөл / Төсөв нь ижил интерфейстэй тул router-ийн type switch
 	// тэдгээрийг ялгаж чадахгүй — нэг багцаар дамжуулна.
 	decisionSvcs := service.DecisionServices{
-		Draft:      service.NewDecisionDraftService(decisionDraftRepo),
+		Draft:      service.NewDecisionDraftService(decisionDraftRepo, fileStorage),
 		WorkType:   service.NewDecisionOptionService(decisionWorkTypeRepo),
 		Budget:     service.NewDecisionOptionService(decisionBudgetRepo),
 		ReviewUnit: service.NewDecisionOptionService(decisionReviewUnitRepo),

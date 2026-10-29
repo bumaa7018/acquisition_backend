@@ -3118,10 +3118,21 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		       la.status, la.start_date, la.end_date,
 		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'cash' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
 		       COALESCE((SELECT SUM(c.amount) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant' AND c.valuation_type = COALESCE(p.selected_valuation_type, 'asset')), 0),
-		       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0)
+		       COALESCE((SELECT COUNT(*) FROM compensation c WHERE c.acquisition_id = p.acquisition_id AND c.parcel_id = p.parcel_id AND c.compensation_type = 'land_grant'), 0),
+		       COALESCE(lnk.draft_id, ''), COALESCE(lnk.draft_no, ''), COALESCE(lnk.draft_status, 0)
 		FROM parcel p
 		JOIN land_acquisition la ON la.id = p.acquisition_id
 		LEFT JOIN parcel_status ps ON ps.id = p.status
+		-- Идэвхтэй захирамжийн холбоос (нэг нэгж талбар нэг л идэвхтэй холбоостой).
+		LEFT JOIN LATERAL (
+			SELECT dd.id::text AS draft_id,
+			       COALESCE(NULLIF(dd.decree_number, ''), dd.proposal_no) AS draft_no,
+			       dd.status::int AS draft_status
+			  FROM decision_draft_parcel ddp
+			  JOIN decision_draft dd ON dd.id = ddp.decision_draft_id
+			 WHERE ddp.parcel_id = p.id AND ddp.removed_at IS NULL
+			 LIMIT 1
+		) lnk ON TRUE
 		WHERE %s
 		ORDER BY %s
 		LIMIT $%d OFFSET $%d
@@ -3153,6 +3164,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			&gp.AcquisitionName, &gp.PlanCode,
 			&gp.AcquisitionStatus, &gp.StartDate, &gp.EndDate,
 			&gp.CashAmount, &gp.LandGrantAmount, &gp.LandGrantCount,
+			&gp.LinkedDecisionID, &gp.LinkedDecisionNo, &gp.LinkedDecisionStatus,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -3774,6 +3786,17 @@ func (r *landAcqRepo) DeleteParcelDocument(ctx context.Context, parcelID, docume
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Баталгаажсан захирамжийн хавсралт — захирамж болон бусад нэгж
+	// талбартай хуваалцдаг НЭГ файл тул нэгж талбараас устгахгүй.
+	var decisionDoc bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM decision_draft WHERE document_id = $1)`,
+		documentID).Scan(&decisionDoc); err != nil {
+		return err
+	}
+	if decisionDoc {
+		return domain.ErrDecisionDocumentLocked
+	}
 	var stage int
 	err = tx.QueryRow(ctx, `
 		DELETE FROM document d
@@ -5697,6 +5720,17 @@ func (r *landAcqRepo) GetAssignees(ctx context.Context, acquisitionID uuid.UUID)
 }
 
 // IsAssignedToParcel — хэрэглэгч parcel-ийн харгалзах чөлөөлөлтөд хуваарилагдсан эсэх.
+// DecisionDraftParcelIDs — захирамжид ИДЭВХТЭЙ холбогдсон нэгж талбарууд.
+func (r *landAcqRepo) DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT parcel_id FROM decision_draft_parcel
+		 WHERE decision_draft_id = $1 AND removed_at IS NULL`, draftID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+}
+
 func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRow(ctx, `

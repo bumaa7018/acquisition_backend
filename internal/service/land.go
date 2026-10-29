@@ -196,6 +196,9 @@ type LandAssigneeService interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	// DecisionDraftParcelIDs — захирамжид ИДЭВХТЭЙ холбогдсон нэгж талбарууд
+	// (захирамжийн хавсралт файлын эрхийг шалгахад).
+	DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error)
 	// IsProfMemberOfParcelByCode — parcel_id (код)-оор parcel-ийг олж, тухайн хэрэглэгч
@@ -2257,6 +2260,10 @@ func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, u
 
 func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsAssignedToParcel(ctx, parcelID, userID)
+}
+
+func (s *landService) DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error) {
+	return s.landRepo.DecisionDraftParcelIDs(ctx, draftID)
 }
 
 func (s *landService) IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error) {

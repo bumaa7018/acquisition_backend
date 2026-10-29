@@ -73,10 +73,15 @@ var (
 	ErrBasemapExtentRequired = errors.New("image basemap requires a valid extent")
 
 	// Захирамжийн төсөл
-	ErrDecisionConfirmed   = errors.New("confirmed decision draft cannot be modified")
-	ErrParcelNotReleased   = errors.New("only released parcels can be linked to a decision draft")
-	ErrParcelAlreadyLinked = errors.New("parcel is already linked to another decision draft")
-	ErrDecisionAcqMismatch = errors.New("parcel belongs to a different land acquisition")
+	ErrDecisionConfirmed = errors.New("confirmed decision draft cannot be modified")
+	// ErrDecisionAttachmentRequired — захирамжийг баталгаажуулахад хавсралт файл заавал.
+	ErrDecisionAttachmentRequired = errors.New("decision attachment file is required")
+	// ErrDecisionDocumentLocked — баталгаажсан захирамжийн хавсралтыг нэгж
+	// талбарын хавсралтаас устгах боломжгүй (захирамж ба бусад нэгж талбарт хамаатай).
+	ErrDecisionDocumentLocked = errors.New("decision document cannot be deleted from a parcel")
+	ErrParcelNotReleased      = errors.New("only released parcels can be linked to a decision draft")
+	ErrParcelAlreadyLinked    = errors.New("parcel is already linked to another decision draft")
+	ErrDecisionAcqMismatch    = errors.New("parcel belongs to a different land acquisition")
 	// Нэгж талбар холбохын өмнө захирамжид эх үүсвэр нэмсэн байх ба талбар
 	// бүрт эх үүсвэр сонгосон байх ёстой.
 	ErrFundingSourceRequired = errors.New("a funding source must be added and selected first")

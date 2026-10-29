@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/filestorage"
 	"acquisition_backend/internal/repository"
+
+	"github.com/google/uuid"
 )
 
 // DecisionServices — router-ийн `optionalSvcs ...any` руу нэг утгаар
@@ -74,11 +77,22 @@ type CreateFundingSourceRequest struct {
 	Note             string   `json:"note"`
 }
 
-// ConfirmDecisionDraftRequest — "Захирамжийн явц нэмэх". Хоёулаа заавал.
+// ConfirmDecisionDraftRequest — "Захирамжийн явц нэмэх". Дугаар, огноо,
+// хавсралт файл — гурвуулаа заавал.
 type ConfirmDecisionDraftRequest struct {
 	DecreeNumber string `json:"decree_number"`
 	DecisionDate string `json:"decision_date"` // YYYY-MM-DD
 	Note         string `json:"note"`
+	// Attachment — захирамжийн эх баримт (multipart файл). Handler бөглөнө.
+	Attachment *DecisionAttachment `json:"-"`
+}
+
+// DecisionAttachment — баталгаажуулахад хавсаргах файл (агуулгын төрлийг
+// handler шалгасан байна).
+type DecisionAttachment struct {
+	Filename    string
+	ContentType string
+	Data        []byte
 }
 
 type AddDecisionDraftProgressRequest struct {
@@ -91,10 +105,19 @@ type AddDecisionDraftProgressRequest struct {
 
 type decisionDraftService struct {
 	repo repository.DecisionDraftRepository
+	// files — захирамжийн хавсралтыг хадгалах файлын систем (MinIO).
+	files filestorage.Storage
 }
 
-func NewDecisionDraftService(repo repository.DecisionDraftRepository) DecisionDraftService {
-	return &decisionDraftService{repo: repo}
+// decisionFileNamespace — захирамжийн хавсралтын объектын namespace
+// (`decision/<захирамжийн id>/<нэр>`). Эрхийг /files/authorize шалгана.
+const decisionFileNamespace = "decision"
+
+func NewDecisionDraftService(repo repository.DecisionDraftRepository, files filestorage.Storage) DecisionDraftService {
+	if files == nil {
+		files = filestorage.DisabledStorage{}
+	}
+	return &decisionDraftService{repo: repo, files: files}
 }
 
 func (s *decisionDraftService) List(ctx context.Context, f domain.DecisionDraftFilter) ([]*domain.DecisionDraft, int64, error) {
@@ -113,6 +136,11 @@ func (s *decisionDraftService) GetByID(ctx context.Context, id string) (*domain.
 		return nil, err
 	}
 	d.FundingSources = funding
+	doc, err := s.repo.GetDocument(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	d.Document = doc
 	return d, nil
 }
 
@@ -183,6 +211,11 @@ func (s *decisionDraftService) Confirm(ctx context.Context, id string, req Confi
 		return nil, domain.ErrDecreeRequired
 	}
 
+	att := req.Attachment
+	if att == nil || len(att.Data) == 0 {
+		return nil, domain.ErrDecisionAttachmentRequired
+	}
+
 	cur, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -190,10 +223,37 @@ func (s *decisionDraftService) Confirm(ctx context.Context, id string, req Confi
 	if cur.Status == domain.DecisionDraftStatusConfirmed {
 		return nil, domain.ErrDecisionConfirmed
 	}
-	if err := s.repo.Confirm(ctx, id, decree, date, strings.TrimSpace(req.Note), actor); err != nil {
+	docTypeID, err := s.repo.DecreeDocumentTypeID(ctx)
+	if err != nil {
+		slog.Error("«Захирамж» хавсралтын төрөл олдсонгүй (seeder 000059)", "error", err)
+		return nil, domain.ErrInternalServer
+	}
+
+	// Файлыг ЭХЛЭЭД хадгална; DB гүйлгээ унавал файлыг устгаж цэвэрлэнэ.
+	stored, err := s.files.Save(ctx, decisionFileNamespace, id, att.Filename, att.ContentType, att.Data, true)
+	if err != nil {
+		slog.Error("захирамжийн хавсралт хадгалахад алдаа", "decision_draft_id", id, "error", err)
+		return nil, domain.ErrInternalServer
+	}
+	doc := &domain.Document{
+		ID: uuid.New(),
+		// Нэгж талбарын хавсралтын жагсаалтад «Захирамж А/123» гэж харагдана.
+		Name:           "Захирамж " + decree,
+		FileType:       stored.Type,
+		FileURL:        stored.URL,
+		SizeBytes:      stored.SizeBytes,
+		UploadedBy:     actor,
+		UploadedAt:     time.Now(),
+		DocumentTypeID: docTypeID,
+	}
+	if err := s.repo.Confirm(ctx, id, decree, date, strings.TrimSpace(req.Note), actor, doc); err != nil {
+		if delErr := s.files.Delete(context.Background(), stored.URL); delErr != nil {
+			slog.Error("баталгаажуулалт амжилтгүй — хавсралтыг устгаж чадсангүй",
+				"decision_draft_id", id, "file_url", stored.URL, "error", delErr)
+		}
 		return nil, err
 	}
-	return s.repo.GetByID(ctx, id)
+	return s.GetByID(ctx, id)
 }
 
 func (s *decisionDraftService) AddProgress(ctx context.Context, id string, req AddDecisionDraftProgressRequest, actor string) (*domain.DecisionDraftProgressHistory, error) {

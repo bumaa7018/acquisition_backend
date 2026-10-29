@@ -286,6 +286,10 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusBadRequest, i18n.ErrBasemapExtent
 	case domain.ErrDecisionConfirmed:
 		return http.StatusConflict, i18n.ErrDecisionConfirmed
+	case domain.ErrDecisionAttachmentRequired:
+		return http.StatusBadRequest, i18n.ErrDecisionAttachment
+	case domain.ErrDecisionDocumentLocked:
+		return http.StatusConflict, i18n.ErrDecisionDocLocked
 	case domain.ErrParcelNotReleased:
 		return http.StatusUnprocessableEntity, i18n.ErrParcelNotReleased
 	case domain.ErrParcelAlreadyLinked:

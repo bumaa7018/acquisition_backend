@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
 
@@ -171,12 +172,17 @@ func (h *DecisionDraftHandler) Delete(c *gin.Context) {
 
 // Confirm godoc
 // @Summary      Захирамжийн явц нэмэх (баталгаажуулах)
-// @Description  Захирамжийн дугаар болон огноог бөглөж баталгаажуулна. Үүнээс хойш өөрчлөлт орохгүй.
+// @Description  Захирамжийн дугаар, огноо болон хавсралт файлыг (PDF, заавал) авч баталгаажуулна. Үүнээс хойш өөрчлөлт орохгүй.
+// @Description  Хавсралт нь «Захирамж» төрлөөр захирамжид холбогдсон бүх нэгж талбарын хавсралт болно.
 // @Tags         decision-draft
-// @Accept       json
+// @Accept       multipart/form-data
 // @Produce      json
 // @Security     BearerAuth
-// @Param        id   path  string  true  "Захирамжийн төслийн ID"
+// @Param        id             path      string  true  "Захирамжийн төслийн ID"
+// @Param        decree_number  formData  string  true  "Захирамжийн дугаар"
+// @Param        decision_date  formData  string  true  "Захирамжийн огноо (YYYY-MM-DD)"
+// @Param        note           formData  string  false "Тайлбар"
+// @Param        file           formData  file    true  "Захирамжийн хавсралт (PDF)"
 // @Success      200  {object}  response.Response
 // @Router       /decision-drafts/{id}/confirm [post]
 func (h *DecisionDraftHandler) Confirm(c *gin.Context) {
@@ -184,11 +190,38 @@ func (h *DecisionDraftHandler) Confirm(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var req service.ConfirmDecisionDraftRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.AbortValidation(c, err)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize+1<<20)
+	req := service.ConfirmDecisionDraftRequest{
+		DecreeNumber: c.PostForm("decree_number"),
+		DecisionDate: c.PostForm("decision_date"),
+		Note:         c.PostForm("note"),
+	}
+	fh, err := c.FormFile("file")
+	if err != nil {
+		if isBodyTooLarge(err) {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+			return
+		}
+		response.Error(c, domain.ErrDecisionAttachmentRequired)
 		return
 	}
+	data, err := readMultipartFile(fh, maxDocumentUploadSize)
+	if err == errUploadTooLarge {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrFileTooLarge)
+		return
+	}
+	if err != nil || len(data) == 0 {
+		response.Error(c, domain.ErrDecisionAttachmentRequired)
+		return
+	}
+	// Захирамжийн эх баримт — нэгж талбарын хавсралтын ерөнхий дүрмээр PDF.
+	contentType, ok := allowedPDFContentType(data)
+	if !ok {
+		response.Error(c, domain.ErrDecisionAttachmentRequired)
+		return
+	}
+	req.Attachment = &service.DecisionAttachment{Filename: fh.Filename, ContentType: contentType, Data: data}
+
 	d, err := h.svc.Confirm(c.Request.Context(), id, req, decisionActor(c))
 	if err != nil {
 		response.Error(c, err)

@@ -436,6 +436,8 @@ type LandAssigneeRepository interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	// DecisionDraftParcelIDs — захирамжид идэвхтэй холбогдсон нэгж талбарын id.
+	DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
 	IsProfMemberOfParcel(ctx context.Context, parcelID uuid.UUID, orgID domain.ID) (bool, error)
 	// OrgUserIDs — тухайн байгууллагын НЭВТРЭХ ЭРХТЭЙ идэвхтэй ажилтнуудын
@@ -531,7 +533,13 @@ type DecisionDraftRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.DecisionDraft, error)
 	Create(ctx context.Context, d *domain.DecisionDraft) error
 	Update(ctx context.Context, d *domain.DecisionDraft) error
-	Confirm(ctx context.Context, id, decreeNumber, decisionDate, note, actor string) error
+	// Confirm — doc != nil бол хавсралтыг захирамж ба түүнд холбогдсон бүх
+	// нэгж талбарт НЭГ гүйлгээнд холбоно.
+	Confirm(ctx context.Context, id, decreeNumber, decisionDate, note, actor string, doc *domain.Document) error
+	// DecreeDocumentTypeID — «Захирамж» (decree) хавсралтын төрлийн id.
+	DecreeDocumentTypeID(ctx context.Context) (int, error)
+	// GetDocument — захирамжийн хавсралт; байхгүй бол (nil, nil).
+	GetDocument(ctx context.Context, draftID string) (*domain.DecisionDraftDocument, error)
 	Delete(ctx context.Context, id string) error
 	SetAcquisition(ctx context.Context, id, acquisitionID string) error
 	ListProgressHistory(ctx context.Context, draftID string) ([]*domain.DecisionDraftProgressHistory, error)

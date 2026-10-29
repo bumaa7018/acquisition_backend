@@ -132,6 +132,8 @@ const (
 
 	// Захирамжийн төслийн алдаа
 	ErrDecisionConfirmed     Key = "decision_confirmed"
+	ErrDecisionAttachment    Key = "decision_attachment_required"
+	ErrDecisionDocLocked     Key = "decision_document_locked"
 	ErrParcelNotReleased     Key = "parcel_not_released"
 	ErrParcelAlreadyLinked   Key = "parcel_already_linked"
 	ErrDecisionAcqMismatch   Key = "decision_acq_mismatch"
@@ -248,6 +250,8 @@ var messages = map[Key][2]string{
 	ErrDocNotFound:            {"Баримт олдсонгүй", "document not found"},
 
 	ErrDecisionConfirmed:     {"Баталгаажсан захирамжийн төсөлд өөрчлөлт оруулах боломжгүй", "confirmed decision draft cannot be modified"},
+	ErrDecisionAttachment:    {"Захирамжийг баталгаажуулахад хавсралт файл (PDF) заавал хавсаргана", "an attachment file (PDF) is required to confirm the decision"},
+	ErrDecisionDocLocked:     {"Баталгаажсан захирамжийн хавсралтыг нэгж талбараас устгах боломжгүй", "a confirmed decision's attachment cannot be deleted from a parcel"},
 	ErrParcelNotReleased:     {"Зөвхөн «Захирамжид холбогдоно» дүрэмтэй төлөвтэй (жишээ нь 'Чөлөөлсөн') нэгж талбарыг захирамжид холбоно", "only released parcels can be linked to a decision draft"},
 	ErrParcelAlreadyLinked:   {"Тухайн нэгж талбар өөр захирамжид аль хэдийн холбогдсон байна", "parcel is already linked to another decision draft"},
 	ErrDecisionAcqMismatch:   {"Захирамжид өөр чөлөөлөлтөд харьяалагдах нэгж талбар холбох боломжгүй", "parcel belongs to a different land acquisition"},

@@ -218,6 +218,14 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return NewMainSeeder(mainDB).SeedParcelPendingHistory(ctx)
 			},
 		},
+		{
+			// Migration 000059: «Захирамж» (decree) хавсралтын төрөл —
+			// баталгаажсан захирамжийн эх баримт нэгж талбарын хавсралт болно.
+			name: "000059_document_types_decree",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}

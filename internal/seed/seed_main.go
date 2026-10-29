@@ -184,6 +184,9 @@ func (s *MainSeeder) seedDocumentTypes(ctx context.Context) error {
 		  ('land_handover_act',      'Чөлөөлсөн газрын хүлээлцсэн акт',                                         'parcel'),
 		  ('payment_table',          'Төлбөрийн гүйцэтгэлийн хүснэгт',                                          'parcel'),
 		  ('decree_draft',           'Захирамжийн төсөл',                                                        'both'),
+		  -- Баталгаажсан захирамжийн эх баримт — захирамжид холбогдсон нэгж
+		  -- талбаруудын хавсралт болж харагдана (decision_draft.document_id).
+		  ('decree',                 'Захирамж',                                                                 'both'),
 		  ('settlement_act',         'Тооцоо нийлсэн акт',                                                      'parcel'),
 		  ('monitoring_report',      'Мониторингийн дүгнэлт',                                                    'parcel'),
 		  ('contract_closing_act',   'Гэрээ дүгнэсэн акт',                                                      'parcel'),

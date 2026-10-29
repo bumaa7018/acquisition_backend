@@ -324,7 +324,11 @@ func (r *DecisionDraftRepo) Update(ctx context.Context, d *domain.DecisionDraft)
 
 // Confirm — "Явц нэмэх": захирамжийн дугаар/огноог бөглөж баталгаажуулна.
 // status = 1 нөхцөлтэй тул давхар баталгаажуулах оролдлого чимээгүй өнгөрөхгүй.
-func (r *DecisionDraftRepo) Confirm(ctx context.Context, id, decreeNumber, decisionDate, note, actor string) error {
+//
+// doc != nil бол НЭГ гүйлгээнд: хавсралтын document мөр үүсч, захирамжид
+// (decision_draft.document_id) холбогдож, захирамжид ИДЭВХТЭЙ холбогдсон бүх
+// нэгж талбарын хавсралт (parcel_document) болно — нэг файл, олон холбоос.
+func (r *DecisionDraftRepo) Confirm(ctx context.Context, id, decreeNumber, decisionDate, note, actor string, doc *domain.Document) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -365,7 +369,60 @@ func (r *DecisionDraftRepo) Confirm(ctx context.Context, id, decreeNumber, decis
 	if err != nil {
 		return err
 	}
+	if doc != nil {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO document (id, name, file_type, file_url, size_bytes, note,
+			                      uploaded_by, uploaded_at, document_type_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9::int, 0))`,
+			doc.ID, doc.Name, doc.FileType, doc.FileURL, doc.SizeBytes, doc.Note,
+			doc.UploadedBy, doc.UploadedAt, doc.DocumentTypeID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE decision_draft SET document_id = $1 WHERE id = $2`, doc.ID, id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO parcel_document (parcel_id, document_id)
+			SELECT DISTINCT dp.parcel_id, $2::uuid
+			  FROM decision_draft_parcel dp
+			 WHERE dp.decision_draft_id = $1 AND dp.removed_at IS NULL
+			ON CONFLICT DO NOTHING`, id, doc.ID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
+}
+
+// DecreeDocumentTypeID — «Захирамж» (decree) хавсралтын төрлийн id. Seeder
+// нэмээгүй бол domain.ErrNotFound.
+func (r *DecisionDraftRepo) DecreeDocumentTypeID(ctx context.Context) (int, error) {
+	var id int
+	err := r.db.QueryRow(ctx,
+		`SELECT id FROM document_type WHERE type = $1`, domain.DecreeDocumentType).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, domain.ErrNotFound
+	}
+	return id, err
+}
+
+// GetDocument — захирамжийн хавсралт файл; хавсралтгүй бол (nil, nil).
+func (r *DecisionDraftRepo) GetDocument(ctx context.Context, draftID string) (*domain.DecisionDraftDocument, error) {
+	d := &domain.DecisionDraftDocument{}
+	err := r.db.QueryRow(ctx, `
+		SELECT doc.id::text, doc.name, doc.file_type, doc.file_url, doc.size_bytes,
+		       doc.uploaded_by, doc.uploaded_at
+		  FROM decision_draft dd
+		  JOIN document doc ON doc.id = dd.document_id
+		 WHERE dd.id = $1`, draftID).
+		Scan(&d.ID, &d.Name, &d.FileType, &d.FileURL, &d.SizeBytes, &d.UploadedBy, &d.UploadedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 func (r *DecisionDraftRepo) AddProgressHistory(ctx context.Context, h *domain.DecisionDraftProgressHistory) error {

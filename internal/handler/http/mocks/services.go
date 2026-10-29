@@ -721,6 +721,14 @@ func (m *MockLandService) GetAssignees(ctx context.Context, acquisitionID uuid.U
 	return args.Get(0).([]domain.AcquisitionAssignee), args.Error(1)
 }
 
+func (m *MockLandService) DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, draftID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
 func (m *MockLandService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	args := m.Called(ctx, parcelID, userID)
 	return args.Bool(0), args.Error(1)

@@ -491,6 +491,10 @@ type globalParcelResponse struct {
 	CashAmount        float64 `json:"cash_amount"`
 	LandGrantAmount   float64 `json:"land_grant_amount"`
 	LandGrantCount    int     `json:"land_grant_count"`
+	// Идэвхтэй захирамжийн холбоос — холбоогүй бол хоосон / 0.
+	LinkedDecisionID     string `json:"linked_decision_id,omitempty"`
+	LinkedDecisionNo     string `json:"linked_decision_no,omitempty"`
+	LinkedDecisionStatus int    `json:"linked_decision_status,omitempty"`
 }
 
 type parcelPaymentResponse struct {
@@ -800,6 +804,10 @@ func toGlobalParcelResponse(p *domain.GlobalParcel) globalParcelResponse {
 		CashAmount:          p.CashAmount,
 		LandGrantAmount:     p.LandGrantAmount,
 		LandGrantCount:      p.LandGrantCount,
+
+		LinkedDecisionID:     p.LinkedDecisionID,
+		LinkedDecisionNo:     p.LinkedDecisionNo,
+		LinkedDecisionStatus: p.LinkedDecisionStatus,
 	}
 	if p.StartDate != nil {
 		s := p.StartDate.Format("2006-01-02")

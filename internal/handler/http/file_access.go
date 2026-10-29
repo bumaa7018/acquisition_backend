@@ -93,8 +93,10 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	//
 	// Үнэлгээний байгууллагын ажилтан системийн эрх (permission) ЭЗЭМШИХГҮЙ —
 	// түүний хандалт нь 2-р давхаргын БАЙГУУЛЛАГЫН гишүүнчлэлээр шалгагдана.
+	// decision — захирамжийн хавсралт: decision:read эрх ч уншиж болох эрхэд тооцогдоно.
 	if !middleware.IsValuationOrgCaller(c) &&
-		!callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") {
+		!callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") &&
+		!(namespace == "decision" && callerHasPermission(c, "decision:read")) {
 		deny("no_read_permission")
 		return
 	}
@@ -128,6 +130,11 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 		err = h.authorizeCompensation(c, ownerID)
 	case "asset-photo":
 		err = h.authorizeAsset(c, ownerID)
+	// decision — баталгаажсан захирамжийн хавсралт (`decision/<захирамжийн id>/<нэр>`).
+	// Захирамжийн цэсээр (decision:read) эсвэл холбогдсон нэгж талбарын
+	// хавсралтаар (тэр нэгж талбарын дүрмээр) уншина.
+	case "decision":
+		err = h.authorizeDecision(c, ownerID)
 	default:
 		// Танихгүй namespace — зөвшөөрөхгүй (шинэ төрөл нэмэгдвэл энд бүртгэнэ).
 		err = domain.ErrForbidden
@@ -231,4 +238,27 @@ func (h *FileAccessHandler) authorizeAsset(c *gin.Context, id string) error {
 		return domain.ErrForbidden
 	}
 	return h.authorizeAcquisition(c, acqID.String())
+}
+
+// authorizeDecision — захирамжийн хавсралт. decision:read эрхтэй бол шууд;
+// эс бөгөөс захирамжид холбогдсон нэгж талбарын АЛЬ НЭГИЙГ уншиж чадвал
+// (нэгж талбарын хавсралтаас нээж буй тохиолдол) зөвшөөрнө.
+func (h *FileAccessHandler) authorizeDecision(c *gin.Context, id string) error {
+	draftID, err := uuid.Parse(id)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	if !profOnlyCaller(c) && callerHasPermission(c, "decision:read") {
+		return nil
+	}
+	parcelIDs, err := h.svc.DecisionDraftParcelIDs(c.Request.Context(), draftID)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	for _, pid := range parcelIDs {
+		if h.authorizeParcel(c, pid.String()) == nil {
+			return nil
+		}
+	}
+	return domain.ErrForbidden
 }

@@ -83,7 +83,7 @@ func TestDecisionDraft_LinkParcel_SavesFundingSourceToAcquisition(t *testing.T) 
 		parcel:  releasedParcel("acq-9"),
 		belongs: true,
 	}
-	svc := service.NewDecisionDraftService(repo)
+	svc := service.NewDecisionDraftService(repo, nil)
 
 	err := svc.LinkParcel(context.Background(), "draft-1", "parcel-uuid", "fund-link-1", "user-1")
 
@@ -97,7 +97,7 @@ func TestDecisionDraft_LinkParcel_SavesFundingSourceToAcquisition(t *testing.T) 
 func TestDecisionDraft_SetParcelFundingSource_UpdatesAcquisitionFunding(t *testing.T) {
 	acq := "acq-9"
 	repo := &stubDraftRepo{draft: newDraft(&acq), belongs: true}
-	svc := service.NewDecisionDraftService(repo)
+	svc := service.NewDecisionDraftService(repo, nil)
 
 	err := svc.SetParcelFundingSource(context.Background(), "draft-1", "link-1", "fund-link-2")
 
@@ -116,7 +116,7 @@ func TestDecisionDraft_LinkParcel_BindErrorDoesNotFailLink(t *testing.T) {
 		belongs: true,
 		bindErr: errors.New("db унав"),
 	}
-	svc := service.NewDecisionDraftService(repo)
+	svc := service.NewDecisionDraftService(repo, nil)
 
 	err := svc.LinkParcel(context.Background(), "draft-1", "parcel-uuid", "fund-link-1", "user-1")
 
@@ -127,7 +127,7 @@ func TestDecisionDraft_LinkParcel_BindErrorDoesNotFailLink(t *testing.T) {
 // Эх үүсвэр сонгоогүй бол холбохгүй — хадгалах ч гэж оролдохгүй
 func TestDecisionDraft_LinkParcel_FundingSourceRequired(t *testing.T) {
 	repo := &stubDraftRepo{draft: newDraft(nil), parcel: releasedParcel("acq-9")}
-	svc := service.NewDecisionDraftService(repo)
+	svc := service.NewDecisionDraftService(repo, nil)
 
 	err := svc.LinkParcel(context.Background(), "draft-1", "parcel-uuid", "   ", "user-1")
 
