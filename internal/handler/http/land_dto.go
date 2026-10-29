@@ -1066,6 +1066,7 @@ type reportParcelRowResponse struct {
 	RightType           int     `json:"right_type"`
 	DbChanged           string  `json:"db_changed"`
 	ChangedParcelID     string  `json:"changed_parcel_id"`
+	Address             string  `json:"address"`
 	Status              int     `json:"status"`
 	StatusName          string  `json:"status_name"`
 	StatusDate          *string `json:"status_date"`
@@ -1120,6 +1121,7 @@ func toReportParcelRowResponse(r *domain.ReportParcelRow) reportParcelRowRespons
 		RightType:           r.RightType,
 		DbChanged:           r.DbChanged,
 		ChangedParcelID:     r.ChangedParcelID,
+		Address:             r.Address,
 		Status:              r.Status,
 		StatusName:          r.StatusName,
 		AcquisitionID:       r.AcquisitionID.String(),

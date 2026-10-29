@@ -468,6 +468,29 @@ func TestLandService_AdvanceStatus_ConfirmedAllowsFinalParcelStatuses(t *testing
 	landRepo.AssertExpectations(t)
 }
 
+// "Баталгаажсан" руу шилжихэд НЗД-ын захирамжийн дугаар/огноо шаардахгүй.
+func TestLandService_AdvanceStatus_ConfirmedWithoutDecree(t *testing.T) {
+	landRepo := &mocks.MockLandAcquisitionRepository{}
+	svc, _ := newLandSvc(landRepo)
+	acqID := uuid.New()
+
+	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{
+		ID:     acqID,
+		Status: domain.LandAcquisitionStatusField,
+	}, nil)
+	landRepo.On("ListAcquisitionWorkflows", ctx).Return([]*domain.AcquisitionWorkflow{}, nil)
+	landRepo.On("HasNonFinalParcels", ctx, acqID).Return(false, nil)
+	landRepo.On("CreateProgress", ctx, mock.AnythingOfType("*domain.AcquisitionProgress")).Return(nil)
+	landRepo.On("UpdateStatus", ctx, acqID, domain.LandAcquisitionStatusVerified).Return(nil)
+
+	acq, err := svc.AdvanceStatus(ctx, acqID, domain.LandAcquisitionStatusVerified, "", "user-1", "", nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.LandAcquisitionStatusVerified, acq.Status)
+	landRepo.AssertNotCalled(t, "UpdateDecree", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	landRepo.AssertExpectations(t)
+}
+
 // ── GetByID ───────────────────────────────────────────────────
 
 func TestLandService_GetByID_Success(t *testing.T) {

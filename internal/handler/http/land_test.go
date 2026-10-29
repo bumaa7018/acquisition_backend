@@ -1036,3 +1036,23 @@ func TestLandHandler_DeleteAcquisitionDocument_InvalidUUID(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// Захирамжийн төсөл үүсгэх попап: ерөнхий ангилал + нэгж талбарын төлөв +
+// холбогдоогүй шүүлт service рүү дамжина.
+func TestLandHandler_ListGlobalParcels_PassesGeneralCategory(t *testing.T) {
+	mockSvc := &mocks.MockLandService{}
+	h := handler.NewLandHandler(mockSvc)
+	mockSvc.On("ListGlobalParcels", mock.Anything, mock.MatchedBy(func(f domain.GlobalParcelFilter) bool {
+		return f.GeneralCategoryID == 3 && f.StatusID == 107 && f.UnlinkedOnly
+	})).Return([]*domain.GlobalParcel{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet,
+		"/parcels?general_category_id=3&status_id=107&unlinked_only=true", nil)
+
+	h.ListGlobalParcels(c)
+
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	mockSvc.AssertExpectations(t)
+}

@@ -3054,6 +3054,11 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 		args = append(args, filter.StatusID)
 		i++
 	}
+	if filter.GeneralCategoryID != 0 {
+		where += fmt.Sprintf(" AND la.general_category_id = $%d", i)
+		args = append(args, filter.GeneralCategoryID)
+		i++
+	}
 	if filter.ReleasedOnly {
 		where += " AND COALESCE(p.status, 0) IN (SELECT id FROM parcel_status WHERE is_released)"
 	}
@@ -3399,6 +3404,18 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			COALESCE(p.right_type, 0),
 			COALESCE(p.db_changed, ''),
 			COALESCE(p.changed_parcel_id, ''),
+			-- Хаяг — нэгж талбарын жагсаалттай ИЖИЛ: нэгжийн НЭР (код биш),
+			-- дээд нэгжийн код хоосон бол доод нэгжийнхээр нөхнө; дараа нь
+			-- гудамж, хашаа. CONCAT_WS нь NULL-ийг алгасна.
+			CONCAT_WS(', ',
+				(SELECT NULLIF(TRIM(a.name), '') FROM au1 a WHERE a.code = COALESCE(NULLIF(p.au1_code, ''),
+					(SELECT x.au1_code FROM au2 x WHERE x.code = p.au2_code LIMIT 1),
+					(SELECT x.au1_code FROM au3 x WHERE x.code = p.au3_code LIMIT 1)) LIMIT 1),
+				(SELECT NULLIF(TRIM(a.name), '') FROM au2 a WHERE a.code = COALESCE(NULLIF(p.au2_code, ''),
+					(SELECT x.au2_code FROM au3 x WHERE x.code = p.au3_code LIMIT 1)) LIMIT 1),
+				(SELECT NULLIF(TRIM(a.name), '') FROM au3 a WHERE a.code = p.au3_code LIMIT 1),
+				NULLIF(TRIM(p.address_streetname), ''),
+				NULLIF(TRIM(p.address_khashaa), '')),
 			COALESCE(p.status, 0),
 			COALESCE(ps.name, ''),
 			(SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id),
@@ -3429,6 +3446,7 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 		GROUP BY
 			p.id, p.parcel_id, p.area_m2, p.acquisition_area_m2,
 			p.remaining_area_m2, p.right_type, p.db_changed, p.changed_parcel_id, p.status, ps.name,
+			p.au1_code, p.au2_code, p.au3_code, p.address_streetname, p.address_khashaa,
 			la.id, la.acquisition_name, la.plan_code, gc.name, sc.name, la.decree_number, la.decree_date,
 			rh.last_name, rh.name, rh.register_no
 		ORDER BY la.acquisition_name, p.parcel_id
@@ -3450,6 +3468,7 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			&row.RightType,
 			&row.DbChanged,
 			&row.ChangedParcelID,
+			&row.Address,
 			&row.Status,
 			&row.StatusName,
 			&row.StatusDate,

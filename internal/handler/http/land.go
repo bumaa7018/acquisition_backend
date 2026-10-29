@@ -1305,8 +1305,6 @@ func (h *LandHandler) AdvanceStatus(c *gin.Context) {
 			response.Abort(c, http.StatusNotFound, i18n.ErrAcqNotFound)
 		case domain.ErrInvalidInput:
 			response.Abort(c, http.StatusUnprocessableEntity, i18n.ErrInvalidStatus)
-		case domain.ErrDecreeRequired:
-			response.Abort(c, http.StatusUnprocessableEntity, "НЗД-ын захирамжийн огноо, дугаарыг оруулна уу")
 		default:
 			response.Error(c, err)
 		}
@@ -1797,6 +1795,7 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 // @Param        acquisition_name  query  string  false  "Чөлөөлөлтийн нэр (ILIKE)"
 // @Param        status            query  int     false  "Чөлөөлөлтийн статус"
 // @Param        status_id         query  int     false  "Нэгж талбарын төлөв"
+// @Param        general_category_id query int    false  "Чөлөөлөлтийн ерөнхий ангилал"
 // @Param        unlinked_only     query  bool    false  "Идэвхтэй захирамжид холбогдоогүй нэгж талбар"
 // @Param        sort              query  string  false  "Эрэмбэлэх багана (parcel_id, acquisition_name, area_m2, compensation…)"
 // @Param        order             query  string  false  "Эрэмбийн чиглэл: asc | desc"
@@ -1812,22 +1811,23 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		}
 	}
 	filter := domain.GlobalParcelFilter{
-		ParcelID:        c.Query("parcel_id"),
-		RightType:       queryInt(c, "right_type", 0),
-		Landuse:         c.Query("landuse"),
-		AU3Code:         c.Query("au3_code"),
-		AcquisitionName: c.Query("acquisition_name"),
-		AcquisitionID:   c.Query("acquisition_id"),
-		PlanCode:        c.Query("plan_code"),
-		Status:          queryInt(c, "status", 0),
-		StatusID:        queryInt(c, "status_id", 0),
-		UnlinkedOnly:    strings.EqualFold(c.Query("unlinked_only"), "true") || c.Query("unlinked_only") == "1",
-		ReleasedOnly:    strings.EqualFold(c.Query("released_only"), "true") || c.Query("released_only") == "1",
-		Years:           years,
-		SortBy:          c.Query("sort"),
-		SortDir:         c.Query("order"),
-		Page:            page,
-		PageSize:        pageSize,
+		ParcelID:          c.Query("parcel_id"),
+		RightType:         queryInt(c, "right_type", 0),
+		Landuse:           c.Query("landuse"),
+		AU3Code:           c.Query("au3_code"),
+		AcquisitionName:   c.Query("acquisition_name"),
+		AcquisitionID:     c.Query("acquisition_id"),
+		PlanCode:          c.Query("plan_code"),
+		Status:            queryInt(c, "status", 0),
+		StatusID:          queryInt(c, "status_id", 0),
+		GeneralCategoryID: queryInt(c, "general_category_id", 0),
+		UnlinkedOnly:      strings.EqualFold(c.Query("unlinked_only"), "true") || c.Query("unlinked_only") == "1",
+		ReleasedOnly:      strings.EqualFold(c.Query("released_only"), "true") || c.Query("released_only") == "1",
+		Years:             years,
+		SortBy:            c.Query("sort"),
+		SortDir:           c.Query("order"),
+		Page:              page,
+		PageSize:          pageSize,
 	}
 	parcels, total, err := h.svc.ListGlobalParcels(c.Request.Context(), filter)
 	if err != nil {

@@ -1391,7 +1391,9 @@ type GlobalParcelFilter struct {
 	PlanCode        string
 	Status          int
 	StatusID        int
-	UnlinkedOnly    bool
+	// GeneralCategoryID — чөлөөлөлтийн ЕРӨНХИЙ ангилал (land_acquisition.general_category_id).
+	GeneralCategoryID int
+	UnlinkedOnly      bool
 	// ReleasedOnly — зөвхөн «Захирамжид холбогдоно» (is_released) төлөвтэй.
 	ReleasedOnly bool
 	Years        []int
@@ -1438,8 +1440,11 @@ type ReportParcelRow struct {
 	RightType         int
 	DbChanged         string
 	ChangedParcelID   string
-	Status            int
-	StatusName        string
+	// Address — аймаг/хот, сум/дүүрэг, баг/хорооны НЭР, гудамж, хашаа (", "-ээр
+	// залгасан; хоосон хэсэг алгасагдана).
+	Address    string
+	Status     int
+	StatusName string
 	// StatusDate — сүүлд статус өөрчлөгдсөн огноо (parcel_status_history-ээс);
 	// тайлангийн жагсаалтын дээд хэсэгт оноор нь бүлэглэхэд ашиглана.
 	StatusDate *time.Time
