@@ -140,7 +140,7 @@ func testRollback(t *testing.T, ctx context.Context, pool *pgxpool.Pool, svc *Se
 
 	listItem := func() SessionListItem {
 		t.Helper()
-		items, err := svc.List(ctx)
+		items, _, err := svc.List(ctx, ListFilter{PageSize: maxListPageSize})
 		require.NoError(t, err)
 		for _, it := range items {
 			if it.ID == id {

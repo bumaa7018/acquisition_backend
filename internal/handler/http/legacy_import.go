@@ -93,12 +93,18 @@ func (h *LegacyImportHandler) MatchAttachments(c *gin.Context) {
 }
 
 func (h *LegacyImportHandler) List(c *gin.Context) {
-	list, err := h.svc.List(c.Request.Context())
+	page := queryInt(c, "page", 1)
+	pageSize := queryInt(c, "page_size", 20)
+	list, total, err := h.svc.List(c.Request.Context(), legacyimport.ListFilter{
+		Query:    c.Query("q"),
+		Page:     page,
+		PageSize: pageSize,
+	})
 	if err != nil {
 		legacyImportError(c, err)
 		return
 	}
-	response.OK(c, list)
+	response.Paginated(c, list, total, page, pageSize)
 }
 
 // Create — body (заавал биш): {"mode": "full" | "valuation"}. Хоосон бол full.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -167,28 +168,73 @@ func (s *Service) Categories(ctx context.Context) ([]Category, error) {
 	})
 }
 
-// List — оруулсан/амжилтгүй/устгасан импортууд. Ноорог (оруулаагүй) жагсаалтад
-// харагдахгүй — удаан хөндөгдөөгүйг нь энд цэвэрлэнэ (purgeDrafts).
-func (s *Service) List(ctx context.Context) ([]SessionListItem, error) {
+// ListFilter — импортын жагсаалтын хуудаслалт ба чөлөөлөлтийн нэрээр хайлт.
+type ListFilter struct {
+	// Query — чөлөөлөлтийн нэрсийн аль нэгэнд агуулагдах текст (том/жижиг үсэг ялгахгүй).
+	Query    string
+	Page     int
+	PageSize int
+}
+
+const maxListPageSize = 100
+
+// likeEscaper — хэрэглэгчийн текстийн %, _ тэмдэгтийг ILIKE-ийн загвар биш,
+// жирийн тэмдэгт болгоно.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// List — оруулсан/амжилтгүй/устгасан импортууд (хуудаслалттай) ба нийт тоо.
+// Ноорог (оруулаагүй) жагсаалтад харагдахгүй — удаан хөндөгдөөгүйг нь энд
+// цэвэрлэнэ (purgeDrafts).
+func (s *Service) List(ctx context.Context, f ListFilter) ([]SessionListItem, int64, error) {
 	if err := s.purgeDrafts(ctx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	rows, err := s.db.Query(ctx, `SELECT id::text, created_by, created_at, updated_at, status, mode,
-			CASE WHEN mode = 'valuation' THEN COALESCE((reports->'stats'->>'projects')::int, 0)
-			     ELSE jsonb_array_length(COALESCE(boundary->'rows','[]')) END,
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.PageSize < 1 {
+		f.PageSize = 20
+	}
+	if f.PageSize > maxListPageSize {
+		f.PageSize = maxListPageSize
+	}
+	pattern := ""
+	if q := strings.TrimSpace(f.Query); q != "" {
+		pattern = "%" + likeEscaper.Replace(q) + "%"
+	}
+
+	// names — жагсаалтад харуулдаг ЯГ тэр нэрс (хайлт ч түүгээр).
+	const base = `WITH list AS (
+		SELECT s.*,
 			-- Оруулсан чөлөөлөлтийн нэрс; оруулж амжаагүй (амжилтгүй) бол үүсэх байсных.
 			CASE WHEN jsonb_array_length(COALESCE(result->'acquisitions'->'names', '[]')) > 0 THEN result->'acquisitions'->'names'
 			     WHEN mode = 'valuation' THEN jsonb_path_query_array(COALESCE(reports, '{}'), '$.projects[*].name')
-			     ELSE jsonb_path_query_array(COALESCE(boundary, '{}'), '$.rows[*].name') END,
+			     ELSE jsonb_path_query_array(COALESCE(boundary, '{}'), '$.rows[*].name') END AS names
+		FROM ` + stage + `.session s WHERE s.status <> 'draft'
+	), filtered AS (
+		SELECT * FROM list
+		 WHERE $1 = '' OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(names) n WHERE n ILIKE $1)
+	)`
+
+	var total int64
+	if err := s.db.QueryRow(ctx, base+` SELECT count(*) FROM filtered`, pattern).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.db.Query(ctx, base+` SELECT id::text, created_by, created_at, updated_at, status, mode,
+			CASE WHEN mode = 'valuation' THEN COALESCE((reports->'stats'->>'projects')::int, 0)
+			     ELSE jsonb_array_length(COALESCE(boundary->'rows','[]')) END,
+			names,
 			COALESCE((parcels->'stats'->>'total')::int, 0),
 			COALESCE((reports->'stats'->>'rows')::int, 0),
 			s.status = 'committed' AND EXISTS (SELECT 1 FROM `+stage+`.owned o WHERE o.session_id = s.id AND o.kind = 'land_acquisition'),
 			rollback
-		FROM `+stage+`.session s WHERE s.status <> 'draft' ORDER BY updated_at DESC LIMIT 50`)
+		FROM filtered s ORDER BY updated_at DESC, id LIMIT $2 OFFSET $3`,
+		pattern, f.PageSize, (f.Page-1)*f.PageSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (SessionListItem, error) {
+	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (SessionListItem, error) {
 		var it SessionListItem
 		var created, updated time.Time
 		err := r.Scan(&it.ID, &it.CreatedBy, &created, &updated, &it.Status, &it.Mode, &it.Acquisitions, &it.AcquisitionNames,
@@ -199,6 +245,7 @@ func (s *Service) List(ctx context.Context) ([]SessionListItem, error) {
 		it.CreatedAt, it.UpdatedAt = created.Format(time.RFC3339), updated.Format(time.RFC3339)
 		return it, err
 	})
+	return items, total, err
 }
 
 // draftIdleTTL — ноорог импорт ингэж удаан хөндөгдөөгүй бол устгагдана. Шууд

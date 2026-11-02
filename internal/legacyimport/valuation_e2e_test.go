@@ -327,7 +327,7 @@ func TestE2ELegacyImportValuationOnly(t *testing.T) {
 		"санд байсан нэгж талбар хөндөгдөхгүй")
 
 	// Жагсаалт: горим, төслийн тоо.
-	items, err := svc.List(ctx)
+	items, _, err := svc.List(ctx, ListFilter{PageSize: maxListPageSize})
 	require.NoError(t, err)
 	for _, it := range items {
 		if it.ID == id {
