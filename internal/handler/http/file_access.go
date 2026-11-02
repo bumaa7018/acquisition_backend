@@ -96,7 +96,7 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// decision — захирамжийн хавсралт: decision:read эрх ч уншиж болох эрхэд тооцогдоно.
 	if !middleware.IsValuationOrgCaller(c) &&
 		!callerHasPermission(c, "land:read") && !callerHasPermission(c, "compensation:read") &&
-		!(namespace == "decision" && callerHasPermission(c, "decision:read")) {
+		(namespace != "decision" || !callerHasPermission(c, "decision:read")) {
 		deny("no_read_permission")
 		return
 	}
