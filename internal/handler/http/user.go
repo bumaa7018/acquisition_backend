@@ -162,6 +162,8 @@ func (h *UserHandler) List(c *gin.Context) {
 	filter := domain.UserFilter{
 		Search:   c.Query("search"),
 		Role:     c.Query("role"),
+		SortBy:   c.Query("sort"),
+		SortDir:  c.Query("order"),
 		Page:     page,
 		PageSize: pageSize,
 	}

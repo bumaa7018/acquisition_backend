@@ -387,8 +387,10 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 	}
 
 	args = append(args, f.PageSize, (f.Page-1)*f.PageSize)
-	rows, err := r.db.Query(ctx, fmt.Sprintf(userSelectSQL+` %s ORDER BY u.created_at DESC NULLS LAST LIMIT $%d OFFSET $%d`,
-		where, argIdx, argIdx+1), args...)
+	rows, err := r.db.Query(ctx, fmt.Sprintf(userSelectSQL+` %s ORDER BY %s LIMIT $%d OFFSET $%d`,
+		where,
+		orderClause(userSortColumns, f.SortBy, f.SortDir, "u.created_at DESC NULLS LAST", "u.user_id"),
+		argIdx, argIdx+1), args...)
 	if err != nil {
 		return nil, 0, err
 	}

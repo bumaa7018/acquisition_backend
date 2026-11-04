@@ -1432,6 +1432,8 @@ type ReportParcelFilter struct {
 	CompensationType  string // 'cash' | 'land_grant' | '' (бүгд)
 	GeneralCategoryID int
 	SubCategoryID     int
+	SortBy            string // reportParcelSortColumns-ийн түлхүүр
+	SortDir           string // asc | desc
 	Page              int
 	PageSize          int
 }
@@ -1746,6 +1748,8 @@ type GlobalCompensationFilter struct {
 	Status        string // pending | approved | rejected | ""
 	Search        string // parcel_id эсвэл holder_name
 	AcquisitionID string
+	SortBy        string // globalCompensationSortColumns-ийн түлхүүр
+	SortDir       string // asc | desc
 	Page          int
 	PageSize      int
 }

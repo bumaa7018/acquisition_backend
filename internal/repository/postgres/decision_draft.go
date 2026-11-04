@@ -255,7 +255,10 @@ func (r *DecisionDraftRepo) List(ctx context.Context, f domain.DecisionDraftFilt
 	listSQL := decisionDraftSelect + " WHERE " + where +
 		// Шинэ нь эхэнд. Хуучин мэдээллийн импорт бүгд ИЖИЛ created_at-тай тул
 		// захирамжийн огноо, дугаараар, эцэст нь id-аар тогтвортой эрэмбэлнэ.
-		fmt.Sprintf(" ORDER BY d.created_at DESC, d.decision_date DESC NULLS LAST, d.proposal_no DESC NULLS LAST, d.id LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+		fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d",
+			orderClause(decisionDraftSortColumns, f.SortBy, f.SortDir,
+				"d.created_at DESC, d.decision_date DESC NULLS LAST, d.proposal_no DESC NULLS LAST", "d.id"),
+			len(args)+1, len(args)+2)
 	args = append(args, pageSize, (page-1)*pageSize)
 
 	rows, err := r.db.Query(ctx, listSQL, args...)

@@ -47,6 +47,8 @@ type UserFilter struct {
 	Search   string
 	Role     string
 	IsActive *bool
+	SortBy   string // userSortColumns-ийн түлхүүр
+	SortDir  string // asc | desc
 	Page     int
 	PageSize int
 }

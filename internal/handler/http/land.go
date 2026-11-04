@@ -1892,6 +1892,8 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 	}
 
 	filter := reportParcelFilterFromQuery(c)
+	filter.SortBy = c.Query("sort")
+	filter.SortDir = c.Query("order")
 	filter.Page = page
 	filter.PageSize = pageSize
 
@@ -4211,6 +4213,8 @@ func (h *LandHandler) ListAllCompensations(c *gin.Context) {
 		Status:        c.Query("status"),
 		Search:        c.Query("search"),
 		AcquisitionID: c.Query("acquisition_id"),
+		SortBy:        c.Query("sort"),
+		SortDir:       c.Query("order"),
 		Page:          page,
 		PageSize:      pageSize,
 	}
