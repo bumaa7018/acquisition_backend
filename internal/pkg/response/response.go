@@ -290,6 +290,16 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusBadRequest, i18n.ErrDecisionAttachment
 	case domain.ErrDecisionDocumentLocked:
 		return http.StatusConflict, i18n.ErrDecisionDocLocked
+	case domain.ErrLandReleaseDecreeRequired:
+		return http.StatusBadRequest, i18n.ErrLandReleaseDecree
+	case domain.ErrLandReleaseTransition:
+		return http.StatusConflict, i18n.ErrLandReleaseTransition
+	case domain.ErrLandReleaseNoFiles:
+		return http.StatusBadRequest, i18n.ErrLandReleaseNoFiles
+	case domain.ErrLandReleasePhoto:
+		return http.StatusBadRequest, i18n.ErrLandReleasePhoto
+	case domain.ErrLandReleaseStructureType:
+		return http.StatusBadRequest, i18n.ErrLandReleaseStructType
 	case domain.ErrParcelNotReleased:
 		return http.StatusUnprocessableEntity, i18n.ErrParcelNotReleased
 	case domain.ErrParcelAlreadyLinked:

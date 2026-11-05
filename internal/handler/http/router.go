@@ -139,8 +139,11 @@ func NewRouter(
 		var settingSvc service.SettingService
 		var legacyImportSvc *legacyimport.Service
 		var parcelSurveySvc service.ParcelSurveyService
+		var landReleaseSvc service.LandReleaseService
 		for _, svc := range optionalSvcs {
 			switch v := svc.(type) {
+			case service.LandReleaseService:
+				landReleaseSvc = v
 			case service.ParcelSurveyService:
 				parcelSurveySvc = v
 			case service.DecisionServices:
@@ -664,6 +667,23 @@ func NewRouter(
 			// Гараар шинэ эх үүсвэр бүртгэх (чөлөөлөлтгүй, бие даасан мөр)
 			protected.POST("/funding-sources",
 				middleware.RequirePermission("decision:create"), decisionH.CreateFundingSourceOption)
+		}
+		// Буулгалтын мэдээлэл — үндсэн нэгж талбараас тусдаа (land_release*).
+		if landReleaseSvc != nil {
+			landReleaseH := NewLandReleaseHandler(landReleaseSvc)
+			releases := protected.Group("/land-releases")
+			releases.Use(middleware.DenyAnyRole("professional_org"))
+			{
+				releases.GET("", middleware.RequirePermission("land:read"), landReleaseH.List)
+				releases.GET("/map", middleware.RequirePermission("land:read"), landReleaseH.Map)
+				releases.GET("/stats", middleware.RequirePermission("land:read"), landReleaseH.Stats)
+				releases.GET("/structure-types", middleware.RequirePermission("land:read"), landReleaseH.StructureTypes)
+				releases.GET("/:id", middleware.RequirePermission("land:read"), landReleaseH.Get)
+				releases.POST("/preview", middleware.RequirePermission("land:create"), landReleaseH.Preview)
+				releases.POST("", middleware.RequirePermission("land:create"), landReleaseH.Create)
+				releases.PATCH("/:id/status", middleware.RequirePermission("land:update"), landReleaseH.ChangeStatus)
+				releases.POST("/:id/photos", middleware.RequirePermission("land:update"), landReleaseH.AddPhoto)
+			}
 		}
 		if decisionSvcs.WorkType != nil {
 			workTypeH := NewDecisionOptionHandler(decisionSvcs.WorkType)

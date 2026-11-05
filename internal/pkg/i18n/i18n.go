@@ -134,6 +134,11 @@ const (
 	ErrDecisionConfirmed     Key = "decision_confirmed"
 	ErrDecisionAttachment    Key = "decision_attachment_required"
 	ErrDecisionDocLocked     Key = "decision_document_locked"
+	ErrLandReleaseDecree     Key = "land_release_decree_required"
+	ErrLandReleaseTransition Key = "land_release_transition"
+	ErrLandReleaseNoFiles    Key = "land_release_no_files"
+	ErrLandReleaseStructType Key = "land_release_structure_type_required"
+	ErrLandReleasePhoto      Key = "land_release_photo_invalid"
 	ErrParcelNotReleased     Key = "parcel_not_released"
 	ErrParcelAlreadyLinked   Key = "parcel_already_linked"
 	ErrDecisionAcqMismatch   Key = "decision_acq_mismatch"
@@ -252,6 +257,11 @@ var messages = map[Key][2]string{
 	ErrDecisionConfirmed:     {"Баталгаажсан захирамжийн төсөлд өөрчлөлт оруулах боломжгүй", "confirmed decision draft cannot be modified"},
 	ErrDecisionAttachment:    {"Захирамжийг баталгаажуулахад хавсралт файл (PDF) заавал хавсаргана", "an attachment file (PDF) is required to confirm the decision"},
 	ErrDecisionDocLocked:     {"Баталгаажсан захирамжийн хавсралтыг нэгж талбараас устгах боломжгүй", "a confirmed decision's attachment cannot be deleted from a parcel"},
+	ErrLandReleaseDecree:     {"«Захирамж гарч чөлөөлсөн» төлөвт захирамжийн дугаар болон файл (PDF) заавал оруулна", "a decree number and file (PDF) are required for the released status"},
+	ErrLandReleaseTransition: {"Төлөвийг зөвхөн «Төлөвлөж байгаа»-аас «Захирамж гарч чөлөөлсөн» эсвэл «Хүчингүй» болгох боломжтой", "status can only change from planning to released or cancelled"},
+	ErrLandReleaseNoFiles:    {"Shapefile (.shp эсвэл .zip) заавал оруулна", "a shapefile (.shp or .zip) is required"},
+	ErrLandReleasePhoto:      {"Зургийн файл PDF хэлбэртэй байх ёстой (зургийг PDF болгож оруулна)", "the photo file must be a PDF"},
+	ErrLandReleaseStructType: {"Буулгасан байгууламжийн төрлийг сонгох эсвэл шинээр оруулна уу", "select or enter a structure type"},
 	ErrParcelNotReleased:     {"Зөвхөн «Захирамжид холбогдоно» дүрэмтэй төлөвтэй (жишээ нь 'Чөлөөлсөн') нэгж талбарыг захирамжид холбоно", "only released parcels can be linked to a decision draft"},
 	ErrParcelAlreadyLinked:   {"Тухайн нэгж талбар өөр захирамжид аль хэдийн холбогдсон байна", "parcel is already linked to another decision draft"},
 	ErrDecisionAcqMismatch:   {"Захирамжид өөр чөлөөлөлтөд харьяалагдах нэгж талбар холбох боломжгүй", "parcel belongs to a different land acquisition"},

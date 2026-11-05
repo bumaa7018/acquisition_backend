@@ -74,7 +74,7 @@ test-cover:
 
 lint:
 	@command -v go >/dev/null 2>&1 || (echo "Go олдсонгүй. Go суулгаад дахин ажиллуулна уу." && exit 1)
-	@test -x "$(GOLANGCI_LINT)" || (echo "golangci-lint суулгаж байна..." && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0)
+	@"$(GOLANGCI_LINT)" --version 2>/dev/null | grep -q 'version v\{0,1\}2\.' || (echo "golangci-lint v2 суулгаж байна..." && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0)
 	"$(GOLANGCI_LINT)" run ./...
 
 # Хоёр DB-д зэрэг migration

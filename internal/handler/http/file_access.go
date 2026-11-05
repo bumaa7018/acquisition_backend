@@ -135,6 +135,12 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 	// хавсралтаар (тэр нэгж талбарын дүрмээр) уншина.
 	case "decision":
 		err = h.authorizeDecision(c, ownerID)
+	// land-release — «Буулгалтын мэдээлэл»-ийн захирамж. Эзэн нь тусдаа (нэгж
+	// талбар/чөлөөлөлттэй холбоогүй) тул цэсний эрхээр (land:read) л уншина.
+	case "land-release":
+		if middleware.IsValuationOrgCaller(c) || !callerHasPermission(c, "land:read") {
+			err = domain.ErrForbidden
+		}
 	default:
 		// Танихгүй namespace — зөвшөөрөхгүй (шинэ төрөл нэмэгдвэл энд бүртгэнэ).
 		err = domain.ErrForbidden

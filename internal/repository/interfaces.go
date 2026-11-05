@@ -618,3 +618,19 @@ type ClientRequestRepository interface {
 	Create(ctx context.Context, r *domain.ClientRequest) error
 	List(ctx context.Context, filter domain.ClientRequestFilter) ([]*domain.ClientRequest, int64, error)
 }
+
+// LandReleaseRepository — «Буулгалтын мэдээлэл» (land_release* хүснэгтүүд,
+// үндсэн нэгж талбартай холилдохгүй).
+type LandReleaseRepository interface {
+	AreasOf(ctx context.Context, wkts []string) ([]float64, error)
+	CreateImport(ctx context.Context, imp *domain.LandReleaseImport, features []domain.LandReleaseFeature, decree *domain.LandReleaseDecree) (int, error)
+	ChangeStatus(ctx context.Context, id string, from, to int, decree *domain.LandReleaseDecree, note, actor string) error
+	List(ctx context.Context, f domain.LandReleaseFilter) ([]*domain.LandRelease, int64, error)
+	GetByID(ctx context.Context, id string) (*domain.LandRelease, error)
+	ListHistory(ctx context.Context, id string) ([]*domain.LandReleaseHistory, error)
+	MapItems(ctx context.Context, f domain.LandReleaseFilter) ([]domain.LandReleaseMapItem, error)
+	Stats(ctx context.Context, f domain.LandReleaseFilter) (*domain.LandReleaseStats, error)
+	ListStructureTypes(ctx context.Context) ([]*domain.LandReleaseStructureType, error)
+	AddPhoto(ctx context.Context, releaseID string, p *domain.LandReleasePhoto) error
+	ListPhotos(ctx context.Context, releaseID string) ([]*domain.LandReleasePhoto, error)
+}

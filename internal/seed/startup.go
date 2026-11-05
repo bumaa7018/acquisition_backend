@@ -6,6 +6,7 @@ import (
 
 	"acquisition_backend/internal/config"
 	"acquisition_backend/internal/pkg/filestorage"
+	"acquisition_backend/internal/repository/landreleasesql"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -224,6 +225,15 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 			name: "000059_document_types_decree",
 			run: func(ctx context.Context) error {
 				return NewMainSeeder(mainDB).seedDocumentTypes(ctx)
+			},
+		},
+		{
+			// Migration 000062: өмнө оруулсан буулгалтын газруудын сум/дүүрэг
+			// (байршлаар). Шинэ оруулалтад repo өөрөө тооцдог.
+			name: "000062_land_release_district",
+			run: func(ctx context.Context) error {
+				_, err := mainDB.Exec(ctx, landreleasesql.AssignDistrictsSQL, nil)
+				return err
 			},
 		},
 	}); err != nil {

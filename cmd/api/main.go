@@ -110,6 +110,7 @@ func main() {
 	parcelStatusRepo := postgres.NewParcelStatusRepo(mainDB)
 	documentTypeRepo := postgres.NewDocumentTypeRepo(mainDB)
 	decisionDraftRepo := postgres.NewDecisionDraftRepo(mainDB)
+	landReleaseRepo := postgres.NewLandReleaseRepo(mainDB)
 	decisionWorkTypeRepo := postgres.NewDecisionWorkTypeRepo(mainDB)
 	decisionBudgetRepo := postgres.NewDecisionBudgetRepo(mainDB)
 	decisionReviewUnitRepo := postgres.NewDecisionReviewUnitRepo(mainDB)
@@ -298,7 +299,9 @@ func main() {
 		Password: cfg.Middleware.Password,
 	}).WithCleanup(fileStorage, droneStorage) // «Хасах» үед файл ба дроны давхарга
 
-	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, parcelSurveySvc, legacyImportSvc, externalAPIKeys)
+	landReleaseSvc := service.NewLandReleaseService(landReleaseRepo, fileStorage)
+
+	router := handler.NewRouter(mainDB, jwtManager, authSvc, userSvc, roleSvc, permSvc, landSvc, planSvc, parcelStatusSvc, documentTypeSvc, notificationSvc, auditSvc, clientRequestSvc, organizationSvc, departmentSvc, positionSvc, personSvc, employeeSvc, valuationOrgSvc, decisionSvcs, menuSvc, settingSvc, parcelSurveySvc, legacyImportSvc, landReleaseSvc, externalAPIKeys)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.App.Port,
