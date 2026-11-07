@@ -241,6 +241,32 @@ func (r *landAcqRepo) Create(ctx context.Context, acq *domain.LandAcquisition) e
 	return err
 }
 
+// parcelYearExpr — нэгж талбарын "он"-ыг тооцох илэрхийлэл (оноор шүүхэд).
+// Үндсэндээ статус хамгийн сүүлд өөрчлөгдсөн огноо; статус хараахан
+// өөрчлөгдөөгүй (түүхгүй) талбарт чөлөөлөлтийн эхлэх огноо, тэр нь хоосон
+// бол үүсгэсэн огноог авна — эс бөгөөс шинэ ажил ямар ч онд харагдахгүй.
+func parcelYearExpr(p string) string {
+	return `EXTRACT(YEAR FROM COALESCE(
+		(SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = ` + p + `.parcel_id),
+		(SELECT COALESCE(la_yr.start_date::timestamptz, la_yr.created_at)
+		   FROM land_acquisition la_yr WHERE la_yr.id = ` + p + `.acquisition_id)))`
+}
+
+// acquisitionYearCond — чөлөөлөлтийг оноор шүүх нөхцөл: аль нэг нэгж талбарын
+// он (parcelYearExpr) таарвал, нэгж талбаргүй бол өөрийн эхлэх/үүсгэсэн огноогоор.
+func acquisitionYearCond(la, placeholders string) string {
+	return fmt.Sprintf(`(
+		EXISTS (
+			SELECT 1 FROM parcel p_yr
+			WHERE p_yr.acquisition_id = %[1]s.id AND %[2]s IN (%[3]s)
+		)
+		OR (
+			NOT EXISTS (SELECT 1 FROM parcel p_yr WHERE p_yr.acquisition_id = %[1]s.id)
+			AND EXTRACT(YEAR FROM COALESCE(%[1]s.start_date::timestamptz, %[1]s.created_at)) IN (%[3]s)
+		)
+	)`, la, parcelYearExpr("p_yr"), placeholders)
+}
+
 func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFilter) ([]*domain.LandAcquisition, int64, error) {
 	args := []any{}
 	where := "la.deleted_at IS NULL" // soft delete: устгасан чөлөөлөлт жагсаалтад орохгүй
@@ -323,13 +349,14 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			args = append(args, yr)
 			i++
 		}
-		where += fmt.Sprintf(` AND EXISTS (
-			SELECT 1 FROM parcel p_yr
-			WHERE p_yr.acquisition_id = la.id
-			AND EXTRACT(YEAR FROM (
-				SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p_yr.parcel_id
-			)) IN (%s)
-		)`, strings.Join(placeholders, ","))
+		where += " AND " + acquisitionYearCond("la", strings.Join(placeholders, ","))
+	}
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
 	}
 	if filter.AssignedUserID != "" {
 		where += fmt.Sprintf(` AND EXISTS (
@@ -3008,6 +3035,13 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 	args := []any{}
 	where := "la.deleted_at IS NULL" // soft delete: устгасан чөлөөлөлтийн нэгж талбар харагдахгүй
 	i := 1
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
+	}
 
 	if filter.ParcelID != "" {
 		where += fmt.Sprintf(" AND p.parcel_id ILIKE $%d", i)
@@ -3077,9 +3111,7 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 			args = append(args, yr)
 			i++
 		}
-		where += fmt.Sprintf(` AND EXTRACT(YEAR FROM (
-			SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
-		)) IN (%s)`, strings.Join(placeholders, ","))
+		where += fmt.Sprintf(" AND "+parcelYearExpr("p")+" IN (%s)", strings.Join(placeholders, ","))
 	}
 
 	var total int64
@@ -3235,9 +3267,7 @@ func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 			args = append(args, yr)
 			i++
 		}
-		where += fmt.Sprintf(` AND EXTRACT(YEAR FROM (
-			SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
-		)) IN (%s)`, strings.Join(placeholders, ","))
+		where += fmt.Sprintf(" AND "+parcelYearExpr("p")+" IN (%s)", strings.Join(placeholders, ","))
 	}
 	if filter.CompensationType != "" {
 		where += fmt.Sprintf(` AND EXISTS (
@@ -3461,9 +3491,12 @@ func (r *landAcqRepo) ListReportParcels(ctx context.Context, filter domain.Repor
 			p.au1_code, p.au2_code, p.au3_code, p.address_streetname, p.address_khashaa,
 			la.id, la.acquisition_name, la.plan_code, gc.name, sc.name, la.decree_number, la.decree_date,
 			rh.last_name, rh.name, rh.register_no
-		ORDER BY la.acquisition_name, p.parcel_id
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, where, i, i+1), append(args, pageSize, offset)...)
+	`, where,
+		orderClause(reportParcelSortColumns, filter.SortBy, filter.SortDir,
+			"la.acquisition_name, p.parcel_id", "p.id"),
+		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -4962,16 +4995,18 @@ func (r *landAcqRepo) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU
 	return result, rows.Err()
 }
 
-func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
+func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
-		FROM land_acquisition
-		WHERE deleted_at IS NULL
-		  AND (acquisition_name ILIKE $1 OR plan_code ILIKE $1)
-		  AND ($2 = 0 OR status = $2)
-		ORDER BY acquisition_name
+		SELECT la.id, COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,'')
+		FROM land_acquisition la
+		WHERE la.deleted_at IS NULL
+		  AND (la.acquisition_name ILIKE $1 OR la.plan_code ILIKE $1)
+		  AND ($2 = 0 OR la.status = $2)
+		  AND ($3::int4 IS NULL OR la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $3::int4))
+		ORDER BY la.acquisition_name
 		LIMIT 20
-	`, "%"+q+"%", status)
+	`, "%"+q+"%", status, departmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -5034,12 +5069,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			args = append(args, yr)
 			i++
 		}
-		where += fmt.Sprintf(` AND la.id IN (
-			SELECT DISTINCT p.acquisition_id FROM parcel p
-			WHERE EXTRACT(YEAR FROM (
-				SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
-			)) IN (%s)
-		)`, strings.Join(yearPlaceholders, ","))
+		where += " AND " + acquisitionYearCond("la", strings.Join(yearPlaceholders, ","))
 	}
 	if filter.GeneralCategoryID != 0 {
 		where += fmt.Sprintf(" AND la.general_category_id = $%d", i)
@@ -5185,9 +5215,7 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 			pargs = append(pargs, yr)
 			pi++
 		}
-		parcelYearCond = fmt.Sprintf(` AND EXTRACT(YEAR FROM (
-			SELECT MAX(psh.status_date) FROM parcel_status_history psh WHERE psh.parcel_id = p.parcel_id
-		)) IN (%s)`, strings.Join(ph, ","))
+		parcelYearCond = fmt.Sprintf(" AND "+parcelYearExpr("p")+" IN (%s)", strings.Join(ph, ","))
 	}
 	parcelScopeCond, scopeArgs := buildParcelScope(pi)
 	pargs = append(pargs, scopeArgs...)
@@ -5741,6 +5769,36 @@ func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID
 		)
 	`, parcelID, userID).Scan(&exists)
 	return exists, err
+}
+
+// AcquisitionDepartmentID — чөлөөлөлтийг хариуцсан хэлтэс (ерөнхий
+// ангиллын department_id). Ангилалгүй / хэлтэс тодорхойлоогүй / олдоогүй бол nil.
+func (r *landAcqRepo) AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error) {
+	var deptID *int
+	err := r.db.QueryRow(ctx, `
+		SELECT c.department_id
+		FROM land_acquisition la
+		JOIN acquisition_category c ON c.id = la.general_category_id
+		WHERE la.id = $1`, acquisitionID).Scan(&deptID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return deptID, err
+}
+
+// ParcelDepartmentID — нэгж талбарын чөлөөлөлтийг хариуцсан хэлтэс.
+func (r *landAcqRepo) ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error) {
+	var deptID *int
+	err := r.db.QueryRow(ctx, `
+		SELECT c.department_id
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		JOIN acquisition_category c ON c.id = la.general_category_id
+		WHERE p.id = $1`, parcelID).Scan(&deptID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return deptID, err
 }
 
 func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {
@@ -7082,9 +7140,12 @@ func (r *landAcqRepo) ListAllCompensations(ctx context.Context, filter domain.Gl
 		       COALESCE(rh.name,''), COALESCE(rh.last_name,''),
 		       COALESCE(rh.register_no,''), COALESCE(rh.phone,'')
 		%s
-		ORDER BY c.created_at DESC
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, joinSQL, i, i+1), append(args, pageSize, offset)...)
+	`, joinSQL,
+		orderClause(globalCompensationSortColumns, filter.SortBy, filter.SortDir,
+			"c.created_at DESC", "c.id"),
+		i, i+1), append(args, pageSize, offset)...)
 	if err != nil {
 		return nil, 0, err
 	}

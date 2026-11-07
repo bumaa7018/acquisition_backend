@@ -44,6 +44,8 @@ type AuditLogFilter struct {
 	ParcelID      *uuid.UUID
 	CreatedFrom   *time.Time
 	CreatedTo     *time.Time
+	SortBy        string // auditLogSortColumns-ийн түлхүүр
+	SortDir       string // asc | desc
 	Page          int
 	PageSize      int
 }

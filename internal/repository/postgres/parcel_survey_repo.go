@@ -156,8 +156,10 @@ func (r *parcelSurveyRepo) List(ctx context.Context, filter domain.ParcelSurveyF
 		SELECT `+parcelSurveyColumns+`,
 		       p.parcel_id, p.acquisition_id, la.acquisition_name, COALESCE(p.au3_code,'')`+
 		from+where+`
-		ORDER BY s.updated_at DESC, s.id
-		LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`,
+		orderClause(parcelSurveySortColumns, filter.SortBy, filter.SortDir, "s.updated_at DESC", "s.id"),
+		len(args)-1, len(args)), args...)
 	if err != nil {
 		return nil, 0, err
 	}

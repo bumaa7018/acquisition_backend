@@ -41,6 +41,20 @@ func (r Role) Level() string {
 	return r.Name
 }
 
+// MaxSystemAdmins — системийн админ (хэлтэсгүй, бүх хэлтсийг хардаг цорын
+// ганц роль) нийт 3-аас хэтрэхгүй.
+const MaxSystemAdmins = 3
+
+// IsSystemAdminLevel — ролийн түвшин (JWT-ийн roles) системийн админ эсэх.
+func IsSystemAdminLevel(level string) bool {
+	return level == "admin" || level == "Админ"
+}
+
+// IsSystemAdmin — энэ роль системийн админы роль эсэх.
+func (r Role) IsSystemAdmin() bool {
+	return IsSystemAdminLevel(r.Level())
+}
+
 // RoleLevelProfessionalOrg — мэргэжлийн байгууллагын түвшин
 // (compensation_professional_org).
 const RoleLevelProfessionalOrg = "professional_org"

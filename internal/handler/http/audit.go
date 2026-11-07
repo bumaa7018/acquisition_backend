@@ -26,6 +26,8 @@ func (h *AuditHandler) List(c *gin.Context) {
 		Action:       c.Query("action"),
 		ResourceType: c.Query("resource_type"),
 		ResourceID:   c.Query("resource_id"),
+		SortBy:       c.Query("sort"),
+		SortDir:      c.Query("order"),
 		Page:         queryInt(c, "page", 1),
 		PageSize:     queryInt(c, "page_size", 20),
 	}

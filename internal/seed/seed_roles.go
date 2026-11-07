@@ -20,6 +20,7 @@ import (
 var roleDescriptions = map[string]string{
 	"admin":                 "Системийн администратор",
 	"senior_specialist":     "Ахлах мэргэжилтэн",
+	"department_head":       "Хэлтсийн дарга",
 	"employee":              "Мэргэжилтэн",
 	"decision_registration": "Захирамж бүртгэл",
 	"mika":                  "МИКА",
@@ -38,6 +39,8 @@ func systemRoleCode(level string) string {
 		return "A102"
 	case "decision_registration":
 		return "A103"
+	case "department_head":
+		return "A104"
 	default:
 		return ""
 	}

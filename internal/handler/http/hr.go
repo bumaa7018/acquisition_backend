@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"acquisition_backend/internal/domain"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/i18n"
 	"acquisition_backend/internal/pkg/response"
 	"acquisition_backend/internal/service"
@@ -377,6 +378,15 @@ func (h *HRHandler) ListEmployees(c *gin.Context) {
 	f, ok := hrFilter(c)
 	if !ok {
 		return
+	}
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн ажилтныг (хэлтсийн
+	// дарга хэрэглэгч үүсгэхдээ ажилтан сонгоно).
+	if !middleware.IsSystemAdmin(c) {
+		f.DepartmentID = middleware.CallerDepartmentID(c)
+		if f.DepartmentID == nil {
+			response.Paginated(c, []*domain.Employee{}, 0, f.Page, f.PageSize)
+			return
+		}
 	}
 	list, total, err := h.empSvc.List(c.Request.Context(), f)
 	if err != nil {

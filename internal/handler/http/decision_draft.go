@@ -57,6 +57,8 @@ func (h *DecisionDraftHandler) List(c *gin.Context) {
 		FundingSourceID: c.Query("funding_source_id"),
 		WorkTypeID:      queryInt(c, "work_type_id", 0),
 		BudgetID:        queryInt(c, "budget_id", 0),
+		SortBy:          c.Query("sort"),
+		SortDir:         c.Query("order"),
 		Page:            page,
 		PageSize:        pageSize,
 	}

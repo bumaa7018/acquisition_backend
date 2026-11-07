@@ -20,6 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testDepartment — тестийн дуудагч ба байны нийтлэг хэлтэс.
+var testDepartment = domain.ID(7)
+
+// sameDepartment — дуудагчийг АДМИН БИШ, байтай ИЖИЛ хэлтэст байлгана.
+// Хэлтсийн хязгаарлалтаас бусад дүрмийг шалгах тестүүд үүгээр эхэлнэ.
+func sameDepartment(c *gin.Context, svc *mocks.MockUserService) {
+	c.Set(middleware.CtxDepartmentID, testDepartment)
+	dept := testDepartment
+	svc.On("DepartmentOf", mock.Anything, mock.Anything).Return(&dept, nil).Maybe()
+}
+
 func TestUserHandler_GetByID_Success(t *testing.T) {
 	mockSvc := &mocks.MockUserService{}
 	h := handler.NewUserHandler(mockSvc, &mocks.MockRoleService{})
@@ -30,6 +41,7 @@ func TestUserHandler_GetByID_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodGet, "/users/"+strconv.Itoa(int(id)), nil)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
@@ -51,6 +63,7 @@ func TestUserHandler_GetByID_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodGet, "/users/"+strconv.Itoa(int(id)), nil)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
@@ -65,6 +78,7 @@ func TestUserHandler_GetByID_InvalidID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodGet, "/users/bad-id", nil)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: "bad-id"}}
 
@@ -83,6 +97,7 @@ func TestUserHandler_GetMe(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodGet, "/users/me", nil)
 	c.Set(middleware.CtxUserID, id)
 
@@ -101,6 +116,7 @@ func TestUserHandler_Delete_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/users/"+strconv.Itoa(int(id)), nil)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
 
@@ -116,14 +132,16 @@ func TestUserHandler_List(t *testing.T) {
 
 	users := []*domain.User{{ID: domain.ID(5), Username: "user1"}}
 	mockSvc.On("List", mock.Anything, domain.UserFilter{
-		Search:   "",
-		Role:     "professional_org",
-		Page:     2,
-		PageSize: 25,
+		Search:       "",
+		Role:         "professional_org",
+		DepartmentID: &testDepartment,
+		Page:         2,
+		PageSize:     25,
 	}).Return(users, int64(1), nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodGet, "/users?role=professional_org&page=2&page_size=25", nil)
 
 	h.List(c)
@@ -144,10 +162,14 @@ func TestUserHandler_Create_Success(t *testing.T) {
 		FirstName: "New",
 		LastName:  "User",
 		IsActive:  &active,
+
+		RequireDepartment: true,
+		ScopeDepartmentID: &testDepartment,
 	}).Return(user, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	body := `{"username":"newuser","password":"Password123!","first_name":"New","last_name":"User","is_active":true}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -164,6 +186,7 @@ func TestUserHandler_Create_ValidationError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	body := `{"password":"short"}`
 	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -183,6 +206,7 @@ func TestUserHandler_Update_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	body := `{"first_name":"Updated"}`
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(id)), bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -200,6 +224,7 @@ func TestUserHandler_Update_InvalidUUID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: "bad-uuid"}}
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/bad-uuid", bytes.NewBufferString(`{}`))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -221,6 +246,7 @@ func TestUserHandler_ChangePassword_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(9))
 	c.Set(middleware.CtxPermissions, []string{"users:update", "land:read"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(id))+"/password",
@@ -242,6 +268,7 @@ func TestUserHandler_ChangePassword_TooShort(t *testing.T) {
 	id := domain.ID(10)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(id))+"/password",
 		bytes.NewBufferString(`{"password":"Short1!"}`))
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -262,6 +289,7 @@ func TestUserHandler_Delete_RejectsSelf(t *testing.T) {
 	id := domain.ID(11)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, id)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/users/"+strconv.Itoa(int(id)), nil)
 	c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(id))}}
@@ -279,6 +307,7 @@ func TestUserHandler_Update_RejectsSelfDeactivation(t *testing.T) {
 	id := domain.ID(12)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, id)
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(id)),
 		bytes.NewBufferString(`{"is_active":false}`))
@@ -304,6 +333,7 @@ func TestUserHandler_Update_AllowsDeactivatingOthers(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, callerID)
 	c.Set(middleware.CtxPermissions, []string{"users:update", "land:read"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(targetID)),
@@ -337,6 +367,7 @@ func TestUserHandler_AssignRole_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(17))
 	c.Set(middleware.CtxPermissions, []string{"land:read", "users:update"})
 	body, _ := json.Marshal(map[string]string{"role_id": strconv.Itoa(int(roleID))})
@@ -370,6 +401,7 @@ func TestUserHandler_AssignRole_RejectsPrivilegeEscalation(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(20))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	body, _ := json.Marshal(map[string]string{"role_id": strconv.Itoa(int(roleID))})
@@ -394,6 +426,7 @@ func TestUserHandler_AssignRole_RejectsSelf(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, selfID)
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	body, _ := json.Marshal(map[string]string{"role_id": strconv.Itoa(int(roleID))})
@@ -423,6 +456,7 @@ func TestUserHandler_RemoveRole_RejectsHigherPrivilegeRole(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(25))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodDelete,
@@ -454,6 +488,7 @@ func TestUserHandler_Create_RejectsEscalatingRoleBeforeCreating(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxPermissions, []string{"users:create"})
 	body, _ := json.Marshal(map[string]any{
 		"username":   "newuser",
@@ -486,6 +521,7 @@ func TestUserHandler_ChangePassword_RejectsHigherPrivilegedTarget(t *testing.T) 
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(28))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(adminID))+"/password",
@@ -512,6 +548,7 @@ func TestUserHandler_Update_RejectsHigherPrivilegedTarget(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(30))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(adminID)),
@@ -536,6 +573,7 @@ func TestUserHandler_Update_AllowsSelfEdit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, selfID)
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(selfID)),
@@ -562,6 +600,7 @@ func TestUserHandler_Update_AllowsNonEmailEditOfHigherPrivilegedTarget(t *testin
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(33))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(adminID)),
@@ -591,6 +630,7 @@ func TestUserHandler_Update_UnchangedEmailSkipsRankCheck(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	sameDepartment(c, mockSvc)
 	c.Set(middleware.CtxUserID, domain.ID(35))
 	c.Set(middleware.CtxPermissions, []string{"users:update"})
 	c.Request = httptest.NewRequest(http.MethodPut, "/users/"+strconv.Itoa(int(targetID)),
@@ -602,4 +642,195 @@ func TestUserHandler_Update_UnchangedEmailSkipsRankCheck(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	mockSvc.AssertNotCalled(t, "GetPermissions", mock.Anything, mock.Anything)
+}
+
+// ── Хэлтсээр хязгаарлах ─────────────────────────────────────────────────
+
+func TestUserHandler_List_SystemAdminSeesAllDepartments(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc, &mocks.MockRoleService{})
+	mockSvc.On("List", mock.Anything, domain.UserFilter{Page: 1, PageSize: 20}).
+		Return([]*domain.User{}, int64(0), nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
+	c.Set(middleware.CtxDepartmentID, testDepartment)
+	c.Request = httptest.NewRequest(http.MethodGet, "/users", nil)
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_List_NoDepartmentSeesNobody(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	h := handler.NewUserHandler(mockSvc, &mocks.MockRoleService{})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"department_head"})
+	c.Request = httptest.NewRequest(http.MethodGet, "/users", nil)
+
+	h.List(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertNotCalled(t, "List", mock.Anything, mock.Anything)
+}
+
+func TestUserHandler_OtherDepartmentTargetIsForbidden(t *testing.T) {
+	other := domain.ID(99)
+	target := domain.ID(3)
+	cases := map[string]func(h *handler.UserHandler, c *gin.Context){
+		"get": func(h *handler.UserHandler, c *gin.Context) {
+			c.Request = httptest.NewRequest(http.MethodGet, "/users/3", nil)
+			h.GetByID(c)
+		},
+		"update": func(h *handler.UserHandler, c *gin.Context) {
+			c.Request = httptest.NewRequest(http.MethodPut, "/users/3", bytes.NewBufferString(`{"first_name":"X"}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			h.Update(c)
+		},
+		"delete": func(h *handler.UserHandler, c *gin.Context) {
+			c.Request = httptest.NewRequest(http.MethodDelete, "/users/3", nil)
+			h.Delete(c)
+		},
+		"password": func(h *handler.UserHandler, c *gin.Context) {
+			c.Request = httptest.NewRequest(http.MethodPut, "/users/3/password", bytes.NewBufferString(`{"password":"Password123"}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			h.ChangePassword(c)
+		},
+		"assign role": func(h *handler.UserHandler, c *gin.Context) {
+			c.Request = httptest.NewRequest(http.MethodPost, "/users/3/roles", bytes.NewBufferString(`{"role_id":"5"}`))
+			c.Request.Header.Set("Content-Type", "application/json")
+			h.AssignRole(c)
+		},
+		"remove role": func(h *handler.UserHandler, c *gin.Context) {
+			c.Params = append(c.Params, gin.Param{Key: "role_id", Value: "5"})
+			c.Request = httptest.NewRequest(http.MethodDelete, "/users/3/roles/5", nil)
+			h.RemoveRole(c)
+		},
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockSvc := &mocks.MockUserService{}
+			h := handler.NewUserHandler(mockSvc, &mocks.MockRoleService{})
+			mockSvc.On("DepartmentOf", mock.Anything, target).Return(&other, nil)
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Set(middleware.CtxUserID, domain.ID(1))
+			c.Set(middleware.CtxRoles, []string{"department_head"})
+			c.Set(middleware.CtxDepartmentID, testDepartment)
+			c.Params = gin.Params{gin.Param{Key: "id", Value: "3"}}
+
+			run(h, c)
+
+			assert.Equal(t, http.StatusForbidden, w.Code)
+			mockSvc.AssertNotCalled(t, "GetByID", mock.Anything, mock.Anything)
+			mockSvc.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+			mockSvc.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+			mockSvc.AssertNotCalled(t, "ChangePassword", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestUserHandler_Create_AdminRoleSkipsDepartmentRequirement(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	roleSvc := &mocks.MockRoleService{}
+	h := handler.NewUserHandler(mockSvc, roleSvc)
+
+	adminRole := &domain.Role{ID: domain.ID(1), Name: "admin",
+		Permissions: []domain.Permission{{Name: "land:read", Resource: "land"}}}
+	roleSvc.On("GetByID", mock.Anything, domain.ID(1)).Return(adminRole, nil)
+	roleSvc.On("AssignToUser", mock.Anything, domain.ID(6), domain.ID(1)).Return(nil)
+	mockSvc.On("EnsureSystemAdminSlot", mock.Anything, (*domain.ID)(nil)).Return(nil)
+	mockSvc.On("Create", mock.Anything, mock.MatchedBy(func(req service.CreateUserRequest) bool {
+		return !req.RequireDepartment && req.ScopeDepartmentID == nil
+	})).Return(&domain.User{ID: domain.ID(6)}, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
+	body := `{"username":"root2","password":"Password123!","role_ids":["1"]}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Create(c)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_Create_SystemAdminLimit(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	roleSvc := &mocks.MockRoleService{}
+	h := handler.NewUserHandler(mockSvc, roleSvc)
+
+	adminRole := &domain.Role{ID: domain.ID(1), Name: "admin",
+		Permissions: []domain.Permission{{Name: "land:read", Resource: "land"}}}
+	roleSvc.On("GetByID", mock.Anything, domain.ID(1)).Return(adminRole, nil)
+	mockSvc.On("EnsureSystemAdminSlot", mock.Anything, (*domain.ID)(nil)).Return(domain.ErrSystemAdminLimit)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
+	body := `{"username":"root4","password":"Password123!","role_ids":["1"]}`
+	c.Request = httptest.NewRequest(http.MethodPost, "/users", bytes.NewBufferString(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.Create(c)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	mockSvc.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}
+
+func TestUserHandler_AssignRole_SystemAdminLimit(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	roleSvc := &mocks.MockRoleService{}
+	h := handler.NewUserHandler(mockSvc, roleSvc)
+
+	target := domain.ID(3)
+	adminRole := &domain.Role{ID: domain.ID(1), Name: "admin",
+		Permissions: []domain.Permission{{Name: "land:read", Resource: "land"}}}
+	roleSvc.On("GetByID", mock.Anything, domain.ID(1)).Return(adminRole, nil)
+	mockSvc.On("EnsureSystemAdminSlot", mock.Anything, &target).Return(domain.ErrSystemAdminLimit)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, domain.ID(1))
+	c.Set(middleware.CtxRoles, []string{"admin"})
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "3"}}
+	c.Request = httptest.NewRequest(http.MethodPost, "/users/3/roles", bytes.NewBufferString(`{"role_id":"1"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	h.AssignRole(c)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	roleSvc.AssertNotCalled(t, "AssignToUser", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUserHandler_RemoveRole_AdminFromDepartmentlessUser(t *testing.T) {
+	mockSvc := &mocks.MockUserService{}
+	roleSvc := &mocks.MockRoleService{}
+	h := handler.NewUserHandler(mockSvc, roleSvc)
+
+	target := domain.ID(3)
+	adminRole := &domain.Role{ID: domain.ID(1), Name: "admin",
+		Permissions: []domain.Permission{{Name: "land:read", Resource: "land"}}}
+	roleSvc.On("GetByID", mock.Anything, domain.ID(1)).Return(adminRole, nil)
+	mockSvc.On("DepartmentOf", mock.Anything, target).Return(nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxUserID, domain.ID(1))
+	c.Set(middleware.CtxRoles, []string{"admin"})
+	c.Params = gin.Params{gin.Param{Key: "id", Value: "3"}, gin.Param{Key: "role_id", Value: "1"}}
+	c.Request = httptest.NewRequest(http.MethodDelete, "/users/3/roles/1", nil)
+
+	h.RemoveRole(c)
+
+	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
+	roleSvc.AssertNotCalled(t, "RemoveFromUser", mock.Anything, mock.Anything, mock.Anything)
 }

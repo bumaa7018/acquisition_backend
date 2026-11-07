@@ -47,6 +47,11 @@ type UserFilter struct {
 	Search   string
 	Role     string
 	IsActive *bool
-	Page     int
-	PageSize int
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн ажилтан хэрэглэгчид
+	// (системийн админаас бусад дуудагчид handler заавал тавина).
+	DepartmentID *ID
+	SortBy       string // userSortColumns-ийн түлхүүр
+	SortDir      string // asc | desc
+	Page         int
+	PageSize     int
 }

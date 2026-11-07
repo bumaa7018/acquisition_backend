@@ -100,6 +100,10 @@ const (
 	ErrReportBeforeApproval              Key = "report_before_approval"
 	ErrParcelAppNoMissing                Key = "parcel_app_no_missing"
 	ErrParcelOwnedNoPayment              Key = "parcel_owned_no_payment"
+	ErrDepartmentRequired                Key = "department_required"
+	ErrOutsideDepartment                 Key = "outside_department"
+	ErrSystemAdminLimit                  Key = "system_admin_limit"
+	ErrAcqOutsideDepartment              Key = "acq_outside_department"
 	ErrSourceFileUnavailable             Key = "source_file_unavailable"
 	ErrOwnershipUnavailable              Key = "ownership_unavailable"
 	ErrSurveyFileRequired                Key = "survey_file_required"
@@ -225,6 +229,10 @@ var messages = map[Key][2]string{
 	ErrReportBeforeApproval:              {"Хөрөнгийн үнэлгээ баталгаажсаны дараа үнэлгээний тайлан хавсаргах боломжтой.", "The valuation report can be attached only after the valuation is approved."},
 	ErrParcelAppNoMissing:                {"Нэгж талбарын хүсэлтийн дугаар (app_no) байхгүй тул хавсралт татах боломжгүй. Эхлээд нэгж талбарын мэдээллийг шинэчилнэ үү.", "The parcel has no application number yet. Sync the parcel details first."},
 	ErrParcelOwnedNoPayment:              {"Өмчлөлийн газар тул төлбөрийн мэдээлэл байхгүй.", "This parcel is privately owned, so it has no land payment."},
+	ErrDepartmentRequired:                {"Системийн админаас бусад хэрэглэгчид хэлтэс заавал сонгоно (хэлтэстэй ажилтан).", "A department is required for every user except system administrators."},
+	ErrOutsideDepartment:                 {"Зөвхөн өөрийн хэлтсийн хэрэглэгчийг удирдах боломжтой.", "You can only manage users of your own department."},
+	ErrAcqOutsideDepartment:              {"Зөвхөн өөрийн хэлтсийн чөлөөлөлтийг харах боломжтой.", "You can only access land acquisitions of your own department."},
+	ErrSystemAdminLimit:                  {"Системийн админ 3-аас олон байх боломжгүй.", "There cannot be more than 3 system administrators."},
 	ErrSourceFileUnavailable:             {"Эх системийн файл сервер тохируулагдаагүй тул хавсралтын файлыг харах боломжгүй.", "The source file server is not configured, so the attachment cannot be opened."},
 	ErrOwnershipUnavailable:              {"ХУР системийн холболт тохируулагдаагүй тул УБЕГ-ийн өмчлөлийн мэдээлэл татах боломжгүй.", "The XYP gateway is not configured, so the state ownership registry cannot be fetched."},
 	ErrSurveyFileRequired:                {"Нийгэм, эдийн засгийн судалгааны файлыг (PDF) заавал хавсаргана.", "The socio-economic survey file (PDF) is required."},

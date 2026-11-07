@@ -75,7 +75,7 @@ type LandAcquisitionService interface {
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error)
-	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
+	Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error)
 	// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт (List-ийн орлуулга).
 	// Бүх нэвтэрсэн хэрэглэгчид нээлттэй — шүүлтгүй.
 	ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error)
@@ -196,6 +196,8 @@ type LandAssigneeService interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error)
+	ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error)
 	// DecisionDraftParcelIDs — захирамжид ИДЭВХТЭЙ холбогдсон нэгж талбарууд
 	// (захирамжийн хавсралт файлын эрхийг шалгахад).
 	DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error)
@@ -2219,8 +2221,8 @@ func (s *landService) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 	return s.landRepo.GetChronos(ctx, acqIDs)
 }
 
-func (s *landService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
-	return s.landRepo.Suggest(ctx, q, status)
+func (s *landService) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
+	return s.landRepo.Suggest(ctx, q, status, departmentID)
 }
 
 func (s *landService) ListFilterOptions(ctx context.Context) ([]*domain.LandAcquisitionOption, error) {
@@ -2260,6 +2262,14 @@ func (s *landService) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, u
 
 func (s *landService) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error) {
 	return s.landRepo.IsAssignedToParcel(ctx, parcelID, userID)
+}
+
+func (s *landService) AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error) {
+	return s.landRepo.AcquisitionDepartmentID(ctx, acquisitionID)
+}
+
+func (s *landService) ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error) {
+	return s.landRepo.ParcelDepartmentID(ctx, parcelID)
 }
 
 func (s *landService) DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error) {

@@ -127,6 +127,18 @@ var externalOrgRoles = map[string]bool{
 	"Санхүү": true,
 }
 
+// departmentFor — токены department_id. Лавлагаа амжилтгүй бол nil —
+// хэлтэсгүй хэрэглэгч админ биш бол ямар ч хэлтсийн мэдээлэл харахгүй
+// (fail-closed), харин нэвтрэлт ЗОГСОХГҮЙ.
+func (s *authService) departmentFor(ctx context.Context, src repository.LoginUserRepository, userID domain.ID) *domain.ID {
+	deptID, err := src.DepartmentIDForUser(ctx, userID)
+	if err != nil {
+		slog.Warn("department lookup for token failed", "user_id", userID, "error", err)
+		return nil
+	}
+	return deptID
+}
+
 // orgContextFor — токены org_id БОЛОН `valuation_org` тэмдэг.
 //
 // Лавлагаа нь хэрэглэгчийг ОЛСОН эх сурвалжаар явна: хоёр сангийн user_id
@@ -218,6 +230,7 @@ func (s *authService) loginFrom(ctx context.Context, req LoginRequest, source st
 		ID:           user.ID,
 		OrgID:        orgID,
 		ValuationOrg: isValuationOrg,
+		DepartmentID: s.departmentFor(ctx, sourceRepo, user.ID),
 		Source:       sourceRepo.Source(),
 		Username:     user.Username,
 		Email:        user.Email,
@@ -297,6 +310,7 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*j
 		ID:           user.ID,
 		OrgID:        orgID,
 		ValuationOrg: isValuationOrg,
+		DepartmentID: s.departmentFor(ctx, sourceRepo, user.ID),
 		Source:       sourceRepo.Source(),
 		Username:     user.Username,
 		Email:        user.Email,

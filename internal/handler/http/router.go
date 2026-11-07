@@ -387,6 +387,8 @@ func NewRouter(
 		profNotParcelLocked := middleware.RequireProfParcelAcquisitionNotLocked(landSvc)
 		land := protected.Group("/land-acquisitions")
 		land.Use(notLocked)
+		// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн чөлөөлөлтөд (:id).
+		land.Use(middleware.RequireAcquisitionDepartment(landSvc))
 		{
 			land.GET("", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.List)
 			land.GET("/suggest", middleware.DenyAnyRole("professional_org"), middleware.RequireAnyPermission("land:read", "compensation:read"), landH.Suggest)
@@ -397,27 +399,27 @@ func NewRouter(
 			land.GET("/filter-options", landH.FilterOptions)
 			// Шүүлтүүрийн сум/дүүрэг — мөн нэвтэрсэн БҮХ хэрэглэгчид нээлттэй.
 			land.GET("/districts", landH.Districts)
-			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.Create)
+			land.POST("", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:create"), landH.Create)
 			// Зөвшөөрөгдсөн ажилтан эсвэл ахлах мэргэжилтэн шалгах middleware
 			land.GET("/:id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetByID)
 			land.GET("/:id/parcels", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListParcels)
 			land.GET("/:id/assets", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListAssets)
 			land.GET("/:id/compensations", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.ListCompensations)
 			land.GET("/:id/parcels/:parcel_id", middleware.RequireAnyPermission("land:read", "compensation:read"), assignedOrSenior, landH.GetParcelByID)
-			land.PUT("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.Update)
+			land.PUT("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.Update)
 			// Гараас оруулах хилийг ХАДГАЛАЛГҮЙ шалгах (WKT + талбайн зөрүү).
 			// Хил солих нь буцаах боломжгүй тул хадгалахаас өмнөх урьдчилсан
 			// харагдац — хамгаалалт нь PUT-тэй ЯГ ижил байх ёстой.
-			land.POST("/:id/boundary-preview", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.PreviewBoundary)
+			land.POST("/:id/boundary-preview", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.PreviewBoundary)
 			// Төлөвлөгөөний дугаараар хил солихын өмнө шинэ хилээс гарах нэгж
 			// талбарыг харуулна (ХАДГАЛАЛГҮЙ) — хамгаалалт PUT-тэй ижил.
-			land.POST("/:id/boundary-outside-parcels", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.BoundaryOutsideParcels)
+			land.POST("/:id/boundary-outside-parcels", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.BoundaryOutsideParcels)
 			// POST/PUT-ийн адил ролийн хаалт: `land:delete`-тэй custom роль
 			// хуваарилалтгүйгээр аль ч чөлөөлөлтийг устгах боломжтой байв.
-			land.DELETE("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:delete"), assignedOrSenior, landH.Delete)
+			land.DELETE("/:id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:delete"), assignedOrSenior, landH.Delete)
 			// Assignee routes
 			land.GET("/:id/assignees", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAssignees)
-			land.PUT("/:id/assignees", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAssignees)
+			land.PUT("/:id/assignees", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.SetAssignees)
 			land.POST("/:id/assets", middleware.RequireAnyPermission("land:create", "compensation:create"), valuationEditor, fieldStage, landH.CreateAsset)
 			land.PUT("/:id/assets/:asset_id", middleware.RequirePermission("land:update"), assignedOrSenior, fieldStage, landH.UpdateAsset)
 			land.DELETE("/:id/assets/:asset_id", middleware.RequireAnyPermission("land:update", "compensation:update"), valuationEditor, fieldStage, landH.DeleteAsset)
@@ -481,9 +483,9 @@ func NewRouter(
 			land.GET("/:id/boundary-history", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListBoundaryHistory)
 			land.GET("/:id/available-statuses", middleware.RequirePermission("land:read"), assignedOrSenior, landH.GetAvailableStatuses)
 			land.POST("/:id/advance", middleware.RequirePermission("land:update"), assignedOrSenior, landH.AdvanceStatus)
-			land.POST("/:id/funding-sources", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:create"), landH.CreateFundingSource)
-			land.PUT("/:id/funding-sources/:src_id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.UpdateFundingSource)
-			land.DELETE("/:id/funding-sources/:src_id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.DeleteFundingSource)
+			land.POST("/:id/funding-sources", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:create"), landH.CreateFundingSource)
+			land.PUT("/:id/funding-sources/:src_id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.UpdateFundingSource)
+			land.DELETE("/:id/funding-sources/:src_id", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.DeleteFundingSource)
 			land.GET("/:id/parcels/:parcel_id/representatives", middleware.RequirePermission("land:read"), assignedOrSenior, landH.ListAuthorizedRepresentatives)
 			land.POST("/:id/parcels/:parcel_id/representatives", middleware.RequirePermission("land:update"), assignedOrSenior, landH.CreateAuthorizedRepresentative)
 			land.DELETE("/:id/parcels/:parcel_id/representatives/:rep_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteAuthorizedRepresentative)
@@ -506,11 +508,11 @@ func NewRouter(
 			land.POST("/:id/drone-images", middleware.RequirePermission("land:update"), assignedOrSenior, landH.RegisterDroneImage)
 			land.POST("/:id/drone-images/refresh", middleware.RequirePermission("land:update"), assignedOrSenior, landH.RefreshDroneImages)
 			land.DELETE("/:id/drone-images/:image_id", middleware.RequirePermission("land:update"), assignedOrSenior, landH.DeleteDroneImage)
-			land.PUT("/:id/professional-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetAcquisitionProfessionalOrg)
+			land.PUT("/:id/professional-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.SetAcquisitionProfessionalOrg)
 			// Хөндлөнгийн үнэлгээчнийг ЭНД зөвхөн дотоод ахлах мэргэжилтэн
 			// сольно; үнэлгээний байгууллага өөрийн /prof замаа хэрэглэнэ
 			// (дотоод маршрутууд тэдэнд allowlist-ээр хаалттай).
-			land.PATCH("/:id/parcels/:parcel_id/independent-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн"), middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
+			land.PATCH("/:id/parcels/:parcel_id/independent-org", middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head"), middleware.RequirePermission("land:update"), landH.SetParcelIndependentOrg)
 		}
 
 		// Үнэлгээний байгууллагын ажлын орон зай.
@@ -776,7 +778,7 @@ func NewRouter(
 		// мэргэжилтэн байгууллага даяарх өгөгдлийг Excel-ээр татаж чаддаг байв.
 		// Frontend-ийн ГЧХ тайлан (`/api/report/gchh2`) аль хэдийн зөвхөн ахлах
 		// мэргэжилтэнд нээлттэй — backend-ийг мөн тэр бодлогод нийцүүлэв.
-		reportSenior := middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн")
+		reportSenior := middleware.RequireAnyRole("senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 		report := protected.Group("/report")
 		{
 			report.GET("/download", reportSenior, middleware.RequirePermission("land:read"), landH.ListReportParcels)
@@ -832,6 +834,8 @@ func NewRouter(
 		parcelAssignedOrSenior := middleware.RequireParcelAssignedOrSenior(landSvc)
 		parcels := protected.Group("/parcels")
 		parcels.Use(notParcelLocked)
+		// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн нэгж талбарт (:id).
+		parcels.Use(middleware.RequireParcelDepartment(landSvc))
 		{
 			// Нэгж талбарын ЖАГСААЛТ — санхүүгийн мэргэжилтэн (compensation:read)
 			// мөн уншина: нөхөх олговрын хяналтад аль нэгж талбар ямар төлөвт
