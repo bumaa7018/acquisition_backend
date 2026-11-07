@@ -117,6 +117,27 @@ func (h *UserHandler) callerOutranksTarget(c *gin.Context, targetID domain.ID) (
 	return true, nil
 }
 
+// ensureSameDepartment — системийн админаас бусад дуудагч ЗӨВХӨН өөрийн
+// хэлтсийн хэрэглэгчид хүрнэ (харах, засах, нууц үг, роль). Хэлтэсгүй
+// дуудагч хэнд ч хүрэхгүй (fail-closed).
+func (h *UserHandler) ensureSameDepartment(c *gin.Context, targetID domain.ID) error {
+	if middleware.IsSystemAdmin(c) {
+		return nil
+	}
+	mine := middleware.CallerDepartmentID(c)
+	if mine == nil {
+		return domain.ErrOutsideDepartment
+	}
+	theirs, err := h.userSvc.DepartmentOf(c.Request.Context(), targetID)
+	if err != nil {
+		return err
+	}
+	if theirs == nil || *theirs != *mine {
+		return domain.ErrOutsideDepartment
+	}
+	return nil
+}
+
 // GetMe godoc
 // @Summary      Get own profile
 // @Description  Returns the authenticated user's profile
@@ -171,6 +192,14 @@ func (h *UserHandler) List(c *gin.Context) {
 		active := activeStr == "true"
 		filter.IsActive = &active
 	}
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн хэрэглэгчдийг.
+	if !middleware.IsSystemAdmin(c) {
+		filter.DepartmentID = middleware.CallerDepartmentID(c)
+		if filter.DepartmentID == nil {
+			response.Paginated(c, []*domain.User{}, 0, page, pageSize)
+			return
+		}
+	}
 
 	users, total, err := h.userSvc.List(c.Request.Context(), filter)
 	if err != nil {
@@ -197,6 +226,10 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 	id, okID := parseID(c.Param("id"))
 	if !okID {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.ensureSameDepartment(c, id); err != nil {
+		response.Error(c, err)
 		return
 	}
 	user, err := h.userSvc.GetByID(c.Request.Context(), id)
@@ -273,6 +306,29 @@ func (h *UserHandler) Create(c *gin.Context) {
 		}
 		roles = append(roles, role)
 	}
+	// Системийн админ роль авах хэрэглэгчээс БУСАД нь заавал хэлтэстэй;
+	// хэлтсийн дарга зөвхөн ӨӨРИЙН хэлтэст үүсгэнэ.
+	grantsAdmin := false
+	for _, role := range roles {
+		if role.IsSystemAdmin() {
+			grantsAdmin = true
+		}
+	}
+	// Системийн админ нийт domain.MaxSystemAdmins-аас хэтрэхгүй.
+	if grantsAdmin {
+		if err := h.userSvc.EnsureSystemAdminSlot(c.Request.Context(), nil); err != nil {
+			response.Error(c, err)
+			return
+		}
+	}
+	var scopeDept *domain.ID
+	if !middleware.IsSystemAdmin(c) {
+		scopeDept = middleware.CallerDepartmentID(c)
+		if scopeDept == nil {
+			response.Error(c, domain.ErrOutsideDepartment)
+			return
+		}
+	}
 
 	var employeeReq *service.CreateEmployeeRequest
 	if req.Employee != nil {
@@ -293,6 +349,9 @@ func (h *UserHandler) Create(c *gin.Context) {
 		EmployeeID: employeeID,
 		Employee:   employeeReq,
 		IsActive:   req.IsActive,
+
+		RequireDepartment: !grantsAdmin,
+		ScopeDepartmentID: scopeDept,
 	})
 	if err != nil {
 		response.Error(c, err)
@@ -345,6 +404,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 	// хаагдах (lockout) тохиолдлоос сэргийлнэ.
 	if req.IsActive != nil && !*req.IsActive && isSelf(c, id) {
 		response.Error(c, domain.ErrForbidden)
+		return
+	}
+	if err := h.ensureSameDepartment(c, id); err != nil {
+		response.Error(c, err)
 		return
 	}
 	// ИМЭЙЛ СОЛИХ нь /auth/forgot-password-оор бүртгэлийг гартаа авах зам тул
@@ -408,6 +471,10 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		response.Error(c, domain.ErrForbidden)
 		return
 	}
+	if err := h.ensureSameDepartment(c, id); err != nil {
+		response.Error(c, err)
+		return
+	}
 	if err := h.userSvc.Delete(c.Request.Context(), id); err != nil {
 		response.Error(c, err)
 		return
@@ -450,6 +517,10 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 	// Өөрөөсөө өндөр эрхтэй хэрэглэгчийн нууц үгийг сэргээхийг хориглоно —
 	// эс тэгвээс зөвхөн users:update эрхтэй хэрэглэгч админаар нэвтрэх боломжтой.
 	if !isSelf(c, id) {
+		if err := h.ensureSameDepartment(c, id); err != nil {
+			response.Error(c, err)
+			return
+		}
 		outranks, err := h.callerOutranksTarget(c, id)
 		if err != nil {
 			response.Error(c, err)
@@ -510,6 +581,10 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 		response.Error(c, domain.ErrForbidden)
 		return
 	}
+	if err := h.ensureSameDepartment(c, userID); err != nil {
+		response.Error(c, err)
+		return
+	}
 	role, err := h.roleSvc.GetByID(c.Request.Context(), roleID)
 	if err != nil {
 		response.Error(c, err)
@@ -518,6 +593,13 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 	if !h.callerCanGrantRole(c, role) {
 		response.Error(c, domain.ErrForbidden)
 		return
+	}
+	// Системийн админ нийт domain.MaxSystemAdmins-аас хэтрэхгүй.
+	if role.IsSystemAdmin() {
+		if err := h.userSvc.EnsureSystemAdminSlot(c.Request.Context(), &userID); err != nil {
+			response.Error(c, err)
+			return
+		}
 	}
 	if err := h.roleSvc.AssignToUser(c.Request.Context(), userID, roleID); err != nil {
 		response.Error(c, err)
@@ -565,6 +647,10 @@ func (h *UserHandler) RemoveRole(c *gin.Context) {
 		response.Error(c, domain.ErrForbidden)
 		return
 	}
+	if err := h.ensureSameDepartment(c, userID); err != nil {
+		response.Error(c, err)
+		return
+	}
 	role, err := h.roleSvc.GetByID(c.Request.Context(), roleID)
 	if err != nil {
 		response.Error(c, err)
@@ -575,6 +661,19 @@ func (h *UserHandler) RemoveRole(c *gin.Context) {
 	if !h.callerCanGrantRole(c, role) {
 		response.Error(c, domain.ErrForbidden)
 		return
+	}
+	// Хэлтэсгүй нь ЗӨВХӨН системийн админ — хэлтэсгүй хэрэглэгчээс админ
+	// роль хуулбал хэлтэсгүй энгийн хэрэглэгч үлдэнэ.
+	if role.IsSystemAdmin() {
+		dept, err := h.userSvc.DepartmentOf(c.Request.Context(), userID)
+		if err != nil {
+			response.Error(c, err)
+			return
+		}
+		if dept == nil {
+			response.Error(c, domain.ErrDepartmentRequired)
+			return
+		}
 	}
 	if err := h.roleSvc.RemoveFromUser(c.Request.Context(), userID, roleID); err != nil {
 		response.Error(c, err)

@@ -119,6 +119,12 @@ func (r *ValuationOrgLoginRepo) GetPermissions(_ context.Context, _ domain.ID) (
 	return nil, nil
 }
 
+// DepartmentIDForUser — ҮРГЭЛЖ nil. Үнэлгээний байгууллагын ажилтан
+// sdplatform-ийн хэлтсийн бүтцэд харьяалагддаггүй.
+func (r *ValuationOrgLoginRepo) DepartmentIDForUser(_ context.Context, _ domain.ID) (*domain.ID, error) {
+	return nil, nil
+}
+
 // ValuationOrgIDForUser — ажилтны харьяа байгууллага (valuation_org_profile.id).
 // Токены org_id мөн `valuation_org` тэмдэг үүн дээр тогтоно.
 func (r *ValuationOrgLoginRepo) ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {

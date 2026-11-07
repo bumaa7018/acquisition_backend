@@ -79,10 +79,16 @@ func (h *LandHandler) Suggest(c *gin.Context) {
 	// Жагсаалттай ижил дүрэм: санхүү/МИКА зөвхөн "Хээрийн судалгаа" төлөвийн нэрсийг харна
 	status := 0
 	if ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА") &&
-		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") {
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head") {
 		status = domain.LandAcquisitionStatusField
 	}
-	list, err := h.svc.Suggest(c.Request.Context(), q, status)
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн чөлөөлөлтийг.
+	dept, restricted := middleware.DataDepartmentScope(c)
+	if restricted && dept == nil {
+		response.OK(c, []gin.H{})
+		return
+	}
+	list, err := h.svc.Suggest(c.Request.Context(), q, status, dept)
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -214,9 +220,17 @@ func (h *LandHandler) List(c *gin.Context) {
 	// хамардаг. Үйлдлийн эрх (баталгаажуулах, цуцлах, засах) нь ӨӨРЧЛӨГДӨӨГҮЙ —
 	// тэдгээр нь тус тусын маршрут/шилжилтийн дүрмээр шалгагдана.
 	if ctxHasRole(c, "mika", "МИКА") &&
-		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн") &&
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head") &&
 		!ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") {
 		filter.Status = domain.LandAcquisitionStatusField
+	}
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн чөлөөлөлтийг.
+	if dept, restricted := middleware.DataDepartmentScope(c); restricted {
+		if dept == nil {
+			response.Paginated(c, []landAcquisitionResponse{}, 0, page, pageSize)
+			return
+		}
+		filter.DepartmentID = dept
 	}
 
 	list, total, err := h.svc.List(c.Request.Context(), filter)
@@ -1829,6 +1843,14 @@ func (h *LandHandler) ListGlobalParcels(c *gin.Context) {
 		Page:              page,
 		PageSize:          pageSize,
 	}
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн чөлөөлөлтийн нэгж талбарыг.
+	if dept, restricted := middleware.DataDepartmentScope(c); restricted {
+		if dept == nil {
+			response.Paginated(c, []globalParcelResponse{}, 0, page, pageSize)
+			return
+		}
+		filter.DepartmentID = dept
+	}
 	parcels, total, err := h.svc.ListGlobalParcels(c.Request.Context(), filter)
 	if err != nil {
 		response.Error(c, err)
@@ -1984,7 +2006,7 @@ func (h *LandHandler) ListAssets(c *gin.Context) {
 // Ийм дуудагчийн үнэлгээний бичих үйлдэл ЗӨВХӨН "mika" урсгалд хязгаарлагдана —
 // valuation_type-ийг хүсэлтээс үл хамааран хатуу тогтооно.
 func mikaOnlyCaller(c *gin.Context) bool {
-	return ctxHasRole(c, "mika", "МИКА") && !ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	return ctxHasRole(c, "mika", "МИКА") && !ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 }
 
 // profOnlyCaller — дуудагч үнэлгээний байгууллагын ажилтан бөгөөд дотоод
@@ -1995,7 +2017,7 @@ func mikaOnlyCaller(c *gin.Context) bool {
 // огт эзэмшихгүй.
 func profOnlyCaller(c *gin.Context) bool {
 	return middleware.IsValuationOrgCaller(c) &&
-		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+		!ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 }
 
 // callerValuationStreams — дуудагч УСТГАЖ болох үнэлгээний урсгалууд.
@@ -3849,7 +3871,7 @@ func (h *LandHandler) FinanceDashboard(c *gin.Context) {
 // олон удаа өгч болно; өгөөгүй бол бүх чөлөөлөлт. Гадаад (үнэлгээний
 // байгууллага, санхүү, МИКА) хэрэглэгчийн хамрах хүрээ нарийн тул ЗӨВХӨН дотоод ажилтанд.
 func (h *LandHandler) Chronos(c *gin.Context) {
-	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")
 	if !isSenior && (middleware.IsValuationOrgCaller(c) || isReviewer) {
 		response.Abort(c, http.StatusForbidden, i18n.ErrForbidden)
@@ -3889,7 +3911,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		}
 	}
 
-	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн")
+	isSenior := ctxHasRole(c, "senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 	// Үнэлгээний байгууллага — роль БИШ, аппын өөрийн бүртгэлээр танигдана.
 	isProf := middleware.IsValuationOrgCaller(c)
 	isReviewer := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА")

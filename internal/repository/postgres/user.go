@@ -380,6 +380,11 @@ func (r *UserRepo) List(ctx context.Context, f domain.UserFilter) ([]*domain.Use
 		args = append(args, *f.IsActive)
 		argIdx++
 	}
+	if f.DepartmentID != nil {
+		where += fmt.Sprintf(" AND e.department_id = $%d", argIdx)
+		args = append(args, *f.DepartmentID)
+		argIdx++
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx, "SELECT COUNT(*) "+userFromSQL+" "+where, args...).Scan(&total); err != nil {
@@ -490,6 +495,57 @@ func (r *UserRepo) OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.
 		return nil, err
 	}
 	return orgID, nil
+}
+
+// DepartmentIDForUser — хэрэглэгчийн ХЭЛТЭС (JWT-ийн department_id).
+// Хэлтсийн дарга болон ажилтны хандалт (зөвхөн өөрийн хэлтсийн хэрэглэгч,
+// мэдээлэл) үүн дээр тулгуурлана. Хэлтэсгүй бол nil.
+func (r *UserRepo) DepartmentIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	var deptID *domain.ID
+	err := r.db.QueryRow(ctx, `
+		SELECT e.department_id
+		FROM sdplatform.hr_employee e
+		WHERE e.user_id = $1 AND COALESCE(e.is_active, 1) <> 0
+		ORDER BY e.employee_id
+		LIMIT 1`, userID).Scan(&deptID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return deptID, nil
+}
+
+// CountSystemAdmins — системийн админ түвшний (Role.Level) роль-той,
+// устгагдаагүй хэрэглэгчийн тоо.
+func (r *UserRepo) CountSystemAdmins(ctx context.Context, excludeUserID *domain.ID) (int, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT ur.user_id, COALESCE(ro.name, ''), COALESCE(ro.role_type_code, '')
+		FROM sdplatform.sd_user_role ur
+		JOIN sdplatform.sd_user u ON u.user_id = ur.user_id AND u.deleted_at IS NULL
+		JOIN sdplatform.sd_role ro ON ro.role_id = ur.role_id
+		JOIN sdplatform.sd_system_role sr ON sr.role_id = ro.role_id AND sr.system_id = 10`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	admins := map[domain.ID]bool{}
+	for rows.Next() {
+		var userID domain.ID
+		var name, resource string
+		if err := rows.Scan(&userID, &name, &resource); err != nil {
+			return 0, err
+		}
+		if excludeUserID != nil && userID == *excludeUserID {
+			continue
+		}
+		if (domain.Role{Name: name, Resource: resource}).IsSystemAdmin() {
+			admins[userID] = true
+		}
+	}
+	return len(admins), rows.Err()
 }
 
 // ValuationOrgIDForUser — ЗӨВХӨН appdb-ийн valuation_org_employee-г хайна

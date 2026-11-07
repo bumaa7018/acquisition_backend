@@ -351,6 +351,13 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 		}
 		where += " AND " + acquisitionYearCond("la", strings.Join(placeholders, ","))
 	}
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
+	}
 	if filter.AssignedUserID != "" {
 		where += fmt.Sprintf(` AND EXISTS (
 			SELECT 1 FROM land_acquisition_assignee
@@ -3028,6 +3035,13 @@ func (r *landAcqRepo) ListGlobalParcels(ctx context.Context, filter domain.Globa
 	args := []any{}
 	where := "la.deleted_at IS NULL" // soft delete: устгасан чөлөөлөлтийн нэгж талбар харагдахгүй
 	i := 1
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
+	}
 
 	if filter.ParcelID != "" {
 		where += fmt.Sprintf(" AND p.parcel_id ILIKE $%d", i)
@@ -4981,16 +4995,18 @@ func (r *landAcqRepo) ListAcquisitionDistricts(ctx context.Context) ([]domain.AU
 	return result, rows.Err()
 }
 
-func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
+func (r *landAcqRepo) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, COALESCE(acquisition_name,''), COALESCE(plan_code,'')
-		FROM land_acquisition
-		WHERE deleted_at IS NULL
-		  AND (acquisition_name ILIKE $1 OR plan_code ILIKE $1)
-		  AND ($2 = 0 OR status = $2)
-		ORDER BY acquisition_name
+		SELECT la.id, COALESCE(la.acquisition_name,''), COALESCE(la.plan_code,'')
+		FROM land_acquisition la
+		WHERE la.deleted_at IS NULL
+		  AND (la.acquisition_name ILIKE $1 OR la.plan_code ILIKE $1)
+		  AND ($2 = 0 OR la.status = $2)
+		  AND ($3::int4 IS NULL OR la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $3::int4))
+		ORDER BY la.acquisition_name
 		LIMIT 20
-	`, "%"+q+"%", status)
+	`, "%"+q+"%", status, departmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -5753,6 +5769,36 @@ func (r *landAcqRepo) IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID
 		)
 	`, parcelID, userID).Scan(&exists)
 	return exists, err
+}
+
+// AcquisitionDepartmentID — чөлөөлөлтийг хариуцсан хэлтэс (ерөнхий
+// ангиллын department_id). Ангилалгүй / хэлтэс тодорхойлоогүй / олдоогүй бол nil.
+func (r *landAcqRepo) AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error) {
+	var deptID *int
+	err := r.db.QueryRow(ctx, `
+		SELECT c.department_id
+		FROM land_acquisition la
+		JOIN acquisition_category c ON c.id = la.general_category_id
+		WHERE la.id = $1`, acquisitionID).Scan(&deptID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return deptID, err
+}
+
+// ParcelDepartmentID — нэгж талбарын чөлөөлөлтийг хариуцсан хэлтэс.
+func (r *landAcqRepo) ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error) {
+	var deptID *int
+	err := r.db.QueryRow(ctx, `
+		SELECT c.department_id
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		JOIN acquisition_category c ON c.id = la.general_category_id
+		WHERE p.id = $1`, parcelID).Scan(&deptID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return deptID, err
 }
 
 func (r *landAcqRepo) IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error) {

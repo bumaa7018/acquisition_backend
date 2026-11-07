@@ -256,6 +256,12 @@ func mapError(err error) (int, i18n.Key) {
 		return http.StatusUnprocessableEntity, i18n.ErrParcelAppNoMissing
 	case domain.ErrParcelOwnedNoPayment:
 		return http.StatusUnprocessableEntity, i18n.ErrParcelOwnedNoPayment
+	case domain.ErrDepartmentRequired:
+		return http.StatusUnprocessableEntity, i18n.ErrDepartmentRequired
+	case domain.ErrOutsideDepartment:
+		return http.StatusForbidden, i18n.ErrOutsideDepartment
+	case domain.ErrSystemAdminLimit:
+		return http.StatusConflict, i18n.ErrSystemAdminLimit
 	case domain.ErrSourceFileNotConfigured:
 		return http.StatusServiceUnavailable, i18n.ErrSourceFileUnavailable
 	case domain.ErrOwnershipNotConfigured:

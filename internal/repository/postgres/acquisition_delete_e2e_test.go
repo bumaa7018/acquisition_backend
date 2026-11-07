@@ -289,7 +289,7 @@ func assertVisibleBeforeDelete(t *testing.T, f *fixture) {
 	require.Len(t, list, 1, "List устгахаас өмнө харуулах ёстой")
 	require.Equal(t, int64(1), total)
 
-	sugg, err := f.repo.Suggest(ctx, f.planCode, 0)
+	sugg, err := f.repo.Suggest(ctx, f.planCode, 0, nil)
 	require.NoError(t, err)
 	require.Len(t, sugg, 1, "Suggest устгахаас өмнө харуулах ёстой")
 
@@ -453,7 +453,7 @@ func TestE2E_Delete_SoftDeletesAndCleansFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list, "List устгасныг харуулах ёсгүй")
 
-	sugg, err := f.repo.Suggest(ctx, f.planCode, 0)
+	sugg, err := f.repo.Suggest(ctx, f.planCode, 0, nil)
 	require.NoError(t, err)
 	assert.Empty(t, sugg, "Suggest устгасныг харуулах ёсгүй")
 

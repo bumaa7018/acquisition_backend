@@ -894,6 +894,10 @@ type LandAcquisitionFilter struct {
 	GeneralCategoryID int
 	SubCategoryID     int
 	AssignedUserID    string
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтэс хариуцсан (ерөнхий
+	// ангиллын department_id) чөлөөлөлтүүд. Системийн админаас бусад дотоод
+	// дуудагчид handler заавал тавина.
+	DepartmentID *int
 	// ProfessionalOrgID — хоосон бол шүүлт байхгүй; утгатай бол тухайн
 	// БАЙГУУЛЛАГАД оноогдсон чөлөөлөлтүүд л буцна (үндсэн гүйцэтгэгчээр
 	// эсвэл нэгж талбарын хараат бус үнэлгээчнээр). Байгууллагын аль ч
@@ -1399,7 +1403,9 @@ type GlobalParcelFilter struct {
 	StatusID        int
 	// GeneralCategoryID — чөлөөлөлтийн ЕРӨНХИЙ ангилал (land_acquisition.general_category_id).
 	GeneralCategoryID int
-	UnlinkedOnly      bool
+	// DepartmentID — LandAcquisitionFilter.DepartmentID-тэй ижил.
+	DepartmentID *int
+	UnlinkedOnly bool
 	// ReleasedOnly — зөвхөн «Захирамжид холбогдоно» (is_released) төлөвтэй.
 	ReleasedOnly bool
 	Years        []int

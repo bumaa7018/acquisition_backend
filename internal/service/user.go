@@ -27,6 +27,13 @@ type UserService interface {
 	// GetPermissions — хэрэглэгчийн ролиудаас цуглуулсан эрхийн нэрс. Дуудагч
 	// өөрөөсөө өндөр эрхтэй хэрэглэгчийг өөрчлөхийг хориглоход хэрэглэнэ.
 	GetPermissions(ctx context.Context, id domain.ID) ([]string, error)
+	// DepartmentOf — хэрэглэгчийн хэлтэс (хэлтсийн даргын хамрах хүрээг
+	// шалгахад). Хэлтэсгүй бол nil.
+	DepartmentOf(ctx context.Context, id domain.ID) (*domain.ID, error)
+	// EnsureSystemAdminSlot — хэрэглэгчид (userID nil бол шинэ хэрэглэгчид)
+	// системийн админ роль олгоход дээд хязгаар (domain.MaxSystemAdmins)
+	// хэтрэхгүй эсэхийг шалгана. Аль хэдийн админ бол дахин тоологдохгүй.
+	EnsureSystemAdminSlot(ctx context.Context, userID *domain.ID) error
 }
 
 type CreateUserRequest struct {
@@ -39,6 +46,23 @@ type CreateUserRequest struct {
 	EmployeeID *domain.ID
 	Employee   *CreateEmployeeRequest
 	IsActive   *bool
+	// RequireDepartment — ажилтан ЗААВАЛ хэлтэстэй байна (системийн админ
+	// роль олгохгүй бол handler тавина).
+	RequireDepartment bool
+	// ScopeDepartmentID — утгатай бол ажилтны хэлтэс ЯГ үүнтэй таарна
+	// (хэлтсийн дарга зөвхөн өөрийн хэлтэст хэрэглэгч үүсгэнэ).
+	ScopeDepartmentID *domain.ID
+}
+
+// checkDepartment — үүсгэх гэж буй хэрэглэгчийн ажилтны хэлтсийг шалгана.
+func (req CreateUserRequest) checkDepartment(deptID *domain.ID) error {
+	if (req.RequireDepartment || req.ScopeDepartmentID != nil) && deptID == nil {
+		return domain.ErrDepartmentRequired
+	}
+	if req.ScopeDepartmentID != nil && *deptID != *req.ScopeDepartmentID {
+		return domain.ErrOutsideDepartment
+	}
+	return nil
 }
 
 type UpdateUserRequest struct {
@@ -169,12 +193,18 @@ func (s *userService) Create(ctx context.Context, req CreateUserRequest) (*domai
 			if err != nil {
 				return nil, err
 			}
+			if err := req.checkDepartment(employee.DepartmentID); err != nil {
+				return nil, err
+			}
 			applyEmployeeToUser(user, employee)
 			if err := s.userRepo.Create(ctx, user); err != nil {
 				return nil, err
 			}
 		} else {
 			employee := employeeFromCreate(*req.Employee)
+			if err := req.checkDepartment(employee.DepartmentID); err != nil {
+				return nil, err
+			}
 			var person *domain.Person
 			if req.Employee.Person != nil {
 				person = personFromRequest(*req.Employee.Person)
@@ -285,6 +315,21 @@ func (s *userService) ChangePassword(ctx context.Context, id domain.ID, newPassw
 
 func (s *userService) InvalidateSessions(ctx context.Context, id domain.ID) error {
 	return s.userRepo.InvalidateSessions(ctx, id)
+}
+
+func (s *userService) DepartmentOf(ctx context.Context, id domain.ID) (*domain.ID, error) {
+	return s.userRepo.DepartmentIDForUser(ctx, id)
+}
+
+func (s *userService) EnsureSystemAdminSlot(ctx context.Context, userID *domain.ID) error {
+	n, err := s.userRepo.CountSystemAdmins(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if n >= domain.MaxSystemAdmins {
+		return domain.ErrSystemAdminLimit
+	}
+	return nil
 }
 
 func (s *userService) GetPermissions(ctx context.Context, id domain.ID) ([]string, error) {

@@ -844,8 +844,8 @@ func (m *MockLandAcquisitionRepository) GetDashboard(ctx context.Context, filter
 	return args.Get(0).(*domain.DashboardSummary), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
-	args := m.Called(ctx, q, status)
+func (m *MockLandAcquisitionRepository) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q, status, departmentID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -1239,4 +1239,16 @@ func (m *MockLandAcquisitionRepository) UpdateDroneImageBounds(ctx context.Conte
 
 func (m *MockLandAcquisitionRepository) DeleteDroneImage(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error) {
+	args := m.Called(ctx, acquisitionID)
+	id, _ := args.Get(0).(*int)
+	return id, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error) {
+	args := m.Called(ctx, parcelID)
+	id, _ := args.Get(0).(*int)
+	return id, args.Error(1)
 }

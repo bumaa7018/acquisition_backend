@@ -37,6 +37,10 @@ type Claims struct {
 	// land_acquisition.professional_org_id / parcel.independent_org_id-тай
 	// шууд тулгагдана.
 	ValuationOrg bool `json:"valuation_org,omitempty"`
+	// DepartmentID — хэрэглэгчийн ХЭЛТЭС (hr_employee.department_id).
+	// Системийн админаас бусад хэрэглэгч зөвхөн өөрийн хэлтсийн хэрэглэгч,
+	// мэдээллийг хардаг тул тэр хязгаарлалт үүн дээр тогтоно.
+	DepartmentID *domain.ID `json:"department_id,omitempty"`
 	// Source — хэрэглэгчийн бүртгэл АЛЬ САНД байгаа (domain.UserSource*).
 	//
 	// UserID нь хоёр санд мөргөлддөг int32 тул хэрэглэгч хайх бүрд ЭНЭ
@@ -108,6 +112,8 @@ type UserInfo struct {
 	OrgID *domain.ID
 	// ValuationOrg — үнэлгээний байгууллагын ажилтан (Claims.ValuationOrg-ийг үз).
 	ValuationOrg bool
+	// DepartmentID — хэрэглэгчийн хэлтэс (Claims.DepartmentID-ийг үз).
+	DepartmentID *domain.ID
 	// Source — хэрэглэгчийн эх сурвалж (domain.UserSource*). Хоосон бол "auth".
 	Source      string
 	Username    string
@@ -138,6 +144,7 @@ func (m *Manager) generateToken(u UserInfo, secret string, ttl time.Duration) (s
 	claims := Claims{
 		UserID:       u.ID,
 		OrgID:        u.OrgID,
+		DepartmentID: u.DepartmentID,
 		ValuationOrg: u.ValuationOrg,
 		Source:       u.Source,
 		Username:     u.Username,

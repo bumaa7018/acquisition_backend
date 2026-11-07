@@ -40,6 +40,15 @@ var seniorSpecialistPermissions = []string{
 	"users:read",
 }
 
+// department_head: ахлах мэргэжилтний ажлын урсгал + ӨӨРИЙН ХЭЛТСИЙН
+// хэрэглэгчийг удирдах (users:*, ажилтан сонгоход hr:read, роль олгоход
+// roles:read). Хэлтсээр хязгаарлах нь handler-т (токены department_id) —
+// эрх нь өөрөө хэлтэс мэдэхгүй. users:delete БАЙХГҮЙ: идэвхгүй болгох нь
+// хангалттай, устгалт нь админд үлдэнэ.
+var departmentHeadPermissions = append(append([]string{}, seniorSpecialistPermissions...),
+	"users:create", "users:update", "roles:read", "hr:read",
+)
+
 var employeePermissions = []string{
 	"land:read",
 	"decision:read",
@@ -187,6 +196,7 @@ func (s *Seeder) seedPersonTypes(ctx context.Context) error {
 var systemRolePermissions = map[string][]string{
 	"admin":                 defaultPermissions,
 	"senior_specialist":     seniorSpecialistPermissions,
+	"department_head":       departmentHeadPermissions,
 	"employee":              employeePermissions,
 	"decision_registration": decisionRegistrationPermissions,
 }
@@ -210,6 +220,7 @@ var externalRoles = []struct {
 var system10RoleNames = []string{
 	"admin",
 	"senior_specialist",
+	"department_head",
 	"employee",
 	"decision_registration",
 }

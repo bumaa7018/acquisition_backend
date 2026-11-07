@@ -25,6 +25,9 @@ type LoginUserRepository interface {
 	GetPermissions(ctx context.Context, userID domain.ID) ([]string, error)
 	OrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
 	ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	// DepartmentIDForUser — хэрэглэгчийн ХЭЛТЭС (hr_employee.department_id).
+	// Хэлтэсгүй (эсвэл ажилтны бүртгэлгүй) хэрэглэгчид nil.
+	DepartmentIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
 	UpdatePassword(ctx context.Context, id domain.ID, hashed string) error
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
 }
@@ -63,6 +66,10 @@ type UserRepository interface {
 	// Токены `valuation_org` нэхэмжлэл үүн дээр тогтоогддог ба тэр нэхэмжлэл нь
 	// эдгээр хэрэглэгчийн ЦОРЫН ГАНЦ эрхийн эх сурвалж (роль хэрэглэхгүй).
 	ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	DepartmentIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error)
+	// CountSystemAdmins — системийн админ роль-той (устгагдаагүй) хэрэглэгчийн
+	// тоо. excludeUserID утгатай бол тэр хэрэглэгчийг тооцохгүй.
+	CountSystemAdmins(ctx context.Context, excludeUserID *domain.ID) (int, error)
 	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
 	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
@@ -204,7 +211,7 @@ type LandAcquisitionWriteRepository interface {
 	// ListAcquisitionDistricts — чөлөөлөлт бүртгэгдсэн сум/дүүргүүд
 	// (land_acquisition_au-аас давхардалгүй). Шүүлтүүрийн сонголтод.
 	ListAcquisitionDistricts(ctx context.Context) ([]domain.AU2Option, error)
-	Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error)
+	Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.LandAcquisition, error)
 	FindIntersectingAU3(ctx context.Context, geomWKT string) ([]domain.LandAcquisitionAU, error)
 	// FindAU2Coverage — чөлөөлөх хил ямар сум/дүүрэгтэй (au2) давхцаж, аль
@@ -436,6 +443,10 @@ type LandAssigneeRepository interface {
 	GetAssignees(ctx context.Context, acquisitionID uuid.UUID) ([]domain.AcquisitionAssignee, error)
 	IsAssigned(ctx context.Context, acquisitionID uuid.UUID, userID domain.ID) (bool, error)
 	IsAssignedToParcel(ctx context.Context, parcelID uuid.UUID, userID domain.ID) (bool, error)
+	// AcquisitionDepartmentID / ParcelDepartmentID — хариуцсан хэлтэс
+	// (ерөнхий ангиллын department_id); тодорхойлоогүй бол nil.
+	AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error)
+	ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error)
 	// DecisionDraftParcelIDs — захирамжид идэвхтэй холбогдсон нэгж талбарын id.
 	DecisionDraftParcelIDs(ctx context.Context, draftID uuid.UUID) ([]uuid.UUID, error)
 	IsProfMemberOfAcquisition(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (bool, error)
