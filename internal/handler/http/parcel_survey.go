@@ -86,6 +86,8 @@ func toParcelSurveyResponse(s *domain.ParcelSurvey) parcelSurveyResponse {
 func parcelSurveyFilterFromQuery(c *gin.Context) (domain.ParcelSurveyFilter, bool) {
 	filter := domain.ParcelSurveyFilter{
 		ParcelCode: c.Query("parcel_id"),
+		SortBy:     c.Query("sort"),
+		SortDir:    c.Query("order"),
 		Page:       queryInt(c, "page", 1),
 		PageSize:   queryInt(c, "page_size", 20),
 	}

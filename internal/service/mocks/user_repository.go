@@ -98,6 +98,23 @@ func (m *MockUserRepository) OrgIDForUser(ctx context.Context, userID domain.ID)
 	return nil, nil
 }
 
+// DepartmentIDForUser — токен үүсгэх бүрд дуудагдана. Хүлээлт тавиагүй үед nil.
+func (m *MockUserRepository) DepartmentIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {
+	for _, call := range m.ExpectedCalls {
+		if call.Method == "DepartmentIDForUser" {
+			args := m.Called(ctx, userID)
+			id, _ := args.Get(0).(*domain.ID)
+			return id, args.Error(1)
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockUserRepository) CountSystemAdmins(ctx context.Context, excludeUserID *domain.ID) (int, error) {
+	args := m.Called(ctx, excludeUserID)
+	return args.Int(0), args.Error(1)
+}
+
 // ValuationOrgIDForUser — токен үүсгэх бүрд дуудагдана (үнэлгээний
 // байгууллагын ажилтан эсэхийг тогтооно). Хүлээлт тавиагүй үед nil.
 func (m *MockUserRepository) ValuationOrgIDForUser(ctx context.Context, userID domain.ID) (*domain.ID, error) {

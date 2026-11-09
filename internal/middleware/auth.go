@@ -16,6 +16,8 @@ const (
 	CtxUserName     = "userName"
 	CtxUserPosition = "userPosition"
 	CtxRoles        = "roles"
+	// CtxDepartmentID — дуудагчийн хэлтэс (domain.ID). Хэлтэсгүй бол тавигдахгүй.
+	CtxDepartmentID = "departmentID"
 	CtxPermissions  = "permissions"
 	// CtxValuationOrg — хэрэглэгч үнэлгээний байгууллагын ажилтан эсэх
 	// (jwt.Claims.ValuationOrg). Эдгээр хэрэглэгчийн хандалт РОЛЬ/ЭРХЭЭР БИШ,
@@ -50,6 +52,9 @@ func JWTAuth(jwtManager *jwt.Manager) gin.HandlerFunc {
 		c.Set(CtxUserID, claims.UserID)
 		if claims.OrgID != nil {
 			c.Set(CtxOrgID, *claims.OrgID)
+		}
+		if claims.DepartmentID != nil {
+			c.Set(CtxDepartmentID, *claims.DepartmentID)
 		}
 		userName := claims.FullName
 		if userName == "" {

@@ -76,13 +76,17 @@ func TestRouter_GlobalParcelDocuments_AllowsSupervisoryRead(t *testing.T) {
 	landSvc.On("IsParcelAcquisitionLocked", mock.Anything, parcelID).Return(false, nil).Maybe()
 	landSvc.On("ListParcelDocuments", mock.Anything, parcelID).
 		Return([]*domain.Document{}, nil)
+	dept := 5
+	landSvc.On("ParcelDepartmentID", mock.Anything, parcelID).Return(&dept, nil)
 
 	router, jwtManager := authzRouter(t, landSvc)
+	callerDept := domain.ID(5)
 	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
-		ID:          domain.ID(78),
-		Username:    "finance",
-		Roles:       []string{"finance_specialist"},
-		Permissions: []string{"compensation:read"},
+		ID:           domain.ID(78),
+		Username:     "finance",
+		Roles:        []string{"finance_specialist"},
+		Permissions:  []string{"compensation:read"},
+		DepartmentID: &callerDept,
 	})
 
 	w := authzDo(router, http.MethodGet, "/api/v1/parcels/"+parcelID.String()+"/documents", token)

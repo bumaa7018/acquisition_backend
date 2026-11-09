@@ -77,7 +77,7 @@ func RequireAssignedOrSenior(svc AssignmentChecker, extraWriteRoles ...string) g
 		rolesAny, _ := c.Get(CtxRoles)
 		if roles, ok := rolesAny.([]string); ok {
 			for _, r := range roles {
-				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || (isRead && supervisoryReadRoles[r]) || extra[r] {
+				if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || r == "department_head" || (isRead && supervisoryReadRoles[r]) || extra[r] {
 					c.Next()
 					return
 				}
@@ -115,7 +115,7 @@ func IsSenior(c *gin.Context) bool {
 		return false
 	}
 	for _, r := range roles {
-		if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" {
+		if r == "admin" || r == "Админ" || r == "senior_specialist" || r == "Ахлах мэргэжилтэн" || r == "department_head" {
 			return true
 		}
 	}

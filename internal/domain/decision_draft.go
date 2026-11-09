@@ -214,6 +214,8 @@ type DecisionDraftFilter struct {
 	FundingSourceID string
 	WorkTypeID      int
 	BudgetID        int
+	SortBy          string // decisionDraftSortColumns-ийн түлхүүр
+	SortDir         string // asc | desc
 	Page            int
 	PageSize        int
 }

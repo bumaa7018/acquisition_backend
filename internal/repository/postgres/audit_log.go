@@ -57,7 +57,9 @@ func (r *AuditLogRepo) List(ctx context.Context, filter domain.AuditLogFilter) (
 	args = append(args, filter.PageSize, (filter.Page-1)*filter.PageSize)
 	rows, err := r.db.Query(ctx,
 		"SELECT "+auditLogColumns+" FROM audit_log "+where+
-			fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args)),
+			fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d",
+				orderClause(auditLogSortColumns, filter.SortBy, filter.SortDir, "created_at DESC", "id"),
+				len(args)-1, len(args)),
 		args...)
 	if err != nil {
 		return nil, 0, err

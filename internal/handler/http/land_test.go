@@ -15,6 +15,7 @@ import (
 	"acquisition_backend/internal/domain"
 	handler "acquisition_backend/internal/handler/http"
 	"acquisition_backend/internal/handler/http/mocks"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -108,6 +109,7 @@ func TestLandHandler_List_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
 	c.Request = httptest.NewRequest(http.MethodGet, "/land-acquisitions", nil)
 
 	h.List(c)
@@ -134,6 +136,7 @@ func TestLandHandler_List_WithFilter(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
 	c.Request = httptest.NewRequest(http.MethodGet,
 		"/land-acquisitions?plan_code=PLAN-2024&status=2&page=2&page_size=10", nil)
 
@@ -1048,6 +1051,7 @@ func TestLandHandler_ListGlobalParcels_PassesGeneralCategory(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Set(middleware.CtxRoles, []string{"admin"})
 	c.Request = httptest.NewRequest(http.MethodGet,
 		"/parcels?general_category_id=3&status_id=107&unlinked_only=true", nil)
 

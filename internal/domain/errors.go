@@ -45,6 +45,14 @@ var (
 	ErrParcelAppNoMissing = errors.New("parcel has no application number yet, sync the parcel first")
 	// Өмчлөлийн (right_type=3) газарт төлбөрийн нэхэмжлэл байдаггүй.
 	ErrParcelOwnedNoPayment = errors.New("owned parcel has no land payment")
+	// ErrDepartmentRequired — системийн админаас бусад хэрэглэгч ЗААВАЛ
+	// хэлтэстэй (ажилтны бүртгэлээр) байна.
+	ErrDepartmentRequired = errors.New("department is required for non-admin users")
+	// ErrOutsideDepartment — хэлтсийн дарга өөр хэлтсийн хэрэглэгч/ажилтныг
+	// удирдах гэсэн.
+	ErrOutsideDepartment = errors.New("target is outside the caller's department")
+	// ErrSystemAdminLimit — системийн админ MaxSystemAdmins-аас хэтэрнэ.
+	ErrSystemAdminLimit = errors.New("system admin limit reached")
 	// Эх системийн файл серверийн хаяг (.env) тохируулаагүй.
 	ErrSourceFileNotConfigured = errors.New("source file server is not configured")
 	// ХУР (XYP) гарцын хаяг (.env: XYP_BASE_URL) тохируулаагүй тул УБЕГ-ийн

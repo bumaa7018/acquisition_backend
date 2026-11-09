@@ -152,8 +152,8 @@ func (m *MockLandService) Delete(ctx context.Context, id uuid.UUID, deletedBy st
 	return m.Called(ctx, id, deletedBy).Error(0)
 }
 
-func (m *MockLandService) Suggest(ctx context.Context, q string, status int) ([]*domain.LandAcquisition, error) {
-	args := m.Called(ctx, q, status)
+func (m *MockLandService) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
+	args := m.Called(ctx, q, status, departmentID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -1046,6 +1046,17 @@ func (m *MockUserService) GetPermissions(ctx context.Context, id domain.ID) ([]s
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockUserService) DepartmentOf(ctx context.Context, id domain.ID) (*domain.ID, error) {
+	args := m.Called(ctx, id)
+	deptID, _ := args.Get(0).(*domain.ID)
+	return deptID, args.Error(1)
+}
+
+func (m *MockUserService) EnsureSystemAdminSlot(ctx context.Context, userID *domain.ID) error {
+	args := m.Called(ctx, userID)
+	return args.Error(0)
+}
+
 type MockRoleService struct{ mock.Mock }
 
 func (m *MockRoleService) List(ctx context.Context) ([]*domain.Role, error) {
@@ -1273,4 +1284,16 @@ func (m *MockLandService) DeleteDroneImage(ctx context.Context, acquisitionID, i
 func (m *MockLandService) DroneLayerName(fileName string) string {
 	args := m.Called(fileName)
 	return args.String(0)
+}
+
+func (m *MockLandService) AcquisitionDepartmentID(ctx context.Context, acquisitionID uuid.UUID) (*int, error) {
+	args := m.Called(ctx, acquisitionID)
+	id, _ := args.Get(0).(*int)
+	return id, args.Error(1)
+}
+
+func (m *MockLandService) ParcelDepartmentID(ctx context.Context, parcelID uuid.UUID) (*int, error) {
+	args := m.Called(ctx, parcelID)
+	id, _ := args.Get(0).(*int)
+	return id, args.Error(1)
 }

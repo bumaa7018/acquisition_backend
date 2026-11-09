@@ -79,6 +79,10 @@ func (s *loginSourceStub) ValuationOrgIDForUser(context.Context, domain.ID) (*do
 	return s.valuationOrgID, nil
 }
 
+func (s *loginSourceStub) DepartmentIDForUser(context.Context, domain.ID) (*domain.ID, error) {
+	return nil, nil
+}
+
 func (s *loginSourceStub) UpdatePassword(context.Context, domain.ID, string) error {
 	return nil
 }

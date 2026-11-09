@@ -414,7 +414,7 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	// илгээх = мэрг. байгууллага (эсвэл ахлах), МИКА бол ЗӨВХӨН өөрийн "mika"
 	// урсгалыг илгээнэ.
 	isFinance := ctxHasRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү")
-	isSenior := ctxHasRole(c, "admin", "Админ", "senior_specialist", "Ахлах мэргэжилтэн")
+	isSenior := ctxHasRole(c, "admin", "Админ", "senior_specialist", "Ахлах мэргэжилтэн", "department_head")
 	// Үнэлгээний байгууллага — роль БИШ, токены `valuation_org` тэмдгээр.
 	isProf := middleware.IsValuationOrgCaller(c)
 	isMika := ctxHasRole(c, "mika", "МИКА")

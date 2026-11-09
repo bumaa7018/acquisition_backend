@@ -24,6 +24,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testDeptID / testDeptInt — дуудагч болон чөлөөлөлтийн НИЙТЛЭГ хэлтэс
+// (системийн админаас бусад нь зөвхөн өөрийн хэлтсийн чөлөөлөлтөд хандана).
+var (
+	testDeptID  = domain.ID(5)
+	testDeptInt = 5
+)
+
 func TestRouter_ValuationCancelAccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tc := range []struct {
@@ -55,12 +62,14 @@ func TestRouter_ValuationCancelAccess(t *testing.T) {
 			pair, err := manager.GenerateTokenPair(jwtpkg.UserInfo{
 				ID: domain.ID(77), FullName: "Cancellation Employee", Roles: tc.roles,
 				Permissions: []string{tc.permission}, ValuationOrg: tc.prof,
+				DepartmentID: &testDeptID,
 			})
 			require.NoError(t, err)
 			svc := &mocks.MockLandService{}
 			svc.On("IsAcquisitionLocked", mock.Anything, acqID).Return(tc.locked, nil).Maybe()
 			svc.On("AcquisitionStatus", mock.Anything, acqID).Return(domain.LandAcquisitionStatusField, nil).Maybe()
 			svc.On("IsAssigned", mock.Anything, acqID, domain.ID(77)).Return(tc.assigned, tc.assignmentErr).Maybe()
+			svc.On("AcquisitionDepartmentID", mock.Anything, acqID).Return(&testDeptInt, nil).Maybe()
 			if tc.want == http.StatusOK {
 				svc.On("TransitionValuationSubmission", mock.Anything,
 					mock.MatchedBy(func(in domain.ValuationTransition) bool {
@@ -116,10 +125,11 @@ func TestRouter_AdminReadsValuationStatusWithoutPermissionClaims(t *testing.T) {
 func TestRouter_AcquisitionDetailIncludesAssignedUsers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := jwtpkg.NewManager("access-secret", "refresh-secret", time.Hour, time.Hour)
-	pair, err := manager.GenerateTokenPair(jwtpkg.UserInfo{ID: 77, Permissions: []string{"land:read"}})
+	pair, err := manager.GenerateTokenPair(jwtpkg.UserInfo{ID: 77, Permissions: []string{"land:read"}, DepartmentID: &testDeptID})
 	require.NoError(t, err)
 	acqID := uuid.New()
 	svc := &mocks.MockLandService{}
+	svc.On("AcquisitionDepartmentID", mock.Anything, acqID).Return(&testDeptInt, nil).Once()
 	svc.On("IsAssigned", mock.Anything, acqID, domain.ID(77)).Return(true, nil).Once()
 	svc.On("GetByID", mock.Anything, acqID).Return(&domain.LandAcquisition{
 		ID: acqID, AssignedUsers: []domain.AcquisitionAssignee{{UserID: 77, UserName: "Assigned Employee", AssignedBy: 1}},

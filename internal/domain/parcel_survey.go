@@ -59,6 +59,8 @@ type ParcelSurveyFilter struct {
 	// Answered — true: бөглөсөн, false: хоосон, nil: бүгд. Бөглөсөн = аль нэг
 	// хариулт эсвэл тайлбартай.
 	Answered *bool
+	SortBy   string // parcelSurveySortColumns-ийн түлхүүр
+	SortDir  string // asc | desc
 	Page     int
 	PageSize int
 }
