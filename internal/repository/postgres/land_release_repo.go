@@ -273,7 +273,7 @@ func (r *LandReleaseRepo) ChangeStatus(
 	return tx.Commit(ctx)
 }
 
-// listWhere — нэр ЭСВЭЛ захирамжийн дугаараар хайх, төлөв, он.
+// listWhere — нэр ЭСВЭЛ захирамжийн дугаараар хайх, төлөв, он, байгууламжийн төрөл, сум/дүүрэг.
 func listWhere(f domain.LandReleaseFilter) (string, []any) {
 	where := []string{"TRUE"}
 	var args []any
@@ -296,6 +296,10 @@ func listWhere(f domain.LandReleaseFilter) (string, []any) {
 	if f.StructureTypeID != 0 {
 		args = append(args, f.StructureTypeID)
 		where = append(where, fmt.Sprintf("lr.structure_type_id = $%d", len(args)))
+	}
+	if code := strings.TrimSpace(f.AU2Code); code != "" {
+		args = append(args, code)
+		where = append(where, fmt.Sprintf("lr.au2_code = $%d", len(args)))
 	}
 	return strings.Join(where, " AND "), args
 }

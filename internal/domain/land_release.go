@@ -132,8 +132,10 @@ type LandReleaseFilter struct {
 	Year   int
 	// StructureTypeID — буулгасан байгууламжийн төрөл.
 	StructureTypeID int
-	Page            int
-	PageSize        int
+	// AU2Code — сум/дүүрэг (land_release.au2_code).
+	AU2Code  string
+	Page     int
+	PageSize int
 }
 
 // LandReleaseMapItem — газрын зурагт (бүх газар, хөнгөн).

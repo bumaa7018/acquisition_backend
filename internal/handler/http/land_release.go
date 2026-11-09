@@ -36,8 +36,10 @@ func landReleaseFilter(c *gin.Context) domain.LandReleaseFilter {
 		Year:   queryInt(c, "year", 0),
 		// Буулгасан байгууламжийн төрөл
 		StructureTypeID: queryInt(c, "structure_type_id", 0),
-		Page:            queryInt(c, "page", 1),
-		PageSize:        queryInt(c, "page_size", 20),
+		// Сум/дүүрэг
+		AU2Code:  c.Query("au2_code"),
+		Page:     queryInt(c, "page", 1),
+		PageSize: queryInt(c, "page_size", 20),
 	}
 }
 
