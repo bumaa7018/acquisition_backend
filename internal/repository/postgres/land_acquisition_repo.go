@@ -383,6 +383,17 @@ func (r *landAcqRepo) List(ctx context.Context, filter domain.LandAcquisitionFil
 			WHERE vs.acquisition_id = la.id AND vs.status IN ('submitted', 'approved')
 		)`
 	}
+	if len(filter.ProgressRanges) > 0 {
+		conds := make([]string, len(filter.ProgressRanges))
+		for j, rg := range filter.ProgressRanges {
+			conds[j] = fmt.Sprintf("(pg.v BETWEEN $%d AND $%d)", i, i+1)
+			args = append(args, rg[0], rg[1])
+			i += 2
+		}
+		// Хувийг нэг удаа тооцоод бүх хүрээтэй харьцуулна.
+		where += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM (SELECT %s AS v) pg WHERE %s)",
+			acquisitionProgressExpr, strings.Join(conds, " OR "))
+	}
 
 	var total int64
 	if err := r.db.QueryRow(ctx,
