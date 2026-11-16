@@ -156,9 +156,9 @@ func TestE2ELegacyImportValuationOnly(t *testing.T) {
 	before := tableCounts(t, ctx, pool)
 
 	svc := NewService(pool, GusConfig{BaseURL: gus.URL, Username: "u", Password: "p", Delay: time.Millisecond})
-	_, err = svc.Create(ctx, "e2e-val", "bogus")
+	_, err = svc.Create(ctx, "e2e-val", nil, "bogus")
 	require.Error(t, err, "горим буруу бол үүсгэхгүй")
-	id, err := svc.Create(ctx, "e2e-val", ModeValuation)
+	id, err := svc.Create(ctx, "e2e-val", nil, ModeValuation)
 	require.NoError(t, err)
 
 	// Хил, нэгж талбарын файл ХҮЛЭЭН АВАХГҮЙ.

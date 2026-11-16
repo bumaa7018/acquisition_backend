@@ -322,7 +322,7 @@ func TestE2ELegacyImportRollbackKeepsForeignParcels(t *testing.T) {
 	})
 
 	svc := NewService(pool, GusConfig{BaseURL: gus.URL, Username: "u", Password: "p", Delay: time.Millisecond})
-	id, err := svc.Create(ctx, "e2e-keep", "")
+	id, err := svc.Create(ctx, "e2e-keep", nil, "")
 	require.NoError(t, err)
 	_, err = svc.UploadBoundary(ctx, id, boundaryFiles, CategoryChoice{General: strconv.Itoa(generalID)})
 	require.NoError(t, err)
