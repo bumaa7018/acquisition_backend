@@ -44,18 +44,8 @@ var acquisitionSortColumns = map[string]string{
 	"area_m2":          "la.area_m2",
 	"start_date":       "la.start_date",
 	"parcel_count":     "(SELECT COUNT(*) FROM parcel WHERE acquisition_id = la.id)",
-	"progress":         acquisitionProgressExpr,
 	"created_at":       "la.created_at",
 }
-
-// acquisitionProgressExpr — чөлөөлөлтийн ГҮЙЦЭТГЭЛИЙН ХУВЬ (0-100) SQL дээр.
-// domain.LandAcquisition.ProgressPercent-тэй ИЖИЛ: эцсийн төлөвт
-// (parcel_status.is_final) шилжсэн талбар / нийт талбар, бүхэл рүү тоймлоно;
-// нэгж талбаргүй бол 0.
-const acquisitionProgressExpr = `(SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE LEAST(100, ROUND(
-	SUM(CASE WHEN COALESCE(pp.status,0) IN (SELECT id FROM parcel_status WHERE is_final) THEN 1 ELSE 0 END)
-	* 100.0 / COUNT(*))) END
-	FROM parcel pp WHERE pp.acquisition_id = la.id)`
 
 // globalParcelSortColumns — бүх чөлөөлөлтийн нэгж талбарын нэгдсэн жагсаалт.
 var globalParcelSortColumns = map[string]string{

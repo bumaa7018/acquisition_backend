@@ -200,15 +200,6 @@ func (h *LandHandler) List(c *gin.Context) {
 			filter.Years = append(filter.Years, n)
 		}
 	}
-	// Гүйцэтгэлийн хувийн хүрээнүүд (хоёр тал багтана, OR), ж: progress=0-20&progress=51-80.
-	for _, s := range c.QueryArray("progress") {
-		lo, hi, ok := strings.Cut(s, "-")
-		a, errA := strconv.Atoi(strings.TrimSpace(lo))
-		b, errB := strconv.Atoi(strings.TrimSpace(hi))
-		if ok && errA == nil && errB == nil {
-			filter.ProgressRanges = append(filter.ProgressRanges, [2]int{a, b})
-		}
-	}
 
 	if s := c.Query("start_date_from"); s != "" {
 		if t, err := time.Parse("2006-01-02", s); err == nil {

@@ -905,10 +905,6 @@ type LandAcquisitionFilter struct {
 	ProfessionalOrgID string
 	// Санхүүгийн жагсаалт: хянах эсвэл баталгаажсан үнэлгээг цуцлах боломжтой чөлөөлөлтүүд.
 	HasReviewableValuation bool
-	// ProgressRanges — ГҮЙЦЭТГЭЛИЙН ХУВЬ (ProgressPercent-тэй ижил, бүхэл
-	// болгон тоймлосон) аль нэг [min, max] хүрээнд (хоёр тал багтана) байх
-	// чөлөөлөлтүүд. Хоосон бол шүүлт байхгүй.
-	ProgressRanges [][2]int
 	// SortBy / SortDir — хүснэгтийн баганаар эрэмбэлэх. SortBy нь repository
 	// дахь ЗӨВШӨӨРӨГДСӨН баганын түлхүүр (танигдаагүй бол үндсэн эрэмбэ),
 	// SortDir нь "asc" | "desc".
