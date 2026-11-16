@@ -107,10 +107,10 @@ type session struct {
 func (s *Service) load(ctx context.Context, q querier, id string) (*session, error) {
 	var ss session
 	var created, updated time.Time
-	err := q.QueryRow(ctx, `SELECT id::text, created_by, created_at, updated_at, status, mode, category, boundary, parcels, reports, result, rollback,
+	err := q.QueryRow(ctx, `SELECT id::text, created_by, created_by_id::bigint, created_at, updated_at, status, mode, category, boundary, parcels, reports, result, rollback,
 			COALESCE(projects, '{}')
 		FROM `+stage+`.session WHERE id = $1`, id).
-		Scan(&ss.ID, &ss.CreatedBy, &created, &updated, &ss.Status, &ss.Mode, &ss.Category, &ss.boundary, &ss.parcels, &ss.reports, &ss.result, &ss.Rollback,
+		Scan(&ss.ID, &ss.CreatedBy, &ss.CreatedByID, &created, &updated, &ss.Status, &ss.Mode, &ss.Category, &ss.boundary, &ss.parcels, &ss.reports, &ss.result, &ss.Rollback,
 			&ss.projects)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -174,6 +174,19 @@ type ListFilter struct {
 	Query    string
 	Page     int
 	PageSize int
+	// OwnerID — утгатай бол зөвхөн тэр хэрэглэгчийн үүсгэсэн импорт (админ биш
+	// хэрэглэгч өөрийнхөө л импортыг харна). nil = бүгд (системийн админ).
+	OwnerID *int64
+}
+
+// OwnerOf — импортыг үүсгэсэн хэрэглэгчийн дугаар. Хуучин импортод nil.
+func (s *Service) OwnerOf(ctx context.Context, id string) (*int64, error) {
+	var owner *int64
+	err := s.db.QueryRow(ctx, `SELECT created_by_id::bigint FROM `+stage+`.session WHERE id = $1`, id).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return owner, err
 }
 
 const maxListPageSize = 100
@@ -211,13 +224,14 @@ func (s *Service) List(ctx context.Context, f ListFilter) ([]SessionListItem, in
 			     WHEN mode = 'valuation' THEN jsonb_path_query_array(COALESCE(reports, '{}'), '$.projects[*].name')
 			     ELSE jsonb_path_query_array(COALESCE(boundary, '{}'), '$.rows[*].name') END AS names
 		FROM ` + stage + `.session s WHERE s.status <> 'draft'
+		   AND ($2::bigint IS NULL OR s.created_by_id = $2)
 	), filtered AS (
 		SELECT * FROM list
 		 WHERE $1 = '' OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(names) n WHERE n ILIKE $1)
 	)`
 
 	var total int64
-	if err := s.db.QueryRow(ctx, base+` SELECT count(*) FROM filtered`, pattern).Scan(&total); err != nil {
+	if err := s.db.QueryRow(ctx, base+` SELECT count(*) FROM filtered`, pattern, f.OwnerID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -229,8 +243,8 @@ func (s *Service) List(ctx context.Context, f ListFilter) ([]SessionListItem, in
 			COALESCE((reports->'stats'->>'rows')::int, 0),
 			s.status = 'committed' AND EXISTS (SELECT 1 FROM `+stage+`.owned o WHERE o.session_id = s.id AND o.kind = 'land_acquisition'),
 			rollback
-		FROM filtered s ORDER BY updated_at DESC, id LIMIT $2 OFFSET $3`,
-		pattern, f.PageSize, (f.Page-1)*f.PageSize)
+		FROM filtered s ORDER BY updated_at DESC, id LIMIT $3 OFFSET $4`,
+		pattern, f.OwnerID, f.PageSize, (f.Page-1)*f.PageSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -274,7 +288,8 @@ func (s *Service) purgeDrafts(ctx context.Context) error {
 }
 
 // Create — шинэ импорт. mode: full (хил + нэгж талбар + үнэлгээ) | valuation (зөвхөн үнэлгээ).
-func (s *Service) Create(ctx context.Context, createdBy, mode string) (string, error) {
+// createdByID — үүсгэсэн хэрэглэгчийн дугаар (эзэмшлийг шалгахад); мэдэгдэхгүй бол nil.
+func (s *Service) Create(ctx context.Context, createdBy string, createdByID *int64, mode string) (string, error) {
 	switch mode {
 	case "":
 		mode = ModeFull
@@ -283,7 +298,7 @@ func (s *Service) Create(ctx context.Context, createdBy, mode string) (string, e
 		return "", &StepError{"Импортын горим буруу: " + mode}
 	}
 	id := uuid.NewString()
-	_, err := s.db.Exec(ctx, `INSERT INTO `+stage+`.session (id, created_by, mode) VALUES ($1, $2, $3)`, id, createdBy, mode)
+	_, err := s.db.Exec(ctx, `INSERT INTO `+stage+`.session (id, created_by, created_by_id, mode) VALUES ($1, $2, $3, $4)`, id, createdBy, createdByID, mode)
 	return id, err
 }
 

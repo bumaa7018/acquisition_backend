@@ -4,16 +4,20 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"acquisition_backend/internal/legacyimport"
+	"acquisition_backend/internal/middleware"
 	"acquisition_backend/internal/pkg/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// LegacyImportHandler — хуучин мэдээллийн импорт (зөвхөн админ).
+// LegacyImportHandler — хуучин мэдээллийн импорт (системийн админ ба ахлах
+// мэргэжилтэн). Админ бүх импортыг, ахлах мэргэжилтэн зөвхөн өөрийнхөө
+// үүсгэсэн импортыг харж, устгана (RequireOwner, legacyOwnerScope).
 //
 //	GET    /legacy-import/categories
 //	GET    /legacy-import/sessions            POST /legacy-import/sessions
@@ -64,6 +68,60 @@ func (h *LegacyImportHandler) sessionID(c *gin.Context) (string, bool) {
 	return id, true
 }
 
+// LegacyImportRoles — хуучин мэдээллийн импортод нэвтрэх ролиуд (админ нь
+// RequireAnyRole-д үргэлж зөвшөөрөгдөнө).
+var LegacyImportRoles = []string{"senior_specialist", "Ахлах мэргэжилтэн"}
+
+// legacyCallerID — дуудагчийн хэрэглэгчийн дугаар (sd_user). Олдохгүй бол nil.
+func legacyCallerID(c *gin.Context) *int64 {
+	v, err := strconv.ParseInt(contextUserIDString(c), 10, 64)
+	if err != nil || v <= 0 {
+		return nil
+	}
+	return &v
+}
+
+// legacyOwnerScope — жагсаалтыг хэнээр хязгаарлах вэ. Системийн админ бүх
+// импортыг (nil), бусад нь (ахлах мэргэжилтэн) зөвхөн өөрийнхөө үүсгэсэнийг.
+// Дугаар нь тодорхойгүй админ биш дуудагчид -1 өгч юу ч харуулахгүй.
+func legacyOwnerScope(c *gin.Context) *int64 {
+	if middleware.IsSystemAdmin(c) {
+		return nil
+	}
+	if id := legacyCallerID(c); id != nil {
+		return id
+	}
+	none := int64(-1)
+	return &none
+}
+
+// RequireOwner — импортын нэг бүртгэл дээрх үйлдэл бүрийн өмнө (:id замууд).
+// Системийн админ бүх импортод хандана. Бусад хэрэглэгч зөвхөн өөрийн
+// үүсгэсэн импортыг харах, засах, оруулах, устгах эрхтэй. Үүсгэгч нь
+// тодорхойгүй хуучин импорт зөвхөн админд нээлттэй.
+func (h *LegacyImportHandler) RequireOwner(c *gin.Context) {
+	if middleware.IsSystemAdmin(c) {
+		c.Next()
+		return
+	}
+	id, ok := h.sessionID(c)
+	if !ok {
+		return
+	}
+	owner, err := h.svc.OwnerOf(c.Request.Context(), id)
+	if err != nil {
+		legacyImportError(c, err)
+		return
+	}
+	caller := legacyCallerID(c)
+	if owner == nil || caller == nil || *owner != *caller {
+		msg := "Зөвхөн өөрийн оруулсан импортыг харах, засах, устгах боломжтой"
+		c.AbortWithStatusJSON(http.StatusForbidden, response.Response{Code: http.StatusForbidden, Error: msg, Message: msg})
+		return
+	}
+	c.Next()
+}
+
 func (h *LegacyImportHandler) Categories(c *gin.Context) {
 	list, err := h.svc.Categories(c.Request.Context())
 	if err != nil {
@@ -99,6 +157,7 @@ func (h *LegacyImportHandler) List(c *gin.Context) {
 		Query:    c.Query("q"),
 		Page:     page,
 		PageSize: pageSize,
+		OwnerID:  legacyOwnerScope(c),
 	})
 	if err != nil {
 		legacyImportError(c, err)
@@ -126,7 +185,7 @@ func (h *LegacyImportHandler) Create(c *gin.Context) {
 			Error: "Импортын горим буруу", Message: "Импортын горим буруу"})
 		return
 	}
-	id, err := h.svc.Create(c.Request.Context(), contextUserDisplayName(c), body.Mode)
+	id, err := h.svc.Create(c.Request.Context(), contextUserDisplayName(c), legacyCallerID(c), body.Mode)
 	if err != nil {
 		legacyImportError(c, err)
 		return

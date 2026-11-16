@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -133,16 +134,61 @@ func (r *RoleRepo) Update(ctx context.Context, role *domain.Role) error {
 	return nil
 }
 
+// Delete — ЗӨВХӨН хэрэглэгчтэй холбогдоогүй ролийг устгана.
+//
+// Устгаагүй (deleted_at IS NULL, идэвхтэй ч идэвхгүй ч) хэрэглэгч энэ ролийг
+// эзэмшиж байвал InUseError (409) буцаана. Хэрэглэгч устгах нь зөөлөн устгал
+// тул устгасан хэрэглэгчийн sd_user_role мөр үлддэг — тэдгээрийг ролийн хамт
+// цэвэрлэнэ (sd_user_role-д FK байхгүй тул өнчин мөр үлдэхээс сэргийлнэ).
+// Системийн админы ролийг хэзээ ч устгахгүй.
 func (r *RoleRepo) Delete(ctx context.Context, id domain.ID) error {
-	res, err := r.db.Exec(ctx,
-		`DELETE FROM sdplatform.sd_role WHERE role_id = $1 AND `+roleInSystem10SQL, id)
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var role domain.Role
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(r.name, ''), COALESCE(r.role_type_code, '')
+		FROM sdplatform.sd_role r
+		WHERE r.role_id = $1 AND `+roleSystemFilter+`
+		FOR UPDATE`, id).Scan(&role.Name, &role.Resource)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if role.IsSystemAdmin() {
+		return &domain.InUseError{Message: fmt.Sprintf("«%s» нь системийн админы роль тул устгах боломжгүй.", role.Name)}
+	}
+
+	var users int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(DISTINCT u.user_id)
+		FROM sdplatform.sd_user_role ur
+		JOIN sdplatform.sd_user u ON u.user_id = ur.user_id
+		WHERE ur.role_id = $1 AND u.deleted_at IS NULL`, id).Scan(&users); err != nil {
+		return err
+	}
+	if users > 0 {
+		return &domain.InUseError{Message: fmt.Sprintf(
+			"«%s» ролийг %d хэрэглэгч ашиглаж байгаа тул устгах боломжгүй. Эхлээд тэдгээр хэрэглэгчээс ролийг хасна уу.",
+			role.Name, users)}
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM sdplatform.sd_user_role WHERE role_id = $1`, id); err != nil {
+		return err
+	}
+	res, err := tx.Exec(ctx, `DELETE FROM sdplatform.sd_role WHERE role_id = $1 AND `+roleInSystem10SQL, id)
 	if err != nil {
 		return err
 	}
 	if res.RowsAffected() == 0 {
 		return domain.ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *RoleRepo) List(ctx context.Context) ([]*domain.Role, error) {

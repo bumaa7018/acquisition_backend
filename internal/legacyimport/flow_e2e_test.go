@@ -157,7 +157,7 @@ func TestE2ELegacyImportFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	svc := NewService(pool, GusConfig{BaseURL: gus.URL, Username: "gus-user", Password: "gus-pass", Delay: time.Millisecond})
-	id, err := svc.Create(ctx, "e2e", ModeFull)
+	id, err := svc.Create(ctx, "e2e", nil, ModeFull)
 	require.NoError(t, err)
 	choice := CategoryChoice{General: strconv.Itoa(generalID), Sub: strconv.Itoa(subID)}
 

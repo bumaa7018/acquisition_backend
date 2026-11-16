@@ -398,14 +398,16 @@ type Job struct {
 }
 
 type SessionInfo struct {
-	ID        string          `json:"id"`
-	CreatedBy string          `json:"createdBy"`
-	CreatedAt string          `json:"createdAt"`
-	UpdatedAt string          `json:"updatedAt"`
-	Status    string          `json:"status"`
-	Mode      string          `json:"mode"` // full | valuation
-	Category  *CategoryChoice `json:"category"`
-	Rollback  *RollbackResult `json:"rollback,omitempty"`
+	ID        string `json:"id"`
+	CreatedBy string `json:"createdBy"`
+	// CreatedByID — үүсгэсэн хэрэглэгчийн дугаар (sd_user). Хуучин импортод хоосон.
+	CreatedByID *int64          `json:"createdById,omitempty"`
+	CreatedAt   string          `json:"createdAt"`
+	UpdatedAt   string          `json:"updatedAt"`
+	Status      string          `json:"status"`
+	Mode        string          `json:"mode"` // full | valuation
+	Category    *CategoryChoice `json:"category"`
+	Rollback    *RollbackResult `json:"rollback,omitempty"`
 }
 
 type CategoryChoice struct {

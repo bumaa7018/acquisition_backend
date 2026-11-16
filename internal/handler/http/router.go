@@ -175,32 +175,35 @@ func NewRouter(
 			}
 		}
 
-		// Хуучин мэдээллийн импорт — системийн хүснэгтүүдэд бөөнөөр бичдэг тул
-		// ЗӨВХӨН админ (admin / «Админ» роль).
+		// Хуучин мэдээллийн импорт — системийн админ ба ахлах мэргэжилтэн.
+		// Админ бүх импортыг, ахлах мэргэжилтэн зөвхөн ӨӨРИЙН үүсгэсэн импортыг
+		// харж, оруулж, устгана: жагсаалт нь үүсгэгчээр хумигдах ба :id замууд
+		// бүгд RequireOwner-оор шалгагдана.
 		if legacyImportSvc != nil {
 			legacyH := NewLegacyImportHandler(legacyImportSvc)
+			owner := legacyH.RequireOwner
 			legacy := protected.Group("/legacy-import")
-			legacy.Use(middleware.RequireAnyRole("admin"))
+			legacy.Use(middleware.RequireAnyRole(LegacyImportRoles...))
 			{
 				legacy.GET("/categories", legacyH.Categories)
 				legacy.POST("/attachments/match", legacyH.MatchAttachments)
 				// Хуучин хавсралтыг нэгж талбарт хуулах — ердийн /parcels/:id/documents-ийн
 				// ИЖИЛ handler, гэхдээ notParcelLocked-гүй: хуучин чөлөөлөлтүүд ихэвчлэн
-				// баталгаажсан (түгжээтэй) тул түүхэн баримтыг зөвхөн админ энэ замаар нөхнө.
+				// баталгаажсан (түгжээтэй) тул түүхэн баримтыг админ, ахлах мэргэжилтэн энэ замаар нөхнө.
 				// Түүхэн скан PDF том байдаг тул хязгаар нь 100MB (ердийнх 20MB).
 				legacy.POST("/attachments/parcels/:id/documents", landH.UploadLegacyParcelDocument)
 				legacy.GET("/sessions", legacyH.List)
 				legacy.POST("/sessions", legacyH.Create)
-				legacy.GET("/sessions/:id", legacyH.Get)
-				legacy.DELETE("/sessions/:id", legacyH.Delete)
-				legacy.POST("/sessions/:id/commit", legacyH.Commit)
-				legacy.GET("/sessions/:id/progress", legacyH.Progress)
-				legacy.GET("/sessions/:id/rollback", legacyH.RollbackPreview)
-				legacy.POST("/sessions/:id/rollback", legacyH.Rollback)
-				legacy.PUT("/sessions/:id/projects", legacyH.UpdateProject)
-				legacy.POST("/sessions/:id/project-boundary", legacyH.ProjectBoundary)
-				legacy.DELETE("/sessions/:id/project-boundary", legacyH.RemoveProjectBoundary)
-				legacy.POST("/sessions/:id/:step", legacyH.Upload)
+				legacy.GET("/sessions/:id", owner, legacyH.Get)
+				legacy.DELETE("/sessions/:id", owner, legacyH.Delete)
+				legacy.POST("/sessions/:id/commit", owner, legacyH.Commit)
+				legacy.GET("/sessions/:id/progress", owner, legacyH.Progress)
+				legacy.GET("/sessions/:id/rollback", owner, legacyH.RollbackPreview)
+				legacy.POST("/sessions/:id/rollback", owner, legacyH.Rollback)
+				legacy.PUT("/sessions/:id/projects", owner, legacyH.UpdateProject)
+				legacy.POST("/sessions/:id/project-boundary", owner, legacyH.ProjectBoundary)
+				legacy.DELETE("/sessions/:id/project-boundary", owner, legacyH.RemoveProjectBoundary)
+				legacy.POST("/sessions/:id/:step", owner, legacyH.Upload)
 			}
 		}
 
@@ -319,7 +322,9 @@ func NewRouter(
 			roles.GET("/:id", middleware.RequirePermission("roles:read"), roleH.GetByID)
 			roles.POST("", middleware.RequirePermission("roles:create"), roleH.Create)
 			roles.PUT("/:id", middleware.RequirePermission("roles:update"), roleH.Update)
-			roles.DELETE("/:id", middleware.RequirePermission("roles:delete"), roleH.Delete)
+			// Роль устгах — ЗӨВХӨН системийн админ (roles:delete эрх дээр нэмж роль
+			// шаардана). Хэрэглэгчтэй холбогдсон ролийг repository татгалзана (409).
+			roles.DELETE("/:id", middleware.RequirePermission("roles:delete"), middleware.RequireAnyRole("admin"), roleH.Delete)
 			roles.POST("/:id/permissions", middleware.RequirePermissionOrRole("roles:update", "admin"), roleH.AssignPermission)
 			roles.DELETE("/:id/permissions/:permission_id", middleware.RequirePermissionOrRole("roles:update", "admin"), roleH.RemovePermission)
 			// Цэс холбох (эрхийн 1-р давхарга) — menuSvc өгсөн үед л.
