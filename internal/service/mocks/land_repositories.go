@@ -828,8 +828,8 @@ func (m *MockLandAcquisitionRepository) GetDocument(ctx context.Context, documen
 	return args.Get(0).(*domain.Document), args.Error(1)
 }
 
-func (m *MockLandAcquisitionRepository) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
-	args := m.Called(ctx, acqIDs)
+func (m *MockLandAcquisitionRepository) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error) {
+	args := m.Called(ctx, acqIDs, deptID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -1051,6 +1051,28 @@ func (m *MockLandAcquisitionRepository) DeleteFundingSource(ctx context.Context,
 	return m.Called(ctx, id).Error(0)
 }
 
+func (m *MockLandAcquisitionRepository) ValuationStreamOwners(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (domain.ValuationStreamOwners, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode)
+	o, _ := args.Get(0).(domain.ValuationStreamOwners)
+	return o, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) AssetStream(ctx context.Context, acquisitionID, assetID uuid.UUID) (string, string, error) {
+	args := m.Called(ctx, acquisitionID, assetID)
+	return args.String(0), args.String(1), args.Error(2)
+}
+
+func (m *MockLandAcquisitionRepository) CompensationStream(ctx context.Context, acquisitionID, compID uuid.UUID) (string, string, error) {
+	args := m.Called(ctx, acquisitionID, compID)
+	return args.String(0), args.String(1), args.Error(2)
+}
+
+func (m *MockLandAcquisitionRepository) FundingSourceDraftLinks(ctx context.Context, id uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, id)
+	links, _ := args.Get(0).([]string)
+	return links, args.Error(1)
+}
+
 func (m *MockLandAcquisitionRepository) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
 	args := m.Called(ctx, acquisitionID, parcelID)
 	if args.Get(0) == nil {
@@ -1129,6 +1151,11 @@ func (m *MockLandAcquisitionRepository) ListAssetCalculations(ctx context.Contex
 
 func (m *MockLandAcquisitionRepository) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error {
 	return m.Called(ctx, acquisitionID, orgUserID).Error(0)
+}
+
+func (m *MockLandAcquisitionRepository) CountParcelsWithIndependentOrg(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (int, error) {
+	args := m.Called(ctx, acquisitionID, orgID)
+	return args.Int(0), args.Error(1)
 }
 
 func (m *MockLandAcquisitionRepository) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error {
@@ -1251,4 +1278,16 @@ func (m *MockLandAcquisitionRepository) ParcelDepartmentID(ctx context.Context, 
 	args := m.Called(ctx, parcelID)
 	id, _ := args.Get(0).(*int)
 	return id, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ValuationOrgScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error) {
+	args := m.Called(ctx, acquisitionID, orgID)
+	s, _ := args.Get(0).(domain.ValuationOrgScope)
+	return s, args.Error(1)
+}
+
+func (m *MockLandAcquisitionRepository) ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, parcelID)
+	urls, _ := args.Get(0).([]string)
+	return urls, args.Error(1)
 }

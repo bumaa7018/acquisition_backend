@@ -871,7 +871,7 @@ func TestLandService_SyncParcel_Success(t *testing.T) {
 	holderID := uuid.New()
 
 	acq := &domain.LandAcquisition{ID: acqID, PlanCode: testPlanCode}
-	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode}
+	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}
 	srcParcel := &domain.SourceParcel{ID: uuid.New(), ParcelID: parcelCode}
 
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
@@ -932,7 +932,7 @@ func TestLandService_SyncParcel_SourceNotFound(t *testing.T) {
 	parcelCode := "MISSING"
 	parcelID := uuid.New()
 	acq := &domain.LandAcquisition{ID: acqID}
-	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode}
+	parcel := &domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}
 
 	landRepo.On("GetByID", ctx, acqID).Return(acq, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(parcel, nil)
@@ -964,7 +964,7 @@ func syncHolderSvc(t *testing.T, acqID, parcelID uuid.UUID, parcelCode, appNo st
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
-		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode}, nil)
+		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}, nil)
 	landRepo.On("UpdateParcelAcquisitionGeom", ctx, parcelID, mock.AnythingOfType("string")).Return(nil)
 	landRepo.On("FillParcelAUCodesFromGeometry", ctx, parcelID).
 		Return(domain.LandAcquisitionAU{}, domain.ErrNotFound)
@@ -1000,7 +1000,7 @@ func TestLandService_SyncParcelHolders_SavesAllByAppNo(t *testing.T) {
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
-		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode}, nil)
+		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}, nil)
 	landRepo.On("GetParcelDetailByID", ctx, parcelID).
 		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: appNo}}, nil)
 
@@ -1035,7 +1035,7 @@ func TestLandService_SyncParcelHolders_AppNoMissing(t *testing.T) {
 	svc := service.NewLandService(landRepo, nil, nil, parcelInfo)
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
-	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(&domain.Parcel{ID: parcelID}, nil)
+	landRepo.On("GetParcelByCode", ctx, parcelCode).Return(&domain.Parcel{ID: parcelID, AcquisitionID: acqID}, nil)
 	landRepo.On("GetParcelDetailByID", ctx, parcelID).
 		Return(&domain.ParcelFull{Detail: &domain.ParcelDetailInfo{AppNo: "  "}}, nil)
 
@@ -1151,7 +1151,7 @@ func TestLandService_SyncParcel_ComputesAcquisitionAreaFromSourceGeometry(t *tes
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID, GeometryWKT: acqWKT}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
-		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode}, nil)
+		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}, nil)
 	parcelInfo.On("GetParcelInfo", ctx, parcelCode).Return(src, nil)
 	landRepo.On("UpsertHolder", ctx, src).Return(holderID, nil)
 	landRepo.On("ReplaceParcelDetail", ctx, parcelID, acqID, holderID, src).Return(nil)

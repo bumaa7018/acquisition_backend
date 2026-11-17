@@ -24,6 +24,8 @@ type UserService interface {
 	// InvalidateSessions — хэрэглэгчийн бүх токеныг хүчингүй болгоно. Роль/эрх
 	// нь JWT-д агуулагддаг тул эрх өөрчлөгдсөний дараа шууд хүчинтэй болгоход.
 	InvalidateSessions(ctx context.Context, id domain.ID) error
+	// InvalidateRoleSessions — роль-той БҮХ хэрэглэгчийн токеныг хүчингүй болгоно.
+	InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error
 	// GetPermissions — хэрэглэгчийн ролиудаас цуглуулсан эрхийн нэрс. Дуудагч
 	// өөрөөсөө өндөр эрхтэй хэрэглэгчийг өөрчлөхийг хориглоход хэрэглэнэ.
 	GetPermissions(ctx context.Context, id domain.ID) ([]string, error)
@@ -275,6 +277,7 @@ func (s *userService) Update(ctx context.Context, id domain.ID, req UpdateUserRe
 	if req.Position != "" {
 		user.Position = req.Position
 	}
+	wasActive := user.IsActive
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
 	}
@@ -282,6 +285,14 @@ func (s *userService) Update(ctx context.Context, id domain.ID, req UpdateUserRe
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		return nil, err
+	}
+	// Идэвхгүй болгосон хэрэглэгчийн гарт байгаа токенуудыг ШУУД хүчингүй
+	// болгоно. Эс бөгөөс refresh хийх хүртэл (access токены хугацаа) хандсаар
+	// байдаг байв — устгах, нууц үг солихтой ижил.
+	if wasActive && !user.IsActive {
+		if err := s.userRepo.InvalidateSessions(ctx, id); err != nil {
+			return nil, err
+		}
 	}
 	user.Password = ""
 	return user, nil
@@ -315,6 +326,10 @@ func (s *userService) ChangePassword(ctx context.Context, id domain.ID, newPassw
 
 func (s *userService) InvalidateSessions(ctx context.Context, id domain.ID) error {
 	return s.userRepo.InvalidateSessions(ctx, id)
+}
+
+func (s *userService) InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error {
+	return s.userRepo.InvalidateRoleSessions(ctx, roleID)
 }
 
 func (s *userService) DepartmentOf(ctx context.Context, id domain.ID) (*domain.ID, error) {

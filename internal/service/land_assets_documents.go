@@ -14,6 +14,68 @@ import (
 	"github.com/google/uuid"
 )
 
+// AuthorizeValuationWrite — үнэлгээний урсгалын эзэмшлийн шалгалт.
+//
+// Урсгал бүр тусдаа хадгалагдаж, тус бүрт ЗӨВХӨН эзэн нь бичнэ
+// (domain.CanWriteValuationStream): үндсэн урсгалд чөлөөлөлтийн үндсэн
+// байгууллага, хөндлөнгийн урсгалд тухайн нэгж талбарын хөндлөнгийн
+// байгууллага, МИКА урсгалд МИКА. Дотоод ажилтан (админ ч гэсэн) бичихгүй.
+// Нэгж талбар нь URL-ын чөлөөлөлтөд харьяалагдах ёстой.
+func (s *landService) AuthorizeValuationWrite(
+	ctx context.Context, acquisitionID uuid.UUID, parcelCode, valuationType string, caller domain.ValuationCaller,
+) (string, error) {
+	vType, ok := domain.NormalizeValuationType(strings.TrimSpace(valuationType))
+	if !ok {
+		return "", domain.NewRuleError("Үнэлгээний урсгал буруу байна.")
+	}
+	parcelCode = strings.TrimSpace(parcelCode)
+	if parcelCode == "" {
+		return "", domain.NewRuleError("Нэгж талбарын дугаар заавал байна.")
+	}
+	owners, err := s.landRepo.ValuationStreamOwners(ctx, acquisitionID, parcelCode)
+	if err != nil {
+		return "", err
+	}
+	if !domain.CanWriteValuationStream(caller, vType, owners) {
+		return "", domain.ErrForbidden
+	}
+	return vType, nil
+}
+
+// AuthorizeValuationSubmit — үнэлгээ ИЛГЭЭХ эрх: бичих эрхтэй ижил (тухайн
+// урсгалын эзэн). Нэгж талбарыг UUID-аар (URL) өгнө.
+func (s *landService) AuthorizeValuationSubmit(
+	ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string, caller domain.ValuationCaller,
+) (string, error) {
+	p, err := s.landRepo.GetParcelByID(ctx, parcelID)
+	if err != nil || p.AcquisitionID != acquisitionID {
+		return "", domain.ErrNotFound
+	}
+	return s.AuthorizeValuationWrite(ctx, acquisitionID, p.ParcelID, valuationType, caller)
+}
+
+func (s *landService) AuthorizeAssetWrite(ctx context.Context, acquisitionID, assetID uuid.UUID, caller domain.ValuationCaller) (string, error) {
+	parcelCode, vType, err := s.landRepo.AssetStream(ctx, acquisitionID, assetID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.AuthorizeValuationWrite(ctx, acquisitionID, parcelCode, vType, caller); err != nil {
+		return "", err
+	}
+	return parcelCode, nil
+}
+
+func (s *landService) AuthorizeCompensationWrite(ctx context.Context, acquisitionID, compID uuid.UUID, caller domain.ValuationCaller) (string, error) {
+	parcelCode, vType, err := s.landRepo.CompensationStream(ctx, acquisitionID, compID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.AuthorizeValuationWrite(ctx, acquisitionID, parcelCode, vType, caller); err != nil {
+		return "", err
+	}
+	return parcelCode, nil
+}
+
 // ListAssets — чөлөөлөлтөд хамаарах барилгын мэдээллийн жагсаалт
 func (s *landService) ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error) {
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
@@ -660,4 +722,16 @@ func paymentDisplayName(name string, stage int) string {
 		return name
 	}
 	return strings.TrimSpace(paymentStageSuffix.ReplaceAllString(name, "")) + domain.PaymentStageSuffix(stage)
+}
+
+// ValuationOrgReadScope — үнэлгээний байгууллагын УНШИЖ болох урсгалууд
+// (domain.ValuationOrgScope). Handler нь жагсаалтыг үүгээр шүүж, ганц урсгалын
+// уншилтыг үүгээр зөвшөөрнө.
+func (s *landService) ValuationOrgReadScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error) {
+	return s.landRepo.ValuationOrgScope(ctx, acquisitionID, orgID)
+}
+
+// ArchivedValuationFileURLs — нэгж талбарын цуцлагдсан үнэлгээний архивын файлын хаягууд.
+func (s *landService) ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error) {
+	return s.landRepo.ArchivedValuationFileURLs(ctx, parcelID)
 }

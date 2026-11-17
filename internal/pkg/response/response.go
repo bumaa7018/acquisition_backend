@@ -138,6 +138,15 @@ func Error(c *gin.Context, err error) {
 		})
 		return
 	}
+	// Бизнесийн дүрэм зөрчсөн — тайлбар нь шууд хэрэглэгчид (422).
+	var rule *domain.RuleError
+	if errors.As(err, &rule) {
+		logError(c, http.StatusUnprocessableEntity, rule.Error())
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, Response{
+			Code: http.StatusUnprocessableEntity, Error: rule.Error(), Message: rule.Error(),
+		})
+		return
+	}
 	status, key := mapError(err)
 	msg := i18n.T(lang(c), key)
 	logError(c, status, err.Error())

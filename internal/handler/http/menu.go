@@ -14,8 +14,9 @@ import (
 
 // MenuHandler — цэсний харагдац болон роль ↔ цэсний холбоос.
 type MenuHandler struct {
-	svc     service.MenuService
-	roleSvc service.RoleService
+	svc      service.MenuService
+	roleSvc  service.RoleService
+	sessions roleSessionInvalidator
 }
 
 func NewMenuHandler(svc service.MenuService, optionalRoleSvc ...service.RoleService) *MenuHandler {
@@ -163,8 +164,20 @@ func (h *MenuHandler) SetRoleMenuPermissions(c *gin.Context) {
 		}
 		permissionIDs = append(permissionIDs, permissionID)
 	}
+	// Жагсаалтаас хасагдсан (одоо байгаа) эрхүүд — ХУРААХ эрхийг шалгана.
+	keep := make(map[domain.ID]bool, len(permissionIDs))
+	for _, id := range permissionIDs {
+		keep[id] = true
+	}
+	if !callerCanRevokeMenuPermissions(c, h.roleSvc, h.svc, roleID, menuID, keep) {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
 	if err := h.roleSvc.SetMenuPermissions(c.Request.Context(), roleID, menuID, permissionIDs); err != nil {
 		response.Error(c, err)
+		return
+	}
+	if !invalidateRoleHolders(c, h.sessions, roleID) {
 		return
 	}
 	response.OK(c, gin.H{"role_id": roleID, "menu_id": menuID, "permission_ids": b.PermissionIDs})
@@ -191,8 +204,15 @@ func (h *MenuHandler) RemoveRoleMenuPermissions(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	if !callerCanRevokeMenuPermissions(c, h.roleSvc, h.svc, roleID, menuID, nil) {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
 	if err := h.roleSvc.RemoveMenuPermissions(c.Request.Context(), roleID, menuID); err != nil {
 		response.Error(c, err)
+		return
+	}
+	if !invalidateRoleHolders(c, h.sessions, roleID) {
 		return
 	}
 	response.NoContent(c)
@@ -215,8 +235,16 @@ func (h *MenuHandler) Detach(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	// Цэс салгахад тухайн цэсийн ролийн эрхүүд ХАМТ устдаг (MenuRepo.DetachFromRole).
+	if !callerCanRevokeMenuPermissions(c, h.roleSvc, h.svc, roleID, menuID, nil) {
+		response.Error(c, domain.ErrForbidden)
+		return
+	}
 	if err := h.svc.Detach(c.Request.Context(), roleID, menuID); err != nil {
 		response.Error(c, err)
+		return
+	}
+	if !invalidateRoleHolders(c, h.sessions, roleID) {
 		return
 	}
 	response.NoContent(c)

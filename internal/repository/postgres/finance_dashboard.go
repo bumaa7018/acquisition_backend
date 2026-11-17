@@ -38,6 +38,14 @@ func (r *landAcqRepo) GetFinanceDashboard(
 	// байрлагчийн дугаар тул шүүлтүүр нэмэхэд дугаар салах эрсдэлгүй.
 	next := func() int { return len(args) + 1 }
 
+	if filter.DepartmentID != nil {
+		where = append(where, fmt.Sprintf(`c.acquisition_id IN (
+			SELECT la.id FROM land_acquisition la
+			JOIN acquisition_category ac ON ac.id = la.general_category_id
+			WHERE ac.department_id = $%d)`, next()))
+		args = append(args, *filter.DepartmentID)
+	}
+
 	if len(filter.Years) > 0 {
 		ph := make([]string, len(filter.Years))
 		for j, y := range filter.Years {

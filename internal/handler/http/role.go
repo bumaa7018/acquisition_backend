@@ -17,6 +17,7 @@ type RoleHandler struct {
 	roleSvc  service.RoleService
 	permSvc  service.PermissionService
 	validate *validator.Validate
+	sessions roleSessionInvalidator
 }
 
 func NewRoleHandler(roleSvc service.RoleService, permSvc service.PermissionService) *RoleHandler {
@@ -77,6 +78,7 @@ func (h *RoleHandler) GetByID(c *gin.Context) {
 func (h *RoleHandler) Create(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name" validate:"required"`
+		Code        string `json:"code"`
 		Description string `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,6 +91,7 @@ func (h *RoleHandler) Create(c *gin.Context) {
 	}
 	role, err := h.roleSvc.Create(c.Request.Context(), service.CreateRoleRequest{
 		Name:        req.Name,
+		Code:        req.Code,
 		Description: req.Description,
 	})
 	if err != nil {
@@ -205,6 +208,9 @@ func (h *RoleHandler) AssignPermission(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	if !invalidateRoleHolders(c, h.sessions, roleID) {
+		return
+	}
 	l := i18n.Detect(c.GetHeader("Accept-Language"))
 	c.JSON(http.StatusOK, response.Response{
 		Code:    http.StatusOK,
@@ -287,6 +293,9 @@ func (h *RoleHandler) RemovePermission(c *gin.Context) {
 	}
 	if err := h.roleSvc.RemovePermission(c.Request.Context(), roleID, permID); err != nil {
 		response.Error(c, err)
+		return
+	}
+	if !invalidateRoleHolders(c, h.sessions, roleID) {
 		return
 	}
 	response.NoContent(c)

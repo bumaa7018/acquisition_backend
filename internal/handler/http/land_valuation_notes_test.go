@@ -83,6 +83,7 @@ func TestLandHandler_SaveValuationNotes_Success(t *testing.T) {
 
 	notes := map[string]string{"land_valuation": "Шинэчилсэн тайлбар"}
 	saved := []*domain.ValuationSectionNote{sampleSectionNote(acqID, "land_valuation", "Шинэчилсэн тайлбар")}
+	mockSvc.On("AuthorizeValuationWrite", mock.Anything, acqID, "010101000001", "asset", mock.Anything).Return("asset", nil)
 	mockSvc.On("SaveValuationNotes", mock.Anything, acqID, "010101000001", "asset", notes, "7").Return(saved, nil)
 
 	body, err := json.Marshal(map[string]any{

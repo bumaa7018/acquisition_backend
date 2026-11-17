@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -101,6 +103,14 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 		return
 	}
 
+	// 1б давхарга: санхүү/МИКА — зөвхөн ҮНЭЛГЭЭНИЙ файл. Тэдний API маршрутууд
+	// (нийгмийн судалгаа, чөлөөлөлтийн баримт, мэдэгдэл, захирамж) хаалттай
+	// бөгөөд файлын замаар тэр хаалтыг тойрох ёсгүй.
+	if reviewerOnlyCaller(c) && !reviewerFileNamespaces[namespace] {
+		deny("reviewer_namespace:" + namespace)
+		return
+	}
+
 	// 2-р давхарга: тухайн объектын ЭЗЭН рүү буулгаж шалгана.
 	var err error
 	switch namespace {
@@ -145,6 +155,11 @@ func (h *FileAccessHandler) Authorize(c *gin.Context) {
 		// Танихгүй namespace — зөвшөөрөхгүй (шинэ төрөл нэмэгдвэл энд бүртгэнэ).
 		err = domain.ErrForbidden
 	}
+	// Санхүү/МИКА — нэгж талбарын хавсралтаас зөвхөн үнэлгээний төрлийнх
+	// (/parcels/:id/documents жагсаалттай ижил дүрэм).
+	if err == nil && namespace == "parcel" && reviewerOnlyCaller(c) {
+		err = h.authorizeReviewerParcelFile(c, ownerID, c.Query("key"))
+	}
 	if err != nil {
 		deny("owner_check:" + namespace)
 		return
@@ -169,6 +184,12 @@ func (h *FileAccessHandler) authorizeAcquisition(c *gin.Context, id string) erro
 		}
 		return nil
 	}
+	// Хэлтсийн хүрээ — /land-acquisitions/:id маршрутын RequireAcquisitionDepartment-тэй ижил.
+	if !h.inCallerDepartment(c, func(ctx context.Context) (*int, error) {
+		return h.svc.AcquisitionDepartmentID(ctx, acqID)
+	}) {
+		return domain.ErrForbidden
+	}
 	// Ахлах/админ, мөн хяналтын унших ролиуд — хуваарилалтгүйгээр.
 	if middleware.IsSenior(c) || supervisoryReader(c) {
 		return nil
@@ -182,6 +203,69 @@ func (h *FileAccessHandler) authorizeAcquisition(c *gin.Context, id string) erro
 		return domain.ErrForbidden
 	}
 	return nil
+}
+
+// inCallerDepartment — файлын эзэн (чөлөөлөлт/нэгж талбар) дуудагчийн хэлтэст
+// хамаарах эсэх. Системийн админ хязгааргүй; хэлтэсгүй дотоод дуудагч, эсвэл
+// хэлтэс нь тодорхойгүй эзэн — хаалттай (маршрутын middleware-тэй ижил).
+// Өмнө нь ахлах/санхүү/МИКА файлын түлхүүр мэдвэл БҮХ хэлтсийн файлыг нээдэг байв.
+func (h *FileAccessHandler) inCallerDepartment(c *gin.Context, lookup func(context.Context) (*int, error)) bool {
+	mine, restricted := middleware.DataDepartmentScope(c)
+	if !restricted {
+		return true
+	}
+	if mine == nil {
+		return false
+	}
+	theirs, err := lookup(c.Request.Context())
+	return err == nil && theirs != nil && *theirs == *mine
+}
+
+// reviewerFileNamespaces — санхүү/МИКА-д нээлттэй файлын төрлүүд: үнэлгээний
+// тайлан, хөрөнгийн зураг, үнэлгээг буцаах/цуцлах/илгээх хавсралт, төсөөллийн
+// үнэлгээ, нэгж талбарын хавсралт (доор төрлөөр нь дахин шүүнэ).
+var reviewerFileNamespaces = map[string]bool{
+	"compensation-report": true,
+	"asset-photo":         true,
+	"valuation-return":    true,
+	"valuation-cancel":    true,
+	"valuation-draft":     true,
+	"estimated-value":     true,
+	"parcel":              true,
+}
+
+// authorizeReviewerParcelFile — түлхүүрт харгалзах нэгж талбарын хавсралт нь
+// хяналтын ролийн харах төрлийнх эсэх. Хавсралт олдохгүй бол хаалттай.
+func (h *FileAccessHandler) authorizeReviewerParcelFile(c *gin.Context, parcelIDStr, key string) error {
+	parcelID, err := uuid.Parse(parcelIDStr)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	docs, err := h.svc.ListParcelDocuments(c.Request.Context(), parcelID)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	visible := reviewerDocFilter(c.Request.Context(), h.svc)
+	for _, d := range docs {
+		if documentMatchesKey(d, key) {
+			if visible(d) {
+				return nil
+			}
+			return domain.ErrForbidden
+		}
+	}
+	// Цуцлагдсан үнэлгээний архивын файл (тайлан, эх хүснэгт) — хавсралтаас
+	// хасагдсан ч үнэлгээний түүхэнд нээгдэнэ.
+	archived, err := h.svc.ArchivedValuationFileURLs(c.Request.Context(), parcelID)
+	if err != nil {
+		return domain.ErrForbidden
+	}
+	for _, u := range archived {
+		if documentMatchesKey(&domain.Document{FileURL: u}, key) {
+			return nil
+		}
+	}
+	return domain.ErrForbidden
 }
 
 func (h *FileAccessHandler) authorizeParcel(c *gin.Context, id string) error {
@@ -199,6 +283,12 @@ func (h *FileAccessHandler) authorizeParcel(c *gin.Context, id string) error {
 			return domain.ErrForbidden
 		}
 		return nil
+	}
+	// Хэлтсийн хүрээ — /parcels/:id маршрутын RequireParcelDepartment-тэй ижил.
+	if !h.inCallerDepartment(c, func(ctx context.Context) (*int, error) {
+		return h.svc.ParcelDepartmentID(ctx, parcelID)
+	}) {
+		return domain.ErrForbidden
 	}
 	if middleware.IsSenior(c) || supervisoryReader(c) {
 		return nil
@@ -229,6 +319,15 @@ func (h *FileAccessHandler) authorizeCompensation(c *gin.Context, id string) err
 	if err != nil {
 		return domain.ErrForbidden
 	}
+	// Үнэлгээний байгууллага зөвхөн ӨӨРИЙН урсгалын тайланг нээнэ (уншилтын
+	// дүрэм бичилтийнхтэй ижил). Мөр устсан (цуцлагдсан үнэлгээний архив) бол
+	// урсгалыг тодорхойлох боломжгүй тул доорх гишүүнчлэлийн шалгалтад үлдэнэ.
+	if profOnlyCaller(c) {
+		_, err := h.svc.AuthorizeCompensationWrite(c.Request.Context(), acqID, compID, valuationCallerFrom(c))
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrForbidden
+		}
+	}
 	return h.authorizeAcquisition(c, acqID.String())
 }
 
@@ -242,6 +341,13 @@ func (h *FileAccessHandler) authorizeAsset(c *gin.Context, id string) error {
 	acqID, err := h.svc.GetAssetAcquisition(c.Request.Context(), assetID)
 	if err != nil {
 		return domain.ErrForbidden
+	}
+	// authorizeCompensation-тэй ижил: байгууллага зөвхөн ӨӨРИЙН урсгалын зургийг.
+	if profOnlyCaller(c) {
+		_, err := h.svc.AuthorizeAssetWrite(c.Request.Context(), acqID, assetID, valuationCallerFrom(c))
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return domain.ErrForbidden
+		}
 	}
 	return h.authorizeAcquisition(c, acqID.String())
 }

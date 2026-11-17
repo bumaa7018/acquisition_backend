@@ -77,7 +77,7 @@ func TestRouter_GlobalParcelDocuments_AllowsSupervisoryRead(t *testing.T) {
 	landSvc.On("ListParcelDocuments", mock.Anything, parcelID).
 		Return([]*domain.Document{}, nil)
 	dept := 5
-	landSvc.On("ParcelDepartmentID", mock.Anything, parcelID).Return(&dept, nil)
+	landSvc.On("ParcelDepartmentID", mock.Anything, parcelID).Return(&dept, nil).Maybe()
 
 	router, jwtManager := authzRouter(t, landSvc)
 	callerDept := domain.ID(5)
@@ -176,13 +176,15 @@ func TestRouter_FileAuthorize_AllowsAssigned(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("IsAssigned", mock.Anything, acqID, domain.ID(83)).Return(true, nil)
+	landSvc.On("AcquisitionDepartmentID", mock.Anything, acqID).Return(&testDeptInt, nil)
 
 	router, jwtManager := authzRouter(t, landSvc)
 	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
-		ID:          domain.ID(83),
-		Username:    "employee",
-		Roles:       []string{"employee"},
-		Permissions: []string{"land:read"},
+		ID:           domain.ID(83),
+		Username:     "employee",
+		Roles:        []string{"employee"},
+		Permissions:  []string{"land:read"},
+		DepartmentID: &testDeptID,
 	})
 
 	w := authzDo(router, http.MethodGet,
@@ -233,13 +235,15 @@ func TestRouter_FileAuthorize_AllowsValuationCancelAttachment(t *testing.T) {
 
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("IsAssignedToParcel", mock.Anything, parcelID, domain.ID(86)).Return(true, nil)
+	landSvc.On("ParcelDepartmentID", mock.Anything, parcelID).Return(&testDeptInt, nil)
 
 	router, jwtManager := authzRouter(t, landSvc)
 	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
-		ID:          domain.ID(86),
-		Username:    "employee",
-		Roles:       []string{"employee"},
-		Permissions: []string{"land:read"},
+		ID:           domain.ID(86),
+		Username:     "employee",
+		Roles:        []string{"employee"},
+		Permissions:  []string{"land:read"},
+		DepartmentID: &testDeptID,
 	})
 
 	w := authzDo(router, http.MethodGet,
@@ -257,17 +261,47 @@ func TestRouter_FileAuthorize_AllowsArchivedCompensationReport(t *testing.T) {
 	landSvc := &mocks.MockLandService{}
 	landSvc.On("GetCompensationAcquisition", mock.Anything, compID).Return(acqID, nil)
 	landSvc.On("IsAssigned", mock.Anything, acqID, domain.ID(87)).Return(true, nil)
+	landSvc.On("AcquisitionDepartmentID", mock.Anything, acqID).Return(&testDeptInt, nil)
 
 	router, jwtManager := authzRouter(t, landSvc)
 	token := authzToken(t, jwtManager, jwtpkg.UserInfo{
-		ID:          domain.ID(87),
-		Username:    "employee",
-		Roles:       []string{"employee"},
-		Permissions: []string{"land:read"},
+		ID:           domain.ID(87),
+		Username:     "employee",
+		Roles:        []string{"employee"},
+		Permissions:  []string{"land:read"},
+		DepartmentID: &testDeptID,
 	})
 
 	w := authzDo(router, http.MethodGet,
 		"/api/v1/files/authorize?key=compensation-report%2F"+compID.String()+"%2Freport.pdf", token)
 	assert.Equal(t, http.StatusOK, w.Code)
 	landSvc.AssertExpectations(t)
+}
+
+// Ахлах/санхүү/МИКА файлын түлхүүр мэдсэн ч ӨӨР хэлтсийн чөлөөлөлт, нэгж
+// талбарын файлыг нээхгүй (маршрутын RequireAcquisitionDepartment-тэй ижил).
+func TestRouter_FileAuthorize_DeniesOtherDepartment(t *testing.T) {
+	acqID, parcelID := uuid.New(), uuid.New()
+	other := 99
+	// Санхүү бүх хэлтсийг хардаг тул энд ороогүй (TestFinance_SeesAllDepartments).
+	for _, roles := range [][]string{{"senior_specialist"}, {"mika"}} {
+		landSvc := &mocks.MockLandService{}
+		landSvc.On("AcquisitionDepartmentID", mock.Anything, acqID).Return(&other, nil)
+		landSvc.On("ParcelDepartmentID", mock.Anything, parcelID).Return(&other, nil)
+		router, jwtManager := authzRouter(t, landSvc)
+		token := authzToken(t, jwtManager, jwtpkg.UserInfo{
+			ID: domain.ID(88), Roles: roles,
+			Permissions:  []string{"land:read", "compensation:read"},
+			DepartmentID: &testDeptID,
+		})
+		for _, key := range []string{
+			"compensation-report%2F" + uuid.New().String() + "%2Fr.pdf",
+			"valuation-return%2F" + parcelID.String() + "%2Fr.pdf",
+			"acquisition%2F" + acqID.String() + "%2Fa.pdf",
+		} {
+			landSvc.On("GetCompensationAcquisition", mock.Anything, mock.Anything).Return(acqID, nil).Maybe()
+			w := authzDo(router, http.MethodGet, "/api/v1/files/authorize?key="+key, token)
+			assert.Equal(t, http.StatusForbidden, w.Code, "%v %s", roles, key)
+		}
+	}
 }

@@ -30,7 +30,7 @@ func syncDocsSvc(t *testing.T, acqID, parcelID uuid.UUID, parcelCode, appNo stri
 
 	landRepo.On("GetByID", ctx, acqID).Return(&domain.LandAcquisition{ID: acqID}, nil)
 	landRepo.On("GetParcelByCode", ctx, parcelCode).
-		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode}, nil)
+		Return(&domain.Parcel{ID: parcelID, ParcelID: parcelCode, AcquisitionID: acqID}, nil)
 	landRepo.On("GetParcelDetailByID", ctx, parcelID).Return(&domain.ParcelFull{
 		Detail: &domain.ParcelDetailInfo{AppNo: appNo},
 	}, nil)

@@ -73,6 +73,9 @@ type UserRepository interface {
 	// InvalidateSessions — тухайн хэрэглэгчийн одоо хүчинтэй бүх токеныг
 	// (энэ агшингаас өмнө олгогдсоныг) хүчингүй болгоно.
 	InvalidateSessions(ctx context.Context, userID domain.ID) error
+	// InvalidateRoleSessions — тухайн роль-той БҮХ хэрэглэгчийн токеныг
+	// хүчингүй болгоно (ролийн эрх өөрчлөгдсөний дараа).
+	InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error
 	// IsSessionValid — тухайн issuedAt хугацаанд олгогдсон токен хэрэглэгчийн
 	// эх цэгээс хойш байвал (буюу эх цэг тавиагүй бол) true.
 	//
@@ -141,6 +144,8 @@ type RoleRepository interface {
 	Create(ctx context.Context, role *domain.Role) error
 	GetByID(ctx context.Context, id domain.ID) (*domain.Role, error)
 	GetByName(ctx context.Context, name string) (*domain.Role, error)
+	// CodeTaken — код бүх системийн ролиос аль хэдийн хэрэглэгдсэн эсэх.
+	CodeTaken(ctx context.Context, code string, excludeID domain.ID) (bool, error)
 	Update(ctx context.Context, role *domain.Role) error
 	Delete(ctx context.Context, id domain.ID) error
 	List(ctx context.Context) ([]*domain.Role, error)
@@ -254,6 +259,8 @@ type LandAcquisitionWriteRepository interface {
 	// аймаг/сум/багийн кодыг хадгална.
 	FillParcelAUCodesFromGeometry(ctx context.Context, parcelID uuid.UUID) (domain.LandAcquisitionAU, error)
 	SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgUserID *domain.ID) error
+	// CountParcelsWithIndependentOrg — тухайн байгууллага хөндлөнгийнх нь болсон нэгж талбарын тоо.
+	CountParcelsWithIndependentOrg(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (int, error)
 	SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgUserID *domain.ID) error
 	UpsertHolder(ctx context.Context, src *domain.SourceParcel) (uuid.UUID, error)
 	// ReplaceParcelDetail — parcel_detail-ийг хуучин мөрүүдийг устгаж бүрэн шинэчилнэ.
@@ -339,7 +346,7 @@ type LandProgressRepository interface {
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
 	// GetChronos — «Хронос» цаг хугацааны изометр зургийн өгөгдөл (acqIDs хоосон = бүгд).
-	GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error)
+	GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error)
 }
 
 type LandAssetRepository interface {
@@ -354,6 +361,15 @@ type LandAssetRepository interface {
 	// эрх шалгахад (asset-photo/<asset_id>/...) хэрэглэнэ. Мөр нь устсан
 	// (үнэлгээ цуцлагдсан) бол архивын snapshot-оос олно.
 	GetAssetAcquisition(ctx context.Context, assetID uuid.UUID) (uuid.UUID, error)
+	// ValuationStreamOwners — нэгж талбарын үнэлгээний урсгалын эзэд (чөлөөлөлтөд харьяалагдах ёстой).
+	ValuationStreamOwners(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (domain.ValuationStreamOwners, error)
+	// ArchivedValuationFileURLs — нэгж талбарын цуцлагдсан үнэлгээний архивын файлын хаягууд.
+	ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error)
+	// ValuationOrgScope — байгууллага тухайн чөлөөлөлтөд УНШИЖ болох үнэлгээний урсгалууд.
+	ValuationOrgScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error)
+	// AssetStream / CompensationStream — мөрийн нэгж талбар ба үнэлгээний урсгал.
+	AssetStream(ctx context.Context, acquisitionID, assetID uuid.UUID) (string, string, error)
+	CompensationStream(ctx context.Context, acquisitionID, compID uuid.UUID) (string, string, error)
 	// GetCompensationAcquisition — олговрын харьяалагдах чөлөөлөлт
 	// (compensation-report/<comp_id>/...). GetAssetAcquisition-тэй ижилхэн
 	// устсан мөрийг архивын snapshot-оос олно.
@@ -497,6 +513,8 @@ type LandFundingRepository interface {
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) error
 	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) error
 	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
+	// FundingSourceDraftLinks — эх үүсвэр холбогдсон захирамжийн төслүүд.
+	FundingSourceDraftLinks(ctx context.Context, id uuid.UUID) ([]string, error)
 }
 
 type LandAuthorizedRepresentativeRepository interface {

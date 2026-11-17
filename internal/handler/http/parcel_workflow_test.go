@@ -150,6 +150,8 @@ func TestTransitionValuation_FinanceCannotSubmit(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"finance_specialist"},
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, mock.Anything, mock.Anything, "asset", mock.Anything).
+		Return("", domain.ErrForbidden)
 
 	run(uuid.New(), uuid.New())
 
@@ -164,6 +166,9 @@ func TestTransitionValuation_ProfCanSubmit(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "илгээв", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, acqID, parcelID, "asset",
+		mock.MatchedBy(func(vc domain.ValuationCaller) bool { return vc.ValuationOrg })).
+		Return("asset", nil)
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool {
 			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
@@ -209,6 +214,9 @@ func TestTransitionValuation_MikaCanSubmitOwnStream(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"mika"},
 		map[string]any{"action": "submit", "note": "илгээв", "valuation_type": "mika"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, acqID, parcelID, "mika",
+		mock.MatchedBy(func(vc domain.ValuationCaller) bool { return vc.Mika && !vc.ValuationOrg })).
+		Return("mika", nil)
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool {
 			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
@@ -227,6 +235,8 @@ func TestTransitionValuation_MikaCannotSubmitOtherStream(t *testing.T) {
 	mockSvc, w, run := transitionCtx(t,
 		[]string{"mika"},
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, mock.Anything, mock.Anything, "asset", mock.Anything).
+		Return("", domain.ErrForbidden)
 
 	run(uuid.New(), uuid.New())
 
@@ -274,25 +284,37 @@ func TestTransitionValuation_InvalidAction(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Ахлах мэргэжилтэн submit/approve/return хийж чадна.
-func TestTransitionValuation_SeniorCanSubmitAndApprove(t *testing.T) {
-	for _, action := range []string{"submit", "approve", "return"} {
-		acqID, parcelID := uuid.New(), uuid.New()
-		mockSvc, w, run := transitionCtx(t,
-			[]string{"senior_specialist"},
-			map[string]any{"action": action, "note": "т", "valuation_type": "asset"})
-		mockSvc.On("TransitionValuationSubmission", mock.Anything,
-			mock.MatchedBy(func(in domain.ValuationTransition) bool {
-				return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
-					in.ValuationType == "asset" && in.Action == action && in.Note == "т"
-			}), mock.Anything).
-			Return(sampleSubmission(acqID, domain.ValuationStatusSubmitted, "asset"), nil)
+// Ахлах, админ үнэлгээг баталгаажуулах/буцаахгүй.
+func TestTransitionValuation_SeniorAndAdminCannotApproveOrReturn(t *testing.T) {
+	// Баталгаажуулах/буцаах нь ЗӨВХӨН санхүүгийн ажил — ахлах, админ ч
+	// хийхгүй (дотоод ажилтан үнэлгээг өөрөө баталгаажуулахгүй).
+	for _, roles := range [][]string{{"senior_specialist"}, {"admin"}, {"department_head"}} {
+		for _, action := range []string{"approve", "return"} {
+			mockSvc, w, run := transitionCtx(t, roles,
+				map[string]any{"action": action, "note": "т", "valuation_type": "asset"})
 
-		run(acqID, parcelID)
+			run(uuid.New(), uuid.New())
 
-		assert.Equal(t, http.StatusOK, w.Code, "action=%s", action)
-		mockSvc.AssertExpectations(t)
+			assert.Equal(t, http.StatusForbidden, w.Code, "roles=%v action=%s", roles, action)
+			mockSvc.AssertNotCalled(t, "TransitionValuationSubmission", mock.Anything, mock.Anything, mock.Anything)
+		}
 	}
+}
+
+// Илгээх эрхийг урсгалын эзэмшлээр (service) шийднэ — ахлах урсгалын эзэн
+// биш тул хориглогдоно, шилжилт дуудагдахгүй.
+func TestTransitionValuation_SeniorCannotSubmit(t *testing.T) {
+	mockSvc, w, run := transitionCtx(t,
+		[]string{"senior_specialist"},
+		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, mock.Anything, mock.Anything, "asset",
+		mock.MatchedBy(func(vc domain.ValuationCaller) bool { return !vc.ValuationOrg && !vc.Mika })).
+		Return("", domain.ErrForbidden)
+
+	run(uuid.New(), uuid.New())
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	mockSvc.AssertNotCalled(t, "TransitionValuationSubmission", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // Ахлах мэргэжилтэн баталгаажсан үнэлгээг цуцалж чадна.
@@ -344,6 +366,7 @@ func TestTransitionValuation_InvalidTransitionConflict(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, acqID, parcelID, "asset", mock.Anything).Return("asset", nil)
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool {
 			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
@@ -363,6 +386,7 @@ func TestTransitionValuation_PhotoRequired(t *testing.T) {
 	mockSvc, w, run := transitionCtxAs(t,
 		nil, true,
 		map[string]any{"action": "submit", "note": "т", "valuation_type": "asset"})
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, acqID, parcelID, "asset", mock.Anything).Return("asset", nil)
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool {
 			return in.AcquisitionID == acqID && in.ParcelID == parcelID &&
@@ -482,6 +506,7 @@ func TestTransitionValuation_SubmitIgnoresAttachment(t *testing.T) {
 		[]string{"senior_specialist"},
 		map[string]string{"action": "submit", "note": "илгээв", "valuation_type": "asset"},
 		"tailan.pdf", samplePDF)
+	mockSvc.On("AuthorizeValuationSubmit", mock.Anything, acqID, parcelID, "asset", mock.Anything).Return("asset", nil)
 
 	mockSvc.On("TransitionValuationSubmission", mock.Anything,
 		mock.MatchedBy(func(in domain.ValuationTransition) bool { return in.Action == "submit" }),

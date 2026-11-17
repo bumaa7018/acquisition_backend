@@ -693,8 +693,8 @@ func (m *MockLandService) OpenParcelDocumentFile(ctx context.Context, parcelID, 
 	return args.Get(0).(*domain.DocumentFile), args.Error(1)
 }
 
-func (m *MockLandService) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
-	args := m.Called(ctx, acqIDs)
+func (m *MockLandService) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error) {
+	args := m.Called(ctx, acqIDs, deptID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -906,8 +906,28 @@ func (m *MockLandService) UpdateFundingSource(ctx context.Context, fs *domain.Fu
 	return args.Get(0).(*domain.FundingSource), args.Error(1)
 }
 
-func (m *MockLandService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
-	return m.Called(ctx, id).Error(0)
+func (m *MockLandService) AuthorizeValuationWrite(ctx context.Context, acquisitionID uuid.UUID, parcelCode, valuationType string, caller domain.ValuationCaller) (string, error) {
+	args := m.Called(ctx, acquisitionID, parcelCode, valuationType, caller)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockLandService) AuthorizeAssetWrite(ctx context.Context, acquisitionID, assetID uuid.UUID, caller domain.ValuationCaller) (string, error) {
+	args := m.Called(ctx, acquisitionID, assetID, caller)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockLandService) AuthorizeCompensationWrite(ctx context.Context, acquisitionID, compID uuid.UUID, caller domain.ValuationCaller) (string, error) {
+	args := m.Called(ctx, acquisitionID, compID, caller)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockLandService) AuthorizeValuationSubmit(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string, caller domain.ValuationCaller) (string, error) {
+	args := m.Called(ctx, acquisitionID, parcelID, valuationType, caller)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockLandService) DeleteFundingSource(ctx context.Context, acquisitionID, id uuid.UUID) error {
+	return m.Called(ctx, acquisitionID, id).Error(0)
 }
 
 func (m *MockLandService) ListParcelRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) ([]domain.ParcelHolder, error) {
@@ -1296,4 +1316,20 @@ func (m *MockLandService) ParcelDepartmentID(ctx context.Context, parcelID uuid.
 	args := m.Called(ctx, parcelID)
 	id, _ := args.Get(0).(*int)
 	return id, args.Error(1)
+}
+
+func (m *MockLandService) ValuationOrgReadScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error) {
+	args := m.Called(ctx, acquisitionID, orgID)
+	s, _ := args.Get(0).(domain.ValuationOrgScope)
+	return s, args.Error(1)
+}
+
+func (m *MockLandService) ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error) {
+	args := m.Called(ctx, parcelID)
+	urls, _ := args.Get(0).([]string)
+	return urls, args.Error(1)
+}
+
+func (m *MockUserService) InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error {
+	return m.Called(ctx, roleID).Error(0)
 }

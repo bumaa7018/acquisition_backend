@@ -74,6 +74,33 @@ func (s *landService) ParcelStatusRequirements(ctx context.Context, acquisitionI
 func (s *landService) UpdateParcelStatus(
 	ctx context.Context, ch domain.ParcelStatusChange, attachment *ParcelStatusAttachment,
 ) error {
+	// Нэгж талбар URL-ын чөлөөлөлтөд харьяалагдах ёстой — эс бөгөөс өөрийн
+	// (хуваарилагдсан) чөлөөлөлтийн замаар бусад чөлөөлөлтийн нэгж талбарын
+	// явцыг солино (repo нь зөвхөн parcel.id-гаар шинэчилдэг).
+	parcel, err := s.landRepo.GetParcelByID(ctx, ch.ParcelID)
+	if err != nil || parcel.AcquisitionID != ch.AcquisitionID {
+		return domain.ErrNotFound
+	}
+	// Шилжилт «Нэгж ажлын урсгал»-д тохируулагдсан байх ёстой. Өмнө нь
+	// дурын status_id-г хүлээн авдаг байсан тул ажилтан урсгалыг алгасаж
+	// (жишээ нь «Шинэ» рүү буцаах, «Чөлөөлсөн» рүү үсрэх) чаддаг байв.
+	// Системийн админ засвар хийх зорилгоор дурын төлөвт шилжүүлнэ.
+	if !ch.AnyTransition {
+		next, err := s.landRepo.GetAvailableParcelStatuses(ctx, parcel.StatusID)
+		if err != nil {
+			return err
+		}
+		allowed := false
+		for _, st := range next {
+			if st.ID == ch.StatusID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return domain.NewRuleError("Энэ шилжилт «Нэгж ажлын урсгал»-д тохируулагдаагүй тул нэгж талбарыг энэ явц руу шилжүүлэх боломжгүй.")
+		}
+	}
 	// Одоогийн төлөв «Явц түгжинэ» (locks_progress) бол цааш солихгүй — өмнө
 	// зөвхөн frontend товчийг нууж байсан тул API-аар (эсвэл хуучирсан
 	// хуудаснаас) шууд солигддог байв. Хавсралтын шалгалтаас ӨМНӨ — тодорхой алдаа.
@@ -276,7 +303,11 @@ func (s *landService) UpdateFundingSource(ctx context.Context, fs *domain.Fundin
 	if err != nil {
 		return nil, err
 	}
-	fs.AcquisitionID = existing.AcquisitionID
+	// URL-ын чөлөөлөлтөд харьяалагдах ёстой — эс бөгөөс өөрийн чөлөөлөлтийн
+	// замаар бусад чөлөөлөлтийн (эсвэл чөлөөлөлтгүй) эх үүсвэрийг засна.
+	if existing.AcquisitionID != fs.AcquisitionID {
+		return nil, domain.ErrNotFound
+	}
 	if err := s.landRepo.UpdateFundingSource(ctx, fs); err != nil {
 		return nil, err
 	}
@@ -288,10 +319,15 @@ func (s *landService) UpdateFundingSource(ctx context.Context, fs *domain.Fundin
 	return fs, nil
 }
 
-func (s *landService) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
+// DeleteFundingSource — URL-ын чөлөөлөлтийн, захирамжийн төсөлд холбогдоогүй
+// эх үүсвэрийг л устгана (холбоостой бол 409, тайлбартай).
+func (s *landService) DeleteFundingSource(ctx context.Context, acquisitionID, id uuid.UUID) error {
 	existing, err := s.landRepo.GetFundingSource(ctx, id)
 	if err != nil {
 		return err
+	}
+	if existing.AcquisitionID != acquisitionID {
+		return domain.ErrNotFound
 	}
 	if err := s.landRepo.DeleteFundingSource(ctx, id); err != nil {
 		return err

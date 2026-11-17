@@ -232,6 +232,8 @@ func (h *ParcelWorkflowHandler) UpdateParcelStatus(c *gin.Context) {
 		StatusID:      *req.StatusID,
 		CreatedBy:     createdBy,
 		Reason:        reason,
+		// Урсгалд байхгүй шилжилтийг зөвхөн системийн админ хийнэ.
+		AnyTransition: middleware.IsSystemAdmin(c),
 	}, attachment)
 	if err != nil {
 		requiredDocumentsError(c, err)
@@ -312,6 +314,21 @@ func (h *ParcelWorkflowHandler) GetStatusRequirements(c *gin.Context) {
 
 // ── Нөхөх олговрын үнэлгээний илгээх/зөвшөөрөх төлөв ────────────────────────────
 
+// profCanReadSubmission — үнэлгээний байгууллага зөвхөн ӨӨРИЙН урсгалын
+// илгээлтийн төлөв, түүх, архивын хувилбарыг (snapshot нь үнэлгээний дүнг
+// агуулна) уншина. Уншилтын дүрэм илгээх эрхтэй ижил (урсгалын эзэн) тул тэр
+// authorizer-ийг хэрэглэнэ. Байгууллагын ажилтан биш дуудагчид хязгаарлалтгүй.
+func (h *ParcelWorkflowHandler) profCanReadSubmission(c *gin.Context, acqID, parcelID uuid.UUID) bool {
+	if !middleware.IsValuationOrgCaller(c) {
+		return true
+	}
+	if _, err := h.svc.AuthorizeValuationSubmit(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"), valuationCallerFrom(c)); err != nil {
+		response.Error(c, err)
+		return false
+	}
+	return true
+}
+
 func (h *ParcelWorkflowHandler) GetValuationSubmission(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -321,6 +338,9 @@ func (h *ParcelWorkflowHandler) GetValuationSubmission(c *gin.Context) {
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	if !h.profCanReadSubmission(c, acqID, parcelID) {
 		return
 	}
 	sub, err := h.svc.GetValuationSubmission(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
@@ -420,7 +440,9 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 	isMika := ctxHasRole(c, "mika", "МИКА")
 	switch req.Action {
 	case "approve", "return":
-		if !isFinance && !isSenior {
+		// Баталгаажуулах/буцаах нь ЗӨВХӨН санхүүгийн мэргэжилтний ажил —
+		// дотоод ахлах/админ үнэлгээг өөрөө баталгаажуулахгүй.
+		if !isFinance {
 			response.Error(c, domain.ErrForbidden)
 			return
 		}
@@ -441,11 +463,16 @@ func (h *ParcelWorkflowHandler) TransitionValuationSubmission(c *gin.Context) {
 			return
 		}
 	case "submit":
-		mikaOwnStream := isMika && req.ValuationType == domain.ValuationTypeMika
-		if !isProf && !isSenior && !mikaOwnStream {
-			response.Error(c, domain.ErrForbidden)
+		// Илгээх нь ЗӨВХӨН тухайн урсгалын эзэн: үндсэн урсгалыг чөлөөлөлтийн
+		// үндсэн байгууллага, хөндлөнгийн урсгалыг тухайн нэгж талбарын
+		// хөндлөнгийн байгууллага, МИКА урсгалыг МИКА. Өмнө нь аль ч
+		// байгууллага (эсвэл ахлах) дурын урсгалыг илгээж чаддаг байв.
+		vType, err := h.svc.AuthorizeValuationSubmit(c.Request.Context(), acqID, parcelID, req.ValuationType, valuationCallerFrom(c))
+		if err != nil {
+			response.Error(c, err)
 			return
 		}
+		req.ValuationType = vType
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action"})
 		return
@@ -488,6 +515,9 @@ func (h *ParcelWorkflowHandler) ListValuationSnapshots(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
 		return
 	}
+	if !h.profCanReadSubmission(c, acqID, parcelID) {
+		return
+	}
 	list, err := h.svc.ListValuationSnapshots(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
 	if err != nil {
 		response.Error(c, err)
@@ -508,6 +538,9 @@ func (h *ParcelWorkflowHandler) ListValuationSubmissionHistory(c *gin.Context) {
 	parcelID, err := uuid.Parse(c.Param("parcel_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parcel_id"})
+		return
+	}
+	if !h.profCanReadSubmission(c, acqID, parcelID) {
 		return
 	}
 	list, err := h.svc.ListValuationSubmissionHistory(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))

@@ -52,6 +52,21 @@ func (h *UserHandler) callerCanGrantRole(c *gin.Context, role *domain.Role) bool
 	if role == nil || !role.IsAPIGrantable() {
 		return false
 	}
+	// Админ эсэх нь НЭРЭЭР (токены roles) шийдэгддэг тул админ ролийг олгох
+	// эрхийг мөн НЭРЭЭР шалгана: эрхийн багцаар харьцуулбал хоосон эсвэл
+	// цөөн эрхтэй "admin" роль хэнд ч олгогдож, бүх хаалтыг давна.
+	//   - админы нэртэй роль зөвхөн жинхэнэ системийн админ роль байх ба
+	//     хоосон (эрхгүй) бол хэнд ч олгогдохгүй;
+	//   - түүнийг зөвхөн админ ролтой хэрэглэгч бусдад олгоно/хураана.
+	if role.IsSystemAdmin() || domain.IsAdminRoleName(role.Name) {
+		return role.IsSystemAdmin() && len(role.Permissions) > 0 && middleware.IsSystemAdmin(c)
+	}
+	// Санхүү / МИКА — үнэлгээг хянах, батлах ТУСДАА үүрэг тул зөвхөн системийн
+	// админ олгоно/хураана (domain.Role.RequiresAdminGrantor). Доорх "эрхээр
+	// хамрах" дүрэм compensation:* эзэмшдэг хэлтсийн даргыг нэвтрүүлчихдэг.
+	if role.RequiresAdminGrantor() && !middleware.IsSystemAdmin(c) {
+		return false
+	}
 	if callerHasRole(c, "admin") && roleIsSystem10Only(role) {
 		return true
 	}

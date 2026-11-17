@@ -14,7 +14,7 @@ import (
 // GetChronos — «Хронос»-ын өгөгдөл: төлөвийн бүртгэл, нэгж талбарын геометр
 // (3857), чөлөөлсөн огноо, төлөвийн түүх, сар бүрийн явцын өөрчлөлт. acqIDs хоосон
 // бол бүх чөлөөлөлт. Дээд тал нь domain.ChronosMaxParcels.
-func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
+func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT p.id, p.parcel_id, p.acquisition_id, COALESCE(la.acquisition_name, ''),
 		       COALESCE(p.status, 0), COALESCE(ps.name, ''), COALESCE(ps.color, ''),
@@ -75,8 +75,12 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*doma
 		  LEFT JOIN decision_draft dd ON dd.id = ddp.decision_draft_id
 		 WHERE p.deleted_at IS NULL
 		   AND (COALESCE(cardinality($1::uuid[]), 0) = 0 OR p.acquisition_id = ANY($1)) -- nil slice → NULL
+		   -- Хэлтсийн хүрээ (системийн админ: NULL). Доорх бүх асуулга эндээс
+		   -- гарсан нэгж талбарын чөлөөлөлтөөр хумигдана.
+		   AND ($3::int IS NULL OR la.general_category_id IN (
+		         SELECT id FROM acquisition_category WHERE department_id = $3))
 		 ORDER BY p.parcel_id
-		 LIMIT $2`, acqIDs, domain.ChronosMaxParcels+1)
+		 LIMIT $2`, acqIDs, domain.ChronosMaxParcels+1, deptID)
 	if err != nil {
 		return nil, err
 	}

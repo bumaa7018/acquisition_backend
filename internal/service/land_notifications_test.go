@@ -85,6 +85,7 @@ func TestLandService_ParcelStatusNotification_SplitsRecipientSources(t *testing.
 		domain.ParcelStatusEvaluating, "41", "").Return(nil)
 	landRepo.On("GetParcelByID", mock.Anything, parcelPK).Return(&domain.Parcel{
 		ID:         parcelPK,
+		AcquisitionID: acqID,
 		ParcelID:   "010101000001",
 		StatusID:   domain.ParcelStatusEvaluating,
 		StatusName: "Үнэлгээ хийх",
@@ -109,6 +110,8 @@ func TestLandService_ParcelStatusNotification_SplitsRecipientSources(t *testing.
 		ParcelID:      parcelPK,
 		StatusID:      domain.ParcelStatusEvaluating,
 		CreatedBy:     "41",
+		// Энэ тест мэдэгдлийг шалгана — урсгалын шилжилт биш.
+		AnyTransition: true,
 	}, nil))
 
 	// 1) статус шилжилт (ажилтнууд), 2) үнэлгээ хүсэх (байгууллагууд).

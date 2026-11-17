@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"path"
@@ -74,7 +75,7 @@ type LandAcquisitionService interface {
 	ListReportParcels(ctx context.Context, filter domain.ReportParcelFilter) ([]*domain.ReportParcelRow, int64, error)
 	GetReportSummary(ctx context.Context, filter domain.ReportParcelFilter) (*domain.ReportSummary, error)
 	GetDashboard(ctx context.Context, filter domain.DashboardFilter) (*domain.DashboardSummary, error)
-	GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error)
+	GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error)
 	Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error)
 	// ListFilterOptions — шүүлтүүрийн dropdown-ы хөнгөн жагсаалт (List-ийн орлуулга).
 	// Бүх нэвтэрсэн хэрэглэгчид нээлттэй — шүүлтгүй.
@@ -86,6 +87,20 @@ type LandAcquisitionService interface {
 }
 
 type LandAssetService interface {
+	// AuthorizeValuationWrite — дуудагч тухайн нэгж талбарын урсгалд бичиж
+	// болох эсэх (нэгж талбар чөлөөлөлтөд харьяалагдах ёстой). Хэвийн болсон
+	// урсгалыг буцаана.
+	AuthorizeValuationWrite(ctx context.Context, acquisitionID uuid.UUID, parcelCode, valuationType string, caller domain.ValuationCaller) (string, error)
+	// AuthorizeAssetWrite / AuthorizeCompensationWrite — мөрийн өөрийн
+	// нэгж талбар/урсгалаар ижил шалгалт (URL-д зөвхөн мөрийн ID ирдэг).
+	AuthorizeAssetWrite(ctx context.Context, acquisitionID, assetID uuid.UUID, caller domain.ValuationCaller) (string, error)
+	AuthorizeCompensationWrite(ctx context.Context, acquisitionID, compID uuid.UUID, caller domain.ValuationCaller) (string, error)
+	// AuthorizeValuationSubmit — илгээх эрх (нэгж талбар UUID-аар).
+	AuthorizeValuationSubmit(ctx context.Context, acquisitionID, parcelID uuid.UUID, valuationType string, caller domain.ValuationCaller) (string, error)
+	// ArchivedValuationFileURLs — нэгж талбарын цуцлагдсан үнэлгээний архивын файлын хаягууд.
+	ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error)
+	// ValuationOrgReadScope — үнэлгээний байгууллагын УНШИЖ болох урсгалууд.
+	ValuationOrgReadScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error)
 	ListAssets(ctx context.Context, acquisitionID uuid.UUID, filter domain.AssetFilter) ([]*domain.Asset, int64, error)
 	CreateAsset(ctx context.Context, b *domain.Asset) (*domain.Asset, error)
 	UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*domain.Asset, error)
@@ -268,7 +283,7 @@ type LandFundingService interface {
 	GetFinanceDashboard(ctx context.Context, filter domain.FinanceDashboardFilter) (*domain.FinanceDashboard, error)
 	CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
 	UpdateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error)
-	DeleteFundingSource(ctx context.Context, id uuid.UUID) error
+	DeleteFundingSource(ctx context.Context, acquisitionID, id uuid.UUID) error
 }
 
 // LandAuthorizedRepresentativeService — итгэмжлэгдсэн төлөөлөгч нь эзэмшигчийн
@@ -1823,7 +1838,7 @@ func (s *landService) SyncParcel(ctx context.Context, acquisitionID uuid.UUID, p
 		return domain.ErrNotFound
 	}
 
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return domain.ErrNotFound
 	}
@@ -1944,7 +1959,7 @@ func (s *landService) SyncParcelHolders(
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -2021,7 +2036,7 @@ func (s *landService) SyncParcelDocuments(ctx context.Context, acquisitionID uui
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -2217,8 +2232,8 @@ func (s *landService) GetDashboard(ctx context.Context, filter domain.DashboardF
 	return s.landRepo.GetDashboard(ctx, filter)
 }
 
-func (s *landService) GetChronos(ctx context.Context, acqIDs []uuid.UUID) (*domain.ChronosData, error) {
-	return s.landRepo.GetChronos(ctx, acqIDs)
+func (s *landService) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID *int) (*domain.ChronosData, error) {
+	return s.landRepo.GetChronos(ctx, acqIDs, deptID)
 }
 
 func (s *landService) Suggest(ctx context.Context, q string, status int, departmentID *int) ([]*domain.LandAcquisition, error) {
@@ -2298,7 +2313,18 @@ func (s *landService) IsProfMemberOfParcelByCode(ctx context.Context, acquisitio
 // SetAcquisitionProfessionalOrg — orgID нь ҮНЭЛГЭЭНИЙ БАЙГУУЛЛАГЫН ID
 // (өмнө нь хэрэглэгчийн ID байсан). nil бол оноолт салгагдана.
 func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisitionID uuid.UUID, orgID *domain.ID) error {
-	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgID); err != nil {
+	// Эсрэг чиглэл: аль нэг нэгж талбарын хөндлөнгийн байгууллагыг үндсэн
+	// болговол тэр нэгж талбар дээр нэг байгууллага өөрийгөө хянана.
+	if orgID != nil {
+		n, err := s.landRepo.CountParcelsWithIndependentOrg(ctx, acquisitionID, *orgID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			return domain.NewRuleError(fmt.Sprintf("Энэ байгууллага %d нэгж талбарын хөндлөнгийн үнэлгээний байгууллага тул үндсэн байгууллагаар сонгох боломжгүй.", n))
+		}
+	}
+	if err :=s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgID); err != nil {
 		return err
 	}
 	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgID, false)
@@ -2310,6 +2336,17 @@ func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisi
 
 // SetParcelIndependentOrg — orgID нь хараат бус үнэлгээний БАЙГУУЛЛАГЫН ID.
 func (s *landService) SetParcelIndependentOrg(ctx context.Context, acqID, parcelID uuid.UUID, orgID *domain.ID) error {
+	// Хөндлөнгийн үнэлгээ нь ҮНДСЭН үнэлгээг хараат бусаар шалгадаг тул
+	// нэг байгууллага хоёуланд нь байж болохгүй (өөрийн үнэлгээгээ өөрөө хянана).
+	if orgID != nil {
+		acq, err := s.landRepo.GetByID(ctx, acqID)
+		if err != nil {
+			return domain.ErrNotFound
+		}
+		if acq.ProfessionalOrgID != nil && *acq.ProfessionalOrgID == *orgID {
+			return domain.NewRuleError("Хөндлөнгийн үнэлгээний байгууллага нь чөлөөлөлтийн үндсэн үнэлгээний байгууллагаас өөр байх ёстой.")
+		}
+	}
 	if err := s.landRepo.SetParcelIndependentOrg(ctx, acqID, parcelID, orgID); err != nil {
 		return err
 	}
