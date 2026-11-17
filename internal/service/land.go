@@ -2324,7 +2324,7 @@ func (s *landService) SetAcquisitionProfessionalOrg(ctx context.Context, acquisi
 			return domain.NewRuleError(fmt.Sprintf("Энэ байгууллага %d нэгж талбарын хөндлөнгийн үнэлгээний байгууллага тул үндсэн байгууллагаар сонгох боломжгүй.", n))
 		}
 	}
-	if err :=s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgID); err != nil {
+	if err := s.landRepo.SetAcquisitionProfessionalOrg(ctx, acquisitionID, orgID); err != nil {
 		return err
 	}
 	s.notifyOrgAssigned(ctx, acquisitionID, nil, orgID, false)
