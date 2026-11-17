@@ -84,11 +84,11 @@ func TestLandService_ParcelStatusNotification_SplitsRecipientSources(t *testing.
 	landRepo.On("UpdateParcelStatus", mock.Anything, parcelPK, acqID,
 		domain.ParcelStatusEvaluating, "41", "").Return(nil)
 	landRepo.On("GetParcelByID", mock.Anything, parcelPK).Return(&domain.Parcel{
-		ID:         parcelPK,
+		ID:            parcelPK,
 		AcquisitionID: acqID,
-		ParcelID:   "010101000001",
-		StatusID:   domain.ParcelStatusEvaluating,
-		StatusName: "Үнэлгээ хийх",
+		ParcelID:      "010101000001",
+		StatusID:      domain.ParcelStatusEvaluating,
+		StatusName:    "Үнэлгээ хийх",
 		// «Үнэлгээний шат» (is_valuation_stage) — байгууллагад мэдэгдэл явна.
 		StatusIsValuationStage: true,
 		IndependentOrgID:       &independentOrgID,

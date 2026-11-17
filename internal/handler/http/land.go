@@ -2211,7 +2211,7 @@ func (h *LandHandler) compensationAssetMatches(c *gin.Context, acqID uuid.UUID, 
 	return true
 }
 
-var errMoveValuationRow =domain.NewRuleError("Үнэлгээний мөрийг өөр нэгж талбар руу шилжүүлэх боломжгүй. Устгаад зөв нэгж талбарт шинээр оруулна уу.")
+var errMoveValuationRow = domain.NewRuleError("Үнэлгээний мөрийг өөр нэгж талбар руу шилжүүлэх боломжгүй. Устгаад зөв нэгж талбарт шинээр оруулна уу.")
 
 func (h *LandHandler) CreateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
