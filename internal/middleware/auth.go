@@ -147,6 +147,20 @@ func RequireAnyRole(allowedRoles ...string) gin.HandlerFunc {
 	}
 }
 
+// RequireExactRole — RequireAnyRole-оос ЯЛГААТАЙ нь системийн админыг
+// автоматаар НЭВТРҮҮЛЭХГҮЙ. Үүргийн тусгаарлалт шаарддаг үйлдэлд (үнэлгээг
+// санхүү батлах) хэрэглэнэ: админ ч гэсэн тухайн ролийг өөрөө эзэмшихгүй бол
+// хийхгүй.
+func RequireExactRole(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if hasAnyRole(c, allowedRoles...) {
+			c.Next()
+			return
+		}
+		response.Error(c, ErrForbidden)
+	}
+}
+
 func DenyAnyRole(blockedRoles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if hasAnyRole(c, blockedRoles...) {

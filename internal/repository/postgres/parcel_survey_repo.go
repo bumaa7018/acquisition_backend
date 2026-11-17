@@ -125,6 +125,13 @@ func surveyFilterWhere(filter domain.ParcelSurveyFilter) (string, []any) {
 		args = append(args, filter.AcquisitionIDs)
 		conds = append(conds, "p.acquisition_id = ANY($"+strconv.Itoa(len(args))+")")
 	}
+	if filter.DepartmentID != nil {
+		args = append(args, *filter.DepartmentID)
+		conds = append(conds, `p.acquisition_id IN (
+			SELECT la.id FROM land_acquisition la
+			JOIN acquisition_category ac ON ac.id = la.general_category_id
+			WHERE ac.department_id = $`+strconv.Itoa(len(args))+`)`)
+	}
 	if code := strings.TrimSpace(filter.ParcelCode); code != "" {
 		args = append(args, "%"+code+"%")
 		conds = append(conds, "p.parcel_id ILIKE $"+strconv.Itoa(len(args)))

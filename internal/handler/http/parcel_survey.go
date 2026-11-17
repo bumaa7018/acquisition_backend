@@ -116,6 +116,8 @@ func parcelSurveyFilterFromQuery(c *gin.Context) (domain.ParcelSurveyFilter, boo
 		}
 		filter.AcquisitionIDs = append(filter.AcquisitionIDs, id)
 	}
+	// Системийн админаас бусад нь ЗӨВХӨН өөрийн хэлтсийн судалгаа.
+	filter.DepartmentID = scopedDepartment(c)
 	return filter, true
 }
 

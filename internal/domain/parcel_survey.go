@@ -52,6 +52,9 @@ type ParcelSurveyRow struct {
 }
 
 type ParcelSurveyFilter struct {
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн (ерөнхий ангиллын
+	// department_id) чөлөөлөлт. Системийн админ: nil (бүх хэлтэс).
+	DepartmentID *int
 	// AcquisitionIDs — эдгээр чөлөөлөлтийн нэгж талбарууд (хоосон бол бүгд).
 	AcquisitionIDs []uuid.UUID
 	// ParcelCode — нэгж талбарын дугаар (ILIKE).

@@ -491,3 +491,16 @@ func (r *RoleRepo) RemoveFromUser(ctx context.Context, userID, roleID domain.ID)
 		`DELETE FROM sdplatform.sd_user_role WHERE user_id = $1 AND role_id = $2`, userID, roleID)
 	return err
 }
+
+// CodeTaken — код аль нэг ролид (БҮХ системийн sd_role дотор — код нь бүх
+// системд давтагдашгүй) аль хэдийн хэрэглэгдсэн эсэх. excludeID-г тооцохгүй.
+// Зөвхөн УНШИНА: давхардлыг санд хязгаарлалт нэмэлгүй кодоор шалгана.
+func (r *RoleRepo) CodeTaken(ctx context.Context, code string, excludeID domain.ID) (bool, error) {
+	var taken bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM sdplatform.sd_role
+			WHERE lower(trim(code)) = lower(trim($1)) AND role_id <> $2
+		)`, code, excludeID).Scan(&taken)
+	return taken, err
+}

@@ -50,6 +50,24 @@ func IsSystemAdminLevel(level string) bool {
 	return level == "admin" || level == "Админ"
 }
 
+// IsAdminRoleName — нэр нь системийн админы нэртэй давхцаж буй эсэх.
+//
+// Админ эсэхийг НЭРЭЭР (Level) тодорхойлдог тул "admin" / "Админ" нэртэй
+// өөр роль үүсгэвэл түүнийг авсан хэрэглэгч токендоо "admin" авч бүх
+// хаалтыг давна. Иймд том/жижиг үсэг, илүү зай, "<resource>_" угтвараас үл
+// хамааран ("ADMIN", " Админ ", "land_admin") бүгдийг админы нэр гэж үзнэ.
+func IsAdminRoleName(name string) bool {
+	n := strings.ToLower(strings.Join(strings.Fields(name), " "))
+	if n == "admin" || n == "админ" {
+		return true
+	}
+	if i := strings.LastIndex(n, "_"); i >= 0 {
+		s := n[i+1:]
+		return s == "admin" || s == "админ"
+	}
+	return false
+}
+
 // IsSystemAdmin — энэ роль системийн админы роль эсэх.
 func (r Role) IsSystemAdmin() bool {
 	return IsSystemAdminLevel(r.Level())
@@ -72,6 +90,30 @@ const RoleLevelProfessionalOrg = "professional_org"
 // чаддаг байв.
 func (r Role) IsAPIGrantable() bool {
 	return r.Level() != RoleLevelProfessionalOrg
+}
+
+// IsSeparatedDutyLevel — үнэлгээг ХЯНАХ/БАТЛАХ түвшин (санхүү, МИКА) эсэх.
+//
+// Эдгээр роль нь үнэлгээг оруулагчаас ТУСДАА байх ёстой үүрэг: санхүү үнэлгээг
+// батална/буцаана, МИКА өөрийн урсгалд бичнэ. Иймд тэдгээрийг ЗӨВХӨН системийн
+// админ олгоно/хураана (Role.RequiresAdminGrantor).
+func IsSeparatedDutyLevel(level string) bool {
+	switch level {
+	case "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү", "mika", "МИКА":
+		return true
+	}
+	return false
+}
+
+// RequiresAdminGrantor — энэ ролийг зөвхөн системийн админ олгож/хурааж болох эсэх.
+//
+// "Дуудагч ролийн эрхүүдийг эзэмшсэн үү" гэсэн ерөнхий дүрэм энд хүрэлцэхгүй:
+// хэлтсийн дарга, ахлах мэргэжилтэн compensation:* эрхтэй тул санхүү/МИКА
+// ролийг өөрийн хэлтсийн (эсвэл шинээр нээсэн) бүртгэлд олгож, үнэлгээг
+// өөрсдөө батлуулах боломжтой байв. Эдгээр ролийн хүч нь эрхийн багцад биш,
+// ТҮВШИНД (токены roles) оршдог.
+func (r Role) RequiresAdminGrantor() bool {
+	return IsSeparatedDutyLevel(r.Level())
 }
 
 // Permission — sdplatform.sd_permission. Энэ схемд эрх нь ЗӨВХӨН үйлдэл;
@@ -102,4 +144,30 @@ func SplitPermissionKey(key string) (resource, action string) {
 		return key[:i], key[i+1:]
 	}
 	return "", key
+}
+
+// NormalizeRoleName — ролийн нэрийг харьцуулахад: том/жижиг үсэг, илүү зай үл хамаарна.
+func NormalizeRoleName(name string) string {
+	return strings.ToLower(strings.Join(strings.Fields(name), " "))
+}
+
+// reservedRoleNames — backend/frontend хаалтууд ролийг НЭРЭЭР нь таньдаг
+// (токены `roles` claim). Эдгээр нэр нь системийн ролиудын түвшин ба тэдний
+// монгол нэр. Өөр роль ингэж нэрлэгдвэл түүнийг авсан хэрэглэгч тэр ролийн
+// хаалтуудыг (хуваарилалтын чөлөөлөлт, хуучин мэдээллийн импорт, батлах г.м.)
+// эрхгүйгээр давна.
+var reservedRoleNames = map[string]bool{
+	"admin": true, "админ": true,
+	"senior_specialist": true, "ахлах мэргэжилтэн": true,
+	"department_head": true, "хэлтсийн дарга": true,
+	"employee":              true,
+	"decision_registration": true, "захирамж бүртгэл": true,
+	"finance_specialist": true, "санхүүгийн мэргэжилтэн": true, "санхүү": true,
+	"mika": true, "мика": true,
+	"professional_org": true, "мэргэжлийн байгууллага": true, "мэргэжлийн байгуулл...": true,
+}
+
+// IsReservedRoleName — нэр нь системийн ролийн түвшин/нэртэй давхцах эсэх.
+func IsReservedRoleName(name string) bool {
+	return reservedRoleNames[NormalizeRoleName(name)]
 }

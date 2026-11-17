@@ -105,7 +105,7 @@ func TestE2EChronos(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := postgres.NewLandAcquisitionRepo(pool)
-	data, err := repo.GetChronos(ctx, []uuid.UUID{acqID})
+	data, err := repo.GetChronos(ctx, []uuid.UUID{acqID}, nil)
 	require.NoError(t, err)
 	require.False(t, data.Truncated)
 	require.Len(t, data.Parcels, 2, "зөвхөн сонгосон чөлөөлөлт")
@@ -164,7 +164,7 @@ func TestE2EChronos(t *testing.T) {
 	require.True(t, released)
 
 	// Хоосон жагсаалт = бүх чөлөөлөлт (бусад тест өгөгдөл байж болох тул зөвхөн агуулахыг шалгана).
-	all, err := repo.GetChronos(ctx, nil)
+	all, err := repo.GetChronos(ctx, nil, nil)
 	require.NoError(t, err)
 	codes := map[string]bool{}
 	for _, p := range all.Parcels {
@@ -228,7 +228,7 @@ func TestE2EChronosArchiveDates(t *testing.T) {
 		UNION ALL SELECT $2::uuid, id, '2026-03-06'::timestamptz FROM parcel WHERE parcel_id = 'E2ECHA0002'`, archDraft, openDraft)
 	require.NoError(t, err)
 
-	data, err := postgres.NewLandAcquisitionRepo(pool).GetChronos(ctx, []uuid.UUID{acqID})
+	data, err := postgres.NewLandAcquisitionRepo(pool).GetChronos(ctx, []uuid.UUID{acqID}, nil)
 	require.NoError(t, err)
 	require.Len(t, data.Parcels, 2)
 	day := func(tm *time.Time) string {

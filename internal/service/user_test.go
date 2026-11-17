@@ -135,3 +135,36 @@ func TestUserService_ChangePassword_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrNotFound)
 	repo.AssertNotCalled(t, "UpdatePassword", mock.Anything, mock.Anything, mock.Anything)
 }
+
+// Идэвхгүй болгоход токен шууд хүчингүй болно; бусад засварт сесс хөндөгдөхгүй.
+func TestUserService_Update_DeactivateInvalidatesSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		wasActive  bool
+		setActive  *bool
+		invalidate bool
+	}{
+		{"идэвхгүй болгох", true, boolPtr(false), true},
+		{"нэр л засах", true, nil, false},
+		{"идэвхжүүлэх", false, boolPtr(true), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mocks.MockUserRepository{}
+			id := domain.ID(9)
+			repo.On("GetByID", mock.Anything, id).Return(&domain.User{ID: id, IsActive: tc.wasActive}, nil)
+			repo.On("Update", mock.Anything, mock.Anything).Return(nil)
+			repo.On("InvalidateSessions", mock.Anything, id).Return(nil).Maybe()
+			svc := service.NewUserService(repo)
+
+			_, err := svc.Update(context.Background(), id, service.UpdateUserRequest{FirstName: "Бат", IsActive: tc.setActive})
+			require.NoError(t, err)
+			if tc.invalidate {
+				repo.AssertCalled(t, "InvalidateSessions", mock.Anything, id)
+			} else {
+				repo.AssertNotCalled(t, "InvalidateSessions", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }

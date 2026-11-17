@@ -440,6 +440,10 @@ type ParcelStatusChange struct {
 	StatusID      int
 	CreatedBy     string
 	Reason        string
+	// AnyTransition — «Нэгж ажлын урсгал»-д тохируулаагүй шилжилтийг
+	// зөвшөөрөх эсэх. ЗӨВХӨН системийн админд (handler тогтооно); бусад нь
+	// одоогийн төлөвөөс урсгалд байгаа төлөв рүү л шилжүүлнэ.
+	AnyTransition bool
 	// MinIO-д хадгалагдсаны дараах харьцангуй зам ба харагдах нэр.
 	AttachmentURL  string
 	AttachmentName string
@@ -1418,6 +1422,9 @@ type GlobalParcelFilter struct {
 
 // ReportParcelFilter — тайлангийн нэгж талбар шүүх параметр
 type ReportParcelFilter struct {
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн (ерөнхий ангиллын
+	// department_id) чөлөөлөлт. Системийн админ: nil (бүх хэлтэс).
+	DepartmentID *int
 	// ParcelID — нэгж талбарын ДУГААР (код). Гадаад API-д нэг талбарын
 	// мэдээллийг дугаараар шүүхэд хэрэглэгдэнэ; хоосон бол шүүлт хийхгүй.
 	ParcelID string
@@ -1846,6 +1853,9 @@ type AuthorizedRepresentative struct {
 
 // DashboardFilter — дашбоардын шүүлтүүрийн параметр
 type DashboardFilter struct {
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн (ерөнхий ангиллын
+	// department_id) чөлөөлөлт. Системийн админ: nil (бүх хэлтэс).
+	DepartmentID  *int
 	AcquisitionID string
 	PlanCode      string
 	// AU2Code — сум/дүүргийн код (land_acquisition_au-аар шүүнэ)
@@ -1894,6 +1904,9 @@ type ValuationTypeStat struct {
 // хардаг тул тусдаа хөнгөн нэгтгэл. Он нь ОЛГОВРЫН огнооноос (эс бөгөөс
 // хянасан/үүсгэсэн огноо) тодорхойлогдоно — санхүүгийн гүйлгээний он.
 type FinanceDashboardFilter struct {
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн (ерөнхий ангиллын
+	// department_id) чөлөөлөлт. Системийн админ: nil (бүх хэлтэс).
+	DepartmentID  *int
 	Years         []int
 	AU2Code       string // дүүрэг/сум
 	AU3Code       string // хороо/баг

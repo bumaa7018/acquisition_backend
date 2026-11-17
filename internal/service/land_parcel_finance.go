@@ -27,7 +27,7 @@ func (s *landService) resolveParcelWithAppNo(
 	if err != nil {
 		return nil, nil, "", domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, nil, "", domain.ErrNotFound
 	}
@@ -56,7 +56,7 @@ func (s *landService) SyncParcelBasePrice(
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -114,7 +114,7 @@ func (s *landService) SyncParcelFee(
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -155,7 +155,7 @@ func (s *landService) SyncParcelInvoices(
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -190,7 +190,7 @@ func (s *landService) SyncParcelMortgages(
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -247,7 +247,7 @@ func (s *landService) SyncParcelMonitorings(
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}
@@ -283,7 +283,7 @@ func (s *landService) SyncParcelOwnerships(
 	if _, err := s.landRepo.GetByID(ctx, acquisitionID); err != nil {
 		return nil, domain.ErrNotFound
 	}
-	p, err := s.landRepo.GetParcelByCode(ctx, parcelCode)
+	p, err := s.resolveParcelRow(ctx, acquisitionID, parcelCode)
 	if err != nil {
 		return nil, domain.ErrNotFound
 	}

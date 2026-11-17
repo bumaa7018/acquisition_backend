@@ -55,6 +55,7 @@ func TestUpdateParcelStatusRequiresAttachmentWhenRejecting(t *testing.T) {
 	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 
+	stubParcelInAcq(repo, ch)
 	err := svc.UpdateParcelStatus(context.Background(), ch, nil)
 
 	var missing *domain.RequiredDocumentsMissingError
@@ -76,6 +77,7 @@ func TestUpdateParcelStatusRequirementAlreadyPresent(t *testing.T) {
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(true), nil)
 	repo.On("UpdateParcelStatus", mock.Anything, ch.ParcelID, ch.AcquisitionID, ch.StatusID, "user", "шалтгаан").Return(nil)
 
+	stubParcelInAcq(repo, ch)
 	require.NoError(t, svc.UpdateParcelStatus(context.Background(), ch, nil))
 	repo.AssertExpectations(t)
 }
@@ -96,6 +98,7 @@ func TestUpdateParcelStatusWithoutAttachmentForOtherStatuses(t *testing.T) {
 		repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, statusID).Return([]domain.ParcelStatusRequirement{}, nil)
 		repo.On("UpdateParcelStatus", mock.Anything, ch.ParcelID, ch.AcquisitionID, statusID, "user", "шалтгаан").Return(nil)
 
+		stubParcelInAcq(repo, ch)
 		require.NoError(t, svc.UpdateParcelStatus(context.Background(), ch, nil))
 		repo.AssertExpectations(t)
 	}
@@ -116,9 +119,10 @@ func TestUpdateParcelStatusAttachmentNeedsFileStorage(t *testing.T) {
 	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 	repo.On("GetDocumentType", mock.Anything, 34).Return(&domain.DocumentType{ID: 34, Type: "rejection_document", Name: "Татгалзсан тухай баримт"}, nil).Maybe()
-	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001"}, nil).Maybe()
+	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001", AcquisitionID: ch.AcquisitionID, StatusID: 1}, nil).Maybe()
 	repo.On("ListParcelDocuments", mock.Anything, ch.ParcelID).Return([]*domain.Document{}, nil).Maybe()
 
+	stubParcelInAcq(repo, ch)
 	err := svc.UpdateParcelStatus(context.Background(), ch,
 		&ParcelStatusAttachment{Filename: "shiidver.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.7")})
 
@@ -141,7 +145,7 @@ func TestUpdateParcelStatusUntypedAttachmentFillsSingleMissingType(t *testing.T)
 	repo.On("ParcelProgressLocked", mock.Anything, mock.Anything).Return(false, nil)
 	repo.On("ParcelStatusRequirements", mock.Anything, ch.AcquisitionID, ch.ParcelID, ch.StatusID).Return(rejectionRequirement(false), nil)
 	repo.On("GetDocumentType", mock.Anything, 34).Return(&domain.DocumentType{ID: 34, Type: "rejection_document", Name: "Татгалзсан тухай баримт"}, nil)
-	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001"}, nil)
+	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).Return(&domain.Parcel{ID: ch.ParcelID, ParcelID: "010101000001", AcquisitionID: ch.AcquisitionID, StatusID: 1}, nil)
 	repo.On("ListParcelDocuments", mock.Anything, ch.ParcelID).Return([]*domain.Document{}, nil)
 	var stored *domain.Document
 	repo.On("AddParcelDocument", mock.Anything, ch.ParcelID, mock.Anything).Run(func(args mock.Arguments) {
@@ -149,6 +153,7 @@ func TestUpdateParcelStatusUntypedAttachmentFillsSingleMissingType(t *testing.T)
 	}).Return(nil)
 	repo.On("UpdateParcelStatus", mock.Anything, ch.ParcelID, ch.AcquisitionID, ch.StatusID, "user", "Иргэн татгалзсан").Return(nil)
 
+	stubParcelInAcq(repo, ch)
 	require.NoError(t, svc.UpdateParcelStatus(context.Background(), ch,
 		&ParcelStatusAttachment{Filename: "shiidver.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.7")}))
 
@@ -173,6 +178,7 @@ func TestUpdateParcelStatusDoesNotAutoTypePaymentReceipt(t *testing.T) {
 		DocumentTypeID: 162, DocumentTypeCode: domain.CompensationReceiptDocType, DocumentTypeName: "Нөхөх олговор олгосон баримт",
 	}}, nil)
 
+	stubParcelInAcq(repo, ch)
 	err := svc.UpdateParcelStatus(context.Background(), ch,
 		&ParcelStatusAttachment{Filename: "barimt.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.7")})
 
@@ -195,6 +201,7 @@ func TestUpdateParcelStatusRejectedWhenProgressLocked(t *testing.T) {
 	}
 	repo.On("ParcelProgressLocked", mock.Anything, ch.ParcelID).Return(true, nil)
 
+	stubParcelInAcq(repo, ch)
 	err := svc.UpdateParcelStatus(context.Background(), ch,
 		&ParcelStatusAttachment{Filename: "barimt.pdf", ContentType: "application/pdf", Data: []byte("%PDF-1.7")})
 
@@ -202,4 +209,14 @@ func TestUpdateParcelStatusRejectedWhenProgressLocked(t *testing.T) {
 	require.Empty(t, files.saved, "файл хадгалагдахгүй")
 	repo.AssertNotCalled(t, "ParcelStatusRequirements", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	repo.AssertNotCalled(t, "UpdateParcelStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// stubParcelInAcq — нэгж талбар URL-ын чөлөөлөлтөд харьяалагдаж, шилжилт
+// «Нэгж ажлын урсгал»-д тохируулагдсан байдлыг дуурайна (энэ файлын тестүүд
+// хавсралтын шаардлагыг шалгадаг).
+func stubParcelInAcq(repo *mocks.MockLandAcquisitionRepository, ch domain.ParcelStatusChange) {
+	repo.On("GetParcelByID", mock.Anything, ch.ParcelID).
+		Return(&domain.Parcel{ID: ch.ParcelID, AcquisitionID: ch.AcquisitionID, StatusID: 1}, nil).Maybe()
+	repo.On("GetAvailableParcelStatuses", mock.Anything, mock.Anything).
+		Return([]*domain.ParcelStatus{{ID: ch.StatusID}}, nil).Maybe()
 }

@@ -690,3 +690,38 @@ func (r *UserRepo) GetPermissions(ctx context.Context, userID domain.ID) ([]stri
 	}
 	return perms, rows.Err()
 }
+
+// InvalidateRoleSessions — роль-той бүх хэрэглэгчийн токеныг хүчингүй болгоно.
+//
+// Эрх нь JWT-д агуулагддаг тул ролоос эрх хассаны дараа эзэмшигчид хуучин
+// токеноороо (хугацаа дуустал) тэр эрхийг хэрэглэсээр байдаг байв. Гишүүнчлэл
+// authdb-ээс УНШИГДАНА (өөрчлөхгүй); эх цэг нь appdb-ийн user_token_epoch.
+func (r *UserRepo) InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error {
+	rows, err := r.db.Query(ctx,
+		`SELECT DISTINCT user_id FROM sdplatform.sd_user_role WHERE role_id = $1`, roleID)
+	if err != nil {
+		return err
+	}
+	var ids []int32
+	for rows.Next() {
+		var id domain.ID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, int32(id))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err = r.appDB.Exec(ctx, `
+		INSERT INTO user_token_epoch (user_source, user_id, valid_from)
+		SELECT $2, u, date_trunc('second', NOW()) FROM unnest($1::int[]) AS u
+		ON CONFLICT (user_source, user_id) DO UPDATE SET valid_from = EXCLUDED.valid_from`,
+		ids, r.source)
+	return err
+}

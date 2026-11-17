@@ -38,11 +38,12 @@ func CallerDepartmentID(c *gin.Context) *domain.ID {
 }
 
 // DataDepartmentScope — чөлөөлөлт/нэгж талбарын өгөгдлийг хэлтсээр хязгаарлах
-// эсэх. restricted=false: системийн админ (бүх хэлтэс) эсвэл үнэлгээний
+// эсэх. restricted=false: системийн админ (бүх хэлтэс), санхүүгийн
+// мэргэжилтэн (бүх хэлтэс — IsCrossDepartmentFinance) эсвэл үнэлгээний
 // байгууллагын ажилтан (өөрийн байгууллагын хаалтаар хязгаарлагдана).
 // restricted=true бөгөөд deptID nil бол дуудагч юу ч харахгүй (fail-closed).
 func DataDepartmentScope(c *gin.Context) (deptID *int, restricted bool) {
-	if IsSystemAdmin(c) || IsValuationOrgCaller(c) {
+	if IsSystemAdmin(c) || IsValuationOrgCaller(c) || IsCrossDepartmentFinance(c) {
 		return nil, false
 	}
 	if id := CallerDepartmentID(c); id != nil {
@@ -104,4 +105,17 @@ func requireDepartment(lookup func(context.Context, uuid.UUID) (*int, error)) gi
 		}
 		c.Next()
 	}
+}
+
+// IsCrossDepartmentFinance — санхүүгийн мэргэжилтэн БҮХ хэлтсийн чөлөөлөлт,
+// нэгж талбарыг харна (хэрэглэгчийн шийдвэр, 2026-11-17): нөхөх олговрыг
+// байгууллага даяар хянаж баталдаг төв үүрэг.
+//
+// Зөвхөн санхүүгийн үүргээр нь: ахлах/хэлтсийн дарга роль ХАМТ эзэмшвэл энэ
+// чөлөөлөл үйлчлэхгүй — эс бөгөөс ахлахын бичих эрх бүх хэлтэст тархана.
+// Санхүүгийн өгөгдлийн хасалт (эзэмшигчийн мэдээлэл, үнэлгээний бус хавсралт)
+// болон бичих эрх (зөвхөн батлах/буцаах) өөрчлөгдөхгүй — хүрээ л өргөснө.
+// МИКА хэлтсээр хязгаарлагдсан хэвээр.
+func IsCrossDepartmentFinance(c *gin.Context) bool {
+	return hasAnyRole(c, "finance_specialist", "Санхүүгийн мэргэжилтэн", "Санхүү") && !IsSenior(c)
 }

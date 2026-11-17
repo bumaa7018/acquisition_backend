@@ -157,3 +157,7 @@ func (m *MockUserRepository) IsSessionValid(ctx context.Context, source string, 
 // Source — нэвтрэлтийн эх сурвалж. Тестүүд дотоод (authdb) хэрэглэгчээр
 // ажилладаг тул анхдагчаар "auth".
 func (m *MockUserRepository) Source() string { return domain.UserSourceAuth }
+
+func (m *MockUserRepository) InvalidateRoleSessions(ctx context.Context, roleID domain.ID) error {
+	return m.Called(ctx, roleID).Error(0)
+}

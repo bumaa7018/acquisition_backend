@@ -3211,6 +3211,13 @@ func buildReportParcelWhere(filter domain.ReportParcelFilter) (string, []any) {
 	args := []any{}
 	where := "la.deleted_at IS NULL" // soft delete: тайланд устгасан чөлөөлөлт орохгүй
 	i := 1
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
+	}
 
 	if filter.ParcelID != "" {
 		where += fmt.Sprintf(" AND p.parcel_id = $%d", i)
@@ -4009,6 +4016,61 @@ func (r *landAcqRepo) UpdateAsset(ctx context.Context, u *domain.AssetUpdate) (*
 		return nil, err
 	}
 	return b, nil
+}
+
+// ValuationStreamOwners — нэгж талбар (дугаар) тухайн чөлөөлөлтөд харьяалагдвал
+// түүний үнэлгээний урсгалын эзэд (үндсэн, хөндлөнгийн байгууллага). Өөр
+// чөлөөлөлтийнх эсвэл устсан бол ErrNotFound.
+func (r *landAcqRepo) ValuationStreamOwners(ctx context.Context, acquisitionID uuid.UUID, parcelCode string) (domain.ValuationStreamOwners, error) {
+	var o domain.ValuationStreamOwners
+	err := r.db.QueryRow(ctx, `
+		SELECT la.professional_org_id, p.independent_org_id
+		FROM parcel p
+		JOIN land_acquisition la ON la.id = p.acquisition_id
+		WHERE p.acquisition_id = $1 AND p.parcel_id = $2 AND p.deleted_at IS NULL`,
+		acquisitionID, parcelCode).Scan(&o.ProfessionalOrgID, &o.IndependentOrgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return o, domain.ErrNotFound
+	}
+	return o, err
+}
+
+// CountParcelsWithIndependentOrg — чөлөөлөлтийн нэгж талбаруудаас тухайн
+// байгууллага хөндлөнгийнх нь болсон тоо.
+func (r *landAcqRepo) CountParcelsWithIndependentOrg(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx, `
+		SELECT count(*) FROM parcel
+		WHERE acquisition_id = $1 AND independent_org_id = $2 AND deleted_at IS NULL`,
+		acquisitionID, orgID).Scan(&n)
+	return n, err
+}
+
+// AssetStream — хөрөнгийн мөрийн нэгж талбар ба үнэлгээний урсгал (URL-ын
+// чөлөөлөлтөд харьяалагдах ёстой).
+func (r *landAcqRepo) AssetStream(ctx context.Context, acquisitionID, assetID uuid.UUID) (string, string, error) {
+	var parcelCode, vType string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(parcel_id, ''), COALESCE(valuation_type, '')
+		FROM assets WHERE id = $1 AND acquisition_id = $2`,
+		assetID, acquisitionID).Scan(&parcelCode, &vType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", domain.ErrNotFound
+	}
+	return parcelCode, vType, err
+}
+
+// CompensationStream — олговрын мөрийн нэгж талбар ба үнэлгээний урсгал.
+func (r *landAcqRepo) CompensationStream(ctx context.Context, acquisitionID, compID uuid.UUID) (string, string, error) {
+	var parcelCode, vType string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(parcel_id, ''), COALESCE(valuation_type, '')
+		FROM compensation WHERE id = $1 AND acquisition_id = $2`,
+		compID, acquisitionID).Scan(&parcelCode, &vType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", domain.ErrNotFound
+	}
+	return parcelCode, vType, err
 }
 
 // DeleteAsset — хөрөнгийг устгаад, хавсаргасан зургийн PDF-ийн URL-ыг буцаана
@@ -5027,6 +5089,13 @@ func (r *landAcqRepo) GetDashboard(ctx context.Context, filter domain.DashboardF
 	args := []any{}
 	where := "la.deleted_at IS NULL" // soft delete: дашбордод устгасан чөлөөлөлт орохгүй
 	i := 1
+	if filter.DepartmentID != nil {
+		where += fmt.Sprintf(` AND la.general_category_id IN (
+			SELECT id FROM acquisition_category WHERE department_id = $%d
+		)`, i)
+		args = append(args, *filter.DepartmentID)
+		i++
+	}
 	profParam := 0
 
 	if filter.AcquisitionID != "" {
@@ -6972,15 +7041,59 @@ func (r *landAcqRepo) UpdateFundingSource(ctx context.Context, fs *domain.Fundin
 	return nil
 }
 
+// DeleteFundingSource — ЗӨВХӨН захирамжийн төсөлд холбогдоогүй эх үүсвэрийг
+// устгана. Холбоос (decision_draft_funding_source) нь ON DELETE CASCADE тул
+// шалгалтгүй устгавал захирамжийн санхүүжилт чимээгүй алга болно. Шалгалт нь
+// DELETE-тэй НЭГ хүсэлтэд (NOT EXISTS) — шалгасны дараа холбоос нэмэгдэх
+// уралдаанаас сэргийлнэ. Холбоостой бол 0 мөр → ErrAlreadyExists биш,
+// дуудагч (service) тайлбартай InUseError буцаана.
 func (r *landAcqRepo) DeleteFundingSource(ctx context.Context, id uuid.UUID) error {
-	ct, err := r.db.Exec(ctx, `DELETE FROM funding_sources WHERE id = $1`, id)
+	ct, err := r.db.Exec(ctx, `
+		DELETE FROM funding_sources fs
+		WHERE fs.id = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM decision_draft_funding_source l WHERE l.funding_source_id = fs.id
+		  )`, id)
 	if err != nil {
 		return err
 	}
 	if ct.RowsAffected() == 0 {
+		links, lerr := r.FundingSourceDraftLinks(ctx, id)
+		if lerr == nil && len(links) > 0 {
+			return fundingSourceInUse(links)
+		}
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// FundingSourceDraftLinks — эх үүсвэр холбогдсон захирамжийн төслүүдийн дугаар.
+func (r *landAcqRepo) FundingSourceDraftLinks(ctx context.Context, id uuid.UUID) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT DISTINCT COALESCE(NULLIF(d.proposal_no, ''), d.id::text)
+		FROM decision_draft_funding_source l
+		JOIN decision_draft d ON d.id = l.decision_draft_id
+		WHERE l.funding_source_id = $1
+		ORDER BY 1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func fundingSourceInUse(drafts []string) error {
+	return &domain.InUseError{Message: fmt.Sprintf(
+		"Санхүүжилтийн эх үүсвэр %d захирамжийн төсөлд холбогдсон тул устгах боломжгүй (%s). Эхлээд захирамжийн төслөөс хасна уу.",
+		len(drafts), strings.Join(drafts, ", "))}
 }
 
 func (r *landAcqRepo) ListAuthorizedRepresentatives(ctx context.Context, acquisitionID uuid.UUID, parcelID string) ([]*domain.AuthorizedRepresentative, error) {
@@ -7382,4 +7495,63 @@ func (r *landAcqRepo) DeleteDroneImage(ctx context.Context, id uuid.UUID) error 
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// ValuationOrgScope — байгууллага тухайн чөлөөлөлтөд УНШИЖ болох үнэлгээний
+// урсгалууд: үндсэн байгууллага мөн эсэх + хөндлөнгийнх нь болсон нэгж талбарууд.
+func (r *landAcqRepo) ValuationOrgScope(ctx context.Context, acquisitionID uuid.UUID, orgID domain.ID) (domain.ValuationOrgScope, error) {
+	scope := domain.ValuationOrgScope{IndependentParcels: map[string]bool{}}
+	var codes []string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(la.professional_org_id = $2, FALSE),
+		       COALESCE((
+		           SELECT array_agg(p.parcel_id::text)
+		           FROM parcel p
+		           WHERE p.acquisition_id = la.id
+		             AND p.independent_org_id = $2
+		             AND p.deleted_at IS NULL
+		       ), '{}'::text[])
+		FROM land_acquisition la
+		WHERE la.id = $1`,
+		acquisitionID, orgID).Scan(&scope.MainOrg, &codes)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return scope, domain.ErrNotFound
+	}
+	if err != nil {
+		return scope, err
+	}
+	for _, code := range codes {
+		scope.IndependentParcels[code] = true
+	}
+	return scope, nil
+}
+
+// ArchivedValuationFileURLs — нэгж талбарын ЦУЦЛАГДСАН үнэлгээний архивт
+// (parcel_valuation_snapshot) хадгалагдсан файлын хаягууд: тайлан, эх хүснэгт,
+// бусад файл. Цуцлалтын дараа эдгээр нь нэгж талбарын хавсралтаас хасагддаг ч
+// түүхэнд нээгдсээр байх ёстой.
+func (r *landAcqRepo) ArchivedValuationFileURLs(ctx context.Context, parcelID uuid.UUID) ([]string, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT x.u
+		FROM parcel_valuation_snapshot s
+		JOIN parcel p ON p.acquisition_id = s.acquisition_id AND p.parcel_id = s.parcel_id
+		CROSS JOIN LATERAL (
+			SELECT s.report_url
+			UNION ALL SELECT s.source_url
+			UNION ALL SELECT f->>'url' FROM jsonb_array_elements(COALESCE(s.files, '[]'::jsonb)) f
+		) AS x(u)
+		WHERE p.id = $1 AND COALESCE(x.u, '') <> ''`, parcelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var urls []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		urls = append(urls, u)
+	}
+	return urls, rows.Err()
 }

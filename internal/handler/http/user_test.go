@@ -415,6 +415,60 @@ func TestUserHandler_AssignRole_RejectsPrivilegeEscalation(t *testing.T) {
 	mockRole.AssertNotCalled(t, "AssignToUser", mock.Anything, mock.Anything, mock.Anything)
 }
 
+// Санхүү / МИКА ролийг зөвхөн системийн админ олгоно: хэлтсийн дарга ролийн
+// БҮХ эрхийг (compensation:*) эзэмшдэг ч олгож чадахгүй.
+func TestUserHandler_AssignRole_ReviewerRolesAdminOnly(t *testing.T) {
+	financePerms := []domain.Permission{
+		{Name: "compensation:read", Resource: "compensation"},
+		{Name: "compensation:update", Resource: "compensation"},
+	}
+	cases := []struct {
+		name     string
+		roleName string
+		resource string
+		roles    []string
+		want     int
+	}{
+		{"дарга санхүү олгохгүй", "compensation_finance_specialist", "compensation", []string{"department_head"}, http.StatusForbidden},
+		{"дарга МИКА олгохгүй", "compensation_mika", "compensation", []string{"department_head"}, http.StatusForbidden},
+		{"дарга монгол нэртэйг олгохгүй", "Санхүү", "", []string{"department_head"}, http.StatusForbidden},
+		{"админ санхүү олгоно", "compensation_finance_specialist", "compensation", []string{"admin"}, http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockSvc := &mocks.MockUserService{}
+			mockRole := &mocks.MockRoleService{}
+			h := handler.NewUserHandler(mockSvc, mockRole)
+
+			targetID := domain.ID(41)
+			roleID := domain.ID(42)
+			mockRole.On("GetByID", mock.Anything, roleID).Return(&domain.Role{
+				ID: roleID, Name: tc.roleName, Resource: tc.resource, Permissions: financePerms,
+			}, nil)
+			mockRole.On("AssignToUser", mock.Anything, targetID, roleID).Return(nil).Maybe()
+			mockSvc.On("InvalidateSessions", mock.Anything, targetID).Return(nil).Maybe()
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			sameDepartment(c, mockSvc)
+			c.Set(middleware.CtxUserID, domain.ID(43))
+			c.Set(middleware.CtxRoles, tc.roles)
+			c.Set(middleware.CtxPermissions, []string{"users:update", "compensation:read", "compensation:create", "compensation:update"})
+			body, _ := json.Marshal(map[string]string{"role_id": strconv.Itoa(int(roleID))})
+			c.Request = httptest.NewRequest(http.MethodPost, "/users/"+strconv.Itoa(int(targetID))+"/roles", bytes.NewBuffer(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Params = gin.Params{gin.Param{Key: "id", Value: strconv.Itoa(int(targetID))}}
+
+			h.AssignRole(c)
+
+			assert.Equal(t, tc.want, w.Code)
+			if tc.want != http.StatusOK {
+				mockRole.AssertNotCalled(t, "AssignToUser", mock.Anything, mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
 // Өөртөө роль олгохыг хориглоно (self-escalation).
 func TestUserHandler_AssignRole_RejectsSelf(t *testing.T) {
 	mockSvc := &mocks.MockUserService{}

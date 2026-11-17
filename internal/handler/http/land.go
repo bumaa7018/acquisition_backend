@@ -956,7 +956,13 @@ func (h *LandHandler) GetParcelByID(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
-	response.OK(c, toParcelFullResponse(pf))
+	resp := toParcelFullResponse(pf)
+	// Санхүү/МИКА — эзэмшигчийн хувийн ба эрх зүйн мэдээллийг харахгүй
+	// (frontend «Эзэмшигч» табыг нуудаг; хамгаалалт нь энд).
+	if reviewerOnlyCaller(c) {
+		redactParcelForReviewer(&resp)
+	}
+	response.OK(c, resp)
 }
 
 // UpdateParcelValuation godoc
@@ -1440,7 +1446,7 @@ func (h *LandHandler) UploadAcquisitionDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
-	uploadedBy := contextUserIDString(c)
+	uploadedBy := documentUploader(c)
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
@@ -1784,6 +1790,9 @@ func (h *LandHandler) DeleteAcquisitionDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	if !h.canDeleteAcquisitionDocument(c, acqID, docID) {
+		return
+	}
 	if err := h.svc.DeleteAcquisitionDocument(c.Request.Context(), acqID, docID); err != nil {
 		if err == domain.ErrNotFound {
 			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
@@ -1918,6 +1927,7 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 	filter.SortDir = c.Query("order")
 	filter.Page = page
 	filter.PageSize = pageSize
+	filter.DepartmentID = scopedDepartment(c)
 
 	rows, total, err := h.svc.ListReportParcels(c.Request.Context(), filter)
 	if err != nil {
@@ -1941,6 +1951,7 @@ func (h *LandHandler) ListReportParcels(c *gin.Context) {
 // @Router       /report/summary [get]
 func (h *LandHandler) ReportSummary(c *gin.Context) {
 	filter := reportParcelFilterFromQuery(c)
+	filter.DepartmentID = scopedDepartment(c)
 
 	summary, err := h.svc.GetReportSummary(c.Request.Context(), filter)
 	if err != nil {
@@ -1979,6 +1990,11 @@ func (h *LandHandler) ListAssets(c *gin.Context) {
 		PageSize:      pageSize,
 	}
 
+	scope, ok := h.profReadScope(c, id)
+	if !ok {
+		return
+	}
+
 	assets, total, err := h.svc.ListAssets(c.Request.Context(), id, filter)
 	if err != nil {
 		response.Error(c, err)
@@ -1987,9 +2003,75 @@ func (h *LandHandler) ListAssets(c *gin.Context) {
 
 	result := make([]assetResponse, 0, len(assets))
 	for _, a := range assets {
+		// Үнэлгээний байгууллага зөвхөн ӨӨРИЙН урсгалын мөрийг харна.
+		if scope != nil && !scope.CanRead(a.ParcelID, a.ValuationType) {
+			continue
+		}
 		result = append(result, toAssetResponse(a))
 	}
+	if scope != nil {
+		total = int64(len(result))
+	}
 	response.Paginated(c, result, total, page, pageSize)
+}
+
+// profReadScope — үнэлгээний байгууллагын дуудагч тухайн чөлөөлөлтөд УНШИЖ
+// болох урсгалууд. Байгууллагын ажилтан БИШ дуудагчид (nil, true) —
+// хязгаарлалтгүй (тэдний хаалт нь маршрутын эрх/хуваарилалт). Алдаа гарвал
+// хариуг бичээд ok=false.
+//
+// ЯАГААД: /prof маршрутын RequireProfOrgMember нь зөвхөн "чөлөөлөлтийн гишүүн"
+// эсэхийг шалгадаг. Нэг нэгж талбарын хөндлөнгийн байгууллага үүгээр бүх нэгж
+// талбарын үндсэн / МИКА урсгалын үнэлгээг уншиж чаддаг байв — frontend зөвхөн
+// табыг нуудаг байсан.
+func (h *LandHandler) profReadScope(c *gin.Context, acqID uuid.UUID) (*domain.ValuationOrgScope, bool) {
+	if !middleware.IsValuationOrgCaller(c) {
+		return nil, true
+	}
+	orgID, ok := middleware.GetCallerOrgID(c)
+	if !ok {
+		response.Error(c, domain.ErrForbidden)
+		return nil, false
+	}
+	scope, err := h.svc.ValuationOrgReadScope(c.Request.Context(), acqID, orgID)
+	if err != nil {
+		response.Error(c, err)
+		return nil, false
+	}
+	return &scope, true
+}
+
+// profCanReadStream — нэг нэгж талбарын нэг урсгалыг уншиж болох эсэх.
+// Эрхгүй бол 403 бичээд false.
+func (h *LandHandler) profCanReadStream(c *gin.Context, acqID uuid.UUID, parcelCode, vType string) bool {
+	scope, ok := h.profReadScope(c, acqID)
+	if !ok {
+		return false
+	}
+	if scope != nil && !scope.CanRead(parcelCode, vType) {
+		response.Error(c, domain.ErrForbidden)
+		return false
+	}
+	return true
+}
+
+// profCanReadAsset / profCanReadCompensation — мөрийн ID-аар уншихад мөрийн
+// ӨӨРИЙН урсгалаар шалгана. Байгууллагын уншилтын дүрэм бичилтийнхтэй ижил
+// (өөрийн урсгал) тул бичилтийн authorizer-ийг хэрэглэнэ.
+func (h *LandHandler) profCanReadAsset(c *gin.Context, acqID, assetID uuid.UUID) bool {
+	if !middleware.IsValuationOrgCaller(c) {
+		return true
+	}
+	_, ok := h.authorizeAsset(c, acqID, assetID)
+	return ok
+}
+
+func (h *LandHandler) profCanReadCompensation(c *gin.Context, acqID, compID uuid.UUID) bool {
+	if !middleware.IsValuationOrgCaller(c) {
+		return true
+	}
+	_, ok := h.authorizeCompensation(c, acqID, compID)
+	return ok
 }
 
 // CreateAsset godoc
@@ -2039,6 +2121,98 @@ func callerValuationStreams(c *gin.Context) []string {
 	return nil
 }
 
+// valuationCallerFrom — токеноос үнэлгээ бичих дуудагчийн төрөл.
+// Байгууллагын ажилтныг `valuation_org` тэмдгээр, МИКА-г роль-оор таньна.
+func valuationCallerFrom(c *gin.Context) domain.ValuationCaller {
+	vc := domain.ValuationCaller{Mika: ctxHasRole(c, "mika", "МИКА")}
+	if middleware.IsValuationOrgCaller(c) {
+		vc.ValuationOrg = true
+		if id, ok := middleware.GetCallerOrgID(c); ok {
+			vc.OrgID = &id
+		}
+	}
+	return vc
+}
+
+// mikaStream — МИКА (байгууллагын ажилтан биш) дуудагчийн урсгалыг "mika"
+// болгож тогтооно; бусдын урсгалыг хэвээр буцаана.
+func mikaStream(c *gin.Context, vType string) string {
+	if vc := valuationCallerFrom(c); vc.Mika && !vc.ValuationOrg {
+		return domain.ValuationTypeMika
+	}
+	return vType
+}
+
+// authorizeValuation — нэгж талбарын урсгалд бичих эрхийг шалгаж, хэвийн
+// болсон урсгалыг буцаана. Эрхгүй бол хариуг бичээд ok=false.
+func (h *LandHandler) authorizeValuation(c *gin.Context, acqID uuid.UUID, parcelCode, vType string) (string, bool) {
+	normalized, err := h.svc.AuthorizeValuationWrite(c.Request.Context(), acqID, parcelCode, mikaStream(c, vType), valuationCallerFrom(c))
+	if err != nil {
+		response.Error(c, err)
+		return "", false
+	}
+	return normalized, true
+}
+
+// authorizeAsset — хөрөнгийн мөрийн өөрийн урсгалаар бичих эрхийг шалгана.
+func (h *LandHandler) authorizeAsset(c *gin.Context, acqID, assetID uuid.UUID) (string, bool) {
+	parcelCode, err := h.svc.AuthorizeAssetWrite(c.Request.Context(), acqID, assetID, valuationCallerFrom(c))
+	if err != nil {
+		response.Error(c, err)
+		return "", false
+	}
+	return parcelCode, true
+}
+
+// authorizeCompensation — олговрын мөрийн өөрийн урсгалаар бичих эрхийг шалгана.
+func (h *LandHandler) authorizeCompensation(c *gin.Context, acqID, compID uuid.UUID) (string, bool) {
+	parcelCode, err := h.svc.AuthorizeCompensationWrite(c.Request.Context(), acqID, compID, valuationCallerFrom(c))
+	if err != nil {
+		response.Error(c, err)
+		return "", false
+	}
+	return parcelCode, true
+}
+
+// grantAllowed — газар олгох олговрыг үнэлгээний байгууллага ЗӨВХӨН өөрийн
+// урсгалын олговорт бичнэ (дотоод маршрутын хаалт өөрчлөгдөөгүй).
+func (h *LandHandler) grantAllowed(c *gin.Context, acqID, compID uuid.UUID) bool {
+	if !middleware.IsValuationOrgCaller(c) {
+		return true
+	}
+	_, ok := h.authorizeCompensation(c, acqID, compID)
+	return ok
+}
+
+// compensationAssetMatches — олговорт холбох хөрөнгө (байвал) мөн ижил нэгж
+// талбарынх бөгөөд дуудагч түүний урсгалын эзэн байх ёстой. Эс бөгөөс өөр
+// нэгж талбар/урсгалын хөрөнгөнд олговор тооцох боломжтой болно.
+func (h *LandHandler) compensationAssetMatches(c *gin.Context, acqID uuid.UUID, assetID, legacyID *string, parcelCode string) bool {
+	raw := assetID
+	if raw == nil {
+		raw = legacyID
+	}
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return true
+	}
+	id, err := uuid.Parse(strings.TrimSpace(*raw))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return false
+	}
+	assetParcel, ok := h.authorizeAsset(c, acqID, id)
+	if !ok {
+		return false
+	}
+	if assetParcel != parcelCode {
+		response.Error(c, domain.NewRuleError("Хөрөнгө нь олговрын нэгж талбарт хамаарахгүй байна."))
+		return false
+	}
+	return true
+}
+
+var errMoveValuationRow =domain.NewRuleError("Үнэлгээний мөрийг өөр нэгж талбар руу шилжүүлэх боломжгүй. Устгаад зөв нэгж талбарт шинээр оруулна уу.")
+
 func (h *LandHandler) CreateAsset(c *gin.Context) {
 	acqID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -2075,9 +2249,11 @@ func (h *LandHandler) CreateAsset(c *gin.Context) {
 	if body.AssetName == "" {
 		body.AssetName = body.LegacyBuildingType
 	}
-	if mikaOnlyCaller(c) {
-		body.ValuationType = domain.ValuationTypeMika
+	vType, ok := h.authorizeValuation(c, acqID, body.ParcelID, body.ValuationType)
+	if !ok {
+		return
 	}
+	body.ValuationType = vType
 
 	b := &domain.Asset{
 		AcquisitionID: acqID,
@@ -2165,6 +2341,16 @@ func (h *LandHandler) UpdateAsset(c *gin.Context) {
 		normalized := normalizeAssetRecordType(*body.AssetType)
 		body.AssetType = &normalized
 	}
+	parcelCode, ok := h.authorizeAsset(c, acqID, assetID)
+	if !ok {
+		return
+	}
+	// Мөрийг өөр нэгж талбар руу шилжүүлэхгүй: шилжүүлбэл илгээсэн/
+	// баталгаажсан (эсвэл бусдын) үнэлгээ рүү мөр орох зам болно.
+	if body.ParcelID != nil && strings.TrimSpace(*body.ParcelID) != parcelCode {
+		response.Error(c, errMoveValuationRow)
+		return
+	}
 
 	b := &domain.AssetUpdate{
 		ID:            assetID,
@@ -2214,6 +2400,9 @@ func (h *LandHandler) DeleteAsset(c *gin.Context) {
 		return
 	}
 
+	if _, ok := h.authorizeAsset(c, acqID, assetID); !ok {
+		return
+	}
 	if err := h.svc.DeleteAsset(c.Request.Context(), acqID, assetID, callerValuationStreams(c)); err != nil {
 		response.Error(c, err)
 		return
@@ -2231,6 +2420,9 @@ func (h *LandHandler) ListAssetSpecs(c *gin.Context) {
 	assetID, err := uuid.Parse(c.Param("asset_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if !h.profCanReadAsset(c, acqID, assetID) {
 		return
 	}
 	specs, err := h.svc.ListAssetSpecs(c.Request.Context(), acqID, assetID)
@@ -2267,6 +2459,9 @@ func (h *LandHandler) UpsertAssetSpecs(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
+	if _, ok := h.authorizeAsset(c, acqID, assetID); !ok {
+		return
+	}
 	specs := make([]domain.AssetSpec, len(body.Specs))
 	for i, s := range body.Specs {
 		specs[i] = domain.AssetSpec{AssetID: assetID, SpecTypeID: s.SpecTypeID, Value: s.Value}
@@ -2288,6 +2483,9 @@ func (h *LandHandler) ListAssetCalculations(c *gin.Context) {
 	assetID, err := uuid.Parse(c.Param("asset_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if !h.profCanReadAsset(c, acqID, assetID) {
 		return
 	}
 	calcs, err := h.svc.ListAssetCalculations(c.Request.Context(), acqID, assetID)
@@ -2326,6 +2524,9 @@ func (h *LandHandler) UpsertAssetCalculations(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
+		return
+	}
+	if _, ok := h.authorizeAsset(c, acqID, assetID); !ok {
 		return
 	}
 	calcs := make([]domain.AssetCalculation, len(body.Calculations))
@@ -2369,9 +2570,11 @@ func (h *LandHandler) UpsertLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	if mikaOnlyCaller(c) {
-		body.ValuationType = domain.ValuationTypeMika
+	vType, ok := h.authorizeValuation(c, acqID, body.ParcelID, body.ValuationType)
+	if !ok {
+		return
 	}
+	body.ValuationType = vType
 	v := &domain.LandValuation{
 		AcquisitionID:       acqID,
 		ParcelID:            body.ParcelID,
@@ -2409,6 +2612,9 @@ func (h *LandHandler) GetLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
+	if !h.profCanReadStream(c, acqID, parcelID, c.Query("valuation_type")) {
+		return
+	}
 	v, err := h.svc.GetLandValuation(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
 	if err != nil {
 		response.OK(c, nil)
@@ -2429,23 +2635,12 @@ func (h *LandHandler) DeleteLandValuation(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	valuationType := c.Query("valuation_type")
-	if mikaOnlyCaller(c) {
-		valuationType = domain.ValuationTypeMika
-	}
-	// Гадаад дуудагч зөвхөн ӨӨРИЙН урсгалыг устгана. valuation_type нь query-ээс
-	// ирдэг тул энэ шалгалтгүй бол мэрг. байгууллага `?valuation_type=mika`-аар
-	// МИКА-гийн газрын үнэлгээг устгах боломжтой.
-	if streams := callerValuationStreams(c); len(streams) > 0 {
-		if valuationType == "" {
-			// Хоосон = БҮХ урсгал устана — хязгаарлагдсан дуудагчид зөвшөөрөхгүй.
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-		if !domain.ValuationStreamAllowed(valuationType, streams) {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
+	// Зөвхөн ӨӨРИЙН урсгалыг устгана. Хоосон valuation_type нь service-д
+	// "БҮХ урсгал" гэсэн утгатай тул энд хэвийн болгож ("asset") тодорхой
+	// нэг урсгал болгоно — эс бөгөөс бусдын урсгал хамт устана.
+	valuationType, ok := h.authorizeValuation(c, acqID, parcelID, c.Query("valuation_type"))
+	if !ok {
+		return
 	}
 	if err := h.svc.DeleteLandValuation(c.Request.Context(), acqID, parcelID, valuationType); err != nil {
 		response.Error(c, err)
@@ -2469,6 +2664,9 @@ func (h *LandHandler) ListValuationNotes(c *gin.Context) {
 	vType := c.Query("valuation_type")
 	if mikaOnlyCaller(c) {
 		vType = domain.ValuationTypeMika
+	}
+	if !h.profCanReadStream(c, acqID, parcelID, vType) {
+		return
 	}
 	list, err := h.svc.ListValuationNotes(c.Request.Context(), acqID, parcelID, vType)
 	if err != nil {
@@ -2495,34 +2693,12 @@ func (h *LandHandler) SaveValuationNotes(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrRequiredFields)
 		return
 	}
-	if mikaOnlyCaller(c) {
-		body.ValuationType = domain.ValuationTypeMika
+	// Зөвхөн ӨӨРИЙН урсгалын, ХАРЬЯАЛАГДАХ нэгж талбарын тайлбарыг бичнэ.
+	vType, ok := h.authorizeValuation(c, acqID, body.ParcelID, body.ValuationType)
+	if !ok {
+		return
 	}
-	// Гадаад дуудагч (мэрг. байгууллага / МИКА) зөвхөн ӨӨРИЙН урсгалд бичнэ —
-	// эс бөгөөс `valuation_type`-аар бусдын урсгалын тайлбарыг дарж бичих боломжтой.
-	if streams := callerValuationStreams(c); len(streams) > 0 {
-		if body.ValuationType == "" {
-			body.ValuationType = streams[0]
-		}
-		if !domain.ValuationStreamAllowed(body.ValuationType, streams) {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-	}
-	// Мэргэжлийн байгууллагын дуудагч зөвхөн ХАРЬЯАЛАГДАХ нэгж талбартаа бичнэ
-	// (parcel_id нь body-гоор ирдэг тул middleware шалгаж чадахгүй — IDOR хамгаалалт).
-	if middleware.IsValuationOrgCaller(c) {
-		orgID, ok := middleware.GetCallerOrgID(c)
-		if !ok {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, orgID)
-		if err != nil || !member {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-	}
+	body.ValuationType = vType
 	updatedBy := ""
 	if uid, ok := c.Get("userID"); ok {
 		if id, ok2 := uid.(domain.ID); ok2 {
@@ -2611,27 +2787,14 @@ func (h *LandHandler) ImportValuation(c *gin.Context) {
 		callerID, _ = uid.(domain.ID)
 		createdBy = strconv.FormatInt(int64(callerID), 10)
 	}
-	if mikaOnlyCaller(c) {
-		body.ValuationType = domain.ValuationTypeMika
+	// Үнэлгээ бичихтэй ИЖИЛ шалгалт: нэгж талбар (body-гоор ирдэг) энэ
+	// чөлөөлөлтийнх бөгөөд дуудагч тухайн урсгалын эзэн байх ёстой —
+	// эс бөгөөс бусдын урсгалыг импортоор бүхэлд нь дарж бичих боломжтой.
+	vType, ok := h.authorizeValuation(c, acqID, body.ParcelID, body.ValuationType)
+	if !ok {
+		return
 	}
-
-	// professional_org (үндсэн болон хөндлөнгийн) хэрэглэгч зөвхөн ХАРЬЯАЛАГДАХ
-	// нэгж талбарт л үнэлгээ импортлох ёстой. /prof/... маршрут дээр body.ParcelID
-	// JSON body-гоор ирдэг (URL param биш) тул profParcelMemberByParam middleware-ээр
-	// шалгагдахгүй — энэ шалгалт байхгүй бол acquisition-ийн гишүүн ямар ч parcel_id-д
-	// (өөрт нь харьяалагдахгүй байсан ч) бичих боломжтой байсан (IDOR).
-	if middleware.IsValuationOrgCaller(c) {
-		orgID, ok := middleware.GetCallerOrgID(c)
-		if !ok {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-		member, err := h.svc.IsProfMemberOfParcelByCode(c.Request.Context(), acqID, body.ParcelID, orgID)
-		if err != nil || !member {
-			response.Error(c, domain.ErrForbidden)
-			return
-		}
-	}
+	body.ValuationType = vType
 
 	imp := &domain.ValuationImport{
 		ParcelID:      body.ParcelID,
@@ -2705,6 +2868,10 @@ func (h *LandHandler) ListCompensations(c *gin.Context) {
 		return
 	}
 	parcelID := c.Query("parcel_id")
+	scope, ok := h.profReadScope(c, acqID)
+	if !ok {
+		return
+	}
 	list, err := h.svc.ListCompensations(c.Request.Context(), acqID, parcelID, c.Query("valuation_type"))
 	if err != nil {
 		response.Error(c, err)
@@ -2712,6 +2879,10 @@ func (h *LandHandler) ListCompensations(c *gin.Context) {
 	}
 	resp := make([]compensationResponse, 0, len(list))
 	for _, c2 := range list {
+		// Үнэлгээний байгууллага зөвхөн ӨӨРИЙН урсгалын олговрыг харна.
+		if scope != nil && !scope.CanRead(c2.ParcelID, c2.ValuationType) {
+			continue
+		}
 		resp = append(resp, toCompensationResponse(c2))
 	}
 	response.OK(c, resp)
@@ -2743,8 +2914,16 @@ func (h *LandHandler) CreateCompensation(c *gin.Context) {
 	}
 
 	createdBy := contextUserIDString(c)
-	if mikaOnlyCaller(c) {
-		body.ValuationType = domain.ValuationTypeMika
+	// Олговор ЗААВАЛ нэгж талбартай: нэгж талбаргүй мөр илгээлтийн хаалтад
+	// (нэгж талбар+урсгалаар шалгадаг) хамаарахгүй тул илгээсэн/баталгаажсан
+	// үнэлгээ рүү тойрч орох зам болно.
+	vType, ok := h.authorizeValuation(c, acqID, body.ParcelID, body.ValuationType)
+	if !ok {
+		return
+	}
+	body.ValuationType = vType
+	if !h.compensationAssetMatches(c, acqID, body.AssetID, body.LegacyBuildingID, strings.TrimSpace(body.ParcelID)) {
+		return
 	}
 
 	comp := &domain.Compensation{
@@ -2813,6 +2992,18 @@ func (h *LandHandler) UpdateCompensation(c *gin.Context) {
 		return
 	}
 
+	parcelCode, ok := h.authorizeCompensation(c, acqID, compID)
+	if !ok {
+		return
+	}
+	if p := strings.TrimSpace(body.ParcelID); p != "" && p != parcelCode {
+		response.Error(c, errMoveValuationRow)
+		return
+	}
+	if !h.compensationAssetMatches(c, acqID, body.AssetID, body.LegacyBuildingID, parcelCode) {
+		return
+	}
+
 	comp := &domain.Compensation{
 		ID:               compID,
 		AcquisitionID:    acqID,
@@ -2876,6 +3067,9 @@ func (h *LandHandler) DeleteCompensation(c *gin.Context) {
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if _, ok := h.authorizeCompensation(c, acqID, compID); !ok {
 		return
 	}
 	if err := h.svc.DeleteCompensation(c.Request.Context(), acqID, compID, callerValuationStreams(c)); err != nil {
@@ -2959,6 +3153,10 @@ func (h *LandHandler) UploadCompensationReport(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	// Тайлан нь тухайн урсгалын үнэлгээний нэг хэсэг — зөвхөн урсгалын эзэн.
+	if _, ok := h.authorizeCompensation(c, acqID, compID); !ok {
+		return
+	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDocumentUploadSize)
 	fh, err := c.FormFile("file")
 	if err != nil {
@@ -3036,6 +3234,10 @@ func (h *LandHandler) UploadAssetPhoto(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileType)
 		return
 	}
+	// Зураг нь тухайн урсгалын үнэлгээний нэг хэсэг — зөвхөн урсгалын эзэн.
+	if _, ok := h.authorizeAsset(c, acqID, assetID); !ok {
+		return
+	}
 	url, name, err := h.svc.UploadAssetPhoto(c.Request.Context(), acqID, assetID, fh.Filename, contentType, data)
 	if err != nil {
 		response.Error(c, err)
@@ -3061,6 +3263,9 @@ func (h *LandHandler) ListCompensationHistory(c *gin.Context) {
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if !h.profCanReadCompensation(c, acqID, compID) {
 		return
 	}
 	list, err := h.svc.ListCompensationHistory(c.Request.Context(), acqID, compID)
@@ -3105,6 +3310,9 @@ func (h *LandHandler) CreateCompensationGrant(c *gin.Context) {
 		return
 	}
 
+	if !h.grantAllowed(c, acqID, compID) {
+		return
+	}
 	createdBy := contextUserIDString(c)
 
 	g := &domain.CompensationGrant{
@@ -3183,6 +3391,9 @@ func (h *LandHandler) UpdateCompensationGrant(c *gin.Context) {
 			g.GrantDate = &t
 		}
 	}
+	if !h.grantAllowed(c, acqID, compID) {
+		return
+	}
 
 	updated, err := h.svc.UpdateCompensationGrant(c.Request.Context(), g)
 	if err != nil {
@@ -3202,6 +3413,9 @@ func (h *LandHandler) DeleteCompensationGrant(c *gin.Context) {
 	compID, err := uuid.Parse(c.Param("comp_id"))
 	if err != nil {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if !h.grantAllowed(c, acqID, compID) {
 		return
 	}
 	if err := h.svc.DeleteCompensationGrantByCompensationID(c.Request.Context(), acqID, compID); err != nil {
@@ -3320,8 +3534,16 @@ func (h *LandHandler) ListParcelDocuments(c *gin.Context) {
 		response.Error(c, err)
 		return
 	}
+	// Санхүү/МИКА — зөвхөн үнэлгээний хавсралт (тайлан, эх Excel, ажлын зураг).
+	var visible func(*domain.Document) bool
+	if reviewerOnlyCaller(c) {
+		visible = reviewerDocFilter(c.Request.Context(), h.svc)
+	}
 	result := make([]documentResponse, 0, len(list))
 	for _, d := range list {
+		if visible != nil && !visible(d) {
+			continue
+		}
 		result = append(result, toDocumentResponse(d))
 	}
 	response.OK(c, result)
@@ -3569,6 +3791,26 @@ func (h *LandHandler) GetParcelDocumentFile(c *gin.Context) {
 		return
 	}
 
+	// Санхүү/МИКА — жагсаалтын адил зөвхөн үнэлгээний хавсралтын файл.
+	if reviewerOnlyCaller(c) {
+		docs, err := h.svc.ListParcelDocuments(c.Request.Context(), parcelID)
+		if err != nil {
+			response.Error(c, err)
+			return
+		}
+		visible := reviewerDocFilter(c.Request.Context(), h.svc)
+		allowed := false
+		for _, d := range docs {
+			if d.ID == docID {
+				allowed = visible(d)
+				break
+			}
+		}
+		if !allowed {
+			response.Error(c, domain.ErrForbidden)
+			return
+		}
+	}
 	file, err := h.svc.OpenParcelDocumentFile(c.Request.Context(), parcelID, docID)
 	if err != nil {
 		response.Error(c, err)
@@ -3675,7 +3917,7 @@ func (h *LandHandler) uploadParcelDocument(c *gin.Context, maxSize int64, tooLar
 		response.Abort(c, http.StatusBadRequest, i18n.ErrFileOpen)
 		return
 	}
-	uploadedBy := contextUserIDString(c)
+	uploadedBy := documentUploader(c)
 	documentTypeID, err := documentTypeIDFromForm(c)
 	if err != nil {
 		response.Error(c, err)
@@ -3776,6 +4018,9 @@ func (h *LandHandler) DeleteParcelDocument(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
+	if !h.canDeleteParcelDocument(c, parcelID, docID) {
+		return
+	}
 	if err := h.svc.DeleteParcelDocument(c.Request.Context(), parcelID, docID); err != nil {
 		if err == domain.ErrNotFound {
 			response.Abort(c, http.StatusNotFound, i18n.ErrDocNotFound)
@@ -3859,6 +4104,7 @@ func (h *LandHandler) FinanceDashboard(c *gin.Context) {
 			filter.Years = append(filter.Years, n)
 		}
 	}
+	filter.DepartmentID = scopedDepartment(c)
 	summary, err := h.svc.GetFinanceDashboard(c.Request.Context(), filter)
 	if err != nil {
 		response.Error(c, err)
@@ -3886,7 +4132,7 @@ func (h *LandHandler) Chronos(c *gin.Context) {
 		}
 		ids = append(ids, id)
 	}
-	data, err := h.svc.GetChronos(c.Request.Context(), ids)
+	data, err := h.svc.GetChronos(c.Request.Context(), ids, scopedDepartment(c))
 	if err != nil {
 		response.Error(c, err)
 		return
@@ -3935,6 +4181,7 @@ func (h *LandHandler) Dashboard(c *gin.Context) {
 		}
 	}
 
+	filter.DepartmentID = scopedDepartment(c)
 	summary, err := h.svc.GetDashboard(c.Request.Context(), filter)
 	if err != nil {
 		response.Error(c, err)
@@ -4060,8 +4307,14 @@ func (h *LandHandler) UpdateFundingSource(c *gin.Context) {
 	if currency == "" {
 		currency = "MNT"
 	}
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
 	fs := &domain.FundingSource{
 		ID:               srcID,
+		AcquisitionID:    acqID,
 		OrganizationName: body.OrganizationName,
 		SourceType:       body.SourceType,
 		Amount:           body.Amount,
@@ -4092,7 +4345,12 @@ func (h *LandHandler) DeleteFundingSource(c *gin.Context) {
 		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
 		return
 	}
-	if err := h.svc.DeleteFundingSource(c.Request.Context(), srcID); err != nil {
+	acqID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidUUID)
+		return
+	}
+	if err := h.svc.DeleteFundingSource(c.Request.Context(), acqID, srcID); err != nil {
 		response.Error(c, err)
 		return
 	}

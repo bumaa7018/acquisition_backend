@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"acquisition_backend/internal/domain"
@@ -23,7 +24,9 @@ type RoleService interface {
 }
 
 type CreateRoleRequest struct {
-	Name        string `validate:"required"`
+	Name string `validate:"required"`
+	// Code — заавал биш (sd_role.code, 10 тэмдэгт хүртэл). Бүх системд давтагдашгүй.
+	Code        string
 	Description string
 }
 
@@ -40,10 +43,24 @@ func NewRoleService(roleRepo repository.RoleRepository) RoleService {
 	return &roleService{roleRepo: roleRepo}
 }
 
+// errAdminRoleName — админы нэр зөвхөн системийн админы ролийнх.
+var errAdminRoleName = domain.NewRuleError("«admin» / «Админ» нэр нь системийн админы ролийнх тул өөр ролийг ингэж нэрлэх боломжгүй.")
+
 func (s *roleService) Create(ctx context.Context, req CreateRoleRequest) (*domain.Role, error) {
+	// Админ эсэх нь НЭРЭЭР тодорхойлогддог тул давхардсан админ нэртэй роль
+	// үүсгэвэл түүнийг авсан хэн ч бүх эрхтэй болно.
+	if domain.IsAdminRoleName(req.Name) {
+		return nil, errAdminRoleName
+	}
+	name := strings.TrimSpace(req.Name)
+	code := strings.TrimSpace(req.Code)
+	if err := s.ensureUniqueRole(ctx, name, code, 0); err != nil {
+		return nil, err
+	}
 	now := time.Now()
 	role := &domain.Role{
-		Name:        req.Name,
+		Name:        name,
+		Code:        code,
 		Description: req.Description,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -63,8 +80,19 @@ func (s *roleService) Update(ctx context.Context, id domain.ID, req UpdateRoleRe
 	if err != nil {
 		return nil, err
 	}
-	if req.Name != "" {
-		role.Name = req.Name
+	if req.Name != "" && req.Name != role.Name {
+		// Админы ролийн нэрийг солибол админ эрх алга болно (эсвэл өөр нэрээр
+		// давхардана); бусад ролийг админ болгож нэрлэвэл эрх нэмэгдэнэ.
+		if role.IsSystemAdmin() || domain.IsAdminRoleName(role.Name) {
+			return nil, domain.NewRuleError("Системийн админы ролийн нэрийг солих боломжгүй.")
+		}
+		if domain.IsAdminRoleName(req.Name) {
+			return nil, errAdminRoleName
+		}
+		if err := s.ensureUniqueRole(ctx, strings.TrimSpace(req.Name), "", role.ID); err != nil {
+			return nil, err
+		}
+		role.Name = strings.TrimSpace(req.Name)
 	}
 	if req.Description != "" {
 		role.Description = req.Description
@@ -123,9 +151,61 @@ func (s *roleService) AssignToUser(ctx context.Context, userID, roleID domain.ID
 	if !role.IsAPIGrantable() {
 		return domain.ErrForbidden
 	}
+	// Админы нэртэй боловч эрхгүй (хоосон) роль, эсвэл системийн админ биш
+	// атлаа админ нэртэй роль хэнд ч олгогдохгүй.
+	if domain.IsAdminRoleName(role.Name) && (!role.IsSystemAdmin() || len(role.Permissions) == 0) {
+		return domain.ErrForbidden
+	}
 	return s.roleRepo.AssignToUser(ctx, userID, roleID)
 }
 
 func (s *roleService) RemoveFromUser(ctx context.Context, userID, roleID domain.ID) error {
 	return s.roleRepo.RemoveFromUser(ctx, userID, roleID)
+}
+
+// maxRoleCodeLen — sd_role.code баганын урт (repo LEFT(..., 10)-тэй ижил).
+const maxRoleCodeLen = 10
+
+// ensureUniqueRole — ролийн нэр, код давхардахгүйг КОДООР шалгана (санд
+// хязгаарлалт нэмэхгүй — authdb-ийн бүтцийг өөрчлөхгүй).
+//
+// Нэр: том/жижиг үсэг, илүү зай үл харгалзан
+//   - системийн ролийн түвшин/монгол нэртэй (IsReservedRoleName) давхцахгүй —
+//     хаалтууд ролийг НЭРЭЭР таньдаг тул ийм нэртэй роль тэр ролийн эрхийг авна;
+//   - систем 10-ийн өөр ролийн НЭР эсвэл ТҮВШИН (токенд орох нэр)-тэй
+//     давхцахгүй (жишээ нь "mika" нь compensation_mika-ийн түвшин).
+//
+// Код: бүх системийн sd_role дотор давхцахгүй, 10 тэмдэгтээс хэтрэхгүй.
+// selfID — нэр солих үед тухайн роль өөрөө (0 = шинэ).
+func (s *roleService) ensureUniqueRole(ctx context.Context, name, code string, selfID domain.ID) error {
+	if domain.IsReservedRoleName(name) {
+		return domain.NewRuleError("«" + name + "» нь системийн ролийн нэр тул өөр ролийг ингэж нэрлэх боломжгүй.")
+	}
+	want := domain.NormalizeRoleName(name)
+	roles, err := s.roleRepo.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, r := range roles {
+		if r.ID == selfID {
+			continue
+		}
+		if domain.NormalizeRoleName(r.Name) == want || domain.NormalizeRoleName(r.Level()) == want {
+			return domain.NewRuleError("«" + name + "» нэртэй роль аль хэдийн бүртгэлтэй байна.")
+		}
+	}
+	if code == "" {
+		return nil
+	}
+	if len([]rune(code)) > maxRoleCodeLen {
+		return domain.NewRuleError("Ролийн код 10 тэмдэгтээс хэтрэхгүй.")
+	}
+	taken, err := s.roleRepo.CodeTaken(ctx, code, selfID)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return domain.NewRuleError("«" + code + "» кодтой роль аль хэдийн бүртгэлтэй байна.")
+	}
+	return nil
 }
