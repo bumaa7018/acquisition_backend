@@ -19,7 +19,7 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID
 		SELECT p.id, p.parcel_id, p.acquisition_id, COALESCE(la.acquisition_name, ''),
 		       COALESCE(p.status, 0), COALESCE(ps.name, ''), COALESCE(ps.color, ''),
 		       (SELECT MIN(h.status_date) FROM parcel_status_history h
-		          JOIN parcel_status rs ON rs.id = h.status_id AND rs.is_released
+		          JOIN parcel_status rs ON rs.id = h.status_id AND rs.is_final
 		         WHERE h.parcel_id = p.parcel_id AND h.acquisition_id = p.acquisition_id),
 		       COALESCE(p.area_m2, 0),
 		       -- Геометргүй нэгж талбар ч статистикт орно (зурагт гарахгүй) — дашбоардтай ижил тоо.
@@ -161,7 +161,13 @@ func (r *landAcqRepo) GetChronos(ctx context.Context, acqIDs []uuid.UUID, deptID
 		}
 	}
 
-	st, err := r.db.Query(ctx, `SELECT id, COALESCE(code, ''), name, COALESCE(color, ''), sort_order, is_released, is_final
+	// is_released — ХРОНОСЫН утга: тохиргооны «Эцсийн төлөв» (is_final) дүрэмтэй
+	// явц газар хүртэл намсаж тасархай контураар зурагдана (хэрэглэгчийн
+	// шийдвэр 2026-11-18). parcel_status.is_released баганыг БИШ: тэр нь
+	// «Захирамжид холбогдоно» чагт бөгөөд «Чөлөөлсөн»-өөс авагдахад хронос
+	// чөлөөлсөн газрыг өндөр хашаа болгож зурдаг байв.
+	st, err := r.db.Query(ctx, `SELECT id, COALESCE(code, ''), name, COALESCE(color, ''), sort_order,
+		is_final, is_final
 		FROM parcel_status ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
