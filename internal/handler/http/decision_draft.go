@@ -32,6 +32,7 @@ func NewDecisionDraftHandler(svc service.DecisionDraftService) *DecisionDraftHan
 // @Param        date_from          query  string  false  "Огноо (YYYY-MM-DD)-с эхлэн"
 // @Param        date_to            query  string  false  "Огноо (YYYY-MM-DD) хүртэл"
 // @Param        duration_year      query  int     false  "Хугацаа (он)"
+// @Param        funding_year       query  int     false  "Санхүүжилтийн он — нэгтгэл мөн тэр оных"
 // @Param        status             query  int     false  "Төлөв: 1=Төсөл, 2=Баталгаажсан"
 // @Param        acquisition_id     query  string  false  "Чөлөөлөлтийн ID"
 // @Param        funding_source_id  query  string  false  "Санхүүгийн эх үүсвэрийн ID"
@@ -52,6 +53,7 @@ func (h *DecisionDraftHandler) List(c *gin.Context) {
 		DateFrom:        c.Query("date_from"),
 		DateTo:          c.Query("date_to"),
 		DurationYear:    queryInt(c, "duration_year", 0),
+		FundingYear:     queryInt(c, "funding_year", 0),
 		Status:          queryInt(c, "status", 0),
 		AcquisitionID:   c.Query("acquisition_id"),
 		FundingSourceID: c.Query("funding_source_id"),
@@ -442,6 +444,8 @@ func (h *DecisionDraftHandler) SetParcelFundingSource(c *gin.Context) {
 type addFundingSourceRequest struct {
 	FundingSourceID string  `json:"funding_source_id" validate:"required"`
 	Amount          float64 `json:"amount"`
+	// Year — санхүүжилтийн он (заавал). Нэг эх үүсвэр он бүрт өөр дүнтэй.
+	Year int `json:"year"`
 }
 
 // AddFundingSource godoc
@@ -468,11 +472,11 @@ func (h *DecisionDraftHandler) AddFundingSource(c *gin.Context) {
 		response.Error(c, domain.ErrInvalidInput)
 		return
 	}
-	if req.Amount < 0 {
+	if req.Amount < 0 || !domain.ValidFundingYear(req.Year) {
 		response.Error(c, domain.ErrInvalidInput)
 		return
 	}
-	if err := h.svc.AddFundingSource(c.Request.Context(), id, req.FundingSourceID, req.Amount, decisionActor(c)); err != nil {
+	if err := h.svc.AddFundingSource(c.Request.Context(), id, req.FundingSourceID, req.Amount, req.Year, decisionActor(c)); err != nil {
 		response.Error(c, err)
 		return
 	}

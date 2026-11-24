@@ -775,6 +775,10 @@ func NewRouter(
 			middleware.RequireAnyPermission("land:read", "compensation:read"),
 			landH.FinanceDashboard)
 
+		// Захирамж ба санхүүжилт — санхүүжилтийн оноор (хяналтын самбар,
+		// чөлөөлөлтийн «Санхүүжилт» таб). Хэлтсийн хүрээ handler-т (scopedDepartment).
+		protected.GET("/dashboard/decision-funding", middleware.RequirePermission("land:read"), landH.DecisionFunding)
+
 		// «Хронос» — цаг хугацааны изометр зураг (зөвхөн дотоод ажилтан; handler шалгана).
 		protected.GET("/dashboard/chronos", middleware.RequirePermission("land:read"), landH.Chronos)
 

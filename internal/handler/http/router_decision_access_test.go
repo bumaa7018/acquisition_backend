@@ -109,7 +109,7 @@ func (s *stubDecisionDraftService) ListDraftFundingSources(context.Context, stri
 	return nil, nil
 }
 
-func (s *stubDecisionDraftService) AddFundingSource(context.Context, string, string, float64, string) error {
+func (s *stubDecisionDraftService) AddFundingSource(context.Context, string, string, float64, int, string) error {
 	s.called = true
 	return nil
 }
