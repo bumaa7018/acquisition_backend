@@ -92,13 +92,21 @@ type DecisionDraftDocument struct {
 	UploadedAt time.Time `json:"uploaded_at"`
 }
 
+// ValidFundingYear — санхүүжилтийн он зөв мужид байгаа эсэх.
+func ValidFundingYear(year int) bool {
+	return year >= 2000 && year <= 2100
+}
+
 // DecisionDraftFundingLink — захирамж ↔ санхүүгийн эх үүсвэрийн холбоос.
 type DecisionDraftFundingLink struct {
-	ID              string    `json:"id"`
-	DecisionDraftID string    `json:"decision_draft_id"`
-	FundingSourceID string    `json:"funding_source_id"`
-	CreatedAt       time.Time `json:"created_at"`
-	CreatedBy       string    `json:"created_by"`
+	ID              string `json:"id"`
+	DecisionDraftID string `json:"decision_draft_id"`
+	FundingSourceID string `json:"funding_source_id"`
+	// Year — санхүүжилтийн ОН. Нэг эх үүсвэр он бүрт өөр дүнтэй (тусдаа
+	// холбоос) байж болно. Хуучин мөрд seeder бөглөнө.
+	Year      *int      `json:"year"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by"`
 
 	// funding_sources-оос JOIN-оор ирэх мэдээлэл
 	AcquisitionID    string   `json:"acquisition_id"`
@@ -144,6 +152,7 @@ type DecisionDraftParcel struct {
 	FundingSourceID     string  `json:"funding_source_id,omitempty"`
 	FundingOrganization string  `json:"funding_organization,omitempty"`
 	FundingSourceType   string  `json:"funding_source_type,omitempty"`
+	FundingYear         *int    `json:"funding_year,omitempty"`
 
 	// Нэгж талбарын JOIN мэдээлэл
 	ParcelID           string  `json:"parcel_id"`
@@ -202,13 +211,16 @@ type ParcelLinkInfo struct {
 // DecisionDraftFilter — жагсаалтын шүүлт. ParcelID нь холбогдсон нэгж
 // талбарын дугаараар (ILIKE) шүүнэ.
 type DecisionDraftFilter struct {
-	ProposalNo      string
-	DecreeNumber    string
-	Location        string
-	ParcelID        string
-	DateFrom        string
-	DateTo          string
-	DurationYear    int
+	ProposalNo   string
+	DecreeNumber string
+	Location     string
+	ParcelID     string
+	DateFrom     string
+	DateTo       string
+	DurationYear int
+	// FundingYear — санхүүжилтийн он: тэр онтой холбоостой төсөл л гарна, мөн
+	// санхүүжилтийн нэгтгэл (дүн, эх үүсвэрээрх задаргаа) ЗӨВХӨН тэр оных.
+	FundingYear     int
 	Status          int
 	AcquisitionID   string
 	FundingSourceID string
@@ -218,4 +230,57 @@ type DecisionDraftFilter struct {
 	SortDir         string // asc | desc
 	Page            int
 	PageSize        int
+}
+
+// ── Захирамж ба санхүүжилтийн нэгтгэл (хяналтын самбар, чөлөөлөлтийн
+// «Санхүүжилт» таб) ─────────────────────────────────────────────────────────
+
+// DecisionFundingFilter — нэгтгэлийн шүүлт. Years нь САНХҮҮЖИЛТИЙН он
+// (decision_draft_funding_source.year): нэгж талбар өөрийн санхүүжилтийн
+// холбоосын онд хамаарна. Хоосон бол бүх он.
+type DecisionFundingFilter struct {
+	// DepartmentID — утгатай бол ЗӨВХӨН тухайн хэлтсийн чөлөөлөлт.
+	DepartmentID      *int
+	Years             []int
+	AcquisitionID     string
+	PlanCode          string
+	GeneralCategoryID int
+	SubCategoryID     int
+	AU2Code           string
+	AssignedUserID    string
+}
+
+// DecisionFundingBucket — захирамжийн шатны нөхөх олговор (нэгж талбарын
+// сонгосон үнэлгээний бэлэн мөнгөн олговор). Granted — нэгж талбарын олголтын
+// гүйцэтгэлээр (60 / 40 / бүрэн) ОЛГОГДСОН хэсэг, Pending = Amount − Granted.
+type DecisionFundingBucket struct {
+	Amount  float64 `json:"amount"`
+	Granted float64 `json:"granted"`
+	Pending float64 `json:"pending"`
+	Parcels int64   `json:"parcels"`
+}
+
+// DecisionFundingSummary — сонгосон оны төлөвлөсөн санхүүжилт ба түүнээс
+// захирамжаар зарцуулагдсан / олгогдсон дүн.
+type DecisionFundingSummary struct {
+	// Years — хүрээнд байгаа санхүүжилтийн бүх он (шүүлтийн сонголт).
+	Years []int `json:"years"`
+	// Planned — төлөвлөсөн санхүүжилт (холбоосын дүнгийн нийлбэр).
+	Planned float64 `json:"planned"`
+	// PlannedGranted — тэр санхүүжилтээр холбогдсон нэгж талбарын ОЛГОСОН дүн.
+	PlannedGranted float64 `json:"planned_granted"`
+	// Issued — захирамж гарсан (Баталгаажсан, эсвэл Баталгаажуулах шатанд).
+	Issued DecisionFundingBucket `json:"issued"`
+	// Draft — захирамжийн төсөлд (Төсөл / Хянагдаж буй).
+	Draft DecisionFundingBucket `json:"draft"`
+	// BySource — төлөвлөсөн санхүүжилт эх үүсвэр × оноор (чөлөөлөлтийн
+	// «Санхүүжилтын эх үүсвэрүүд» хүснэгтэд дүн бүрийн он).
+	BySource []DecisionFundingSourceYear `json:"by_source"`
+}
+
+// DecisionFundingSourceYear — нэг эх үүсвэрийн нэг оны төлөвлөсөн дүн.
+type DecisionFundingSourceYear struct {
+	FundingSourceID string  `json:"funding_source_id"`
+	Year            *int    `json:"year"`
+	Amount          float64 `json:"amount"`
 }

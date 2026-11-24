@@ -43,7 +43,7 @@ type DecisionDraftService interface {
 	ListFundingSourceOptions(ctx context.Context) ([]*domain.FundingSourceOption, error)
 	CreateFundingSourceOption(ctx context.Context, req CreateFundingSourceRequest, actor string) (*domain.FundingSourceOption, error)
 	ListDraftFundingSources(ctx context.Context, draftID string) ([]*domain.DecisionDraftFundingLink, error)
-	AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, actor string) error
+	AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, year int, actor string) error
 	RemoveFundingSource(ctx context.Context, draftID, linkID string) error
 }
 
@@ -430,9 +430,10 @@ func (s *decisionDraftService) ListDraftFundingSources(ctx context.Context, draf
 	return s.repo.ListDraftFundingSources(ctx, draftID)
 }
 
-// AddFundingSource — захирамжид санхүүгийн эх үүсвэр нэмнэ. Олон эх үүсвэр
-// нэмж болно; баталгаажсан захирамжид өөрчлөлт орохгүй.
-func (s *decisionDraftService) AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, actor string) error {
+// AddFundingSource — захирамжид санхүүгийн эх үүсвэрийг ТУХАЙН ОНЫ дүнтэй
+// нэмнэ. Олон эх үүсвэр, нэг эх үүсвэрийг олон онд нэмж болно; баталгаажсан
+// захирамжид өөрчлөлт орохгүй.
+func (s *decisionDraftService) AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, year int, actor string) error {
 	draft, err := s.repo.GetByID(ctx, draftID)
 	if err != nil {
 		return err
@@ -440,10 +441,10 @@ func (s *decisionDraftService) AddFundingSource(ctx context.Context, draftID, fu
 	if draft.Status == domain.DecisionDraftStatusConfirmed {
 		return domain.ErrDecisionConfirmed
 	}
-	if amount < 0 {
+	if amount < 0 || !domain.ValidFundingYear(year) {
 		return domain.ErrInvalidInput
 	}
-	return s.repo.AddFundingSource(ctx, draftID, fundingSourceID, amount, actor)
+	return s.repo.AddFundingSource(ctx, draftID, fundingSourceID, amount, year, actor)
 }
 
 func (s *decisionDraftService) RemoveFundingSource(ctx context.Context, draftID, linkID string) error {

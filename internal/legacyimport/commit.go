@@ -1110,9 +1110,12 @@ func saveReportLinks(ctx context.Context, tx pgx.Tx, sessionID string, row *Repo
 		var id string
 		var inserted bool
 		// xmax = 0 — шинээр үүссэн мөр (ON CONFLICT-оор олдсон биш).
-		if err := tx.QueryRow(ctx, `INSERT INTO decision_draft_funding_source (decision_draft_id,funding_source_id,created_by)
-			VALUES($1,$2,$3)
-			ON CONFLICT(decision_draft_id,funding_source_id) DO UPDATE SET funding_source_id=EXCLUDED.funding_source_id
+		// Санхүүжилтийн ОН — захирамжийн хугацааны он (эс бөгөөс огнооны он);
+		// давхардлын дүрэм (төсөл, эх үүсвэр, он) — migration 000065.
+		if err := tx.QueryRow(ctx, `INSERT INTO decision_draft_funding_source (decision_draft_id,funding_source_id,year,created_by)
+			SELECT $1,$2,COALESCE(d.duration_year, EXTRACT(YEAR FROM d.decision_date)::int),$3
+			  FROM decision_draft d WHERE d.id=$1
+			ON CONFLICT(decision_draft_id,funding_source_id,year) DO UPDATE SET funding_source_id=EXCLUDED.funding_source_id
 			RETURNING id, (xmax = 0)`, draftID, *fundingID, Actor).Scan(&id, &inserted); err != nil {
 			return "", err
 		}

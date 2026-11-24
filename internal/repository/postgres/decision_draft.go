@@ -10,6 +10,7 @@ import (
 	"acquisition_backend/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,7 +23,9 @@ func NewDecisionDraftRepo(db *pgxpool.Pool) *DecisionDraftRepo {
 }
 
 // decisionDraftSelect — жагсаалт болон нэгж бичлэг хоёулаа адилхан JOIN хийдэг
-// тул SELECT/FROM хэсгийг нэг дор задална.
+// тул SELECT/FROM хэсгийг нэг дор задална. {{fy}} нь санхүүжилтийн ОНЫ нөхцөл
+// (decisionDraftSelectFor): эх үүсвэр, дүн, эх үүсвэрээрх задаргааг зөвхөн
+// тухайн оных болгоно.
 const decisionDraftSelect = `
 	SELECT d.id, d.proposal_no, d.decree_number, d.decision_date, d.location,
 	       d.duration_year, d.status, d.acquisition_id,
@@ -38,16 +41,16 @@ const decisionDraftSelect = `
 	                   JOIN parcel p ON p.id = ddp.parcel_id
 	                  WHERE ddp.decision_draft_id = d.id AND ddp.removed_at IS NULL), 0),
 	       (SELECT COUNT(*) FROM decision_draft_funding_source ddfs
-	         WHERE ddfs.decision_draft_id = d.id),
+	         WHERE ddfs.decision_draft_id = d.id{{fy}}),
 	       COALESCE((SELECT string_agg(fs.organization_name || ' — ' || fs.source_type, ', '
 	                                   ORDER BY fs.organization_name)
 	                   FROM decision_draft_funding_source ddfs
 	                   JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
-	                  WHERE ddfs.decision_draft_id = d.id), ''),
+	                  WHERE ddfs.decision_draft_id = d.id{{fy}}), ''),
 	       COALESCE((SELECT SUM(COALESCE(ddfs.amount, 0))
 	                   FROM decision_draft_funding_source ddfs
 	                   JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
-	                  WHERE ddfs.decision_draft_id = d.id
+	                  WHERE ddfs.decision_draft_id = d.id{{fy}}
 	                    AND NOT (
 	                         COALESCE(fs.organization_name, '') ILIKE '%ОУ%'
 	                      OR COALESCE(fs.organization_name, '') ILIKE '%СБХБ%'
@@ -60,7 +63,7 @@ const decisionDraftSelect = `
 	       COALESCE((SELECT SUM(COALESCE(ddfs.amount, 0))
 	                   FROM decision_draft_funding_source ddfs
 	                   JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
-	                  WHERE ddfs.decision_draft_id = d.id
+	                  WHERE ddfs.decision_draft_id = d.id{{fy}}
 	                    AND (
 	                         COALESCE(fs.organization_name, '') ILIKE '%ОУ%'
 	                      OR COALESCE(fs.organization_name, '') ILIKE '%СБХБ%'
@@ -76,7 +79,7 @@ const decisionDraftSelect = `
 	                            SUM(COALESCE(ddfs.amount, 0)) AS amount
 	                       FROM decision_draft_funding_source ddfs
 	                       JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
-	                      WHERE ddfs.decision_draft_id = d.id
+	                      WHERE ddfs.decision_draft_id = d.id{{fy}}
 	                      GROUP BY COALESCE(NULLIF(TRIM(fs.source_type), ''), 'Тодорхойгүй')
 	                   ) x), '{}'),
 	       COALESCE((SELECT jsonb_object_agg(x.source_type, x.amount)::text
@@ -95,7 +98,7 @@ const decisionDraftSelect = `
 	                       JOIN decision_draft_funding_source ddfs ON ddfs.id = ddp.funding_link_id
 	                       JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
 	                      WHERE ddp.decision_draft_id = d.id
-	                        AND ddp.removed_at IS NULL
+	                        AND ddp.removed_at IS NULL{{fy}}
 	                      GROUP BY COALESCE(NULLIF(TRIM(fs.source_type), ''), 'Тодорхойгүй')
 	                   ) x), '{}'),
 	       COALESCE((SELECT jsonb_object_agg(x.source_type, x.count)::text
@@ -106,7 +109,7 @@ const decisionDraftSelect = `
 	                       JOIN decision_draft_funding_source ddfs ON ddfs.id = ddp.funding_link_id
 	                       JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
 	                      WHERE ddp.decision_draft_id = d.id
-	                        AND ddp.removed_at IS NULL
+	                        AND ddp.removed_at IS NULL{{fy}}
 	                      GROUP BY COALESCE(NULLIF(TRIM(fs.source_type), ''), 'Тодорхойгүй')
 	                   ) x), '{}'),
 	       COALESCE((SELECT jsonb_object_agg(x.source_type, x.area)::text
@@ -118,7 +121,7 @@ const decisionDraftSelect = `
 	                       JOIN decision_draft_funding_source ddfs ON ddfs.id = ddp.funding_link_id
 	                       JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
 	                      WHERE ddp.decision_draft_id = d.id
-	                        AND ddp.removed_at IS NULL
+	                        AND ddp.removed_at IS NULL{{fy}}
 	                      GROUP BY COALESCE(NULLIF(TRIM(fs.source_type), ''), 'Тодорхойгүй')
 	                   ) x), '{}'),
 	       COALESCE(ph.progress_type, ''),
@@ -133,6 +136,16 @@ const decisionDraftSelect = `
 	  LEFT JOIN decision_work_type wt ON wt.id = d.work_type_id
 	  LEFT JOIN decision_budget    bg ON bg.id = d.budget_id
 	  LEFT JOIN decision_draft_progress_history ph ON ph.id = d.current_progress_history_id`
+
+// decisionDraftSelectFor — санхүүжилтийн онгүй (yearParam = 0) эсвэл $yearParam
+// онтой SELECT.
+func decisionDraftSelectFor(yearParam int) string {
+	cond := ""
+	if yearParam > 0 {
+		cond = fmt.Sprintf(" AND ddfs.year = $%d", yearParam)
+	}
+	return strings.ReplaceAll(decisionDraftSelect, "{{fy}}", cond)
+}
 
 func scanDecisionDraft(row pgx.Row) (*domain.DecisionDraft, error) {
 	d := &domain.DecisionDraft{}
@@ -177,7 +190,10 @@ func scanDecisionDraft(row pgx.Row) (*domain.DecisionDraft, error) {
 
 // buildDecisionDraftWhere — шүүлтийн WHERE хэсэг болон $N аргументуудыг бүтээнэ
 // (ListGlobalParcels-ийн адил динамик хэв маяг).
-func buildDecisionDraftWhere(f domain.DecisionDraftFilter) (string, []any) {
+//
+// yearParam — санхүүжилтийн онгийн параметрийн дугаар (0 = он шүүлтгүй);
+// SELECT-ийн нэгтгэл мөн тэр параметрийг хэрэглэнэ (decisionDraftSelectFor).
+func buildDecisionDraftWhere(f domain.DecisionDraftFilter) (string, []any, int) {
 	where := "1=1"
 	args := []any{}
 	i := 1
@@ -230,11 +246,18 @@ func buildDecisionDraftWhere(f domain.DecisionDraftFilter) (string, []any) {
 	if f.BudgetID > 0 {
 		add(" AND d.budget_id = $%d", f.BudgetID)
 	}
-	return where, args
+	yearParam := 0
+	if f.FundingYear > 0 {
+		yearParam = i
+		add(` AND EXISTS (SELECT 1 FROM decision_draft_funding_source ddfs_y
+		                  WHERE ddfs_y.decision_draft_id = d.id
+		                    AND ddfs_y.year = $%d)`, f.FundingYear)
+	}
+	return where, args, yearParam
 }
 
 func (r *DecisionDraftRepo) List(ctx context.Context, f domain.DecisionDraftFilter) ([]*domain.DecisionDraft, int64, error) {
-	where, args := buildDecisionDraftWhere(f)
+	where, args, yearParam := buildDecisionDraftWhere(f)
 
 	var total int64
 	countSQL := `SELECT COUNT(*) FROM decision_draft d WHERE ` + where
@@ -252,7 +275,7 @@ func (r *DecisionDraftRepo) List(ctx context.Context, f domain.DecisionDraftFilt
 	if pageSize < 1 {
 		pageSize = 20
 	}
-	listSQL := decisionDraftSelect + " WHERE " + where +
+	listSQL := decisionDraftSelectFor(yearParam) + " WHERE " + where +
 		// Шинэ нь эхэнд. Хуучин мэдээллийн импорт бүгд ИЖИЛ created_at-тай тул
 		// захирамжийн огноо, дугаараар, эцэст нь id-аар тогтвортой эрэмбэлнэ.
 		fmt.Sprintf(" ORDER BY %s LIMIT $%d OFFSET $%d",
@@ -279,7 +302,7 @@ func (r *DecisionDraftRepo) List(ctx context.Context, f domain.DecisionDraftFilt
 }
 
 func (r *DecisionDraftRepo) GetByID(ctx context.Context, id string) (*domain.DecisionDraft, error) {
-	d, err := scanDecisionDraft(r.db.QueryRow(ctx, decisionDraftSelect+" WHERE d.id = $1", id))
+	d, err := scanDecisionDraft(r.db.QueryRow(ctx, decisionDraftSelectFor(0)+" WHERE d.id = $1", id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
@@ -522,8 +545,8 @@ const decisionDraftParcelSelect = `
 	SELECT ddp.id, ddp.decision_draft_id, ddp.parcel_id, ddp.linked_at,
 	       ddp.linked_by, ddp.removed_at, ddp.removed_by,
 	       ddp.funding_link_id, COALESCE(ddfs.funding_source_id::text, ''),
-	       COALESCE(fs.organization_name, ''), COALESCE(fs.source_type, ''),
-	       p.parcel_id, p.acquisition_id, COALESCE(la.acquisition_name, ''),
+	       		       COALESCE(fs.organization_name, ''), COALESCE(fs.source_type, ''), ddfs.year,
+		       p.parcel_id, p.acquisition_id, COALESCE(la.acquisition_name, ''),
 	       COALESCE(p.area_m2, 0), COALESCE(p.acquisition_area_m2, 0),
 	       COALESCE((
 	         SELECT SUM(c.amount)
@@ -546,7 +569,8 @@ func scanDecisionDraftParcel(rows pgx.Rows) (*domain.DecisionDraftParcel, error)
 	err := rows.Scan(
 		&l.ID, &l.DecisionDraftID, &l.ParcelUUID, &l.LinkedAt,
 		&l.LinkedBy, &l.RemovedAt, &l.RemovedBy,
-		&l.FundingLinkID, &l.FundingSourceID, &l.FundingOrganization, &l.FundingSourceType,
+		&l.FundingLinkID, &l.FundingSourceID, &l.FundingOrganization, &l.FundingSourceType, &l.FundingYear,
+
 		&l.ParcelID, &l.AcquisitionID, &l.AcquisitionName,
 		&l.AreaM2, &l.AcquisitionAreaM2, &l.CompensationAmount,
 		&l.ParcelStatus, &l.ParcelStatusName, &l.Landuse,
@@ -695,7 +719,7 @@ func (r *DecisionDraftRepo) UnlinkParcel(ctx context.Context, draftID, linkID, a
 // ListDraftFundingSources — захирамжид нэмэгдсэн санхүүгийн эх үүсвэрүүд.
 func (r *DecisionDraftRepo) ListDraftFundingSources(ctx context.Context, draftID string) ([]*domain.DecisionDraftFundingLink, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT ddfs.id, ddfs.decision_draft_id, ddfs.funding_source_id,
+				SELECT ddfs.id, ddfs.decision_draft_id, ddfs.funding_source_id, ddfs.year,
 		       ddfs.created_at, ddfs.created_by,
 		       COALESCE(fs.acquisition_id::text, ''), COALESCE(la.acquisition_name, ''),
 		       fs.organization_name, fs.source_type, ddfs.amount,
@@ -704,7 +728,7 @@ func (r *DecisionDraftRepo) ListDraftFundingSources(ctx context.Context, draftID
 		  JOIN funding_sources fs ON fs.id = ddfs.funding_source_id
 		  LEFT JOIN land_acquisition la ON la.id = fs.acquisition_id
 		 WHERE ddfs.decision_draft_id = $1
-		 ORDER BY ddfs.created_at DESC, ddfs.id`, draftID)
+		 		 ORDER BY ddfs.year DESC NULLS LAST, ddfs.created_at DESC, ddfs.id`, draftID)
 	if err != nil {
 		return nil, err
 	}
@@ -714,7 +738,7 @@ func (r *DecisionDraftRepo) ListDraftFundingSources(ctx context.Context, draftID
 	for rows.Next() {
 		l := &domain.DecisionDraftFundingLink{}
 		if err := rows.Scan(
-			&l.ID, &l.DecisionDraftID, &l.FundingSourceID,
+			&l.ID, &l.DecisionDraftID, &l.FundingSourceID, &l.Year,
 			&l.CreatedAt, &l.CreatedBy,
 			&l.AcquisitionID, &l.AcquisitionName,
 			&l.OrganizationName, &l.SourceType, &l.Amount, &l.Currency, &l.Note,
@@ -726,17 +750,17 @@ func (r *DecisionDraftRepo) ListDraftFundingSources(ctx context.Context, draftID
 	return list, rows.Err()
 }
 
-// AddFundingSource — эх үүсвэр нэмнэ. Давхардвал UNIQUE зөрчлийг тодорхой
-// алдаа болгож хөрвүүлнэ.
-func (r *DecisionDraftRepo) AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, actor string) error {
+// AddFundingSource — эх үүсвэрийг тухайн ОНЫ дүнтэй нэмнэ. Нэг эх үүсвэр
+// өөр онд дахин нэмэгдэж болно; (төсөл, эх үүсвэр, он) давхардвал UNIQUE
+// зөрчлийг тодорхой алдаа болгож хөрвүүлнэ.
+func (r *DecisionDraftRepo) AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, year int, actor string) error {
 	_, err := r.db.Exec(ctx, `
 		INSERT INTO decision_draft_funding_source
-		    (decision_draft_id, funding_source_id, amount, created_by)
-		VALUES ($1, $2, $3, $4)`, draftID, fundingSourceID, amount, actor)
+		    (decision_draft_id, funding_source_id, amount, year, created_by)
+		VALUES ($1, $2, $3, $4, $5)`, draftID, fundingSourceID, amount, year, actor)
 	if err != nil {
-		// Постгрес хязгаарлалтын нэрийг 63 тэмдэгтээр таслах тул бүтэн нэрээр
-		// биш, баттай агуулагдах угтвараар шалгана.
-		if strings.Contains(err.Error(), "decision_draft_funding_source_decision_draft_id") {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return domain.ErrAlreadyExists
 		}
 		return err

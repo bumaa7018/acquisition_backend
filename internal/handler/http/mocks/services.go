@@ -359,6 +359,12 @@ func (m *MockLandService) GetFinanceDashboard(ctx context.Context, filter domain
 	return out, args.Error(1)
 }
 
+func (m *MockLandService) GetDecisionFunding(ctx context.Context, filter domain.DecisionFundingFilter) (*domain.DecisionFundingSummary, error) {
+	args := m.Called(ctx, filter)
+	out, _ := args.Get(0).(*domain.DecisionFundingSummary)
+	return out, args.Error(1)
+}
+
 func (m *MockLandService) SetParcelCompensation(ctx context.Context, parcelID uuid.UUID, paid bool) error {
 	return m.Called(ctx, parcelID, paid).Error(0)
 }

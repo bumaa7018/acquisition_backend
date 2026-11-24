@@ -452,6 +452,9 @@ type LandDocumentRepository interface {
 	GetDocumentType(ctx context.Context, id int) (*domain.DocumentType, error)
 	// GetFinanceDashboard — санхүүгийн хяналтын самбарын нэгтгэл (он/дүүрэг/хороо).
 	GetFinanceDashboard(ctx context.Context, filter domain.FinanceDashboardFilter) (*domain.FinanceDashboard, error)
+	// GetDecisionFunding — сонгосон санхүүжилтийн оны төлөвлөсөн санхүүжилт ба
+	// захирамжийн шатаарх (гарсан / төсөлд) олговор, олгосон дүн.
+	GetDecisionFunding(ctx context.Context, filter domain.DecisionFundingFilter) (*domain.DecisionFundingSummary, error)
 }
 
 type LandAssigneeRepository interface {
@@ -584,7 +587,7 @@ type DecisionDraftRepository interface {
 	ListFundingSourceOptions(ctx context.Context) ([]*domain.FundingSourceOption, error)
 	CreateFundingSourceOption(ctx context.Context, o *domain.FundingSourceOption, note, actor string) error
 	ListDraftFundingSources(ctx context.Context, draftID string) ([]*domain.DecisionDraftFundingLink, error)
-	AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, actor string) error
+	AddFundingSource(ctx context.Context, draftID, fundingSourceID string, amount float64, year int, actor string) error
 	RemoveFundingSource(ctx context.Context, draftID, linkID string) error
 	FundingLinkBelongsTo(ctx context.Context, draftID, fundingLinkID string) (bool, error)
 	FundingLinkInUse(ctx context.Context, fundingLinkID string) (bool, error)

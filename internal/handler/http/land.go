@@ -4113,6 +4113,57 @@ func (h *LandHandler) FinanceDashboard(c *gin.Context) {
 	response.OK(c, summary)
 }
 
+// DecisionFunding godoc
+// @Summary      Захирамж ба санхүүжилтийн нэгтгэл
+// @Description  Санхүүжилтийн ОНООР: төлөвлөсөн санхүүжилт, захирамж гарсан
+// @Description  (олгогдсон / хүлээгдэж буй) ба захирамжийн төсөлд байгаа олговор.
+// @Tags         dashboard
+// @Produce      json
+// @Security     BearerAuth
+// @Param        year                 query  []int   false  "Санхүүжилтийн он (олон удаа)"
+// @Param        acquisition_id       query  string  false  "Чөлөөлөлт"
+// @Param        plan_code            query  string  false  "Төлөвлөгөөний код"
+// @Param        general_category_id  query  int     false  "Ерөнхий ангилал"
+// @Param        sub_category_id      query  int     false  "Дэд ангилал"
+// @Param        au2_code             query  string  false  "Сум/дүүрэг"
+// @Param        assigned_user_id     query  string  false  "Хариуцсан ажилтан"
+// @Success      200  {object}  response.Response
+// @Router       /dashboard/decision-funding [get]
+func (h *LandHandler) DecisionFunding(c *gin.Context) {
+	filter := domain.DecisionFundingFilter{
+		PlanCode:          strings.TrimSpace(c.Query("plan_code")),
+		GeneralCategoryID: queryInt(c, "general_category_id", 0),
+		SubCategoryID:     queryInt(c, "sub_category_id", 0),
+		AU2Code:           strings.TrimSpace(c.Query("au2_code")),
+	}
+	if raw := strings.TrimSpace(c.Query("acquisition_id")); raw != "" {
+		if _, err := uuid.Parse(raw); err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		filter.AcquisitionID = raw
+	}
+	if raw := strings.TrimSpace(c.Query("assigned_user_id")); raw != "" {
+		if _, err := strconv.Atoi(raw); err != nil {
+			response.Abort(c, http.StatusBadRequest, i18n.ErrInvalidInput)
+			return
+		}
+		filter.AssignedUserID = raw
+	}
+	for _, y := range c.QueryArray("year") {
+		if n, err := strconv.Atoi(y); err == nil && domain.ValidFundingYear(n) {
+			filter.Years = append(filter.Years, n)
+		}
+	}
+	filter.DepartmentID = scopedDepartment(c)
+	summary, err := h.svc.GetDecisionFunding(c.Request.Context(), filter)
+	if err != nil {
+		response.Error(c, err)
+		return
+	}
+	response.OK(c, summary)
+}
+
 // Chronos — «Хронос» цаг хугацааны изометр зургийн өгөгдөл. acquisition_id
 // олон удаа өгч болно; өгөөгүй бол бүх чөлөөлөлт. Гадаад (үнэлгээний
 // байгууллага, санхүү, МИКА) хэрэглэгчийн хамрах хүрээ нарийн тул ЗӨВХӨН дотоод ажилтанд.

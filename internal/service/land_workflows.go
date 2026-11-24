@@ -286,6 +286,12 @@ func (s *landService) GetFinanceDashboard(
 	return s.landRepo.GetFinanceDashboard(ctx, filter)
 }
 
+func (s *landService) GetDecisionFunding(
+	ctx context.Context, filter domain.DecisionFundingFilter,
+) (*domain.DecisionFundingSummary, error) {
+	return s.landRepo.GetDecisionFunding(ctx, filter)
+}
+
 func (s *landService) CreateFundingSource(ctx context.Context, fs *domain.FundingSource) (*domain.FundingSource, error) {
 	if err := s.landRepo.CreateFundingSource(ctx, fs); err != nil {
 		return nil, err

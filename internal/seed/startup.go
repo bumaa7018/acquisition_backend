@@ -236,6 +236,14 @@ func RunStartup(ctx context.Context, mainDB, authDB *pgxpool.Pool, opts StartupO
 				return err
 			},
 		},
+		{
+			// Migration 000065: захирамжийн санхүүжилтийн холбоосын ОН —
+			// хуучин мөрд төслийн хугацааны он (эс бөгөөс огнооны он).
+			name: "000065_decision_funding_year",
+			run: func(ctx context.Context) error {
+				return NewMainSeeder(mainDB).SeedDecisionFundingYear(ctx)
+			},
+		},
 	}); err != nil {
 		return err
 	}
